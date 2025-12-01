@@ -5,7 +5,7 @@ autocvd(num_gpus=2)
 
 import jax
 
-from jf1uids.option_classes.simulation_config import (
+from astronomix.option_classes.simulation_config import (
     FORWARDS,
     HLL,
     VARAXIS,
@@ -14,12 +14,12 @@ from jf1uids.option_classes.simulation_config import (
     ZAXIS,
 )
 
-from jf1uids import SimulationConfig
-from jf1uids import get_helper_data
-from jf1uids import SimulationParams
-from jf1uids import time_integration
-from jf1uids import get_registered_variables
-from jf1uids.option_classes.simulation_config import finalize_config
+from astronomix import SimulationConfig
+from astronomix import get_helper_data
+from astronomix import SimulationParams
+from astronomix import time_integration
+from astronomix import get_registered_variables
+from astronomix.option_classes.simulation_config import finalize_config
 
 
 import timeit

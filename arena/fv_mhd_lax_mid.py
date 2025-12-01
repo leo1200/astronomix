@@ -21,8 +21,8 @@ import jax
 # double precision
 jax.config.update("jax_enable_x64", double_precision)
 
-from jf1uids import SimulationConfig, SimulationParams
-from jf1uids.option_classes.simulation_config import DOUBLE_PRECISION, FINITE_DIFFERENCE, FINITE_VOLUME, IMPLICIT_MIDPOINT, LAX_FRIEDRICHS, PERIODIC_ROLL, SINGLE_PRECISION
+from astronomix import SimulationConfig, SimulationParams
+from astronomix.option_classes.simulation_config import DOUBLE_PRECISION, FINITE_DIFFERENCE, FINITE_VOLUME, IMPLICIT_MIDPOINT, LAX_FRIEDRICHS, PERIODIC_ROLL, SINGLE_PRECISION
 
 # tests
 from arena_tests.scaling.scaling import scaling_test

@@ -26,39 +26,39 @@ from timeit import default_timer as timer
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 
-from jf1uids.data_classes.simulation_helper_data import HelperData
+from astronomix.data_classes.simulation_helper_data import HelperData
 
 # fluids
-from jf1uids import WindParams
-from jf1uids import SimulationConfig
-from jf1uids import get_helper_data
-from jf1uids import SimulationParams
-from jf1uids import time_integration
-from jf1uids.initial_condition_generation.construct_primitive_state import construct_primitive_state
+from astronomix import WindParams
+from astronomix import SimulationConfig
+from astronomix import get_helper_data
+from astronomix import SimulationParams
+from astronomix import time_integration
+from astronomix.initial_condition_generation.construct_primitive_state import construct_primitive_state
 
-from jf1uids import get_registered_variables
-from jf1uids.option_classes import WindConfig
+from astronomix import get_registered_variables
+from astronomix.option_classes import WindConfig
 
-from jf1uids.option_classes.simulation_config import BACKWARDS, DONOR_ACCOUNTING, HLL, HLLC, MINMOD, OSHER, PERIODIC_BOUNDARY, SIMPLE_SOURCE_TERM, VARAXIS, XAXIS, YAXIS, ZAXIS, BoundarySettings, BoundarySettings1D, SnapshotSettings
+from astronomix.option_classes.simulation_config import BACKWARDS, DONOR_ACCOUNTING, HLL, HLLC, MINMOD, OSHER, PERIODIC_BOUNDARY, SIMPLE_SOURCE_TERM, VARAXIS, XAXIS, YAXIS, ZAXIS, BoundarySettings, BoundarySettings1D, SnapshotSettings
 
-from jf1uids._physics_modules._cooling._cooling_tables import schure_cooling
-from jf1uids._physics_modules._cooling.cooling_options import IMPLICIT_COOLING, PIECEWISE_POWER_LAW, CoolingConfig, CoolingCurveConfig, CoolingParams
+from astronomix._physics_modules._cooling._cooling_tables import schure_cooling
+from astronomix._physics_modules._cooling.cooling_options import IMPLICIT_COOLING, PIECEWISE_POWER_LAW, CoolingConfig, CoolingCurveConfig, CoolingParams
 
 # units
-from jf1uids import CodeUnits
+from astronomix import CodeUnits
 from astropy import units as u
 import astropy.constants as c
 from astropy.constants import m_p
 
 # wind-specific
-from jf1uids._physics_modules._stellar_wind.weaver import Weaver
+from astronomix._physics_modules._stellar_wind.weaver import Weaver
 
 # turbulence
-from jf1uids.initial_condition_generation.turbulent_ic_generator import create_turb_field
+from astronomix.initial_condition_generation.turbulent_ic_generator import create_turb_field
 
-from jf1uids.option_classes.simulation_config import DOUBLE_MINMOD, FORWARDS, HYBRID_HLLC
+from astronomix.option_classes.simulation_config import DOUBLE_MINMOD, FORWARDS, HYBRID_HLLC
 
-from jf1uids.option_classes.simulation_config import finalize_config
+from astronomix.option_classes.simulation_config import finalize_config
 
 
 print("👷 Setting up simulation...")
@@ -371,7 +371,7 @@ plt.savefig("figures/slices" + app_string + ".png", dpi = 1000)
 #     pressure_weaver = (pressure_weaver / c.k_B).to(u.cm**-3 * u.K)
 
 #     axs[0].set_yscale("log")
-#     axs[0].scatter(r.to(u.parsec), (rho / m_p).to(u.cm**-3), label="jf1uids", s = 1)
+#     axs[0].scatter(r.to(u.parsec), (rho / m_p).to(u.cm**-3), label="astronomix", s = 1)
 
 #     axs[0].plot(r_density_weaver, density_weaver, "--", label="Weaver solution")
 
@@ -384,7 +384,7 @@ plt.savefig("figures/slices" + app_string + ".png", dpi = 1000)
 #     axs[0].set_xlabel("r in pc")
 
 #     axs[1].set_yscale("log")
-#     axs[1].scatter(r.to(u.parsec), (p / c.k_B).to(u.K / u.cm**3), label="jf1uids", s = 1)
+#     axs[1].scatter(r.to(u.parsec), (p / c.k_B).to(u.K / u.cm**3), label="astronomix", s = 1)
 #     axs[1].plot(r_pressure_weaver, pressure_weaver, "--", label="Weaver solution")
 
 #     axs[1].set_title("pressure")
@@ -397,7 +397,7 @@ plt.savefig("figures/slices" + app_string + ".png", dpi = 1000)
 
 
 #     axs[2].set_yscale("log")
-#     axs[2].scatter(r.to(u.parsec), vel.to(u.km / u.s), label="jf1uids", s = 1)
+#     axs[2].scatter(r.to(u.parsec), vel.to(u.km / u.s), label="astronomix", s = 1)
 #     axs[2].plot(r_velocity_weaver, velocity_weaver, "--", label="Weaver solution")
 #     axs[2].set_title("velocity")
 #     # ylim 1 to 1e4 km/s

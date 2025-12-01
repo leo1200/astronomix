@@ -10,10 +10,10 @@ import jax.numpy as jnp
 # plotting
 import matplotlib.pyplot as plt
 
-# jf1uids classes
-from jf1uids import SimulationConfig
-from jf1uids import SimulationParams
-from jf1uids.option_classes.simulation_config import (
+# astronomix classes
+from astronomix import SimulationConfig
+from astronomix import SimulationParams
+from astronomix.option_classes.simulation_config import (
     DONOR_ACCOUNTING,
     HLLC_LM,
     RIEMANN_SPLIT,
@@ -23,15 +23,15 @@ from jf1uids.option_classes.simulation_config import (
     SnapshotSettings
 )
 
-# jf1uids functions
-from jf1uids import get_helper_data
-from jf1uids import time_integration
-from jf1uids.initial_condition_generation.construct_primitive_state import construct_primitive_state
-from jf1uids.option_classes.simulation_config import finalize_config
-from jf1uids import get_registered_variables
+# astronomix functions
+from astronomix import get_helper_data
+from astronomix import time_integration
+from astronomix.initial_condition_generation.construct_primitive_state import construct_primitive_state
+from astronomix.option_classes.simulation_config import finalize_config
+from astronomix import get_registered_variables
 
-# jf1uids constants
-from jf1uids.option_classes.simulation_config import (
+# astronomix constants
+from astronomix.option_classes.simulation_config import (
     BACKWARDS, FORWARDS, HLL, HLLC, MINMOD, OSHER, 
     PERIODIC_BOUNDARY, REFLECTIVE_BOUNDARY, 
     BoundarySettings, BoundarySettings1D,

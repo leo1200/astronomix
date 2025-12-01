@@ -24,23 +24,23 @@ import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 from matplotlib.colors import LogNorm
 
-# jf1uids
-from jf1uids import SimulationConfig
-from jf1uids import get_helper_data
-from jf1uids import SimulationParams
-from jf1uids import time_integration
-from jf1uids.initial_condition_generation.construct_primitive_state import construct_primitive_state
-from jf1uids import get_registered_variables
-from jf1uids.option_classes.simulation_config import finalize_config
+# astronomix
+from astronomix import SimulationConfig
+from astronomix import get_helper_data
+from astronomix import SimulationParams
+from astronomix import time_integration
+from astronomix.initial_condition_generation.construct_primitive_state import construct_primitive_state
+from astronomix import get_registered_variables
+from astronomix.option_classes.simulation_config import finalize_config
 
-from jf1uids.option_classes.simulation_config import (
+from astronomix.option_classes.simulation_config import (
     BACKWARDS, FORWARDS, HLL, MINMOD,
     OSHER, PERIODIC_BOUNDARY, BoundarySettings,
     BoundarySettings1D
 )
 
-from jf1uids._physics_modules._neural_net_force._neural_net_force import ForceNet
-from jf1uids._physics_modules._neural_net_force._neural_net_force_options import NeuralNetForceConfig, NeuralNetForceParams
+from astronomix._physics_modules._neural_net_force._neural_net_force import ForceNet
+from astronomix._physics_modules._neural_net_force._neural_net_force_options import NeuralNetForceConfig, NeuralNetForceParams
 
 
 # ===================================================

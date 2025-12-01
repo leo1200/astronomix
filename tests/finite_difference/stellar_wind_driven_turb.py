@@ -20,7 +20,7 @@ else:
 import jax
 
 from matplotlib.colors import LogNorm
-from jf1uids._finite_difference._magnetic_update._constrained_transport import initialize_interface_fields
+from astronomix._finite_difference._magnetic_update._constrained_transport import initialize_interface_fields
 
 import jax.numpy as jnp
 from jax.sharding import PartitionSpec as P
@@ -29,28 +29,28 @@ from jax.sharding import PartitionSpec as P
 import matplotlib.pyplot as plt
 
 # fluids
-from jf1uids import WindParams
-from jf1uids import SimulationConfig
-from jf1uids import get_helper_data
-from jf1uids import SimulationParams
-from jf1uids import time_integration
-from jf1uids.initial_condition_generation.construct_primitive_state import construct_primitive_state
+from astronomix import WindParams
+from astronomix import SimulationConfig
+from astronomix import get_helper_data
+from astronomix import SimulationParams
+from astronomix import time_integration
+from astronomix.initial_condition_generation.construct_primitive_state import construct_primitive_state
 
-from jf1uids._physics_modules._turbulent_forcing._turbulent_forcing_options import TurbulentForcingConfig, TurbulentForcingParams
+from astronomix._physics_modules._turbulent_forcing._turbulent_forcing_options import TurbulentForcingConfig, TurbulentForcingParams
 
-from jf1uids import get_registered_variables
-from jf1uids.option_classes import WindConfig
+from astronomix import get_registered_variables
+from astronomix.option_classes import WindConfig
 
-from jf1uids.option_classes.simulation_config import FINITE_DIFFERENCE, PERIODIC_BOUNDARY, VARAXIS, XAXIS, YAXIS, ZAXIS, BoundarySettings, BoundarySettings1D
+from astronomix.option_classes.simulation_config import FINITE_DIFFERENCE, PERIODIC_BOUNDARY, VARAXIS, XAXIS, YAXIS, ZAXIS, BoundarySettings, BoundarySettings1D
 
 # units
-from jf1uids import CodeUnits
+from astronomix import CodeUnits
 from astropy import units as u
 import astropy.constants as c
 
-from jf1uids.option_classes.simulation_config import FORWARDS
+from astronomix.option_classes.simulation_config import FORWARDS
 
-from jf1uids.option_classes.simulation_config import finalize_config
+from astronomix.option_classes.simulation_config import finalize_config
 
 
 print("👷 Setting up simulation...")

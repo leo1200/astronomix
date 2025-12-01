@@ -15,34 +15,34 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # units
-from jf1uids import CodeUnits
+from astronomix import CodeUnits
 from astropy import units as u
 import astropy.constants as c
 from astropy.constants import m_p
 
-from jf1uids._finite_difference._time_integrators._ssprk import _ssprk4
+from astronomix._finite_difference._time_integrators._ssprk import _ssprk4
 
-from jf1uids._finite_difference._interface_fluxes._weno import _weno_flux_x, _weno_flux_y, _weno_flux_z
+from astronomix._finite_difference._interface_fluxes._weno import _weno_flux_x, _weno_flux_y, _weno_flux_z
 
-# jf1uids data structures
-from jf1uids import SimulationConfig
-from jf1uids import SimulationParams
+# astronomix data structures
+from astronomix import SimulationConfig
+from astronomix import SimulationParams
 
-# jf1uids constants
-from jf1uids.option_classes.simulation_config import AM_HLLC, CARTESIAN, FINITE_DIFFERENCE, HLLC, HLLC_LM, HYBRID_HLLC, MUSCL, PERIODIC_BOUNDARY, SPHERICAL, HLL, MINMOD, SPLIT, BoundarySettings, BoundarySettings1D
-
-
-# jf1uids functions
-from jf1uids import get_helper_data
-from jf1uids.initial_condition_generation.construct_primitive_state import construct_primitive_state
-from jf1uids import get_registered_variables
-from jf1uids.option_classes.simulation_config import finalize_config
-
-from jf1uids import time_integration
+# astronomix constants
+from astronomix.option_classes.simulation_config import AM_HLLC, CARTESIAN, FINITE_DIFFERENCE, HLLC, HLLC_LM, HYBRID_HLLC, MUSCL, PERIODIC_BOUNDARY, SPHERICAL, HLL, MINMOD, SPLIT, BoundarySettings, BoundarySettings1D
 
 
-from jf1uids._finite_difference._fluid_equations._equations import conserved_state_from_primitive_mhd
-from jf1uids._finite_difference._fluid_equations._fluxes import _mhd_flux_x
+# astronomix functions
+from astronomix import get_helper_data
+from astronomix.initial_condition_generation.construct_primitive_state import construct_primitive_state
+from astronomix import get_registered_variables
+from astronomix.option_classes.simulation_config import finalize_config
+
+from astronomix import time_integration
+
+
+from astronomix._finite_difference._fluid_equations._equations import conserved_state_from_primitive_mhd
+from astronomix._finite_difference._fluid_equations._fluxes import _mhd_flux_x
 
 # --- Additional imports for analysis and plotting ---
 # For radially averaging the simulation data

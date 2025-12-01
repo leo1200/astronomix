@@ -18,12 +18,15 @@ else:
 
 import jax
 
-from jf1uids._finite_difference._state_evolution._evolve_state import _evolve_state_fd
+# debug nans
+jax.config.update("jax_debug_nans", True)
+
+from astronomix._finite_difference._state_evolution._evolve_state import _evolve_state_fd
 
 # runtime debugging
 from jax.experimental import checkify
 
-from jf1uids._finite_difference._magnetic_update._constrained_transport import initialize_interface_fields
+from astronomix._finite_difference._magnetic_update._constrained_transport import initialize_interface_fields
 
 import jax.numpy as jnp
 from jax.sharding import PartitionSpec as P
@@ -37,39 +40,39 @@ from timeit import default_timer as timer
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 
-from jf1uids.data_classes.simulation_helper_data import HelperData
+from astronomix.data_classes.simulation_helper_data import HelperData
 
 # fluids
-from jf1uids import WindParams
-from jf1uids import SimulationConfig
-from jf1uids import get_helper_data
-from jf1uids import SimulationParams
-from jf1uids import time_integration
-from jf1uids.initial_condition_generation.construct_primitive_state import construct_primitive_state
+from astronomix import WindParams
+from astronomix import SimulationConfig
+from astronomix import get_helper_data
+from astronomix import SimulationParams
+from astronomix import time_integration
+from astronomix.initial_condition_generation.construct_primitive_state import construct_primitive_state
 
-from jf1uids import get_registered_variables
-from jf1uids.option_classes import WindConfig
+from astronomix import get_registered_variables
+from astronomix.option_classes import WindConfig
 
-from jf1uids.time_stepping.time_integration import _time_integration
+from astronomix.time_stepping.time_integration import _time_integration
 
-from jf1uids.option_classes.simulation_config import BACKWARDS, DONOR_ACCOUNTING, FINITE_DIFFERENCE, FINITE_VOLUME, HLL, HLLC, MINMOD, MUSCL, OSHER, PERIODIC_BOUNDARY, SIMPLE_SOURCE_TERM, SPLIT, VARAXIS, XAXIS, YAXIS, ZAXIS, BoundarySettings, BoundarySettings1D, SnapshotSettings
+from astronomix.option_classes.simulation_config import BACKWARDS, DONOR_ACCOUNTING, FINITE_DIFFERENCE, FINITE_VOLUME, HLL, HLLC, MINMOD, MUSCL, OSHER, PERIODIC_BOUNDARY, SIMPLE_SOURCE_TERM, SPLIT, VARAXIS, XAXIS, YAXIS, ZAXIS, BoundarySettings, BoundarySettings1D, SnapshotSettings
 
-from jf1uids._physics_modules._cooling._cooling_tables import schure_cooling
-from jf1uids._physics_modules._cooling.cooling_options import PIECEWISE_POWER_LAW, CoolingConfig, CoolingCurveConfig, CoolingParams
+from astronomix._physics_modules._cooling._cooling_tables import schure_cooling
+from astronomix._physics_modules._cooling.cooling_options import PIECEWISE_POWER_LAW, CoolingConfig, CoolingCurveConfig, CoolingParams
 
 # units
-from jf1uids import CodeUnits
+from astronomix import CodeUnits
 from astropy import units as u
 import astropy.constants as c
 from astropy.constants import m_p
 
 # wind-specific
-from jf1uids._physics_modules._stellar_wind.weaver import Weaver
+from astronomix._physics_modules._stellar_wind.weaver import Weaver
 
 # turbulence
-from jf1uids.initial_condition_generation.turbulent_ic_generator import create_turb_field
+from astronomix.initial_condition_generation.turbulent_ic_generator import create_turb_field
 
-from jf1uids.option_classes.simulation_config import DOUBLE_MINMOD, FORWARDS, HYBRID_HLLC
+from astronomix.option_classes.simulation_config import DOUBLE_MINMOD, FORWARDS, HYBRID_HLLC
 
 
 print("👷 Setting up simulation...")
@@ -79,7 +82,7 @@ gamma = 5/3
 
 # spatial domain
 box_size = 1.0
-num_cells = 128
+num_cells = 32
 
 # activate stellar wind
 stellar_wind = True
@@ -118,10 +121,10 @@ config = SimulationConfig(
     num_cells = num_cells,
     wind_config = WindConfig(
         stellar_wind = stellar_wind,
-        num_injection_cells = 12,
+        num_injection_cells = 8,
         trace_wind_density = False,
     ),
-    differentiation_mode = FORWARDS,
+    differentiation_mode = BACKWARDS,
     self_gravity_version = SIMPLE_SOURCE_TERM,
     num_snapshots = 5,
     cooling_config = CoolingConfig(
@@ -148,7 +151,7 @@ config = SimulationConfig(
 
 registered_variables = get_registered_variables(config)
 
-from jf1uids.option_classes.simulation_config import finalize_config
+from astronomix.option_classes.simulation_config import finalize_config
 
 code_length = 3 * u.parsec
 code_mass = 1 * u.M_sun
@@ -158,7 +161,7 @@ code_units = CodeUnits(code_length, code_mass, code_velocity)
 # time domain
 C_CFL = 0.9
 
-t_final = 1.0 * 1e4 * u.yr
+t_final = 0.1 * 1e4 * u.yr
 t_end = t_final.to(code_units.code_time).value
 
 print(t_end)
@@ -336,116 +339,159 @@ config = finalize_config(config, initial_state.shape)
 #         registered_variables,
 #     )
 
+def loss(wind_mass_loss_rate):
+    wind_params = WindParams(
+        wind_mass_loss_rate = wind_mass_loss_rate,
+        wind_final_velocity = wind_final_velocity.to(code_units.code_velocity).value
+    )
+    params = SimulationParams(
+        C_cfl = C_CFL,
+        dt_max = dt_max,
+        gamma = gamma,
+        t_end = t_end,
+        wind_params = wind_params,
+        cooling_params = CoolingParams(
+            hydrogen_mass_fraction = hydrogen_mass_fraction,
+            metal_mass_fraction = metal_mass_fraction,
+            floor_temperature = floor_temperature,
+            cooling_curve_params = cooling_curve_params
+        ),
+        gravitational_constant = gravitational_constant
+    )
 
-result = time_integration(initial_state, config, params, registered_variables, sharding = named_sharding)
+    result = time_integration(
+        initial_state,
+        config,
+        params,
+        registered_variables,
+    )
 
-final_state = result
+    # result = _evolve_state_fd(
+    #     initial_state,
+    #     0.0001,
+    #     params.gamma,
+    #     params.gravitational_constant,
+    #     config,
+    #     params,
+    #     helper_data,
+    #     registered_variables,
+    # )
 
-# save the final state to disk
-jnp.save("data/stellar_wind3D_final_state" + app_string + ".npy", final_state)
+    final_state = result
+    return jnp.mean(final_state)
 
-from matplotlib.colors import LogNorm
+val, grad = jax.value_and_grad(loss)(wind_mass_loss_rate.to(code_units.code_mass / code_units.code_time).value)
+print("grad:", grad)
 
-s = 45
+# result = time_integration(initial_state, config, params, registered_variables, sharding = named_sharding)
 
-fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 5))
+# final_state = result
 
-# equal aspect ratio
-ax1.set_aspect('equal', 'box')
-ax2.set_aspect('equal', 'box')
-ax3.set_aspect('equal', 'box')
+# # save the final state to disk
+# jnp.save("data/stellar_wind3D_final_state" + app_string + ".npy", final_state)
 
-z_level = num_cells // 2
+# from matplotlib.colors import LogNorm
 
-xm, ym = jnp.meshgrid(x, y)
+# s = 45
 
-ax1.imshow(final_state[0, :, :, z_level].T, origin = "lower", extent = [0, 1, 0, 1], norm = LogNorm())
-ax1.set_title("Density")
+# fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 5))
 
-ax2.imshow(jnp.sqrt(final_state[1, :, :, z_level]**2 + final_state[2, :, :, z_level]**2).T, origin = "lower", extent = [0, 1, 0, 1])
-ax2.set_title("Velocity")
+# # equal aspect ratio
+# ax1.set_aspect('equal', 'box')
+# ax2.set_aspect('equal', 'box')
+# ax3.set_aspect('equal', 'box')
 
-ax3.imshow(final_state[4, :, :, z_level].T, origin = "lower", extent = [0, 1, 0, 1], norm = LogNorm())
-ax3.set_title("Pressure")
+# z_level = num_cells // 2
 
-plt.savefig("figures/slices" + app_string + ".png", dpi = 1000)
+# xm, ym = jnp.meshgrid(x, y)
 
-# def plot_weaver_comparison(axs, final_state, params, helper_data, code_units, rho_0, p_0):
-#     rho = final_state[registered_variables.density_index].flatten()
-#     vel = jnp.sqrt(final_state[registered_variables.velocity_index.x].flatten()**2 + final_state[registered_variables.velocity_index.y].flatten()**2 + final_state[registered_variables.velocity_index.z].flatten()**2)
-#     p = final_state[registered_variables.pressure_index].flatten()
+# ax1.imshow(final_state[0, :, :, z_level].T, origin = "lower", extent = [0, 1, 0, 1], norm = LogNorm())
+# ax1.set_title("Density")
 
-#     rho = rho * code_units.code_density
-#     vel = vel * code_units.code_velocity
-#     p = p * code_units.code_pressure
+# ax2.imshow(jnp.sqrt(final_state[1, :, :, z_level]**2 + final_state[2, :, :, z_level]**2).T, origin = "lower", extent = [0, 1, 0, 1])
+# ax2.set_title("Velocity")
 
-#     r = helper_data.r.flatten() * code_units.code_length
+# ax3.imshow(final_state[4, :, :, z_level].T, origin = "lower", extent = [0, 1, 0, 1], norm = LogNorm())
+# ax3.set_title("Pressure")
 
-#     # get weaver solution
-#     weaver = Weaver(
-#         params.wind_params.wind_final_velocity * code_units.code_velocity,
-#         params.wind_params.wind_mass_loss_rate * code_units.code_mass / code_units.code_time,
-#         rho_0,
-#         p_0
-#     )
+# plt.savefig("figures/slices" + app_string + ".png", dpi = 1000)
+
+# # def plot_weaver_comparison(axs, final_state, params, helper_data, code_units, rho_0, p_0):
+# #     rho = final_state[registered_variables.density_index].flatten()
+# #     vel = jnp.sqrt(final_state[registered_variables.velocity_index.x].flatten()**2 + final_state[registered_variables.velocity_index.y].flatten()**2 + final_state[registered_variables.velocity_index.z].flatten()**2)
+# #     p = final_state[registered_variables.pressure_index].flatten()
+
+# #     rho = rho * code_units.code_density
+# #     vel = vel * code_units.code_velocity
+# #     p = p * code_units.code_pressure
+
+# #     r = helper_data.r.flatten() * code_units.code_length
+
+# #     # get weaver solution
+# #     weaver = Weaver(
+# #         params.wind_params.wind_final_velocity * code_units.code_velocity,
+# #         params.wind_params.wind_mass_loss_rate * code_units.code_mass / code_units.code_time,
+# #         rho_0,
+# #         p_0
+# #     )
     
-#     current_time = params.t_end * code_units.code_time
+# #     current_time = params.t_end * code_units.code_time
     
-#     # density
-#     r_density_weaver, density_weaver = weaver.get_density_profile(0.01 * u.parsec, 3.5 * u.parsec, current_time)
-#     r_density_weaver = r_density_weaver.to(u.parsec)
-#     density_weaver = (density_weaver / m_p).to(u.cm**-3)
+# #     # density
+# #     r_density_weaver, density_weaver = weaver.get_density_profile(0.01 * u.parsec, 3.5 * u.parsec, current_time)
+# #     r_density_weaver = r_density_weaver.to(u.parsec)
+# #     density_weaver = (density_weaver / m_p).to(u.cm**-3)
 
-#     # velocity
-#     r_velocity_weaver, velocity_weaver = weaver.get_velocity_profile(0.01 * u.parsec, 3.5 * u.parsec, current_time)
-#     r_velocity_weaver = r_velocity_weaver.to(u.parsec)
-#     velocity_weaver = velocity_weaver.to(u.km / u.s)
+# #     # velocity
+# #     r_velocity_weaver, velocity_weaver = weaver.get_velocity_profile(0.01 * u.parsec, 3.5 * u.parsec, current_time)
+# #     r_velocity_weaver = r_velocity_weaver.to(u.parsec)
+# #     velocity_weaver = velocity_weaver.to(u.km / u.s)
 
-#     # pressure
-#     r_pressure_weaver, pressure_weaver = weaver.get_pressure_profile(0.01 * u.parsec, 3.5 * u.parsec, current_time)
-#     r_pressure_weaver = r_pressure_weaver.to(u.parsec)
-#     pressure_weaver = (pressure_weaver / c.k_B).to(u.cm**-3 * u.K)
+# #     # pressure
+# #     r_pressure_weaver, pressure_weaver = weaver.get_pressure_profile(0.01 * u.parsec, 3.5 * u.parsec, current_time)
+# #     r_pressure_weaver = r_pressure_weaver.to(u.parsec)
+# #     pressure_weaver = (pressure_weaver / c.k_B).to(u.cm**-3 * u.K)
 
-#     axs[0].set_yscale("log")
-#     axs[0].scatter(r.to(u.parsec), (rho / m_p).to(u.cm**-3), label="jf1uids", s = 1)
+# #     axs[0].set_yscale("log")
+# #     axs[0].scatter(r.to(u.parsec), (rho / m_p).to(u.cm**-3), label="astronomix", s = 1)
 
-#     axs[0].plot(r_density_weaver, density_weaver, "--", label="Weaver solution")
+# #     axs[0].plot(r_density_weaver, density_weaver, "--", label="Weaver solution")
 
-#     axs[0].set_title("density")
-#     axs[0].set_ylabel(r"$\rho$ in m$_p$ cm$^{-3}$")
-#     axs[0].set_xlim(0, 3)
+# #     axs[0].set_title("density")
+# #     axs[0].set_ylabel(r"$\rho$ in m$_p$ cm$^{-3}$")
+# #     axs[0].set_xlim(0, 3)
 
-#     axs[0].legend(loc="upper right")
+# #     axs[0].legend(loc="upper right")
 
-#     axs[0].set_xlabel("r in pc")
+# #     axs[0].set_xlabel("r in pc")
 
-#     axs[1].set_yscale("log")
-#     axs[1].scatter(r.to(u.parsec), (p / c.k_B).to(u.K / u.cm**3), label="jf1uids", s = 1)
-#     axs[1].plot(r_pressure_weaver, pressure_weaver, "--", label="Weaver solution")
+# #     axs[1].set_yscale("log")
+# #     axs[1].scatter(r.to(u.parsec), (p / c.k_B).to(u.K / u.cm**3), label="astronomix", s = 1)
+# #     axs[1].plot(r_pressure_weaver, pressure_weaver, "--", label="Weaver solution")
 
-#     axs[1].set_title("pressure")
-#     axs[1].set_ylabel(r"$p$/k$_b$ in K cm$^{-3}$")
-#     axs[1].set_xlim(0, 3)
+# #     axs[1].set_title("pressure")
+# #     axs[1].set_ylabel(r"$p$/k$_b$ in K cm$^{-3}$")
+# #     axs[1].set_xlim(0, 3)
 
-#     axs[1].legend(loc="upper right")
+# #     axs[1].legend(loc="upper right")
 
-#     axs[1].set_xlabel("r in pc")
+# #     axs[1].set_xlabel("r in pc")
 
 
-#     axs[2].set_yscale("log")
-#     axs[2].scatter(r.to(u.parsec), vel.to(u.km / u.s), label="jf1uids", s = 1)
-#     axs[2].plot(r_velocity_weaver, velocity_weaver, "--", label="Weaver solution")
-#     axs[2].set_title("velocity")
-#     # ylim 1 to 1e4 km/s
-#     axs[2].set_ylim(1, 1e4)
-#     axs[2].set_xlim(0, 3)
-#     axs[2].set_ylabel("v in km/s")
-#     # xlabel
-#     # show legend upper left
-#     axs[2].legend(loc="upper right")
+# #     axs[2].set_yscale("log")
+# #     axs[2].scatter(r.to(u.parsec), vel.to(u.km / u.s), label="astronomix", s = 1)
+# #     axs[2].plot(r_velocity_weaver, velocity_weaver, "--", label="Weaver solution")
+# #     axs[2].set_title("velocity")
+# #     # ylim 1 to 1e4 km/s
+# #     axs[2].set_ylim(1, 1e4)
+# #     axs[2].set_xlim(0, 3)
+# #     axs[2].set_ylabel("v in km/s")
+# #     # xlabel
+# #     # show legend upper left
+# #     axs[2].legend(loc="upper right")
 
-#     axs[2].set_xlabel("r in pc")
+# #     axs[2].set_xlabel("r in pc")
 
-# fig, axs = plt.subplots(1, 3, figsize=(15, 5))
-# plot_weaver_comparison(axs, final_state, params, helper_data, code_units, rho_0, p_0)
-# plt.savefig("figures/profiles" + app_string + ".png")
+# # fig, axs = plt.subplots(1, 3, figsize=(15, 5))
+# # plot_weaver_comparison(axs, final_state, params, helper_data, code_units, rho_0, p_0)
+# # plt.savefig("figures/profiles" + app_string + ".png")

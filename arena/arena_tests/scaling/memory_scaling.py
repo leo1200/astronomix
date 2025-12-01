@@ -12,9 +12,9 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1.axes_divider import make_axes_locatable
 
-# jf1uidsSimulationConfig
-from jf1uids import (
-    # jf1uids data structures
+# astronomixSimulationConfig
+from astronomix import (
+    # astronomix data structures
     SimulationConfig,
     SimulationParams,
     # setup functions
@@ -25,15 +25,15 @@ from jf1uids import (
     initialize_interface_fields,
 )
 
-from jf1uids.data_classes.simulation_helper_data import HelperData
-from jf1uids.option_classes.simulation_config import (
+from astronomix.data_classes.simulation_helper_data import HelperData
+from astronomix.option_classes.simulation_config import (
     FINITE_DIFFERENCE,
     PERIODIC_BOUNDARY, 
     BoundarySettings, 
     BoundarySettings1D
 )
 
-from jf1uids.time_stepping.time_integration import _time_integration
+from astronomix.time_stepping.time_integration import _time_integration
 
 def memory_scaling(
     config: SimulationConfig,

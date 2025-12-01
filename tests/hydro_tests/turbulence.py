@@ -1,7 +1,7 @@
 # ==== GPU selection ====
 from autocvd import autocvd
 
-from jf1uids.initial_condition_generation.construct_primitive_state import construct_primitive_state
+from astronomix.initial_condition_generation.construct_primitive_state import construct_primitive_state
 autocvd(num_gpus = 1)
 # =======================
 
@@ -17,33 +17,33 @@ import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 
 # fluids
-from jf1uids import WindParams
-from jf1uids import SimulationConfig
-from jf1uids import get_helper_data
-from jf1uids import SimulationParams
-from jf1uids import time_integration
-from jf1uids._fluid_equations._equations import get_absolute_velocity, total_energy_from_primitives
+from astronomix import WindParams
+from astronomix import SimulationConfig
+from astronomix import get_helper_data
+from astronomix import SimulationParams
+from astronomix import time_integration
+from astronomix._fluid_equations._equations import get_absolute_velocity, total_energy_from_primitives
 
-from jf1uids import get_registered_variables
-from jf1uids.option_classes import WindConfig
+from astronomix import get_registered_variables
+from astronomix.option_classes import WindConfig
 
-from jf1uids.option_classes.simulation_config import BACKWARDS, HLL, HYBRID_HLLC, OSHER, PERIODIC_BOUNDARY, BoundarySettings, BoundarySettings1D
+from astronomix.option_classes.simulation_config import BACKWARDS, HLL, HYBRID_HLLC, OSHER, PERIODIC_BOUNDARY, BoundarySettings, BoundarySettings1D
 
 # units
-from jf1uids import CodeUnits
+from astronomix import CodeUnits
 from astropy import units as u
 import astropy.constants as c
 from astropy.constants import m_p
 
 # wind-specific
-from jf1uids._physics_modules._stellar_wind.weaver import Weaver
+from astronomix._physics_modules._stellar_wind.weaver import Weaver
 
 # turbulence
-from jf1uids.initial_condition_generation.turbulent_ic_generator import create_turb_field
+from astronomix.initial_condition_generation.turbulent_ic_generator import create_turb_field
 
-from jf1uids.option_classes.simulation_config import FORWARDS
+from astronomix.option_classes.simulation_config import FORWARDS
 
-from jf1uids.option_classes.simulation_config import finalize_config
+from astronomix.option_classes.simulation_config import finalize_config
 
 import matplotlib.pyplot as plt
 

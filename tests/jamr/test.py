@@ -11,24 +11,24 @@ from jamr import _BufferedList, animation, plot_density, time_integration_fixed_
 
 
 # constants
-from jf1uids import SPHERICAL, CARTESIAN
+from astronomix import SPHERICAL, CARTESIAN
 
-# jf1uids option structures
-from jf1uids import SimulationConfig
-from jf1uids import SimulationParams
+# astronomix option structures
+from astronomix import SimulationConfig
+from astronomix import SimulationParams
 
 # simulation setup
-from jf1uids import get_helper_data
-from jf1uids import finalize_config
-from jf1uids import get_registered_variables
-from jf1uids.initial_condition_generation.construct_primitive_state import construct_primitive_state
-from jf1uids.option_classes.simulation_config import (
+from astronomix import get_helper_data
+from astronomix import finalize_config
+from astronomix import get_registered_variables
+from astronomix.initial_condition_generation.construct_primitive_state import construct_primitive_state
+from astronomix.option_classes.simulation_config import (
     DOUBLE_MINMOD, HLL,
     HLLC, MINMOD, OSHER, SUPERBEE
 )
 
 # time integration, core function
-from jf1uids import time_integration
+from astronomix import time_integration
 
 # ===================================================
 # ================ ↓ jamr simulation ↓ ==============
@@ -105,7 +105,7 @@ def jamr_simulate(base_num_cells = 20, buffer_size = 200, dt = 0.001, derefineme
 # ===================================================
 
 # ===================================================
-# ============== ↓ jf1uids simulation ↓ =============
+# ============== ↓ astronomix simulation ↓ =============
 # ===================================================
 
 shock_pos = 0.5
@@ -115,7 +115,7 @@ params = SimulationParams(
     t_end = 0.2, # the typical value for a shock test
 )
 
-def jf1uids_simulate(num_cells, dt):
+def astronomix_simulate(num_cells, dt):
     config = SimulationConfig(
         geometry = CARTESIAN,
         first_order_fallback = True,
@@ -174,7 +174,7 @@ def jf1uids_simulate(num_cells, dt):
     )
 
 # ===================================================
-# ============== ↑ jf1uids simulation ↑ =============
+# ============== ↑ astronomix simulation ↑ =============
 # ===================================================
 
 # ===================================================
@@ -275,21 +275,21 @@ def jamr_test(base_resolutions = [20, 40, 80, 120], dt = 0.0002):
         p_accuracies,
     )
 
-def jf1uids_test(cell_nums = [40, 80, 160, 320], dt = 0.0002):
+def astronomix_test(cell_nums = [40, 80, 160, 320], dt = 0.0002):
     rho_accuracies = []
     u_accuracies = []
     p_accuracies = []
     runtimes = []
 
     for num_cells in cell_nums:
-        runtime, r_jf1uids, rho_jf1uids, u_jf1uids, p_jf1uids = jf1uids_simulate(num_cells, dt)
+        runtime, r_astronomix, rho_astronomix, u_astronomix, p_astronomix = astronomix_simulate(num_cells, dt)
         runtimes.append(runtime)
 
         # calculate accuracy
-        r_exact, rho_exact, u_exact, p_exact = exact_solution(r_jf1uids)
-        rho_error = jnp.abs(rho_jf1uids - rho_exact)
-        u_error = jnp.abs(u_jf1uids - u_exact)
-        p_error = jnp.abs(p_jf1uids - p_exact)
+        r_exact, rho_exact, u_exact, p_exact = exact_solution(r_astronomix)
+        rho_error = jnp.abs(rho_astronomix - rho_exact)
+        u_error = jnp.abs(u_astronomix - u_exact)
+        p_error = jnp.abs(p_astronomix - p_exact)
         rho_accuracy = jnp.mean(rho_error)
         u_accuracy = jnp.mean(u_error)
         p_accuracy = jnp.mean(p_error)
@@ -306,62 +306,62 @@ def jf1uids_test(cell_nums = [40, 80, 160, 320], dt = 0.0002):
 
 # # Run the jamr test
 # buffer_sizes, jamr_runtimes, jamr_rho_accuracies, jamr_u_accuracies, jamr_p_accuracies = jamr_test(base_resolutions=jnp.arange(20, 120, 5), dt=0.0001)
-# # Run the jf1uids test
-# jf1uids_runtimes, jf1uids_rho_accuracies, jf1uids_u_accuracies, jf1uids_p_accuracies = jf1uids_test(cell_nums=buffer_sizes, dt=0.0001)
+# # Run the astronomix test
+# astronomix_runtimes, astronomix_rho_accuracies, astronomix_u_accuracies, astronomix_p_accuracies = astronomix_test(cell_nums=buffer_sizes, dt=0.0001)
 
 # # save the runtimes and accuracies to a file
 # buffer_sizes = jnp.array(buffer_sizes)
 # jamr_runtimes = jnp.array(jamr_runtimes)
-# jf1uids_runtimes = jnp.array(jf1uids_runtimes)
+# astronomix_runtimes = jnp.array(astronomix_runtimes)
 # jamr_rho_accuracies = jnp.array(jamr_rho_accuracies)
-# jf1uids_rho_accuracies = jnp.array(jf1uids_rho_accuracies)
+# astronomix_rho_accuracies = jnp.array(astronomix_rho_accuracies)
 # jamr_u_accuracies = jnp.array(jamr_u_accuracies)
-# jf1uids_u_accuracies = jnp.array(jf1uids_u_accuracies)
+# astronomix_u_accuracies = jnp.array(astronomix_u_accuracies)
 # jamr_p_accuracies = jnp.array(jamr_p_accuracies)
-# jf1uids_p_accuracies = jnp.array(jf1uids_p_accuracies)
+# astronomix_p_accuracies = jnp.array(astronomix_p_accuracies)
 
 # # save the results to a file
-# jnp.savez('jamr_vs_jf1uids_results.npz',
+# jnp.savez('jamr_vs_astronomix_results.npz',
 #     buffer_sizes=buffer_sizes,
 #     jamr_runtimes=jamr_runtimes,
-#     jf1uids_runtimes=jf1uids_runtimes,
+#     astronomix_runtimes=astronomix_runtimes,
 #     jamr_rho_accuracies=jamr_rho_accuracies,
-#     jf1uids_rho_accuracies=jf1uids_rho_accuracies,
+#     astronomix_rho_accuracies=astronomix_rho_accuracies,
 #     jamr_u_accuracies=jamr_u_accuracies,
-#     jf1uids_u_accuracies=jf1uids_u_accuracies,
+#     astronomix_u_accuracies=astronomix_u_accuracies,
 #     jamr_p_accuracies=jamr_p_accuracies,
-#     jf1uids_p_accuracies=jf1uids_p_accuracies
+#     astronomix_p_accuracies=astronomix_p_accuracies
 # )
 
 # load the results from the file
-results = jnp.load('jamr_vs_jf1uids_results.npz')
+results = jnp.load('jamr_vs_astronomix_results.npz')
 buffer_sizes = results['buffer_sizes']
 jamr_runtimes = results['jamr_runtimes']
-jf1uids_runtimes = results['jf1uids_runtimes']
+astronomix_runtimes = results['astronomix_runtimes']
 jamr_rho_accuracies = results['jamr_rho_accuracies']
-jf1uids_rho_accuracies = results['jf1uids_rho_accuracies']
+astronomix_rho_accuracies = results['astronomix_rho_accuracies']
 jamr_u_accuracies = results['jamr_u_accuracies']
-jf1uids_u_accuracies = results['jf1uids_u_accuracies']
+astronomix_u_accuracies = results['astronomix_u_accuracies']
 jamr_p_accuracies = results['jamr_p_accuracies']
-jf1uids_p_accuracies = results['jf1uids_p_accuracies']
+astronomix_p_accuracies = results['astronomix_p_accuracies']
 
-# print the maximum relative error difference of jamr to jf1uids and
+# print the maximum relative error difference of jamr to astronomix and
 # where they occur
 
-max_rel_rho_diff = jnp.max((jf1uids_rho_accuracies - jamr_rho_accuracies) / jf1uids_rho_accuracies * 100)
-max_rel_rho_diff_idx = jnp.argmax((jf1uids_rho_accuracies - jamr_rho_accuracies) / jf1uids_rho_accuracies * 100)
+max_rel_rho_diff = jnp.max((astronomix_rho_accuracies - jamr_rho_accuracies) / astronomix_rho_accuracies * 100)
+max_rel_rho_diff_idx = jnp.argmax((astronomix_rho_accuracies - jamr_rho_accuracies) / astronomix_rho_accuracies * 100)
 print(f"Maximum relative error difference in density: {max_rel_rho_diff:.2f}% at buffer size {buffer_sizes[max_rel_rho_diff_idx]}")
-max_rel_u_diff = jnp.max((jf1uids_u_accuracies - jamr_u_accuracies) / jf1uids_u_accuracies * 100)
-max_rel_u_diff_idx = jnp.argmax((jf1uids_u_accuracies - jamr_u_accuracies) / jf1uids_u_accuracies * 100)
+max_rel_u_diff = jnp.max((astronomix_u_accuracies - jamr_u_accuracies) / astronomix_u_accuracies * 100)
+max_rel_u_diff_idx = jnp.argmax((astronomix_u_accuracies - jamr_u_accuracies) / astronomix_u_accuracies * 100)
 print(f"Maximum relative error difference in velocity: {max_rel_u_diff:.2f}% at buffer size {buffer_sizes[max_rel_u_diff_idx]}")
-max_rel_p_diff = jnp.max((jf1uids_p_accuracies - jamr_p_accuracies) / jf1uids_p_accuracies * 100)
-max_rel_p_diff_idx = jnp.argmax((jf1uids_p_accuracies - jamr_p_accuracies) / jf1uids_p_accuracies * 100)
+max_rel_p_diff = jnp.max((astronomix_p_accuracies - jamr_p_accuracies) / astronomix_p_accuracies * 100)
+max_rel_p_diff_idx = jnp.argmax((astronomix_p_accuracies - jamr_p_accuracies) / astronomix_p_accuracies * 100)
 print(f"Maximum relative error difference in pressure: {max_rel_p_diff:.2f}% at buffer size {buffer_sizes[max_rel_p_diff_idx]}")
 
 # Get data for the top row plots (final state comparison)
 r_exact, rho_exact, u_exact, p_exact = exact_solution()
 _, r_jamr, rho_jamr, u_jamr, p_jamr = jamr_simulate(base_num_cells=40, buffer_size=152, dt=0.001)
-_, r_jf1uids, rho_jf1uids, u_jf1uids, p_jf1uids = jf1uids_simulate(152, 0.001)
+_, r_astronomix, rho_astronomix, u_astronomix, p_astronomix = astronomix_simulate(152, 0.001)
 
 num_cells_jamr = r_jamr.shape[0]
 print(f"jamr simulation with {num_cells_jamr} cells")
@@ -379,17 +379,17 @@ ax3 = fig.add_subplot(gs[0, 2])
 colors = {
     'exact': '#000000',      # black
     'jamr': '#0072B2',       # blue
-    'jf1uids': '#D55E00',    # orange
+    'astronomix': '#D55E00',    # orange
     'jamr_density': '#0072B2',
     'jamr_pressure': '#56B4E9',  # lighter blue
-    'jf1uids_density': '#D55E00',
-    'jf1uids_pressure': '#E69F00', # lighter orange
+    'astronomix_density': '#D55E00',
+    'astronomix_pressure': '#E69F00', # lighter orange
 }
 
 # Density Plot (ax1)
 ax1.plot(r_exact, rho_exact, label='Exact', linestyle='--', color=colors['exact'])
 ax1.plot(r_jamr, rho_jamr, label='jamr', marker='o', markersize=2, linestyle='-', color=colors['jamr'])
-ax1.plot(r_jf1uids, rho_jf1uids, label='jf1uids', marker='x', markersize=2, linestyle='-', color=colors['jf1uids'])
+ax1.plot(r_astronomix, rho_astronomix, label='astronomix', marker='x', markersize=2, linestyle='-', color=colors['astronomix'])
 ax1.set_title('Density')
 ax1.set_xlabel('Position')
 ax1.set_ylabel('Density')
@@ -398,7 +398,7 @@ ax1.legend()
 # Velocity Plot (ax2)
 ax2.plot(r_exact, u_exact, label='Exact', linestyle='--', color=colors['exact'])
 ax2.plot(r_jamr, u_jamr, label='jamr', marker='o', markersize=2, linestyle='-', color=colors['jamr'])
-ax2.plot(r_jf1uids, u_jf1uids, label='jf1uids', marker='x', markersize=2, linestyle='-', color=colors['jf1uids'])
+ax2.plot(r_astronomix, u_astronomix, label='astronomix', marker='x', markersize=2, linestyle='-', color=colors['astronomix'])
 ax2.set_title('Velocity')
 ax2.set_xlabel('Position')
 ax2.set_ylabel('Velocity')
@@ -407,7 +407,7 @@ ax2.legend()
 # Pressure Plot (ax3)
 ax3.plot(r_exact, p_exact, label='Exact', linestyle='--', color=colors['exact'])
 ax3.plot(r_jamr, p_jamr, label='jamr', marker='o', markersize=2, linestyle='-', color=colors['jamr'])
-ax3.plot(r_jf1uids, p_jf1uids, label='jf1uids', marker='x', markersize=2, linestyle='-', color=colors['jf1uids'])
+ax3.plot(r_astronomix, p_astronomix, label='astronomix', marker='x', markersize=2, linestyle='-', color=colors['astronomix'])
 ax3.set_title('Pressure')
 ax3.set_xlabel('Position')
 ax3.set_ylabel('Pressure')
@@ -415,12 +415,12 @@ ax3.legend()
 
 # --- Middle Row: Mean Error Plot ---
 ax4 = fig.add_subplot(gs[1, :])
-ax4.plot(buffer_sizes, jf1uids_rho_accuracies, label='jf1uids, density', marker='x', color=colors['jf1uids_density'])
-ax4.plot(buffer_sizes, jf1uids_p_accuracies, label='jf1uids, pressure', marker='x', color=colors['jf1uids_pressure'])
+ax4.plot(buffer_sizes, astronomix_rho_accuracies, label='astronomix, density', marker='x', color=colors['astronomix_density'])
+ax4.plot(buffer_sizes, astronomix_p_accuracies, label='astronomix, pressure', marker='x', color=colors['astronomix_pressure'])
 ax4.plot(buffer_sizes, jamr_rho_accuracies, label='jamr, density', marker='o', color=colors['jamr_density'])
 ax4.plot(buffer_sizes, jamr_p_accuracies, label='jamr, pressure', marker='o', color=colors['jamr_pressure'])
 ax4.set_title('Mean Errors')
-ax4.set_xlabel('buffer size (jamr), num cells (jf1uids)')
+ax4.set_xlabel('buffer size (jamr), num cells (astronomix)')
 ax4.set_ylabel('Mean Absolute Error')
 ax4.legend()
 ax4.grid(True)
@@ -428,16 +428,16 @@ ax4.grid(True)
 # --- Bottom Row: Runtime Plot ---
 ax5 = fig.add_subplot(gs[2, :])
 ax5.plot(buffer_sizes, jamr_runtimes, label='jamr', marker='o', color=colors['jamr'])
-ax5.plot(buffer_sizes, jf1uids_runtimes, label='jf1uids', marker='x', color=colors['jf1uids'])
+ax5.plot(buffer_sizes, astronomix_runtimes, label='astronomix', marker='x', color=colors['astronomix'])
 ax5.set_title('Runtime')
-ax5.set_xlabel('buffer size (jamr), num cells (jf1uids)')
+ax5.set_xlabel('buffer size (jamr), num cells (astronomix)')
 ax5.set_ylabel('Runtime in seconds')
 ax5.legend()
 ax5.grid(True)
 
 # Adjust layout and save the figure
 plt.tight_layout()
-plt.savefig('jamr_vs_jf1uids.svg')
+plt.savefig('jamr_vs_astronomix.svg')
 
 
 # create example initial fluid state

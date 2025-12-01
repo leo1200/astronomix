@@ -10,26 +10,26 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # units
-from jf1uids import CodeUnits
+from astronomix import CodeUnits
 from astropy import units as u
 import astropy.constants as c
 from astropy.constants import m_p
 
-# jf1uids data structures
-from jf1uids import SimulationConfig
-from jf1uids import SimulationParams
+# astronomix data structures
+from astronomix import SimulationConfig
+from astronomix import SimulationParams
 
-# jf1uids constants
-from jf1uids.option_classes.simulation_config import AM_HLLC, CARTESIAN, HLLC, HLLC_LM, HYBRID_HLLC, MUSCL, SPHERICAL, HLL, MINMOD, SPLIT
+# astronomix constants
+from astronomix.option_classes.simulation_config import AM_HLLC, CARTESIAN, HLLC, HLLC_LM, HYBRID_HLLC, MUSCL, SPHERICAL, HLL, MINMOD, SPLIT
 
 
-# jf1uids functions
-from jf1uids import get_helper_data
-from jf1uids.initial_condition_generation.construct_primitive_state import construct_primitive_state
-from jf1uids import get_registered_variables
-from jf1uids.option_classes.simulation_config import finalize_config
+# astronomix functions
+from astronomix import get_helper_data
+from astronomix.initial_condition_generation.construct_primitive_state import construct_primitive_state
+from astronomix import get_registered_variables
+from astronomix.option_classes.simulation_config import finalize_config
 
-from jf1uids import time_integration
+from astronomix import time_integration
 
 # --- Additional imports for analysis and plotting ---
 # For radially averaging the simulation data

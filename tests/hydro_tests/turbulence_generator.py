@@ -34,28 +34,28 @@ from timeit import default_timer as timer
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 
-# jf1uids data structures
-from jf1uids import SimulationConfig
-from jf1uids import SimulationParams
-from jf1uids.option_classes import WindConfig
-from jf1uids.option_classes.simulation_config import BACKWARDS, HLL, HLLC, MINMOD, OSHER, FORWARDS, SPLIT
+# astronomix data structures
+from astronomix import SimulationConfig
+from astronomix import SimulationParams
+from astronomix.option_classes import WindConfig
+from astronomix.option_classes.simulation_config import BACKWARDS, HLL, HLLC, MINMOD, OSHER, FORWARDS, SPLIT
 
-# jf1uids setup functions
-from jf1uids import get_helper_data
-from jf1uids.initial_condition_generation.construct_primitive_state import construct_primitive_state
-from jf1uids import get_registered_variables
-from jf1uids.option_classes.simulation_config import finalize_config
-from jf1uids.option_classes.simulation_config import PERIODIC_BOUNDARY, BoundarySettings, BoundarySettings1D
+# astronomix setup functions
+from astronomix import get_helper_data
+from astronomix.initial_condition_generation.construct_primitive_state import construct_primitive_state
+from astronomix import get_registered_variables
+from astronomix.option_classes.simulation_config import finalize_config
+from astronomix.option_classes.simulation_config import PERIODIC_BOUNDARY, BoundarySettings, BoundarySettings1D
 
 
 # turbulent ic setup
-from jf1uids.initial_condition_generation.turbulent_ic_generator import create_turb_field
+from astronomix.initial_condition_generation.turbulent_ic_generator import create_turb_field
 
 # main simulation function
-from jf1uids import time_integration
+from astronomix import time_integration
 
 # units
-from jf1uids import CodeUnits
+from astronomix import CodeUnits
 from astropy import units as u
 import astropy.constants as c
 

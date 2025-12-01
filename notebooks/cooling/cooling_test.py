@@ -3,8 +3,8 @@
 from autocvd import autocvd
 autocvd(num_gpus = 1)
 
-from jf1uids._physics_modules._cooling._cooling import get_pressure_from_temperature, get_temperature_from_pressure
-from jf1uids._physics_modules._cooling._cooling_tables import schure_cooling
+from astronomix._physics_modules._cooling._cooling import get_pressure_from_temperature, get_temperature_from_pressure
+from astronomix._physics_modules._cooling._cooling_tables import schure_cooling
 
 import jax.numpy as jnp
 
@@ -16,30 +16,30 @@ import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 
 # fluids
-from jf1uids import WindParams
-from jf1uids import SimulationConfig
-from jf1uids import SimulationParams
-from jf1uids.option_classes import WindConfig
-from jf1uids._physics_modules._cooling.cooling_options import PIECEWISE_POWER_LAW, SIMPLE_POWER_LAW, CoolingConfig, CoolingParams, PiecewisePowerLawParams, SimplePowerLawParams
+from astronomix import WindParams
+from astronomix import SimulationConfig
+from astronomix import SimulationParams
+from astronomix.option_classes import WindConfig
+from astronomix._physics_modules._cooling.cooling_options import PIECEWISE_POWER_LAW, SIMPLE_POWER_LAW, CoolingConfig, CoolingParams, PiecewisePowerLawParams, SimplePowerLawParams
 
-from jf1uids import get_helper_data
-from jf1uids.initial_condition_generation.construct_primitive_state import construct_primitive_state
-from jf1uids import get_registered_variables
-from jf1uids.option_classes.simulation_config import finalize_config
+from astronomix import get_helper_data
+from astronomix.initial_condition_generation.construct_primitive_state import construct_primitive_state
+from astronomix import get_registered_variables
+from astronomix.option_classes.simulation_config import finalize_config
 
-from jf1uids import time_integration
+from astronomix import time_integration
 
-# jf1uids constants
-from jf1uids.option_classes.simulation_config import OPEN_BOUNDARY, REFLECTIVE_BOUNDARY, SPHERICAL
+# astronomix constants
+from astronomix.option_classes.simulation_config import OPEN_BOUNDARY, REFLECTIVE_BOUNDARY, SPHERICAL
 
 # units
-from jf1uids import CodeUnits
+from astronomix import CodeUnits
 from astropy import units as u
 import astropy.constants as c
 from astropy.constants import m_p
 
 # wind-specific
-from jf1uids._physics_modules._stellar_wind.weaver import Weaver
+from astronomix._physics_modules._stellar_wind.weaver import Weaver
 
 
 print("👷 Setting up simulation...")
@@ -202,7 +202,7 @@ def plot_weaver_comparison(axs, final_state, params, helper_data, code_units, rh
     T = T.to(u.K)
 
     axs[0].set_yscale("log")
-    axs[0].plot(r.to(u.cm), (rho).to(u.g * u.cm**-3), label="jf1uids")
+    axs[0].plot(r.to(u.cm), (rho).to(u.g * u.cm**-3), label="astronomix")
     axs[0].set_title("density")
     axs[0].set_ylabel(r"$\rho$ in m$_p$ cm$^{-3}$")
     axs[0].set_ylim(1e-27, 1e-21)
@@ -211,7 +211,7 @@ def plot_weaver_comparison(axs, final_state, params, helper_data, code_units, rh
     axs[0].set_xlabel("r in cm")
 
     axs[1].set_yscale("log")
-    axs[1].plot(r.to(u.cm), (p / c.k_B).to(u.K / u.cm**3), label="jf1uids")
+    axs[1].plot(r.to(u.cm), (p / c.k_B).to(u.K / u.cm**3), label="astronomix")
     axs[1].set_title("pressure")
     axs[1].set_ylabel(r"$p$/k$_b$ in K cm$^{-3}$")
     axs[1].set_xlim(0, 1e19)
@@ -220,7 +220,7 @@ def plot_weaver_comparison(axs, final_state, params, helper_data, code_units, rh
 
 
     axs[2].set_yscale("log")
-    axs[2].plot(r.to(u.cm), vel.to(u.km / u.s), label="jf1uids")
+    axs[2].plot(r.to(u.cm), vel.to(u.km / u.s), label="astronomix")
     axs[2].set_title("velocity")
     axs[2].set_ylim(1, 1e4)
     axs[2].set_xlim(0, 1e19)
@@ -229,7 +229,7 @@ def plot_weaver_comparison(axs, final_state, params, helper_data, code_units, rh
     axs[2].set_xlabel("r in cm")
 
     axs[3].set_yscale("log")
-    axs[3].plot(r.to(u.cm), T.to(u.K), label="jf1uids")
+    axs[3].plot(r.to(u.cm), T.to(u.K), label="astronomix")
     axs[3].set_title("temperature")
     axs[3].set_ylim(10, 1e9)
     axs[3].set_xlim(0, 1e19)

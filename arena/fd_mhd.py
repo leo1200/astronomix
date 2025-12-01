@@ -21,8 +21,8 @@ import jax
 # double precision
 jax.config.update("jax_enable_x64", double_precision)
 
-from jf1uids import SimulationConfig, SimulationParams
-from jf1uids.option_classes.simulation_config import FINITE_DIFFERENCE, PERIODIC_ROLL
+from astronomix import SimulationConfig, SimulationParams
+from astronomix.option_classes.simulation_config import FINITE_DIFFERENCE, PERIODIC_ROLL
 
 # tests
 from arena_tests.scaling.scaling import scaling_test
@@ -53,11 +53,11 @@ base_params = SimulationParams(
 # running the tests
 
 # blast test 1
-# mhd_blast_test1(
-#     config = base_config._replace(num_cells=32),
-#     params = base_params,
-#     configuration_name = test_name,
-# )
+mhd_blast_test1(
+    config = base_config._replace(num_cells=142),
+    params = base_params,
+    configuration_name = test_name,
+)
 
 # mhd_blast_test1(
 #     config = base_config._replace(num_cells=64),

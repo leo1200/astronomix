@@ -3,7 +3,7 @@
 # autocvd(num_gpus = 1)
 # # =======================
 
-from jf1uids.option_classes.simulation_config import DOUBLE_MINMOD, HLLC, MINMOD, SUPERBEE, BoundarySettings1D
+from astronomix.option_classes.simulation_config import DOUBLE_MINMOD, HLLC, MINMOD, SUPERBEE, BoundarySettings1D
 
 # 64-bit floating point precision
 import jax
@@ -12,20 +12,20 @@ jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 
 # constants
-from jf1uids import CARTESIAN, REFLECTIVE_BOUNDARY
+from astronomix import CARTESIAN, REFLECTIVE_BOUNDARY
 
-# jf1uids option structures
-from jf1uids import SimulationConfig
-from jf1uids import SimulationParams
+# astronomix option structures
+from astronomix import SimulationConfig
+from astronomix import SimulationParams
 
 # simulation setup
-from jf1uids import get_helper_data
-from jf1uids import finalize_config
-from jf1uids import get_registered_variables
-from jf1uids.initial_condition_generation.construct_primitive_state import construct_primitive_state
+from astronomix import get_helper_data
+from astronomix import finalize_config
+from astronomix import get_registered_variables
+from astronomix.initial_condition_generation.construct_primitive_state import construct_primitive_state
 
 # time integration, core function
-from jf1uids import time_integration
+from astronomix import time_integration
 
 # plotting
 import matplotlib.pyplot as plt
@@ -42,7 +42,7 @@ def limiter_to_string(limiter):
         return str(limiter)
 
 # ===================================================
-# ============== ↓ jf1uids simulation ↓ =============
+# ============== ↓ astronomix simulation ↓ =============
 # ===================================================
 
 # Parameters for the Double Blast Wave problem
@@ -100,7 +100,7 @@ def simulate(limiter, num_cells):
     )
 
 # ===================================================
-# ============== ↑ jf1uids simulation ↑ =============
+# ============== ↑ astronomix simulation ↑ =============
 # ===================================================
 
 # Plotting the results

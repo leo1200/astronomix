@@ -10,27 +10,28 @@ import jax.numpy as jnp
 # plotting
 import matplotlib.pyplot as plt
 
-# jf1uids classes
-from jf1uids import SimulationConfig
-from jf1uids import SimulationParams
-from jf1uids.option_classes.simulation_config import (
+# astronomix classes
+from astronomix import SimulationConfig
+from astronomix import SimulationParams
+from astronomix.option_classes.simulation_config import (
     DONOR_ACCOUNTING,
     HLLC_LM,
     RIEMANN_SPLIT,
     RIEMANN_SPLIT_UNSTABLE,
     BoundarySettings,
-    BoundarySettings1D
+    BoundarySettings1D,
+    SnapshotSettings
 )
 
-# jf1uids functions
-from jf1uids import get_helper_data
-from jf1uids import time_integration
-from jf1uids.initial_condition_generation.construct_primitive_state import construct_primitive_state
-from jf1uids.option_classes.simulation_config import finalize_config
-from jf1uids import get_registered_variables
+# astronomix functions
+from astronomix import get_helper_data
+from astronomix import time_integration
+from astronomix.initial_condition_generation.construct_primitive_state import construct_primitive_state
+from astronomix.option_classes.simulation_config import finalize_config
+from astronomix import get_registered_variables
 
-# jf1uids constants
-from jf1uids.option_classes.simulation_config import (
+# astronomix constants
+from astronomix.option_classes.simulation_config import (
     BACKWARDS, FORWARDS, HLL, HLLC, MINMOD, OSHER, 
     PERIODIC_BOUNDARY, REFLECTIVE_BOUNDARY, 
     BoundarySettings, BoundarySettings1D,
@@ -86,6 +87,14 @@ baseline_config = SimulationConfig(
         )
     ),
     return_snapshots = False,
+    snapshot_settings = SnapshotSettings(
+        return_states = False,
+        return_final_state=True,
+        return_total_energy=True,
+        return_internal_energy=True,
+        return_kinetic_energy=True,
+        return_gravitational_energy=True
+    ),
     num_snapshots = 60
 )
 
@@ -100,6 +109,7 @@ def simulate_collapse(num_cells, t_end = 3.0, return_snapshots = True):
     config = baseline_config._replace(
         num_cells = num_cells,
         return_snapshots = return_snapshots,
+
     )
 
     helper_data = get_helper_data(config)

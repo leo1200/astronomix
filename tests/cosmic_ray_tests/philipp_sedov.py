@@ -1,28 +1,28 @@
 import jax.numpy as jnp
 
 # units
-from jf1uids import CodeUnits
+from astronomix import CodeUnits
 from astropy import units as u
 import astropy.constants as c
 from astropy.constants import m_p
 
-# jf1uids data structures
-from jf1uids import SimulationConfig
-from jf1uids import SimulationParams
-from jf1uids._physics_modules._cosmic_rays.cosmic_ray_options import CosmicRayConfig
-from jf1uids._physics_modules._cosmic_rays.cosmic_ray_options import CosmicRayParams
+# astronomix data structures
+from astronomix import SimulationConfig
+from astronomix import SimulationParams
+from astronomix._physics_modules._cosmic_rays.cosmic_ray_options import CosmicRayConfig
+from astronomix._physics_modules._cosmic_rays.cosmic_ray_options import CosmicRayParams
 
-# jf1uids constants
-from jf1uids.option_classes.simulation_config import CARTESIAN, SPHERICAL, HLL, MINMOD
+# astronomix constants
+from astronomix.option_classes.simulation_config import CARTESIAN, SPHERICAL, HLL, MINMOD
 
-# jf1uids functions
-from jf1uids import get_helper_data
-from jf1uids.initial_condition_generation.construct_primitive_state import construct_primitive_state
-from jf1uids import get_registered_variables
-from jf1uids.option_classes.simulation_config import finalize_config
-from jf1uids.shock_finder.shock_finder import find_shock_zone, shock_sensor
+# astronomix functions
+from astronomix import get_helper_data
+from astronomix.initial_condition_generation.construct_primitive_state import construct_primitive_state
+from astronomix import get_registered_variables
+from astronomix.option_classes.simulation_config import finalize_config
+from astronomix.shock_finder.shock_finder import find_shock_zone, shock_sensor
 
-from jf1uids import time_integration
+from astronomix import time_integration
 
 import numpy as np
 from matplotlib.colors import LogNorm

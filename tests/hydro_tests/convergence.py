@@ -3,8 +3,8 @@
 # autocvd(num_gpus = 1)
 # # =======================
 
-from jf1uids.initial_condition_generation.construct_primitive_state import construct_primitive_state
-from jf1uids.option_classes.simulation_config import DOUBLE_MINMOD, HLLC, BoundarySettings1D
+from astronomix.initial_condition_generation.construct_primitive_state import construct_primitive_state
+from astronomix.option_classes.simulation_config import DOUBLE_MINMOD, HLLC, BoundarySettings1D
 
 # 64-bit floating point precision
 import jax
@@ -12,17 +12,17 @@ jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 
 # constants and options
-from jf1uids import CARTESIAN, PERIODIC_BOUNDARY
-from jf1uids import SimulationConfig, SimulationParams
+from astronomix import CARTESIAN, PERIODIC_BOUNDARY
+from astronomix import SimulationConfig, SimulationParams
 
 # simulation setup and execution
-from jf1uids import get_helper_data, finalize_config, get_registered_variables, time_integration
+from astronomix import get_helper_data, finalize_config, get_registered_variables, time_integration
 
 # plotting
 import matplotlib.pyplot as plt
 
 # ===================================================
-# ============== ↓ jf1uids simulation ↓ =============
+# ============== ↓ astronomix simulation ↓ =============
 # ===================================================
 
 # -- Simulation Parameters from the Specification --
@@ -86,7 +86,7 @@ def simulate_and_get_error(num_cells, use_first_order):
     return r_centers, rho_final, rho_exact, l1_error
 
 # ===================================================
-# ============== ↑ jf1uids simulation ↑ =============
+# ============== ↑ astronomix simulation ↑ =============
 # ===================================================
 
 # --- Convergence Study ---

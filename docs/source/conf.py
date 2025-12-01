@@ -5,14 +5,14 @@
 
 import os
 import sys
-# sys.path.insert(0, os.path.abspath('../../jf1uids'))  # Source code dir relative to this file
+# sys.path.insert(0, os.path.abspath('../../astronomix'))  # Source code dir relative to this file
 
-# import jf1uids
+# import astronomix
 
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = 'jf1uids'
+project = 'astronomix'
 copyright = '2025'
 author = 'Leonard Storcks at <a href="https://astroai-lab.de/index.html">AstroAi Lab</a>.'
 
@@ -45,12 +45,12 @@ extensions = [
 ]
 
 
-apidoc_module_dir = '../../jf1uids'
+apidoc_module_dir = '../../astronomix'
 apidoc_output_dir = 'source'
 apidoc_separate_modules = True
 
 autodoc2_packages = [
-    "../../jf1uids",
+    "../../astronomix",
 ]
 
 autodoc2_hidden_objects = ["inherited", "private"]
@@ -92,13 +92,13 @@ nb_execution_mode = "off"
 html_theme = 'sphinx_book_theme'
 # html_static_path = ['_static']
 
-html_logo = "jf1uids_logo.svg"
+html_logo = "astronomix_logo.svg"
 
 html_favicon = 'icon.svg'
 
-html_title = "jf1uids"
+html_title = "astronomix"
 
 html_theme_options = {
-    "repository_url": "https://github.com/leo1200/jf1uids",
+    "repository_url": "https://github.com/leo1200/astronomix",
     "use_repository_button": True,
 }

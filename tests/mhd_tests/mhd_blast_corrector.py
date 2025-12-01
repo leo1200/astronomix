@@ -3,8 +3,8 @@ from autocvd import autocvd
 autocvd(num_gpus = 1, interval = 10)
 # =======================
 
-from jf1uids._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector import CorrectorCNN
-from jf1uids._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_options import CNNMHDParams, CNNMHDconfig
+from astronomix._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector import CorrectorCNN
+from astronomix._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_options import CNNMHDParams, CNNMHDconfig
 
 # numerics
 import jax
@@ -27,19 +27,19 @@ import equinox as eqx
 import optax
 
 # fluids
-from jf1uids import SimulationConfig
-from jf1uids import get_helper_data
-from jf1uids import SimulationParams
-from jf1uids import time_integration
-from jf1uids.initial_condition_generation.construct_primitive_state import construct_primitive_state
-from jf1uids import get_registered_variables
-from jf1uids.option_classes.simulation_config import finalize_config
+from astronomix import SimulationConfig
+from astronomix import get_helper_data
+from astronomix import SimulationParams
+from astronomix import time_integration
+from astronomix.initial_condition_generation.construct_primitive_state import construct_primitive_state
+from astronomix import get_registered_variables
+from astronomix.option_classes.simulation_config import finalize_config
 import numpy as np
 from matplotlib.colors import LogNorm
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-# jf1uids constants
-from jf1uids.option_classes.simulation_config import (
+# astronomix constants
+from astronomix.option_classes.simulation_config import (
     BACKWARDS, FORWARDS, HLL, HLLC, MINMOD,
     OSHER, PERIODIC_BOUNDARY, BoundarySettings, BoundarySettings1D
 )

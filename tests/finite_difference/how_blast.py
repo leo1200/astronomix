@@ -12,15 +12,15 @@ import jax.numpy as jnp
 
 # jax.config.update("jax_enable_x64", True)
 
-from jf1uids._finite_difference._interface_fluxes._weno import (
+from astronomix._finite_difference._interface_fluxes._weno import (
     _weno_flux_x,
     _weno_flux_y,
     _weno_flux_z,
 )
 
-from jf1uids._finite_difference._maths._differencing import finite_difference_int6
+from astronomix._finite_difference._maths._differencing import finite_difference_int6
 
-from jf1uids._finite_difference._magnetic_update._constrained_transport import (
+from astronomix._finite_difference._magnetic_update._constrained_transport import (
     constrained_transport_rhs,
     initialize_interface_fields,
 )
@@ -30,15 +30,15 @@ import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 
 # fluids
-from jf1uids import SimulationConfig
-from jf1uids import get_helper_data
-from jf1uids import SimulationParams
-from jf1uids import time_integration
-from jf1uids.initial_condition_generation.construct_primitive_state import (
+from astronomix import SimulationConfig
+from astronomix import get_helper_data
+from astronomix import SimulationParams
+from astronomix import time_integration
+from astronomix.initial_condition_generation.construct_primitive_state import (
     construct_primitive_state,
 )
-from jf1uids import get_registered_variables
-from jf1uids.option_classes.simulation_config import (
+from astronomix import get_registered_variables
+from astronomix.option_classes.simulation_config import (
     DOUBLE_MINMOD,
     FINITE_DIFFERENCE,
     HLLC_LM,
@@ -49,20 +49,20 @@ from jf1uids.option_classes.simulation_config import (
 import numpy as np
 from matplotlib.colors import LogNorm
 
-from jf1uids._finite_volume._magnetic_update._magnetic_field_update import (
+from astronomix._finite_volume._magnetic_update._magnetic_field_update import (
     magnetic_update,
 )
 
 from mpl_toolkits.axes_grid1.axes_divider import make_axes_locatable
 
 
-from jf1uids._finite_difference._fluid_equations._equations import (
+from astronomix._finite_difference._fluid_equations._equations import (
     conserved_state_from_primitive_mhd,
 )
-# from jf1uids._finite_difference._magnetic_update._constrained_transport import initialize_face_centered_b
+# from astronomix._finite_difference._magnetic_update._constrained_transport import initialize_face_centered_b
 
-# jf1uids constants
-from jf1uids.option_classes.simulation_config import (
+# astronomix constants
+from astronomix.option_classes.simulation_config import (
     BACKWARDS,
     FORWARDS,
     HLL,

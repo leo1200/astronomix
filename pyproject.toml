@@ -1,10 +1,10 @@
 [tool.poetry]
-name = "jf1uids"
-version = "0.4.0"
+name = "astronomix"
+version = "0.5.0"
 description = "differentiable (magneto)hydrodynamics for astrophysics in JAX"
 authors = ["Leonard Storcks"]
 readme = "README.md"
-packages = [{include = "jf1uids"}]
+packages = [{include = "astronomix"}]
 
 [tool.poetry.dependencies]
 python = ">=3.9"

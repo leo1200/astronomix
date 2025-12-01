@@ -1,20 +1,20 @@
 import jax.numpy as jnp
 
 # constants
-from jf1uids import CARTESIAN
+from astronomix import CARTESIAN
 
-# jf1uids option structures
-from jf1uids import SimulationConfig
-from jf1uids import SimulationParams
+# astronomix option structures
+from astronomix import SimulationConfig
+from astronomix import SimulationParams
 
 # simulation setup
-from jf1uids import get_helper_data
-from jf1uids import finalize_config
-from jf1uids import get_registered_variables
-from jf1uids.initial_condition_generation.construct_primitive_state import construct_primitive_state
+from astronomix import get_helper_data
+from astronomix import finalize_config
+from astronomix import get_registered_variables
+from astronomix.initial_condition_generation.construct_primitive_state import construct_primitive_state
 
 # time integration, core function
-from jf1uids import time_integration
+from astronomix import time_integration
 
 # / ... imports ... /
 

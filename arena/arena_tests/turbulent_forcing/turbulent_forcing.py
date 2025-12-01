@@ -45,9 +45,9 @@ from matplotlib.colors import LogNorm
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1.axes_divider import make_axes_locatable
 
-# jf1uidsSimulationConfig
-from jf1uids import (
-    # jf1uids data structures
+# astronomixSimulationConfig
+from astronomix import (
+    # astronomix data structures
     SimulationConfig,
     SimulationParams,
     # setup functions
@@ -60,10 +60,10 @@ from jf1uids import (
     time_integration
 )
 
-from jf1uids._physics_modules._turbulent_forcing._turbulent_forcing import _apply_forcing
-from jf1uids._physics_modules._turbulent_forcing._turbulent_forcing_options import TurbulentForcingConfig, TurbulentForcingParams
-from jf1uids.initial_condition_generation.turbulent_ic_generator import create_turb_field
-from jf1uids.option_classes.simulation_config import (
+from astronomix._physics_modules._turbulent_forcing._turbulent_forcing import _apply_forcing
+from astronomix._physics_modules._turbulent_forcing._turbulent_forcing_options import TurbulentForcingConfig, TurbulentForcingParams
+from astronomix.initial_condition_generation.turbulent_ic_generator import create_turb_field
+from astronomix.option_classes.simulation_config import (
     FINITE_DIFFERENCE,
     PERIODIC_BOUNDARY, 
     BoundarySettings, 
