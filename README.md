@@ -401,16 +401,7 @@ where $\Delta t$ is the hydro-timestep. This update closely follows the Euler gr
 However, this scheme does not conserve energy, essentially because the mass actually transported in the field is not the bulk flux $\rho v_i$ but the Riemann flux. When we for instance consider the `HLLC` flux in the central formulation:
 
 $$
-\vec{F}_* =
-\underbrace{\tfrac{1}{2}\left(\vec{F}_L + \vec{F}_R\right)}_{\text{bulk-flux component}}
-+
-\underbrace{\tfrac{1}{2}\left[
-S_L\left(\vec{U}_{*L}-\vec{U}_L\right)
-+
-\lvert S_* \rvert \left(\vec{U}_{*L}-\vec{U}_{*R}\right)
-+
-S_R\left(\vec{U}_{*R}-\vec{U}_R\right)
-\right]}_{\text{gradient-based component}}
+\vec{F}_{\ast} = \underbrace{\tfrac{1}{2}\left(\vec{F}_{L} + \vec{F}_{R}\right)}_{\text{bulk-flux component}} + \underbrace{\tfrac{1}{2}\left[ S_{L}\left(\vec{U}_{\ast L}-\vec{U}_{L}\right) + | S_{\ast} | \left(\vec{U}_{\ast L}-\vec{U}_{\ast R}\right) + S_{R}\left(\vec{U}_{\ast R}-\vec{U}_{R}\right) \right]}_{\text{gradient-based component}}
 $$
 
 we can see a bulk-flux component and a gradient-based component. The higher the resolution, the more aligned will the Riemann flux and bulk flux be, becoming equal for $\Delta x \rightarrow 0$. We therefore expect better conservational properties at higher spatial resolution.
@@ -445,14 +436,14 @@ $$
 \vec{U}_i \leftarrow \vec{U}_i + \Delta t \vec{S}_i, \quad \vec{S}_i = \begin{pmatrix}
     0 \\
     \rho g_i \\
-    \frac{1}{2}\left((\rho v_i)_{i-\frac{1}{2}}^\text{Riemann} g_{i-\frac{1}{2}} + (\rho v_i)_{i+\frac{1}{2}}^\text{Riemann} g_{i+\frac{1}{2}}\right)
+    \frac{1}{2}\left((\rho v)_{i-\frac{1}{2}}^\text{Riemann} g_{i-\frac{1}{2}} + (\rho v)_{i+\frac{1}{2}}^\text{Riemann} g_{i+\frac{1}{2}}\right)
 \end{pmatrix}
 $$
 
 In my view, this scheme has the following flaws:
 
-*   The momentum and energy update become misaligned, while this might have a positive corrective effect in some cases, in others we will make unwanted changes to the internal energy.
-*   Consider adjacent cells $i$ and $i+1$, each cell receives a term $\tfrac{1}{2}(\rho v_i)_{i+\tfrac{1}{2}}^\text{Riemann} g_{i+\frac{1}{2}}$ added, these terms correspond to the Riemann flux through the interface at $x_{i+\tfrac{1}{2}}$ which brings about the improved energy conservation (the energy source term reflects the mass actually moved in the potential); however, the half-half split of the Riemann flux between adjacent cells can be problematic: consider a discontinuity where one of the adjacent cells has very little energy to begin with and the flux flows against the potential - the half-half split means that we consider half of the work done against the potential to be done by the energy-depleted cell.
+- The momentum and energy update become misaligned, while this might have a positive corrective effect in some cases, in others we will make unwanted changes to the internal energy.
+- Consider adjacent cells $i$ and $i+1$, each cell receives a term $\frac{1}{2} \rho v_{i+\frac{1}{2}}^\text{Riemann} g_{i+\frac{1}{2}}$ added, these terms correspond to the Riemann flux through the interface at $x_{i+\tfrac{1}{2}}$ which brings about the improved energy conservation (the energy source term reflects the mass actually moved in the potential); however, the half-half split of the Riemann flux between adjacent cells can be problematic: consider a discontinuity where one of the adjacent cells has very little energy to begin with and the flux flows against the potential - the half-half split means that we consider half of the work done against the potential to be done by the energy-depleted cell.
 
 I assume the second aspect to be the reason why this scheme failed for Evrard's collapse in my tests, producing negative pressures at the discontinuity.
 
@@ -467,7 +458,7 @@ This is substantiated by the observation that our improved scheme, which replace
 This is very much work in progress but the main idea is to replace the half-half split.
 
 Consider the interface between cells $i$ and $i+1$. In the half-half split scheme, both
-cells receive an energy source term $(\rho v_i)_{i+\tfrac{1}{2}}^\text{Riemann} g_{i+\tfrac{1}{2}} / 2$.
+cells receive an energy source term $\frac{1}{2} \rho v_{i+\frac{1}{2}}^\text{Riemann} g_{i+\frac{1}{2}}$.
 
 Now, consider that we can write the Riemann flux as
 
