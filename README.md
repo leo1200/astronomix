@@ -480,6 +480,20 @@ More on this will be presented in future work.
 
 ## Citing astronomix
 
-We have currently only published on the previous 1d-only version of this code.
+If you use `astronomix` in your research, please cite via
+
+```bibtex
+@misc{storcks_astronomix_2025,
+  doi = {10.5281/ZENODO.17782162},
+  url = {https://zenodo.org/doi/10.5281/zenodo.17782162},
+  author = {Storcks, Leonard},
+  title = {astronomix - differentiable MHD in JAX},
+  publisher = {Zenodo},
+  year = {2025},
+  copyright = {MIT License}
+}
+```
+
+There is also a workshop paper on an earlier stage of the project:
 
 [Storcks, L., & Buck, T. (2024). Differentiable Conservative Radially Symmetric Fluid Simulations and Stellar Winds--jf1uids. arXiv preprint arXiv:2410.23093.](https://arxiv.org/abs/2410.23093)
