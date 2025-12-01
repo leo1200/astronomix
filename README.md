@@ -344,9 +344,11 @@ $$
  \left\| \vec{B}^{(k+1)} - \vec{B}^{(k)} \right\|_{\infty},
  \left\| \vec{v}^{(k+1)} - \vec{v}^{(k)} \right\|_{\infty}
 \Big)
-< \varepsilon_{\mathrm{tol}} \sim 10^{-10}
+< \varepsilon_{\mathrm{tol}}
 \end{gathered}
 $$
+
+We use $\varepsilon_{\mathrm{tol}} = 10^{-10}$ in double precision and $\varepsilon_{\mathrm{tol}} = 10^{-5}$ in single precision.
 
 This iteration usually converges in a few ($5$ to $9$) iterations (Pang and Wu, 2024) and thus is relatively inexpensive. Here we leave extensive performance profiling for future work. Note that all our updates to the magnetic field are numerical curls of vector fields, we therefore never add divergence to the magnetic field and retain $\vec{\nabla} \cdot \vec{B} = 0$ by design.
 
@@ -399,13 +401,15 @@ where $\Delta t$ is the hydro-timestep. This update closely follows the Euler gr
 However, this scheme does not conserve energy, essentially because the mass actually transported in the field is not the bulk flux $\rho v_i$ but the Riemann flux. When we for instance consider the `HLLC` flux in the central formulation:
 
 $$
-\vec{F}_*=
-\underbrace{\frac{1}{2}\left(\vec{F}_L+\vec{F}_R\right)}_{\text{bulk-flux component}}
+\vec{F}_* =
+\underbrace{\tfrac{1}{2}\left(\vec{F}_L + \vec{F}_R\right)}_{\text{bulk-flux component}}
 +
-\underbrace{\frac{1}{2}\left[
+\underbrace{\tfrac{1}{2}\left[
 S_L\left(\vec{U}_{*L}-\vec{U}_L\right)
-+ \left|S_{\!*}\right|\left(\vec{U}_{*L}-\vec{U}_{*R}\right)
-+ S_R\left(\vec{U}_{*R}-\vec{U}_R\right)
++
+\lvert S_* \rvert \left(\vec{U}_{*L}-\vec{U}_{*R}\right)
++
+S_R\left(\vec{U}_{*R}-\vec{U}_R\right)
 \right]}_{\text{gradient-based component}}
 $$
 
@@ -448,7 +452,7 @@ $$
 In my view, this scheme has the following flaws:
 
 *   The momentum and energy update become misaligned, while this might have a positive corrective effect in some cases, in others we will make unwanted changes to the internal energy.
-*   Consider adjacent cells $i$ and $i+1$, each cell receives a term $\frac{1}{2}(\rho v_i)_{i+\frac{1}{2}}^\text{Riemann} g_{i+\frac{1}{2}}$ added, these terms correspond to the Riemann flux through the interface at $x_{i+\frac{1}{2}}$ which brings about the improved energy conservation (the energy source term reflects the mass actually moved in the potential); however, the half-half split of the Riemann flux between adjacent cells can be problematic: consider a discontinuity where one of the adjacent cells has very little energy to begin with and the flux flows against the potential - the half-half split means that we consider half of the work done against the potential to be done by the energy-depleted cell.
+*   Consider adjacent cells $i$ and $i+1$, each cell receives a term $\tfrac{1}{2}(\rho v_i)_{i+\tfrac{1}{2}}^\text{Riemann} g_{i+\frac{1}{2}}$ added, these terms correspond to the Riemann flux through the interface at $x_{i+\tfrac{1}{2}}$ which brings about the improved energy conservation (the energy source term reflects the mass actually moved in the potential); however, the half-half split of the Riemann flux between adjacent cells can be problematic: consider a discontinuity where one of the adjacent cells has very little energy to begin with and the flux flows against the potential - the half-half split means that we consider half of the work done against the potential to be done by the energy-depleted cell.
 
 I assume the second aspect to be the reason why this scheme failed for Evrard's collapse in my tests, producing negative pressures at the discontinuity.
 
@@ -463,7 +467,7 @@ This is substantiated by the observation that our improved scheme, which replace
 This is very much work in progress but the main idea is to replace the half-half split.
 
 Consider the interface between cells $i$ and $i+1$. In the half-half split scheme, both
-cells receive an energy source term $(\rho v_i)_{i+\frac{1}{2}}^\text{Riemann} g_{i+\frac{1}{2}} / 2$.
+cells receive an energy source term $(\rho v_i)_{i+\tfrac{1}{2}}^\text{Riemann} g_{i+\tfrac{1}{2}} / 2$.
 
 Now, consider that we can write the Riemann flux as
 
@@ -478,7 +482,7 @@ $$
 F^\text{Riemann}_{i+\frac{1}{2}} = \underbrace{\frac{1}{2} F_L + \max(F_\text{diffusive}, 0)}_{\text{cell $i$ accounts for this}} + \underbrace{\frac{1}{2} F_R + \min(F_\text{diffusive}, 0)}_{\text{cell $i+1$ accounts for this}}
 $$
 
-For a piecewise constant reconstruction $F_L = F_i$ and $F_R = F_{i+1}$ (bulk fluxes $F_i$ and $F_{i+1}$) for the interface between cells $i$ and $i+1$. Similarly $F_L = F_{i-1}$ and $F_R = F_{i}$ for the interface between cells $i-1$ and $i$. For the case of $g_{i+\frac{1}{2}} = g_{i-\frac{1}{2}} = g_i$ and $F_\text{diffusive} = 0$ we recover the simple (non-conservative) source-term scheme.
+For a piecewise constant reconstruction $F_L = F_i$ and $F_R = F_{i+1}$ (bulk fluxes $F_i$ and $F_{i+1}$) for the interface between cells $i$ and $i+1$. Similarly $F_L = F_{i-1}$ and $F_R = F_{i}$ for the interface between cells $i-1$ and $i$. For the case of $g_{i+\tfrac{1}{2}} = g_{i-\tfrac{1}{2}} = g_i$ and $F_\text{diffusive} = 0$ we recover the simple (non-conservative) source-term scheme.
 Therefore our scheme can be seen as a correction to the simple source-term scheme.
 
 More on this will be presented in future work.
