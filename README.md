@@ -105,6 +105,11 @@ u_final = final_state[registered_variables.velocity_index]
 p_final = final_state[registered_variables.pressure_index]
 ```
 
+You've just run your first `astronomix` simulation! You can continue with
+the notebooks below and we have also prepared a more advanced use-case
+(stellar wind in driven MHD tubulence) which you can
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1Pg98IPGnoejaGvzmNNZiwmf1JnXwYAJH?usp=sharing).
+
 ## Notebooks for Getting Started
 
 - hydrodynamics
