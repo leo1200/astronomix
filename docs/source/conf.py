@@ -92,7 +92,7 @@ nb_execution_mode = "off"
 html_theme = 'sphinx_book_theme'
 # html_static_path = ['_static']
 
-html_logo = "astronomix_logo.svg"
+html_logo = "astronomix_logo.png"
 
 html_favicon = 'icon.svg'
 

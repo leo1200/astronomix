@@ -30,6 +30,7 @@ finite volume approach of [Pang and Wu (2024)](https://arxiv.org/abs/2410.05173)
 - [Scaling tests](#scaling-tests)
 - [Documentation](#documentation)
 - [Methodology](#methodology)
+- [Limitations](#limitations)
 - [Citing astronomix](#citing-astronomix)
 
 ## Installation
@@ -193,7 +194,7 @@ at the time of benchmarking as we are using shared cluster resources.
 
 ## Documentation
 
-See [here](https://jf1uids.web.app/).
+See [here](https://astronomix-mhd.web.app/).
 
 ## Methodology
 
@@ -482,6 +483,12 @@ For a piecewise constant reconstruction $F_L = F_i$ and $F_R = F_{i+1}$ (bulk fl
 Therefore our scheme can be seen as a correction to the simple source-term scheme.
 
 More on this will be presented in future work.
+
+## Limitations
+
+The finite difference MHD scheme was recently implemented and currently only supports periodic
+boundary conditions. Currently, self-gravity, cosmic rays and cooling are also not supported with
+the finite difference scheme.
 
 ## Citing astronomix
 

@@ -1,7 +1,7 @@
-jf1uids
-=======
+astronomix
+==========
 
 .. toctree::
    :maxdepth: 4
 
-   jf1uids
+   astronomix
