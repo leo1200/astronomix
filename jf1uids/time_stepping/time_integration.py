@@ -17,10 +17,19 @@ from jax.experimental import checkify
 # jf1uids constants
 from jf1uids._finite_difference._maths._differencing import _interface_field_divergence
 from jf1uids._finite_difference._state_evolution._evolve_state import _evolve_state_fd
-from jf1uids._finite_difference._timestep_estimation._timestep_estimator import _cfl_time_step_fd
+from jf1uids._finite_difference._timestep_estimation._timestep_estimator import (
+    _cfl_time_step_fd,
+)
 from jf1uids._geometry.boundaries import _boundary_handler
 from jf1uids.data_classes.simulation_state_struct import StateStruct
-from jf1uids.option_classes.simulation_config import BACKWARDS, FINITE_DIFFERENCE, FINITE_VOLUME, FORWARDS, GHOST_CELLS, STATE_TYPE
+from jf1uids.option_classes.simulation_config import (
+    BACKWARDS,
+    FINITE_DIFFERENCE,
+    FINITE_VOLUME,
+    FORWARDS,
+    GHOST_CELLS,
+    STATE_TYPE,
+)
 
 # jf1uids containers
 from jf1uids.option_classes.simulation_config import SimulationConfig
@@ -54,6 +63,8 @@ from jf1uids.time_stepping._progress_bar import _show_progress
 # timing
 from timeit import default_timer as timer
 
+import equinox as eqx
+
 
 # @jaxtyped(typechecker=typechecker)
 def time_integration(
@@ -62,7 +73,7 @@ def time_integration(
     params: SimulationParams,
     helper_data: HelperData,
     registered_variables: RegisteredVariables,
-    snapshot_callable = None,
+    snapshot_callable=None,
     sharding: Union[NoneType, jax.NamedSharding] = None,
 ) -> Union[STATE_TYPE, SnapshotData]:
     """
@@ -105,7 +116,9 @@ def time_integration(
     # time if requested, compiling the function for memory analysis if
     # requested, etc.
 
-    helper_data_pad = get_helper_data(config, sharding, padded = config.boundary_handling == GHOST_CELLS)
+    helper_data_pad = get_helper_data(
+        config, sharding, padded=config.boundary_handling == GHOST_CELLS
+    )
 
     if config.runtime_debugging:
         errors = (
@@ -215,7 +228,7 @@ def _time_integration(
     registered_variables: RegisteredVariables,
     helper_data_unpad: Union[HelperData, NoneType],
     helper_data_pad: Union[HelperData, NoneType],
-    snapshot_callable = None,
+    snapshot_callable=None,
 ) -> Union[STATE_TYPE, StateStruct, SnapshotData]:
     """
     Time integration.
@@ -309,8 +322,7 @@ def _time_integration(
 
         magnetic_divergence = (
             jnp.zeros(config.num_snapshots)
-            if config.snapshot_settings.return_magnetic_divergence
-            and config.mhd
+            if config.snapshot_settings.return_magnetic_divergence and config.mhd
             else None
         )
 
@@ -354,6 +366,10 @@ def _time_integration(
     # after a time step. However, the data which actually needs to be
     # updated may be more complex, e.g. the SnapshotData needs to be
     # updated appropriately if snapshots are requested.
+    if config.cnn_mhd_corrector_config.cnn_mhd_corrector:
+        neural_net_params = params.cnn_mhd_corrector_params.network_params
+        neural_net_static = config.cnn_mhd_corrector_config.network_static
+        model = eqx.combine(neural_net_params, neural_net_static)
 
     def update_step(carry):
         # --------------- ↓ Carry unpacking+ ↓ ----------------
@@ -394,7 +410,9 @@ def _time_integration(
                     total_mass = snapshot_data.total_mass.at[
                         snapshot_data.current_checkpoint
                     ].set(
-                        calculate_total_mass(unpad_primitive_state, helper_data_unpad, config)
+                        calculate_total_mass(
+                            unpad_primitive_state, helper_data_unpad, config
+                        )
                     )
                 else:
                     total_mass = None
@@ -476,16 +494,31 @@ def _time_integration(
                 else:
                     gravitational_energy = None
 
-                magnetic_divergence = snapshot_data.magnetic_divergence.at[
-                    snapshot_data.current_checkpoint
-                ].set(
-                    jnp.mean(jnp.abs(_interface_field_divergence(
-                        unpad_primitive_state[registered_variables.interface_magnetic_field_index.x],
-                        unpad_primitive_state[registered_variables.interface_magnetic_field_index.y],
-                        unpad_primitive_state[registered_variables.interface_magnetic_field_index.z],
-                        config.grid_spacing,
-                    )))
-                ) if config.snapshot_settings.return_magnetic_divergence and config.mhd else None
+                magnetic_divergence = (
+                    snapshot_data.magnetic_divergence.at[
+                        snapshot_data.current_checkpoint
+                    ].set(
+                        jnp.mean(
+                            jnp.abs(
+                                _interface_field_divergence(
+                                    unpad_primitive_state[
+                                        registered_variables.interface_magnetic_field_index.x
+                                    ],
+                                    unpad_primitive_state[
+                                        registered_variables.interface_magnetic_field_index.y
+                                    ],
+                                    unpad_primitive_state[
+                                        registered_variables.interface_magnetic_field_index.z
+                                    ],
+                                    config.grid_spacing,
+                                )
+                            )
+                        )
+                    )
+                    if config.snapshot_settings.return_magnetic_divergence
+                    and config.mhd
+                    else None
+                )
 
                 current_checkpoint = snapshot_data.current_checkpoint + 1
                 snapshot_data = snapshot_data._replace(
@@ -685,6 +718,28 @@ def _time_integration(
                 helper_data_pad,
                 registered_variables,
             )
+            if config.cnn_mhd_corrector_config.cnn_mhd_corrector:
+                if config.cnn_mhd_corrector_config.correct_from_beggining is False:
+
+                    def correct_state(primitive_state: STATE_TYPE):
+                        primitive_state = model(
+                            primitive_state, config, registered_variables, params, dt
+                        )
+                        return primitive_state
+
+                    def no_correct_state(primitive_state: STATE_TYPE):
+                        return primitive_state
+
+                    primitive_state = jax.lax.cond(
+                        time > config.cnn_mhd_corrector_config.start_correction_time,
+                        correct_state,
+                        no_correct_state,
+                        primitive_state,  # Only pass the non-static arguments
+                    )
+                else:
+                    primitive_state = model(
+                        primitive_state, config, registered_variables, params, dt
+                    )
 
         time += dt
 
@@ -772,7 +827,7 @@ def _time_integration(
                     unpad_primitive_state = _unpad(primitive_state, config)
                 else:
                     unpad_primitive_state = primitive_state
-                
+
                 snapshot_data = snapshot_data._replace(
                     final_state=unpad_primitive_state
                 )

@@ -17,17 +17,17 @@ pressure = 100 for r <= r0
 with r0 = 0.125, r1 = 1.1 * r0, and B0 = 10. r is
 the radial distance from the center of the box.
 
-The simulation is run until t = 0.02 in a periodic box 
+The simulation is run until t = 0.02 in a periodic box
 of size 1.0.
 
 ## Literature reference
 
-Seo, Jeongbhin, and Dongsu Ryu. 
-"HOW-MHD: a high-order WENO-based 
-magnetohydrodynamic code with a 
-high-order constrained transport 
-algorithm for astrophysical 
-applications." 
+Seo, Jeongbhin, and Dongsu Ryu.
+"HOW-MHD: a high-order WENO-based
+magnetohydrodynamic code with a
+high-order constrained transport
+algorithm for astrophysical
+applications."
 The Astrophysical Journal
 953.1 (2023): 39.
 https://arxiv.org/pdf/2304.04360
@@ -37,6 +37,7 @@ import os
 
 # basic numerics
 import jax.numpy as jnp
+import numpy as np
 
 # plotting
 import matplotlib.pyplot as plt
@@ -54,29 +55,27 @@ from jf1uids import (
     get_helper_data,
     initialize_interface_fields,
     # time integration
-    time_integration
+    time_integration,
 )
 
 from jf1uids.option_classes.simulation_config import (
     FINITE_DIFFERENCE,
-    PERIODIC_BOUNDARY, 
-    BoundarySettings, 
-    BoundarySettings1D
+    PERIODIC_BOUNDARY,
+    BoundarySettings,
+    BoundarySettings1D,
 )
 
-def mhd_blast_test1(
-    config: SimulationConfig,
-    params: SimulationParams,
-    configuration_name: str
-):
 
+def mhd_blast_test1(
+    config: SimulationConfig, params: SimulationParams, configuration_name: str
+):
     test_name = f"mhd_blast_test1_{config.num_cells}cells"
 
     print("👷 setting up mhd_blast_test1 with configuration: ", configuration_name)
 
     num_cells = config.num_cells
 
-    # adapt the params for the 
+    # adapt the params for the
     # correct end time
     params = params._replace(
         t_end=0.02,
@@ -155,7 +154,10 @@ def mhd_blast_test1(
     final_state = time_integration(
         initial_state, config, params, helper_data, registered_variables
     )
-
+    print(final_state.states.shape)
+    density_states = np.array(final_state.states[:, 0, ...])
+    print(density_states.shape)
+    jnp.save("arena/data/blast_states.npy", jnp.array(density_states))
     # store the simulation result
 
     # create a folder configuration_name in results/

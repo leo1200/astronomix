@@ -85,7 +85,7 @@ def _cfl_time_step_fd(
     )
 
     lambda_z = jnp.max(jnp.abs(lambda_z))
-
+    
     dt_cfl = C_CFL * grid_spacing / (lambda_x + lambda_y + lambda_z)
     dt_cfl = jnp.minimum(dt_cfl, dt_max)
 

@@ -1,9 +1,21 @@
 """Training a Solver in the loop model while using FINITE DIFFERENCE as the solver mode"""
 
+from autocvd import autocvd
+
+autocvd(num_gpus=1)
+
 import os
+from timeit import default_timer as timer
+from typing import Tuple
+
 import equinox as eqx
-import jax.numpy as jnp
 import jax
+jax.config.update("jax_debug_nans", True)
+import jax.numpy as jnp
+import optax
+from jaxtyping import PyTree
+from tqdm import tqdm
+
 from jf1uids import (
     SimulationConfig,
     SimulationParams,
@@ -13,8 +25,9 @@ from jf1uids import (
     get_registered_variables,
     initialize_interface_fields,
 )
-from jf1uids.variable_registry.registered_variables import RegisteredVariables
-from jf1uids._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector import CorrectorCNN
+from jf1uids._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_finite_element import (
+    CorrectorCNN,
+)
 from jf1uids._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_options import (
     CNNMHDconfig,
     CNNMHDParams,
@@ -23,21 +36,29 @@ from jf1uids.option_classes.simulation_config import (
     BACKWARDS,
     FINITE_DIFFERENCE,
     PERIODIC_BOUNDARY,
+    STATE_TYPE,
     BoundarySettings,
     BoundarySettings1D,
-    STATE_TYPE
 )
 from jf1uids.time_stepping import time_integration
-import optax
-from tqdm import tqdm
-from timeit import default_timer as timer
-from typing import Tuple
-from jaxtyping import PyTree
+from jf1uids.variable_registry.registered_variables import RegisteredVariables
+import matplotlib.pyplot as plt
+from matplotlib.gridspec import GridSpec
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+from pathlib import Path
+import pickle
+import numpy as np
 
 
 def get_initial_state_training(
-    num_cells_high_res: int, downaverage_factor: int, t_end: float, snapshot_timepoints_train: jnp.ndarray
-) -> Tuple[Tuple[STATE_TYPE, SimulationConfig, SimulationParams, RegisteredVariables], Tuple[STATE_TYPE, SimulationConfig, SimulationParams, RegisteredVariables]]:
+    num_cells_high_res: int,
+    downaverage_factor: int,
+    t_end: float,
+    snapshot_timepoints_train: jnp.ndarray,
+) -> Tuple[
+    Tuple[STATE_TYPE, SimulationConfig, SimulationParams, RegisteredVariables],
+    Tuple[STATE_TYPE, SimulationConfig, SimulationParams, RegisteredVariables],
+]:
     params = SimulationParams(
         C_cfl=1.5, t_end=t_end, snapshot_timepoints=snapshot_timepoints_train
     )
@@ -61,7 +82,11 @@ def get_initial_state_training(
             ),
         ),
         use_specific_snapshot_timepoints=True,
+        return_snapshots=True,
         num_snapshots=len(snapshot_timepoints_train),
+        num_checkpoints=10,
+        progress_bar=True,
+        runtime_debugging=False,
     )
 
     helper_data = get_helper_data(config)
@@ -113,11 +138,9 @@ def get_initial_state_training(
 
     config = finalize_config(config, initial_state.shape)
     initial_state_low_res = downaverage(
-        state=config.num_cells, downaverage_factor=downaverage_factor
+        state=initial_state, downaverage_factor=downaverage_factor
     )
-    config_low_res = config.num_cells._replace(
-        num_cells=config.num_cells.num_cells // downaverage_factor
-    )
+    config_low_res = config._replace(num_cells=config.num_cells // downaverage_factor)
     helper_data_low_res = get_helper_data(config_low_res)
     return (
         (initial_state, config, params, helper_data, registered_variables),
@@ -132,8 +155,7 @@ def get_initial_state_training(
 
 
 def downaverage(state: jnp.ndarray, downaverage_factor: int) -> jnp.ndarray:
-    """
-    Downaverage spatial (and depth) dimensions by non-overlapping block averaging.
+    """Downaverage spatial (and depth) dimensions by non-overlapping block averaging.
 
     This function accepts either:
       - unbatched input of shape (NUM_VARS, H, W, D)
@@ -229,126 +251,85 @@ def downaverage(state: jnp.ndarray, downaverage_factor: int) -> jnp.ndarray:
 
 
 def training_model(
-    epochs: int,
     num_cells_high_res: int,
     downaverage_factor: int,
-    t_end: float,
     snapshot_timepoints_train: jnp.array,
+    start_correction_time: float,
 ) -> Tuple[PyTree, PyTree]:
-    simulation_bundle_high_res, simulation_bundle_low_res = get_initial_state_training(
-        num_cells_high_res=num_cells_high_res,
-        downaverage_factor=downaverage_factor,
-        t_end=t_end,
-        snapshot_timepoints_train=snapshot_timepoints_train,
-    )
-    result_high_res = time_integration(**simulation_bundle_high_res)
-    states_high_res_downsampled = downaverage(
-        result_high_res.states, downaverage_factor=downaverage_factor
-    )
-    (
-        initial_state_low_res,
-        config_low_res,
-        params,
-        helper_data_low_res,
-        registered_variables,
-    ) = simulation_bundle_low_res
+    for final_time in [0.05, 0.06, 0.08, 0.1, 0.12, 0.15, 0.2]:
+        simulation_bundle_high_res, simulation_bundle_low_res = (
+            get_initial_state_training(
+                num_cells_high_res=num_cells_high_res,
+                downaverage_factor=downaverage_factor,
+                t_end=final_time,
+                snapshot_timepoints_train=snapshot_timepoints_train,
+            )
+        )
+        (
+            initial_state_low_res,
+            config_low_res,
+            params,
+            helper_data_low_res,
+            registered_variables,
+        ) = simulation_bundle_low_res
 
-    model = CorrectorCNN(
-        in_channels=registered_variables.num_vars,
-        hidden_channels=16,
-        key=jax.random.PRNGKey(42),
-    )
-    neural_net_params, neural_net_static = eqx.partition(model, eqx.is_array)
+        model = CorrectorCNN(
+            in_channels=registered_variables.num_vars,
+            hidden_channels=16,
+            key=jax.random.PRNGKey(100),
+        )
+        neural_net_params, neural_net_static = eqx.partition(model, eqx.is_array)
 
-    cnn_mhd_corrector_config = CNNMHDconfig(
-        cnn_mhd_corrector=True, network_static=neural_net_static
-    )
+        cnn_mhd_corrector_config = CNNMHDconfig(
+            cnn_mhd_corrector=True,
+            network_static=neural_net_static,
+            correct_from_beggining=False,
+            start_correction_time=start_correction_time,
+        )
 
-    cnn_mhd_corrector_params = CNNMHDParams(network_params=neural_net_params)
+        cnn_mhd_corrector_params = CNNMHDParams(network_params=neural_net_params)
 
-    config_low_res = config_low_res._replace(
-        cnn_mhd_corrector_config=cnn_mhd_corrector_config
-    )
-    params_low_res = params._replace(cnn_mhd_corrector_params=cnn_mhd_corrector_params)
+        config_low_res = config_low_res._replace(
+            cnn_mhd_corrector_config=cnn_mhd_corrector_config
+        )
+        params_low_res = params._replace(
+            cnn_mhd_corrector_params=cnn_mhd_corrector_params
+        )
 
-    @eqx.filter_jit
-    def loss_fn(network_params_arrays):
-        """Calculates the difference between the final state and the target."""
         results_low_res = time_integration(
             initial_state_low_res,
             config_low_res,
-            params_low_res._replace(
-                cnn_mhd_corrector_params=cnn_mhd_corrector_params._replace(
-                    network_params=network_params_arrays
-                )
-            ),
+            params_low_res,
             helper_data_low_res,
             registered_variables,
         )
-        # Calculate the L2 loss between the final state and the target state
-        loss = jnp.mean((results_low_res.states - states_high_res_downsampled) ** 2)
-        return loss
+        print(
+            f"finished time integration low res with t_end {final_time} and start correction time {start_correction_time}"
+        )
 
-    # Set up the optimizer using optax
-    learning_rate = 1e-3
-    optimizer = optax.adamw(learning_rate)
-    opt_state = optimizer.init(neural_net_params)
-
-    @eqx.filter_jit
-    def train_step(network_params_arrays, opt_state):
-        """Performs one step of gradient descent."""
-        loss_value, grads = eqx.filter_value_and_grad(loss_fn)(network_params_arrays)
-        updates, opt_state = optimizer.update(grads, opt_state, network_params_arrays)
-        network_params_arrays = eqx.apply_updates(network_params_arrays, updates)
-        return network_params_arrays, opt_state, loss_value
-
-    print("Starting training with optax...")
-    losses = []
-
-    # This variable will hold the trained parameters and be updated in the loop
-    trained_params = neural_net_params
-
-    # Timing
-    start_time = timer()
-
-    # The main training loop
-    pbar = tqdm(range(epochs))
-    best_loss = float("inf")
-    best_params = trained_params
-    for step in pbar:
-        trained_params, opt_state, loss = train_step(trained_params, opt_state)
-        losses.append(loss)
-        if loss < best_loss:
-            best_loss = loss
-            best_params = trained_params
-        pbar.set_description(f"Step {step + 1}/{epochs} | Loss: {loss:.2e}")
-
-    # After training, use the best parameters found
-    trained_params = best_params
-
-    end_time = timer()
-    print(f"Training finished in {end_time - start_time:.2f} seconds.")
-    input("Press Enter to continue...")
-
-    # # # save the trained parameters using pickle
-    import pickle
-
-    output_dir = "arena/data"
-    os.makedirs(output_dir, exist_ok=True)
-    output_path = os.path.join(output_dir, "cnn_mhd_corrector_params.pkl")
-    with open(output_path, "wb") as f:
-        pickle.dump(trained_params, f)
-
-    return neural_net_params, neural_net_static
+    return None, None
 
 
 def finite_difference_blast_test1(training: bool = True):
     downaverage_factor = 2
     if training:
         neural_net_params, neural_net_static = training_model(
-            epochs=100,
             num_cells_high_res=128,
             downaverage_factor=downaverage_factor,
-            t_end=0.2,
-            snapshot_timepoints_train=[0.2],
+            snapshot_timepoints_train=jnp.array([0.2]),
+            start_correction_time=0.05,
         )
+    else:
+        model = CorrectorCNN(
+            in_channels=11,
+            hidden_channels=16,
+            key=jax.random.PRNGKey(100),
+        )
+        neural_net_params, neural_net_static = eqx.partition(model, eqx.is_array)
+
+        with open("arena/data/cnn_mhd_corrector_params.pkl", "wb") as f:
+            pickle.dump(neural_net_params, f)
+
+
+if __name__ == "__main__":
+    finite_difference_blast_test1(True)

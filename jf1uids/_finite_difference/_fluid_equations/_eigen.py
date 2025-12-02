@@ -9,6 +9,8 @@ from typing import Union
 
 from jf1uids.variable_registry.registered_variables import RegisteredVariables
 
+EPSILON = 1e-7
+
 @partial(jax.jit, static_argnames=["registered_variables"])
 def _eigen_x(
     conserved_state,
@@ -66,11 +68,11 @@ def _eigen_x(
     cs2_center = jnp.maximum(0.0, gamma * jnp.abs(pg / rho))
 
     disc_c = (bbn2 + cs2_center) ** 2 - 4.0 * bnx2 * cs2_center
-    root_c = jnp.sqrt(jnp.maximum(0.0, disc_c))
+    root_c = jnp.sqrt(jnp.maximum(EPSILON, disc_c))
 
-    lf_c = jnp.sqrt(jnp.maximum(0.0, 0.5 * (bbn2 + cs2_center + root_c)))
-    la_c = jnp.sqrt(jnp.maximum(0.0, bnx2))
-    ls_c = jnp.sqrt(jnp.maximum(0.0, 0.5 * (bbn2 + cs2_center - root_c)))
+    lf_c = jnp.sqrt(jnp.maximum(EPSILON, 0.5 * (bbn2 + cs2_center + root_c)))
+    la_c = jnp.sqrt(jnp.maximum(EPSILON, bnx2))
+    ls_c = jnp.sqrt(jnp.maximum(EPSILON, 0.5 * (bbn2 + cs2_center - root_c)))
 
     # eigenvalues at centers: (7, Nx, Ny, Nz)
     lambdas = jnp.stack([
@@ -105,14 +107,14 @@ def _eigen_x(
 
     # cs2 at interfaces per Fortran (enthalpy-based)
     cs2_i = (gamma - 1.0) * (HH_i - 0.5 * (vv2_i + bbn2_i))
-    cs_i = jnp.sqrt(jnp.maximum(0.0, cs2_i))
+    cs_i = jnp.sqrt(jnp.maximum(EPSILON, cs2_i))
 
     disc_i = (bbn2_i + cs2_i) ** 2 - 4.0 * bnx2_i * cs2_i
-    root_i = jnp.sqrt(jnp.maximum(0.0, disc_i))
+    root_i = jnp.sqrt(jnp.maximum(EPSILON, disc_i))
 
-    lf_i = jnp.sqrt(jnp.maximum(0.0, 0.5 * (bbn2_i + cs2_i + root_i)))
-    la_i = jnp.sqrt(jnp.maximum(0.0, bnx2_i))   # sqrt(Bx^2/rho) -> |Bx|/sqrt(rho)
-    ls_i = jnp.sqrt(jnp.maximum(0.0, 0.5 * (bbn2_i + cs2_i - root_i)))
+    lf_i = jnp.sqrt(jnp.maximum(EPSILON, 0.5 * (bbn2_i + cs2_i + root_i)))
+    la_i = jnp.sqrt(jnp.maximum(EPSILON, bnx2_i))   # sqrt(Bx^2/rho) -> |Bx|/sqrt(rho)
+    ls_i = jnp.sqrt(jnp.maximum(EPSILON, 0.5 * (bbn2_i + cs2_i - root_i)))
 
     # degeneracy handling (tangential B)
     Bt2 = By_i * By_i + Bz_i * Bz_i
@@ -130,10 +132,10 @@ def _eigen_x(
 
 
     af = jnp.where(denom >= tiny,
-                   jnp.sqrt(jnp.maximum(0.0, cs2_i - ls_i * ls_i)) / jnp.sqrt(denom),
+                   jnp.sqrt(jnp.maximum(EPSILON, cs2_i - ls_i * ls_i)) / jnp.sqrt(denom),
                    1.0)
     as_ = jnp.where(denom >= tiny,
-                    jnp.sqrt(jnp.maximum(0.0, lf_i * lf_i - cs2_i)) / jnp.sqrt(denom),
+                    jnp.sqrt(jnp.maximum(EPSILON, lf_i * lf_i - cs2_i)) / jnp.sqrt(denom),
                     1.0)
 
     sqrt_rho = jnp.sqrt(rho_i)
@@ -384,14 +386,14 @@ def _eigen_R_col(
 
     # cs2 at interfaces per Fortran (enthalpy-based)
     cs2_i = (gamma - 1.0) * (HH_i - 0.5 * (vv2_i + bbn2_i))
-    cs_i = jnp.sqrt(jnp.maximum(0.0, cs2_i))
+    cs_i = jnp.sqrt(jnp.maximum(EPSILON, cs2_i))
 
     disc_i = (bbn2_i + cs2_i) ** 2 - 4.0 * bnx2_i * cs2_i
-    root_i = jnp.sqrt(jnp.maximum(0.0, disc_i))
+    root_i = jnp.sqrt(jnp.maximum(EPSILON, disc_i))
 
-    lf_i = jnp.sqrt(jnp.maximum(0.0, 0.5 * (bbn2_i + cs2_i + root_i)))
-    la_i = jnp.sqrt(jnp.maximum(0.0, bnx2_i))   # sqrt(Bx^2/rho) -> |Bx|/sqrt(rho)
-    ls_i = jnp.sqrt(jnp.maximum(0.0, 0.5 * (bbn2_i + cs2_i - root_i)))
+    lf_i = jnp.sqrt(jnp.maximum(EPSILON, 0.5 * (bbn2_i + cs2_i + root_i)))
+    la_i = jnp.sqrt(jnp.maximum(EPSILON, bnx2_i))   # sqrt(Bx^2/rho) -> |Bx|/sqrt(rho)
+    ls_i = jnp.sqrt(jnp.maximum(EPSILON, 0.5 * (bbn2_i + cs2_i - root_i)))
 
     # degeneracy handling (tangential B)
     Bt2 = By_i * By_i + Bz_i * Bz_i
@@ -408,10 +410,10 @@ def _eigen_R_col(
     denom = jnp.maximum(denom, 1e-31)
 
     af = jnp.where(denom >= tiny,
-                   jnp.sqrt(jnp.maximum(0.0, cs2_i - ls_i * ls_i)) / jnp.sqrt(denom),
+                   jnp.sqrt(jnp.maximum(EPSILON, cs2_i - ls_i * ls_i)) / jnp.sqrt(denom),
                    1.0)
     as_ = jnp.where(denom >= tiny,
-                    jnp.sqrt(jnp.maximum(0.0, lf_i * lf_i - cs2_i)) / jnp.sqrt(denom),
+                    jnp.sqrt(jnp.maximum(EPSILON, lf_i * lf_i - cs2_i)) / jnp.sqrt(denom),
                     1.0)
 
     sqrt_rho = jnp.sqrt(rho_i)
@@ -592,14 +594,14 @@ def _eigen_L_row(
 
     # cs2 at interfaces per Fortran (enthalpy-based)
     cs2_i = (gamma - 1.0) * (HH_i - 0.5 * (vv2_i + bbn2_i))
-    cs_i = jnp.sqrt(jnp.maximum(0.0, cs2_i))
+    cs_i = jnp.sqrt(jnp.maximum(EPSILON, cs2_i))
 
     disc_i = (bbn2_i + cs2_i) ** 2 - 4.0 * bnx2_i * cs2_i
-    root_i = jnp.sqrt(jnp.maximum(0.0, disc_i))
+    root_i = jnp.sqrt(jnp.maximum(EPSILON, disc_i))
 
-    lf_i = jnp.sqrt(jnp.maximum(0.0, 0.5 * (bbn2_i + cs2_i + root_i)))
-    la_i = jnp.sqrt(jnp.maximum(0.0, bnx2_i))   # sqrt(Bx^2/rho) -> |Bx|/sqrt(rho)
-    ls_i = jnp.sqrt(jnp.maximum(0.0, 0.5 * (bbn2_i + cs2_i - root_i)))
+    lf_i = jnp.sqrt(jnp.maximum(EPSILON, 0.5 * (bbn2_i + cs2_i + root_i)))
+    la_i = jnp.sqrt(jnp.maximum(EPSILON, bnx2_i))   # sqrt(Bx^2/rho) -> |Bx|/sqrt(rho)
+    ls_i = jnp.sqrt(jnp.maximum(EPSILON, 0.5 * (bbn2_i + cs2_i - root_i)))
 
     # degeneracy handling (tangential B)
     Bt2 = By_i * By_i + Bz_i * Bz_i
@@ -617,10 +619,10 @@ def _eigen_L_row(
 
 
     af = jnp.where(denom >= tiny,
-                   jnp.sqrt(jnp.maximum(0.0, cs2_i - ls_i * ls_i)) / jnp.sqrt(denom),
+                   jnp.sqrt(jnp.maximum(EPSILON, cs2_i - ls_i * ls_i)) / jnp.sqrt(denom),
                    1.0)
     as_ = jnp.where(denom >= tiny,
-                    jnp.sqrt(jnp.maximum(0.0, lf_i * lf_i - cs2_i)) / jnp.sqrt(denom),
+                    jnp.sqrt(jnp.maximum(EPSILON, lf_i * lf_i - cs2_i)) / jnp.sqrt(denom),
                     1.0)
 
     sqrt_rho = jnp.sqrt(rho_i)
@@ -629,7 +631,8 @@ def _eigen_L_row(
     gam1 = 0.5 * (gamma - 1.0)
 
     # normalization scalings (Fortran)
-    inv_cs2 = jnp.where(cs2_i > 0.0, 1.0 / cs2_i, 0.0)
+    safe_cs2 = jnp.where(cs2_i > 0.0, cs2_i, 1.0)
+    inv_cs2 = jnp.where(cs2_i > 0.0, 1.0 / safe_cs2, 0.0)
 
     # continuity sign flips (sgnBt) and conditional multiplication as in Fortran
     sgnBt = jnp.where(By_i != 0.0, jnp.where(By_i >= 0.0, 1.0, -1.0), jnp.where(Bz_i >= 0.0, 1.0, -1.0))
@@ -788,11 +791,11 @@ def _eigen_all_lambdas(
     cs2_center = jnp.maximum(0.0, gamma * jnp.abs(pg / rho))
 
     disc_c = (bbn2 + cs2_center) ** 2 - 4.0 * bnx2 * cs2_center
-    root_c = jnp.sqrt(jnp.maximum(0.0, disc_c))
+    root_c = jnp.sqrt(jnp.maximum(EPSILON, disc_c))
 
-    lf_c = jnp.sqrt(jnp.maximum(0.0, 0.5 * (bbn2 + cs2_center + root_c)))
-    la_c = jnp.sqrt(jnp.maximum(0.0, bnx2))
-    ls_c = jnp.sqrt(jnp.maximum(0.0, 0.5 * (bbn2 + cs2_center - root_c)))
+    lf_c = jnp.sqrt(jnp.maximum(EPSILON, 0.5 * (bbn2 + cs2_center + root_c)))
+    la_c = jnp.sqrt(jnp.maximum(EPSILON, bnx2))
+    ls_c = jnp.sqrt(jnp.maximum(EPSILON, 0.5 * (bbn2 + cs2_center - root_c)))
 
     return jnp.stack([
         vx - lf_c,
@@ -856,11 +859,11 @@ def _eigen_lambdas(
     cs2_center = jnp.maximum(0.0, gamma * jnp.abs(pg / rho))
 
     disc_c = (bbn2 + cs2_center) ** 2 - 4.0 * bnx2 * cs2_center
-    root_c = jnp.sqrt(jnp.maximum(0.0, disc_c))
+    root_c = jnp.sqrt(jnp.maximum(EPSILON, disc_c))
 
-    lf_c = jnp.sqrt(jnp.maximum(0.0, 0.5 * (bbn2 + cs2_center + root_c)))
-    la_c = jnp.sqrt(jnp.maximum(0.0, bnx2))
-    ls_c = jnp.sqrt(jnp.maximum(0.0, 0.5 * (bbn2 + cs2_center - root_c)))
+    lf_c = jnp.sqrt(jnp.maximum(EPSILON, 0.5 * (bbn2 + cs2_center + root_c)))
+    la_c = jnp.sqrt(jnp.maximum(EPSILON, bnx2))
+    ls_c = jnp.sqrt(jnp.maximum(EPSILON, 0.5 * (bbn2 + cs2_center - root_c)))
 
     def mode_0():
         return vx - lf_c

@@ -20,6 +20,6 @@ requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.ruff]
-extend-select = ["E", "F", "I", "C", "B", "D", "Q"]
+extend-select = ["E", "F", "C", "B", "Q"]
 # Globally ignore "module level import not at top of file"
 ignore = ["E402"]

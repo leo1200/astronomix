@@ -27,7 +27,7 @@ class CorrectorCNN(eqx.Module):
     A simple CNN that maps an input of shape (C, H, W) to an output of the same shape.
     """
 
-    layers: list
+    layers: eqx.nn.Sequential
 
     def __init__(self, in_channels: int, hidden_channels: int, *, key: PRNGKeyArray):
         # We need a key for each convolutional layer
@@ -36,22 +36,24 @@ class CorrectorCNN(eqx.Module):
         # A simple 3-layer CNN.
         # Note the use of padding=1 with kernel_size=3 to keep the
         # spatial dimensions (height and width) the same.
-        self.layers = (
-            # Layer 1: Expand channels from NUM_VARS to HIDDEN_CHANNELS
-            eqx.nn.Conv2d(
-                in_channels, hidden_channels, kernel_size=3, padding=1, key=key1
-            ),
-            jax.nn.relu,
-            # Layer 2: A hidden convolutional layer
-            eqx.nn.Conv2d(
-                hidden_channels, hidden_channels, kernel_size=3, padding=1, key=key2
-            ),
-            jax.nn.relu,
-            # Layer 3: Contract channels back to the original NUM_VARS
-            # No activation function here, as we want to predict a raw correction value.
-            eqx.nn.Conv2d(
-                hidden_channels, in_channels, kernel_size=3, padding=1, key=key3
-            ),
+        self.layers = eqx.nn.Sequential(
+            [
+                # Layer 1: Expand channels from NUM_VARS to HIDDEN_CHANNELS
+                eqx.nn.Conv2d(
+                    in_channels, hidden_channels, kernel_size=3, padding=1, key=key1
+                ),
+                jax.nn.relu,
+                # Layer 2: A hidden convolutional layer
+                eqx.nn.Conv2d(
+                    hidden_channels, hidden_channels, kernel_size=3, padding=1, key=key2
+                ),
+                jax.nn.relu,
+                # Layer 3: Contract channels back to the original NUM_VARS
+                # No activation function here, as we want to predict a raw correction value.
+                eqx.nn.Conv2d(
+                    hidden_channels, in_channels, kernel_size=3, padding=1, key=key3
+                ),
+            ]
         )
 
     def __call__(
@@ -66,9 +68,7 @@ class CorrectorCNN(eqx.Module):
         The forward pass of the model.
         """
         # Pass the input through the network to get the correction term
-        correction = primitive_state
-        for layer in self.layers:
-            correction = layer(correction)
+        correction = self.layers(primitive_state)
 
         # Add the learned correction to the original input
         electric_field_correction = correction[-3:, ...]
