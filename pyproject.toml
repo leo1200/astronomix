@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "astronomix"
-version = "0.5.0"
+version = "0.5.1"
 description = "differentiable (magneto)hydrodynamics for astrophysics in JAX"
 authors = ["Leonard Storcks"]
 readme = "README.md"

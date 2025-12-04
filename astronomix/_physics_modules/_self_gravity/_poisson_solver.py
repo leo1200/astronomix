@@ -44,7 +44,6 @@ def _compute_gravitational_potential(
     # TODO: remove ghost cells in this computations (?)
 
     dimensionality = config.dimensionality
-    num_cells = gas_density.shape[0]
 
     # we only use outflow if not all boundaries are periodic
     # SO THERES EITHER ALL PERIODIC OR NONE
@@ -90,6 +89,7 @@ def _compute_gravitational_potential(
         density_k = fftn(gas_density)
 
         # Build the k–vector (note that fftfreq returns cycles/unit; multiply by 2π).
+        num_cells = gas_density.shape[0]
         k_base = jnp.fft.fftfreq(num_cells, d=grid_spacing) * 2 * jnp.pi
 
         if dimensionality == 1:
@@ -177,4 +177,4 @@ def _compute_gravitational_potential(
 
         # (e) Extract the portion of the potential corresponding to the original grid.
         gravitational_potential = potential_ext[slices]
-        return gravitational_potential / num_cells**dimensionality
+        return gravitational_potential * grid_spacing**dimensionality
