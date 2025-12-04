@@ -112,8 +112,7 @@ def _compute_gravitational_potential(
         potential_k = greens_function * density_k
         gravitational_potential = jnp.real(ifftn(potential_k))
 
-        # this might be wrong for periodic boundaries, TODO: check
-        return gravitational_potential * grid_spacing**dimensionality
+        return gravitational_potential
 
     else:
         # ----------------------------------------------------
@@ -178,4 +177,4 @@ def _compute_gravitational_potential(
 
         # (e) Extract the portion of the potential corresponding to the original grid.
         gravitational_potential = potential_ext[slices]
-        return gravitational_potential * grid_spacing**dimensionality
+        return gravitational_potential / num_cells**dimensionality
