@@ -2,7 +2,7 @@ from autocvd import autocvd
 
 autocvd(num_gpus=1)
 
-import os
+# import os
 
 # os.environ["CUDA_VISIBLE_DEVICES"] = "7"
 # os.environ["JAX_TRACEBACK_FILTERING"] = "off"
@@ -21,15 +21,12 @@ from corrector_src.training.training_config import TrainingConfig, TrainingParam
 from corrector_src.model.cnn_mhd_model import CorrectorCNN
 from corrector_src.model.fno_hd_force_corrector import TurbulenceSGSForceCorrectorFNO
 from corrector_src.model._corrector_options import (
-    # CNNMHDParams,
-    # CNNMHDconfig,
     CorrectorConfig,
     CorrectorParams,
 )
 from corrector_src.loss.sgs_turb_loss import make_loss_function
 from corrector_src.data.dataset import dataset
 from corrector_src.training.early_stopper import EarlyStopper
-from corrector_src.utils.printing_config_summary import print_data_config_summary
 
 # jf1uids
 from jf1uids import time_integration
@@ -40,19 +37,21 @@ from jf1uids.option_classes.simulation_params import SimulationParams
 
 # other stuff
 import equinox as eqx
-import matplotlib.pyplot as plt
 import optax
 import time
-import hydra
-from hydra.utils import get_original_cwd
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
-from functools import partial
-from typing import Tuple
-from numpy import ndarray
+from jaxtyping import ndarray
+from typing import Optional
 
 
-def train_model(cfg: OmegaConf, loss_timesteps: ndarray = None):
+class NaNLossError(Exception):
+    def __init__(self, epoch):
+        super().__init__(f"NaN found in loss at epoch {epoch}")
+        self.epoch = epoch
+
+
+def train_model(cfg: OmegaConf, loss_timesteps: Optional[jnp.ndarray] = None):
     epochs = cfg.training.epochs
     if loss_timesteps is None:
         loss_timesteps = jnp.array(cfg.data.snapshot_timepoints)
@@ -124,6 +123,7 @@ def train_model(cfg: OmegaConf, loss_timesteps: ndarray = None):
         )
 
     early_stop = False
+    best_params = neural_net_params
     for i in range(epochs):
         if cfg.data.generate_data_on_fly:
             (
@@ -153,7 +153,7 @@ def train_model(cfg: OmegaConf, loss_timesteps: ndarray = None):
 
         if np.isnan(np.mean(losses)):
             print("nan found in loss, stopping the training")
-            raise ValueError("NaN found in loss")
+            raise NaNLossError(i)
 
         epoch_losses.append(compute_loss_from_components(losses))
 
@@ -164,13 +164,11 @@ def train_model(cfg: OmegaConf, loss_timesteps: ndarray = None):
             if early_stop:
                 print("🚨 Early stopping 🚨")
                 break
+        else:
+            best_params = new_network_params
 
         corrector_params = corrector_params._replace(network_params=new_network_params)
         print(
             f" 🟡 Epoch {i} time_train {float(time_train):2f} loss {float(epoch_losses[-1].item()):2f}"
         )
-
-    if early_stopper is None:
-        best_params = new_network_params
-
     return best_params, neural_net_static

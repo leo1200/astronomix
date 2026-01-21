@@ -220,8 +220,8 @@ def make_loss_function(cfg_training):
                 components[name] = val
                 total += weight * val
 
-        for name, value in components.items():
-            jax.debug.print("{name}: {value}", name=name, value=value)
+        # for name, value in components.items():
+        #    jax.debug.print("{name}: {value}", name=name, value=value)
 
         return total, components
 

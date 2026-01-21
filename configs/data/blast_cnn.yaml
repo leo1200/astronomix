@@ -1,4 +1,4 @@
-hr_res : 200
+hr_res : 64
 downscaling_factor : 2
 randomizer_1: [0.5, 1.5]
 randomizer_2: [0.5, 1.5]
@@ -11,7 +11,7 @@ precomputed_data : True
 fixed_timestep: False
 dt_max: 0.1
 t_end: 0.34
-snapshot_timepoints: [0.2, 0.34]
+snapshot_timepoints: [0.05, 0.34]
 use_specific_snapshot_timepoints: True
 return_snapshots: True
 scenarios: [0]

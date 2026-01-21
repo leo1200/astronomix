@@ -6,6 +6,7 @@ from jf1uids import get_helper_data
 from jf1uids import SimulationParams
 from jf1uids import time_integration
 from jf1uids.data_classes.simulation_helper_data import HelperData
+from jf1uids.data_classes.simulation_snapshot_data import SnapshotData
 from jf1uids.fluid_equations.registered_variables import RegisteredVariables
 from jf1uids.fluid_equations.fluid import construct_primitive_state
 from jf1uids import get_registered_variables
@@ -34,8 +35,6 @@ from corrector_src.utils.downaverage import downaverage
 import corrector_src.data.blast_creation as blast
 
 from jf1uids._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_options import (
-    # CorrectorParams,
-    # CorrectorConfig,
     CorrectorParams,
     CorrectorConfig,
 )
@@ -319,7 +318,7 @@ class dataset:
         scenario: Optional[str | int] = None,
         corrector_config: Optional[CorrectorConfig] = None,
         corrector_params: Optional[CorrectorParams] = None,
-        rng_seed: int = None,
+        rng_seed: Optional[int] = None,
         verbose: bool = False,
         **overrides,
     ) -> Tuple[
@@ -429,13 +428,12 @@ class dataset:
         scenario: Optional[str | int] = None,
         corrector_config: Optional[CorrectorConfig] = None,
         corrector_params: Optional[CorrectorParams] = None,
-        rng_seed: int = None,
+        rng_seed: Optional[int] = None,
         verbose: bool = False,
         num_snapshots: int = 50,
         **overrides,
     ) -> Tuple[
-        np.ndarray,
-        SimulationBundle,
+        SimulationBundle, SimulationBundle, SnapshotData, SnapshotData, SnapshotData
     ]:
         snapshot_timepoints = jnp.linspace(0.0, self.cfg_data.t_end, num_snapshots)
         # print(snapshot_timepoints)

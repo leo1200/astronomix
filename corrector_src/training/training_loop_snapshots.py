@@ -84,6 +84,7 @@ def load_config(
 
     return cfg
 
+
 def training_loop(cfg):
     print("Hydra run dir:", os.getcwd())
     print_full_config_summary(cfg.data, cfg.training, cfg.models)
@@ -213,7 +214,8 @@ def training_loop(cfg):
                 break
         corrector_params = corrector_params._replace(network_params=new_network_params)
         print(
-            f" 🟡 Epoch {i} time_train {float(time_train):2f} loss {float(epoch_losses[-1].item()):2f}", end="\r"
+            f" 🟡 Epoch {i} time_train {float(time_train):2f} loss {float(epoch_losses[-1].item()):2f}",
+            end="\r",
         )
     if np.isnan(np.mean(losses)):
         return
@@ -279,6 +281,7 @@ def training_loop(cfg):
         epoch_losses=np.array(epoch_losses),
         snapshot_losses=np.array(snapshot_losses),
     )
+
 
 if __name__ == "__main__":
     config = load_config(overrides=["data=turbulence", "training=variable_losses"])

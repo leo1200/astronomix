@@ -166,7 +166,7 @@ def losses_plots(
     )
     v_loss_fn = jax.vmap(loss_function, in_axes=(0, 0, None, None, None))
     hr_states_downscaled = downaverage(
-        hr_snapshot_data.states, data_config.downscaling_factor
+        hr_snapshot.states, data_config.downscaling_factor
     )
     _, loss_lr_hr_corrected = v_loss_fn(
         lr_sol_snapshot.states,

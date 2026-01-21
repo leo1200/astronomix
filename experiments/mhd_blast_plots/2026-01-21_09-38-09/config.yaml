@@ -1,0 +1,51 @@
+experiment:
+  name: turbulence_force_corrector
+data:
+  debug: ${training.debug}
+  hr_res: 64
+  downscaling_factor: 2
+  randomizer_1:
+  - 0.5
+  - 1.5
+  randomizer_2:
+  - 0.5
+  - 1.5
+  randomizer_3:
+  - 0.5
+  - 1.5
+  num_snapshots: 80
+  num_checkpoints: 10
+  num_timesteps: 1000
+  generate_data_on_fly: false
+  precomputed_data: true
+  fixed_timestep: false
+  dt_max: 0.1
+  t_end: 0.34
+  snapshot_timepoints:
+  - 0.05
+  - 0.34
+  use_specific_snapshot_timepoints: true
+  return_snapshots: true
+  scenarios:
+  - 0
+  differentiation_mode: 0
+training:
+  epochs: 700
+  n_look_behind: 10
+  learning_rate: 0.001
+  return_full_sim: false
+  return_full_sim_epoch_interval: 10
+  rng_key: 60
+  debug: false
+  mse_loss: 1
+  spectral_energy_loss: 0.007
+  rate_of_strain_loss: 0.002
+  early_stopping: true
+  patience: 30
+  correct_from_beggining: false
+  delayed_correction_time: 0.05
+models:
+  _target_: corrector_src.model.cnn_mhd_model.CorrectorCNN
+  _name_: cnn
+  in_channels: 8
+  hidden_channels: 16

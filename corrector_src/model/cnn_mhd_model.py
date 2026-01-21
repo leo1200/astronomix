@@ -1,3 +1,4 @@
+from typing import Optional, Callable
 import jax
 import equinox as eqx
 from jaxtyping import Array, Float, PRNGKeyArray
@@ -19,8 +20,17 @@ class CorrectorCNN(eqx.Module):
     """
 
     layers: eqx.nn.Sequential
+    active_snapshot_callable: bool = eqx.field(static=True)
+    snapshot_callable: Callable[..., None] = eqx.field(static=True)
 
-    def __init__(self, in_channels: int, hidden_channels: int, *, key: PRNGKeyArray):
+    def __init__(
+        self,
+        in_channels: int,
+        hidden_channels: int,
+        *,
+        key: PRNGKeyArray,
+        snapshot_callable: Optional[Callable[..., None]] = None,
+    ):
         # We need a key for each convolutional layer
         key1, key2, key3 = jax.random.split(key, 3)
 
@@ -38,6 +48,10 @@ class CorrectorCNN(eqx.Module):
                 ),
             ]
         )
+        self.active_snapshot_callable = False
+        if isinstance(snapshot_callable, Callable):
+            self.active_snapshot_callable = True
+            self.snapshot_callable = snapshot_callable
 
     def __call__(
         self,
@@ -61,12 +75,18 @@ class CorrectorCNN(eqx.Module):
             magnetic_field_correction = curl3D(
                 electric_field_correction, config.grid_spacing
             )
-
+        else:
+            raise ValueError(
+                "dimensionality was {config.dimensionality} instead of 2 or 3"
+            )
         correction = correction.at[-3:, ...].set(magnetic_field_correction)
 
         # update the primitive state with the correction
         primitive_state = primitive_state + correction * time_step
-
+        if self.active_snapshot_callable:
+            jax.debug.callback(
+                self.snapshot_callable, time_step, primitive_state, correction
+            )
         # ensure that the pressure is larger than a minimum value
         p_min = 1e-12
         primitive_state = primitive_state.at[registered_variables.pressure_index].set(

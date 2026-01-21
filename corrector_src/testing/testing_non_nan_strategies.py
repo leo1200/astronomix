@@ -33,7 +33,7 @@ from corrector_src.model._corrector_options import (
 from corrector_src.loss.sgs_turb_loss import make_loss_function
 from corrector_src.data.dataset import dataset
 from corrector_src.training.early_stopper import EarlyStopper
-from corrector_src.utils.printing_config_summary import print_data_config_summary
+from corrector_src.utils.printing_config_summary import print_full_config_summary
 
 # other stuff
 import equinox as eqx
@@ -87,7 +87,7 @@ rng_seeds = [
 
 def training_loop(cfg):
     print("Hydra run dir:", os.getcwd())
-    print_data_config_summary(cfg.data)
+    print_full_config_summary(cfg.data)
     # epochs = cfg.training.epochs
     epochs = 2
     # loss_timesteps = jnp.array(cfg.data.snapshot_timepoints)
