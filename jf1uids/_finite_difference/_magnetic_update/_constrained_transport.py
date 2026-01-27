@@ -1,6 +1,6 @@
 """
 Constrained Transport (CT) implementation for MHD.
-Based on HOW-MHD paper (Seo & Ryu 2023, 
+Based on HOW-MHD paper (Seo & Ryu 2023,
 see https://arxiv.org/abs/2304.04360).
 
 Algorithm summary
@@ -40,13 +40,14 @@ XAXIS = 0
 YAXIS = 1
 ZAXIS = 2
 
+
 @partial(jax.jit, static_argnames=["registered_variables"])
 def constrained_transport_rhs(
     conserved_state,
     weno_flux_x,
     weno_flux_y,
     weno_flux_z,
-    dtdx, 
+    dtdx,
     dtdy,
     dtdz,
     registered_variables: RegisteredVariables,
@@ -135,7 +136,7 @@ def constrained_transport_rhs(
     # In the paper (Seo & Ryu 2023) they say "the advective
     # fluxes are modified to approximate “point values” at grid
     # cell edges", but the formula used (also the finite differencing)
-    # is that from point values to averages, compare 
+    # is that from point values to averages, compare
     # Buchmüller & Helzel 2014.
     Omega_z_bar = point_values_to_averages(Omega_z_edge, XAXIS, YAXIS)
     Omega_x_bar = point_values_to_averages(Omega_x_edge, YAXIS, ZAXIS)
@@ -143,14 +144,17 @@ def constrained_transport_rhs(
 
     # Update the interface magnetic fields based on the discrete curl of
     # the electric field at edges (Eq. 24 - 26)
-    rhs_bx = - dtdy * finite_difference_int6(Omega_z_bar, YAXIS) \
-             + dtdz * finite_difference_int6(Omega_y_bar, ZAXIS)
+    rhs_bx = -dtdy * finite_difference_int6(
+        Omega_z_bar, YAXIS
+    ) + dtdz * finite_difference_int6(Omega_y_bar, ZAXIS)
 
-    rhs_by = - dtdz * finite_difference_int6(Omega_x_bar, ZAXIS) \
-             + dtdx * finite_difference_int6(Omega_z_bar, XAXIS)
+    rhs_by = -dtdz * finite_difference_int6(
+        Omega_x_bar, ZAXIS
+    ) + dtdx * finite_difference_int6(Omega_z_bar, XAXIS)
 
-    rhs_bz = - dtdx * finite_difference_int6(Omega_y_bar, XAXIS) \
-             + dtdy * finite_difference_int6(Omega_x_bar, YAXIS)
+    rhs_bz = -dtdx * finite_difference_int6(
+        Omega_y_bar, XAXIS
+    ) + dtdy * finite_difference_int6(Omega_x_bar, YAXIS)
 
     return rhs_bx, rhs_by, rhs_bz
 
@@ -212,3 +216,4 @@ def initialize_interface_fields(
     bz_interface = interp_center_to_face(magnetic_field_z, ZAXIS)
 
     return bx_interface, by_interface, bz_interface
+

@@ -5,7 +5,7 @@ import jax.numpy as jnp
 from functools import partial
 
 
-@partial(jax.jit, static_argnames=["axis"])
+# @partial(jax.jit, static_argnames=["axis"])
 def finite_difference_int6(f_int, axis):
     """
     High-order FD derivative, assumed f defined at interfaces,
@@ -29,7 +29,8 @@ def finite_difference_int6(f_int, axis):
         + c3 * (jnp.roll(f_int, -2, axis=axis) - jnp.roll(f_int, 3, axis=axis))
     )
 
-@jax.jit
+
+# @jax.jit
 def _interface_field_divergence(bx_int, by_int, bz_int, grid_spacing):
     """
     Compute the divergence of the magnetic field
@@ -50,3 +51,4 @@ def _interface_field_divergence(bx_int, by_int, bz_int, grid_spacing):
 
     div_b = d_bx_dx + d_by_dy + d_bz_dz
     return div_b
+

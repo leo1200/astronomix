@@ -69,9 +69,27 @@ def _ssprk4_with_ct(
         dtdz = k2_coeff * dt / grid_spacing
 
         # Calculate fluxes based on the state of the current stage
-        dF_x = _weno_flux_x(current_q, params.minimum_density, params.minimum_pressure, gamma, registered_variables)
-        dF_y = _weno_flux_y(current_q, params.minimum_density, params.minimum_pressure, gamma, registered_variables)
-        dF_z = _weno_flux_z(current_q, params.minimum_density, params.minimum_pressure, gamma, registered_variables)
+        dF_x = _weno_flux_x(
+            current_q,
+            params.minimum_density,
+            params.minimum_pressure,
+            gamma,
+            registered_variables,
+        )
+        dF_y = _weno_flux_y(
+            current_q,
+            params.minimum_density,
+            params.minimum_pressure,
+            gamma,
+            registered_variables,
+        )
+        dF_z = _weno_flux_z(
+            current_q,
+            params.minimum_density,
+            params.minimum_pressure,
+            gamma,
+            registered_variables,
+        )
 
         # Calculate RHS for interface magnetic fields using Constrained Transport
         rhs_bx, rhs_by, rhs_bz = constrained_transport_rhs(

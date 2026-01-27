@@ -10,8 +10,14 @@ from beartype import beartype as typechecker
 from typing import Union
 
 # general jf1uids imports
-from jf1uids._finite_difference._fluid_equations._eigen import _eigen_all_lambdas, _eigen_x
-from jf1uids._finite_difference._fluid_equations._equations import conserved_state_from_primitive_mhd, primitive_state_from_conserved_mhd
+from jf1uids._finite_difference._fluid_equations._eigen import (
+    _eigen_all_lambdas,
+    _eigen_x,
+)
+from jf1uids._finite_difference._fluid_equations._equations import (
+    conserved_state_from_primitive_mhd,
+    primitive_state_from_conserved_mhd,
+)
 from jf1uids.data_classes.simulation_helper_data import HelperData
 from jf1uids.variable_registry.registered_variables import RegisteredVariables
 from jf1uids.option_classes.simulation_config import (
@@ -22,7 +28,7 @@ from jf1uids.option_classes.simulation_config import (
 from jf1uids.option_classes.simulation_params import SimulationParams
 
 
-@partial(jax.jit, static_argnames=["config", "registered_variables"])
+# @partial(jax.jit, static_argnames=["config", "registered_variables"])
 def _cfl_time_step_fd(
     primitive_state: STATE_TYPE,
     grid_spacing: Union[float, Float[Array, ""]],
@@ -33,7 +39,6 @@ def _cfl_time_step_fd(
     registered_variables: RegisteredVariables,
     C_CFL: Union[float, Float[Array, ""]] = 0.8,
 ) -> Float[Array, ""]:
-    
     # TODO: use specific lambda function
 
     conserved_state = conserved_state_from_primitive_mhd(
@@ -41,7 +46,11 @@ def _cfl_time_step_fd(
     )
 
     lambda_x = _eigen_all_lambdas(
-        conserved_state, params.minimum_density, params.minimum_pressure, gamma, registered_variables
+        conserved_state,
+        params.minimum_density,
+        params.minimum_pressure,
+        gamma,
+        registered_variables,
     )
 
     lambda_x = jnp.max(jnp.abs(lambda_x))
@@ -85,8 +94,9 @@ def _cfl_time_step_fd(
     )
 
     lambda_z = jnp.max(jnp.abs(lambda_z))
-    
+
     dt_cfl = C_CFL * grid_spacing / (lambda_x + lambda_y + lambda_z)
     dt_cfl = jnp.minimum(dt_cfl, dt_max)
 
     return dt_cfl
+

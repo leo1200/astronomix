@@ -200,4 +200,4 @@ cython_debug/
 
 .venv
 /poetry.toml
-arena/data/*
+arena/data

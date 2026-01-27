@@ -27,7 +27,7 @@ from jf1uids._fluid_equations._equations import (
 
 
 # @jaxtyped(typechecker=typechecker)
-@partial(jax.jit, static_argnames=["config", "registered_variables"])
+# @partial(jax.jit, static_argnames=["config", "registered_variables"])
 def calculate_internal_energy(state, helper_data, gamma, config, registered_variables):
     p = state[registered_variables.pressure_index]
 
@@ -44,7 +44,7 @@ def calculate_internal_energy(state, helper_data, gamma, config, registered_vari
 
 
 # @jaxtyped(typechecker=typechecker)
-@partial(jax.jit, static_argnames=["config", "registered_variables"])
+# @partial(jax.jit, static_argnames=["config", "registered_variables"])
 def calculate_radial_momentum(state, helper_data, config, registered_variables):
     rho = state[registered_variables.density_index]
     box_center = jnp.zeros(config.dimensionality) + config.box_size / 2
@@ -72,7 +72,7 @@ def calculate_radial_momentum(state, helper_data, config, registered_variables):
 
 
 # @jaxtyped(typechecker=typechecker)
-@partial(jax.jit, static_argnames=["config", "registered_variables"])
+# @partial(jax.jit, static_argnames=["config", "registered_variables"])
 def calculate_kinetic_energy(state, helper_data, config, registered_variables):
     rho = state[registered_variables.density_index]
     u = get_absolute_velocity(state, config, registered_variables)
@@ -86,7 +86,7 @@ def calculate_kinetic_energy(state, helper_data, config, registered_variables):
 
 
 # @jaxtyped(typechecker=typechecker)
-@partial(jax.jit, static_argnames=["config", "registered_variables"])
+# @partial(jax.jit, static_argnames=["config", "registered_variables"])
 def calculate_gravitational_energy(
     state, helper_data, gravitational_constant, config, registered_variables
 ):
@@ -105,7 +105,7 @@ def calculate_gravitational_energy(
 
 
 # @jaxtyped(typechecker=typechecker)
-@partial(jax.jit, static_argnames=["config", "registered_variables"])
+# @partial(jax.jit, static_argnames=["config", "registered_variables"])
 def calculate_total_energy(
     primitive_state: STATE_TYPE,
     helper_data: HelperData,
@@ -151,7 +151,7 @@ def calculate_total_energy(
 
 
 # @jaxtyped(typechecker=typechecker)
-@partial(jax.jit, static_argnames=["config"])
+# @partial(jax.jit, static_argnames=["config"])
 def calculate_total_mass(
     primitive_state: STATE_TYPE,
     helper_data: HelperData,
