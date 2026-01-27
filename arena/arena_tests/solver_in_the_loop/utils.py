@@ -1,20 +1,10 @@
-"""Training a Solver in the loop model while using FINITE DIFFERENCE as the solver mode"""
-
-from autocvd import autocvd
-
-autocvd(num_gpus=1)
-
-import os
-from timeit import default_timer as timer
-from typing import Tuple
-
-import equinox as eqx
-import jax
-jax.config.update("jax_debug_nans", True)
 import jax.numpy as jnp
-import optax
-from jaxtyping import PyTree
-from tqdm import tqdm
+import jax
+from jf1uids.data_classes.simulation_helper_data import HelperData
+import os
+from jf1uids.data_classes.simulation_snapshot_data import SnapshotData
+from jf1uids.time_stepping import time_integration
+from typing import Optional, Tuple
 
 from jf1uids import (
     SimulationConfig,
@@ -25,42 +15,61 @@ from jf1uids import (
     get_registered_variables,
     initialize_interface_fields,
 )
-from jf1uids._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_finite_element import (
-    CorrectorCNN,
-)
-from jf1uids._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_options import (
-    CNNMHDconfig,
-    CNNMHDParams,
-)
+
 from jf1uids.option_classes.simulation_config import (
     BACKWARDS,
     FINITE_DIFFERENCE,
     PERIODIC_BOUNDARY,
     STATE_TYPE,
+    VAN_ALBADA,
     BoundarySettings,
     BoundarySettings1D,
 )
-from jf1uids.time_stepping import time_integration
 from jf1uids.variable_registry.registered_variables import RegisteredVariables
-import matplotlib.pyplot as plt
-from matplotlib.gridspec import GridSpec
-from mpl_toolkits.axes_grid1 import make_axes_locatable
-from pathlib import Path
-import pickle
-import numpy as np
+
+from arena.arena_tests.solver_in_the_loop_managed.timepoint_updater import (
+    BACK_TO_FRONT,
+    FRONT_TO_BACK,
+)
 
 
 def get_initial_state_training(
     num_cells_high_res: int,
     downaverage_factor: int,
-    t_end: float,
     snapshot_timepoints_train: jnp.ndarray,
+    t_end: Optional[float] = None,
+    direction: int = BACK_TO_FRONT,
+    c_cfl: float = 1.5,
+    limiter: int = 0,
 ) -> Tuple[
-    Tuple[STATE_TYPE, SimulationConfig, SimulationParams, RegisteredVariables],
-    Tuple[STATE_TYPE, SimulationConfig, SimulationParams, RegisteredVariables],
+    Tuple[
+        STATE_TYPE, SimulationConfig, SimulationParams, HelperData, RegisteredVariables
+    ],
+    Tuple[
+        STATE_TYPE, SimulationConfig, SimulationParams, HelperData, RegisteredVariables
+    ],
 ]:
+    if direction == BACK_TO_FRONT:
+        snapshot_timepoints = jnp.sort(snapshot_timepoints_train)
+        if t_end is None:
+            print(
+                f"t_end not given using as t_end the last t {snapshot_timepoints_train[-1]}"
+            )
+            t_end = float(snapshot_timepoints_train[-1])
+        else:
+            if not jnp.any(snapshot_timepoints == t_end):
+                snapshot_timepoints = jnp.append(snapshot_timepoints, t_end)
+    elif direction == FRONT_TO_BACK:
+        assert isinstance(t_end, float)
+        snapshot_timepoints = jnp.array([t_end])
+    else:
+        raise ValueError("The direction given doesnt exist")
+
+    print(snapshot_timepoints)
     params = SimulationParams(
-        C_cfl=1.5, t_end=t_end, snapshot_timepoints=snapshot_timepoints_train
+        C_cfl=c_cfl,
+        t_end=t_end,
+        snapshot_timepoints=snapshot_timepoints,
     )
 
     print("Setting periodic boundaries in all directions.")
@@ -83,10 +92,11 @@ def get_initial_state_training(
         ),
         use_specific_snapshot_timepoints=True,
         return_snapshots=True,
-        num_snapshots=len(snapshot_timepoints_train),
-        num_checkpoints=10,
+        num_snapshots=len(snapshot_timepoints),
+        num_checkpoints=100,
         progress_bar=True,
         runtime_debugging=False,
+        limiter=limiter,  # 0=MINMOD
     )
 
     helper_data = get_helper_data(config)
@@ -102,7 +112,6 @@ def get_initial_state_training(
     P = jnp.ones_like(r) * 1.0
     P = jnp.where(r <= r0, 100.0, P)
     P = jnp.where((r > r0) & (r <= r1), 1.0 + 99.0 * (r1 - r) / (r1 - r0), P)
-    P = jnp.where(r > r1, 1.0, P)
 
     V_x = jnp.zeros_like(r)
     V_y = jnp.zeros_like(r)
@@ -146,7 +155,7 @@ def get_initial_state_training(
         (initial_state, config, params, helper_data, registered_variables),
         (
             initial_state_low_res,
-            config_low_res,
+            config_low_res._replace(progress_bar=False),
             params,
             helper_data_low_res,
             registered_variables,
@@ -250,21 +259,61 @@ def downaverage(state: jnp.ndarray, downaverage_factor: int) -> jnp.ndarray:
         )
 
 
-def training_model(
+def perturb_state(key: int, state: jnp.ndarray, noise_level: float = 0.01):
+    mask = jnp.array([1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])[
+        :, None, None, None
+    ]
+    noise = jax.random.normal(key, shape=state.shape) * noise_level * mask
+    perturbed_state = state + noise
+    perturbed_state = perturbed_state.at[0].set(jnp.maximum(perturbed_state[0], 1e-4))
+    perturbed_state = perturbed_state.at[4].set(jnp.maximum(perturbed_state[4], 1e-4))
+    return perturbed_state
+
+
+def initialize_training_data(
+    snapshot_timepoints_train: jnp.ndarray,
+    t_end: float,
+    direction: int,
     num_cells_high_res: int,
     downaverage_factor: int,
-    snapshot_timepoints_train: jnp.array,
     start_correction_time: float,
-) -> Tuple[PyTree, PyTree]:
-    for final_time in [0.05, 0.06, 0.08, 0.1, 0.12, 0.15, 0.2]:
-        simulation_bundle_high_res, simulation_bundle_low_res = (
-            get_initial_state_training(
-                num_cells_high_res=num_cells_high_res,
-                downaverage_factor=downaverage_factor,
-                t_end=final_time,
-                snapshot_timepoints_train=snapshot_timepoints_train,
-            )
+    correct_from_beggining: bool = False,
+    c_cfl: float = 1.5,
+    limiter: int = 0,
+):
+    "Loads the target data (or if not computes it) and returns the target data with the low res bundle"
+    filename = (
+        "hr_states_"
+        + "_".join([f"{int(t * 100)}" for t in snapshot_timepoints_train])
+        + f"_{num_cells_high_res}"
+        + f"_{int(c_cfl * 10)}"
+        + f"_{limiter}"
+    )
+    filepath = f"arena/data/{filename}.npy"
+    simulation_bundle_high_res, simulation_bundle_low_res = get_initial_state_training(
+        num_cells_high_res=num_cells_high_res,
+        downaverage_factor=downaverage_factor,
+        direction=direction,
+        t_end=t_end,
+        snapshot_timepoints_train=snapshot_timepoints_train,
+        c_cfl=c_cfl,
+        limiter=limiter,
+    )
+    if not os.path.exists(filepath):
+        result_high_res = time_integration(*simulation_bundle_high_res)
+        assert isinstance(result_high_res, SnapshotData)
+        states_high_res_downsampled = downaverage(
+            result_high_res.states, downaverage_factor
         )
+        jnp.save(filepath, states_high_res_downsampled)
+        print(f"Saved states to {filepath}")
+    else:
+        states_high_res_downsampled = jnp.load(filepath)
+        print(f"Loaded from {filepath}")
+
+    # NOTE: we do this to save some computational time by starting at the start correction time state
+    if not correct_from_beggining:
+        print(f"Preparing initial state at t {start_correction_time}")
         (
             initial_state_low_res,
             config_low_res,
@@ -273,63 +322,25 @@ def training_model(
             registered_variables,
         ) = simulation_bundle_low_res
 
-        model = CorrectorCNN(
-            in_channels=registered_variables.num_vars,
-            hidden_channels=16,
-            key=jax.random.PRNGKey(100),
+        initial_state_low_res = time_integration(
+            primitive_state=initial_state_low_res,
+            config=config_low_res._replace(
+                return_snapshots=False,
+                progress_bar=True,
+                exact_end_time=True,
+            ),
+            params=params._replace(t_end=start_correction_time),
+            registered_variables=registered_variables,
+            helper_data=helper_data_low_res,
         )
-        neural_net_params, neural_net_static = eqx.partition(model, eqx.is_array)
-
-        cnn_mhd_corrector_config = CNNMHDconfig(
-            cnn_mhd_corrector=True,
-            network_static=neural_net_static,
-            correct_from_beggining=False,
-            start_correction_time=start_correction_time,
-        )
-
-        cnn_mhd_corrector_params = CNNMHDParams(network_params=neural_net_params)
-
-        config_low_res = config_low_res._replace(
-            cnn_mhd_corrector_config=cnn_mhd_corrector_config
-        )
-        params_low_res = params._replace(
-            cnn_mhd_corrector_params=cnn_mhd_corrector_params
-        )
-
-        results_low_res = time_integration(
+        simulation_bundle_low_res = (
             initial_state_low_res,
             config_low_res,
-            params_low_res,
+            params,
             helper_data_low_res,
             registered_variables,
         )
-        print(
-            f"finished time integration low res with t_end {final_time} and start correction time {start_correction_time}"
-        )
-
-    return None, None
-
-
-def finite_difference_blast_test1(training: bool = True):
-    downaverage_factor = 2
-    if training:
-        neural_net_params, neural_net_static = training_model(
-            num_cells_high_res=128,
-            downaverage_factor=downaverage_factor,
-            snapshot_timepoints_train=jnp.array([0.2]),
-            start_correction_time=0.05,
-        )
     else:
-        model = CorrectorCNN(
-            in_channels=11,
-            hidden_channels=16,
-            key=jax.random.PRNGKey(100),
-        )
-        neural_net_params, neural_net_static = eqx.partition(model, eqx.is_array)
+        print("Using the model from the beggining of the simulation")
 
-        with open("arena/data/cnn_mhd_corrector_params.pkl", "wb") as f:
-            pickle.dump(neural_net_params, f)
-
-
-if __name__ == "__main__":
-    finite_difference_blast_test1(True)
+    return states_high_res_downsampled, simulation_bundle_low_res
