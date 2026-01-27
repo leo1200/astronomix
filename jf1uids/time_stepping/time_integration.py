@@ -220,7 +220,7 @@ def time_integration(
 @partial(
     jax.jit, static_argnames=["config", "registered_variables", "snapshot_callable"]
 )
-# @jaxtyped(typechecker=typechecker)
+@jaxtyped(typechecker=typechecker)
 def _time_integration(
     state: Union[STATE_TYPE, StateStruct],
     config: SimulationConfig,

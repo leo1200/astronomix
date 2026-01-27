@@ -3,22 +3,16 @@ import jax.numpy as jnp
 import equinox as eqx
 from jaxtyping import Array, Float, PRNGKeyArray
 
-# typing
-from beartype import beartype as typechecker
-from typing import Tuple, Union
-
 from jf1uids._finite_difference._magnetic_update._constrained_transport import (
     YAXIS,
     XAXIS,
     ZAXIS,
-    update_cell_center_fields,
 )
 from jf1uids._finite_difference._maths._differencing import finite_difference_int6
-from jf1uids.data_classes.simulation_helper_data import HelperData
 from jf1uids.variable_registry.registered_variables import RegisteredVariables
 from jf1uids.option_classes.simulation_config import STATE_TYPE, SimulationConfig
 from jf1uids.option_classes.simulation_params import SimulationParams
-from functools import partial
+from jf1uids._finite_difference._maths._interpolate import interp_face_to_center
 
 
 def finite_difference_curl_3D(omega_bar, grid_spacing):
@@ -59,11 +53,12 @@ class CorrectorCNN(eqx.Module):
         # Construct the CNN normally
         layers = [
             eqx.nn.Conv3d(in_channels, hidden_channels, 3, padding=1, key=key1),
-            eqx.nn.Lambda(jax.nn.relu)]
+            eqx.nn.Lambda(jax.nn.relu),
+        ]
         for _ in range(hidden_layers):
             layers.append(
-             eqx.nn.Conv3d(hidden_channels, hidden_channels, 3, padding=1, key=key2)
-            ) 
+                eqx.nn.Conv3d(hidden_channels, hidden_channels, 3, padding=1, key=key2)
+            )
             layers.append(eqx.nn.Lambda(jax.nn.relu))
         layers.append(
             eqx.nn.Conv3d(
@@ -75,7 +70,6 @@ class CorrectorCNN(eqx.Module):
                 use_bias=False,
             ),
         )
-
 
         # After building the Sequential, we reinitialize all Conv3d weights
         seq = eqx.nn.Sequential(layers)
@@ -120,12 +114,18 @@ class CorrectorCNN(eqx.Module):
         primitive_state = primitive_state.at[:5].add(correction[:5] * time_step)
         primitive_state = primitive_state.at[-3:].add(correction[-3:] * time_step)
 
-        primitive_state = update_cell_center_fields(
-            primitive_state,
-            primitive_state[-3],
-            primitive_state[-2],
-            primitive_state[-1],
-            registered_variables,
+        Bx_center = interp_face_to_center(primitive_state[-3], XAXIS)
+        By_center = interp_face_to_center(primitive_state[-2], YAXIS)
+        Bz_center = interp_face_to_center(primitive_state[-1], ZAXIS)
+
+        primitive_state = primitive_state.at[registered_variables.magnetic_index.x].set(
+            Bx_center
+        )
+        primitive_state = primitive_state.at[registered_variables.magnetic_index.y].set(
+            By_center
+        )
+        primitive_state = primitive_state.at[registered_variables.magnetic_index.z].set(
+            Bz_center
         )
 
         primitive_state = primitive_state.at[registered_variables.pressure_index].set(
