@@ -27,10 +27,16 @@ from jf1uids.option_classes.simulation_config import (
 )
 from jf1uids.variable_registry.registered_variables import RegisteredVariables
 
-from arena.arena_tests.solver_in_the_loop_managed.timepoint_updater import (
+from arena.arena_tests.solver_in_the_loop.timepoint_updater import (
     BACK_TO_FRONT,
     FRONT_TO_BACK,
 )
+
+from arena.arena_tests.solver_in_the_loop.plot_states_comparison import plot_states
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def get_initial_state_training(
@@ -65,7 +71,8 @@ def get_initial_state_training(
     else:
         raise ValueError("The direction given doesnt exist")
 
-    print(snapshot_timepoints)
+    logger.debug(f"snapshot timepoints {snapshot_timepoints}")
+
     params = SimulationParams(
         C_cfl=c_cfl,
         t_end=t_end,
@@ -265,8 +272,8 @@ def perturb_state(key: int, state: jnp.ndarray, noise_level: float = 0.01):
     ]
     noise = jax.random.normal(key, shape=state.shape) * noise_level * mask
     perturbed_state = state + noise
-    perturbed_state = perturbed_state.at[0].set(jnp.maximum(perturbed_state[0], 1e-4))
-    perturbed_state = perturbed_state.at[4].set(jnp.maximum(perturbed_state[4], 1e-4))
+    perturbed_state = perturbed_state.at[0].set(jnp.maximum(perturbed_state[0], 0.0))
+    perturbed_state = perturbed_state.at[4].set(jnp.maximum(perturbed_state[4], 0.0))
     return perturbed_state
 
 
@@ -343,4 +350,11 @@ def initialize_training_data(
     else:
         print("Using the model from the beggining of the simulation")
 
+    plot_states(
+        [simulation_bundle_low_res[0], simulation_bundle_high_res[0]],
+        [16, 32],
+        fig_name="initial_states",
+        model_name="optuna_params",
+        titles=["lr", "hr"],
+    )
     return states_high_res_downsampled, simulation_bundle_low_res
