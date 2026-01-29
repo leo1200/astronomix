@@ -101,25 +101,25 @@ def create_train_step(
         params,
         key,
     ):
-        jax.debug.callback(
-            plot_states,
-            [initial_state],
-            [16],
-            training_config.model_name,
-            "initial_state_before_noisy",
-            ["initial_state"],
-        )
+        # jax.debug.callback(
+        #     plot_states,
+        #     [initial_state],
+        #     [16],
+        #     training_config.model_name,
+        #     "initial_state_before_noisy",
+        #     ["initial_state"],
+        # )
         noisy_initial_state = perturb_state(
             key, initial_state, training_config.noise_level
         )
-        jax.debug.callback(
-            plot_states,
-            [noisy_initial_state],
-            [16],
-            training_config.model_name,
-            "noisy_initial_state",
-            ["initial_state"],
-        )
+        # jax.debug.callback(
+        #     plot_states,
+        #     [noisy_initial_state],
+        #     [16],
+        #     training_config.model_name,
+        #     "noisy_initial_state",
+        #     ["initial_state"],
+        # )
 
         def loss_fn(network_params_arrays):
             results_low_res = time_integration(
@@ -144,14 +144,14 @@ def create_train_step(
             if training_config.use_checkify:
                 jax_checkify.check(jnp.isfinite(loss), "Loss became NaN or Inf!")
 
-            jax.debug.callback(
-                plot_states,
-                [results_low_res.states[-1], target_state],
-                [16, 16],
-                training_config.model_name,
-                "final_states",
-                ["sol", "target"],
-            )
+            # jax.debug.callback(
+            #     plot_states,
+            #     [results_low_res.states[-1], target_state],
+            #     [16, 16],
+            #     training_config.model_name,
+            #     "final_states",
+            #     ["sol", "target"],
+            # )
 
             return loss, results_low_res.time_points[-1]
 
@@ -311,13 +311,13 @@ def training_model(
                 initial_state=initial_state_low_res,
                 direction=training_config.direction,
             )
-            plot_states(
-                [current_initial_state],
-                [16],
-                training_config.model_name,
-                "current_initial_state",
-                ["initial_state"],
-            )
+            # plot_states(
+            #     [current_initial_state],
+            #     [16],
+            #     training_config.model_name,
+            #     "current_initial_state",
+            #     ["initial_state"],
+            # )
 
             early_stopper.reset_patience()
 

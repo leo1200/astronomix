@@ -19,6 +19,7 @@ logger = logging.Logger(__name__)
 class TrainingConfig:
     epochs_per_time: list
     snapshot_timepoints_train: list
+    model_name: str = "default"
     learning_rate: float = 0.005
     peak_lr: float = 0.08
     end_lr: float = 0.03
