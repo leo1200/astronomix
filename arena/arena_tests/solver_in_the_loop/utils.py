@@ -350,11 +350,11 @@ def initialize_training_data(
     else:
         print("Using the model from the beggining of the simulation")
 
-    plot_states(
-        [simulation_bundle_low_res[0], simulation_bundle_high_res[0]],
-        [16, 32],
-        fig_name="initial_states",
-        model_name="optuna_params",
-        titles=["lr", "hr"],
-    )
+    # plot_states(
+    #     [simulation_bundle_low_res[0], simulation_bundle_high_res[0]],
+    #     [16, 32],
+    #     fig_name="initial_states",
+    #     model_name="optuna_params",
+    #     titles=["lr", "hr"],
+    # )
     return states_high_res_downsampled, simulation_bundle_low_res
