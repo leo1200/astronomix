@@ -100,9 +100,25 @@ def create_train_step(
         params,
         key,
     ):
+        # jax.debug.callback(
+        #     plot_states,
+        #     [initial_state],
+        #     [16],
+        #     training_config.model_name,
+        #     "initial_state_before_noisy",
+        #     ["initial_state"],
+        # )
         noisy_initial_state = perturb_state(
             key, initial_state, training_config.noise_level
         )
+        # jax.debug.callback(
+        #     plot_states,
+        #     [noisy_initial_state],
+        #     [16],
+        #     training_config.model_name,
+        #     "noisy_initial_state",
+        #     ["initial_state"],
+        # )
 
         def loss_fn(network_params_arrays):
             results_low_res = time_integration(
@@ -125,6 +141,16 @@ def create_train_step(
             jax.debug.print("loss {x}", x=loss)
             if training_config.use_checkify:
                 jax_checkify.check(jnp.isfinite(loss), "Loss became NaN or Inf!")
+
+            # jax.debug.callback(
+            #     plot_states,
+            #     [results_low_res.states[-1], target_state],
+            #     [16, 16],
+            #     training_config.model_name,
+            #     "final_states",
+            #     ["sol", "target"],
+            # )
+
             return loss, results_low_res.time_points[-1]
 
         (loss_value, last_timepoint), grads = eqx.filter_value_and_grad(
@@ -267,6 +293,14 @@ def training_model(
                 current_target,
                 current_initial_state,
                 key,
+            # plot_states(
+            #     [current_initial_state],
+            #     [16],
+            #     training_config.model_name,
+            #     "current_initial_state",
+            #     ["initial_state"],
+            # )
+
             ) = timepoint_context(
                 i,
                 sim_config_training=sim_config_training,
