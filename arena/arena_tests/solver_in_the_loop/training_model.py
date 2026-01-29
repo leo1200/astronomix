@@ -13,7 +13,7 @@ from timeit import default_timer as timer
 import datetime
 import jax
 
-jax.config.update("jax_debug_nans", True)
+# jax.config.update("jax_debug_nans", True)
 from jax.experimental import checkify as jax_checkify
 import equinox as eqx
 import jax.numpy as jnp
@@ -54,6 +54,7 @@ from arena.arena_tests.solver_in_the_loop.timepoint_updater import (
     BACK_TO_FRONT,
     timepoint_context,
 )
+from arena.arena_tests.solver_in_the_loop.plot_states_comparison import plot_states
 import numpy as np
 
 from jf1uids.option_classes.simulation_config import (
@@ -100,25 +101,25 @@ def create_train_step(
         params,
         key,
     ):
-        # jax.debug.callback(
-        #     plot_states,
-        #     [initial_state],
-        #     [16],
-        #     training_config.model_name,
-        #     "initial_state_before_noisy",
-        #     ["initial_state"],
-        # )
+        jax.debug.callback(
+            plot_states,
+            [initial_state],
+            [16],
+            training_config.model_name,
+            "initial_state_before_noisy",
+            ["initial_state"],
+        )
         noisy_initial_state = perturb_state(
             key, initial_state, training_config.noise_level
         )
-        # jax.debug.callback(
-        #     plot_states,
-        #     [noisy_initial_state],
-        #     [16],
-        #     training_config.model_name,
-        #     "noisy_initial_state",
-        #     ["initial_state"],
-        # )
+        jax.debug.callback(
+            plot_states,
+            [noisy_initial_state],
+            [16],
+            training_config.model_name,
+            "noisy_initial_state",
+            ["initial_state"],
+        )
 
         def loss_fn(network_params_arrays):
             results_low_res = time_integration(
@@ -138,18 +139,19 @@ def create_train_step(
             loss = loss_fn_factory(
                 results_low_res.states, target_state, **loss_fn_kwargs
             )
+
             jax.debug.print("loss {x}", x=loss)
             if training_config.use_checkify:
                 jax_checkify.check(jnp.isfinite(loss), "Loss became NaN or Inf!")
 
-            # jax.debug.callback(
-            #     plot_states,
-            #     [results_low_res.states[-1], target_state],
-            #     [16, 16],
-            #     training_config.model_name,
-            #     "final_states",
-            #     ["sol", "target"],
-            # )
+            jax.debug.callback(
+                plot_states,
+                [results_low_res.states[-1], target_state],
+                [16, 16],
+                training_config.model_name,
+                "final_states",
+                ["sol", "target"],
+            )
 
             return loss, results_low_res.time_points[-1]
 
@@ -233,10 +235,16 @@ def training_model(
         limiter=sim_config_training.limiter,
     )
 
-    # using different c_cfl for the final target and the simulation due to a mistake in the optuna optimization
+    logger.debug(
+        f"states high res downsampled shape {states_high_res_downsampled.shape}"
+    )
+
+    # using different c_cfl for the final target and the simulation
+    # this is due to a mistake in the optuna optimization
     params = params._replace(C_cfl=sim_config_training.c_cfl)
 
     # Setup loss
+    # NOTE: take a look at the states inputed should this change per target?
     loss_fn_kwargs, loss_fn_factory = loss_setup(
         training_config, target_states=states_high_res_downsampled
     )
@@ -260,9 +268,9 @@ def training_model(
     cnn_mhd_corrector_config = CNNMHDconfig(
         cnn_mhd_corrector=True,
         network_static=neural_net_static,
-        correct_from_beggining=sim_config_training.correct_from_beggining,
+        correct_from_beggining=True,
         # we made sure the initial state was at t_correct_begging
-        start_correction_time=True,
+        start_correction_time=0.0,
     )
     cnn_mhd_corrector_params = CNNMHDParams(network_params=neural_net_params)
     config_low_res = config_low_res._replace(
@@ -290,17 +298,9 @@ def training_model(
                 current_end_time,
                 current_config,
                 current_params_sim,
-                current_target,
                 current_initial_state,
+                current_target,
                 key,
-            # plot_states(
-            #     [current_initial_state],
-            #     [16],
-            #     training_config.model_name,
-            #     "current_initial_state",
-            #     ["initial_state"],
-            # )
-
             ) = timepoint_context(
                 i,
                 sim_config_training=sim_config_training,
@@ -311,6 +311,14 @@ def training_model(
                 initial_state=initial_state_low_res,
                 direction=training_config.direction,
             )
+            plot_states(
+                [current_initial_state],
+                [16],
+                training_config.model_name,
+                "current_initial_state",
+                ["initial_state"],
+            )
+
             early_stopper.reset_patience()
 
             train_step = create_train_step(
@@ -399,6 +407,9 @@ def training_model(
     else:
         early_stopped = None
 
+    if len(losses) == 0:
+        losses.append(math.inf)
+
     metadata = ModelMetadata(
         model_name=model_name,
         created_at=datetime.datetime.now().isoformat(),
@@ -456,6 +467,10 @@ def train_new_model(
                 setattr(training_config, key, value)
             elif hasattr(sim_config_training, key):
                 setattr(sim_config_training, key, value)
+            else:
+                logger.info(f"key {key} not found in the sim nor training config")
+
+        training_config.model_name = model_name
 
         manager.save_training_config(training_config)
         manager.save_simulation_config(sim_config_training)
@@ -498,19 +513,13 @@ def train_new_model(
 
 if __name__ == "__main__":
     logging.basicConfig(format="->{message}", style="{", level=logging.INFO)
-    # Train a new model
-    model_name = "optuna_params"
-    epochs_per_time = [100, 100, 100]
-    c_cfl = 1.5
-    limiter = VAN_ALBADA
-    start_correction_time = 0.03
     num_cells_high_res = 64
-    snapshot_timepoints_train = [0.15, 0.10, 0.05]
-    t_end = 0.2
-    direction = 1
 
     # TODO: fix the behavior of not putting a t_end, right now the default on the sim_config_training is 0.2
     model_params = {
+        "model_name": "test_front_to_back",
+        "num_cells_high_res": 64,
+        "downaverage_factor": 2,
         "limiter": VAN_ALBADA,
         "hidden_channels": 5,
         "scale": 0.04,
@@ -533,6 +542,9 @@ if __name__ == "__main__":
     }
 
     optuna_params = {
+        "model_name": "optuna_params",
+        "num_cells_high_res": 64,
+        "downaverage_factor": 2,
         "limiter": VAN_ALBADA,
         "hidden_channels": 5,
         "scale": 0.041574555074364715,
@@ -555,15 +567,15 @@ if __name__ == "__main__":
         # we change the correct_from_beggining to true as the small time was causing problems
     }
 
-    training_params = model_params
+    training_params = optuna_params
 
     params, static = train_new_model(
-        model_name=model_name,
+        model_name=training_params["model_name"],
         t_end=training_params["t_end"],
         direction=training_params["direction"],
         load_existing=False,
         load_existing_nan=False,
-        correct_from_beggining=True,
+        correct_from_beggining=training_params["correct_from_beggining"],
         use_checkify=False,
         limiter=training_params["limiter"],
         epochs_per_time=training_params["epochs_per_time"],
@@ -582,9 +594,10 @@ if __name__ == "__main__":
         noise_level=training_params["noise"],
         loss_type=training_params["loss_to_use"],
         patience=20,
+        num_cells_high_res=training_params["num_cells_high_res"],
     )
 
-    model_manager = ModelManager(model_name=model_name)
+    model_manager = ModelManager(model_name=training_params["model_name"])
     model_metadata = model_manager.load_metadata()
 
     if model_metadata.succesful_training:
@@ -594,12 +607,12 @@ if __name__ == "__main__":
             times_eval=jnp.linspace(0.0, 0.3, 30),
             num_cells_high_res=num_cells_high_res,
             downaverage_factor=2,
-            snapshot_timepoints_train=snapshot_timepoints_train,
-            start_correction_time=start_correction_time,
-            epochs_per_time=epochs_per_time,
-            model_name=model_name,
-            cfl=c_cfl,
-            limiter=limiter,
+            snapshot_timepoints_train=training_params["snapshot_timepoints_train"],
+            start_correction_time=training_params["start_correction_time"],
+            epochs_per_time=training_params["epochs_per_time"],
+            model_name=training_params["model_name"],
+            cfl=training_params["c_cfl"],
+            limiter=training_params["limiter"],
         )
     # Continue training an existing model
     # train_new_model(model_name="my_experiment", load_existing=True, epochs_per_time=[100])
