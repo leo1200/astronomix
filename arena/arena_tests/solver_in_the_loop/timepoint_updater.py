@@ -41,18 +41,25 @@ def timepoint_context(
         )
         current_end_time = training_config.snapshot_timepoints_train[i]
         current_config = config._replace(num_snapshots=1)
-        if not sim_config_training.correct_from_beggining:
-            current_params_sim = params._replace(
-                t_end=current_end_time - sim_config_training.start_correction_time,
-                snapshot_timepoints=jnp.array(
-                    [current_end_time - sim_config_training.start_correction_time]
-                ),
-            )
-        else:
-            current_params_sim = params._replace(
-                t_end=current_end_time,
-                snapshot_timepoints=jnp.array([current_end_time]),
-            )
+        # NOTE: we are taking into account already the start_correction_time
+        # in the initial state we use
+        #
+        # if not sim_config_training.correct_from_beggining:
+        #     current_params_sim = params._replace(
+        #         t_end=current_end_time - sim_config_training.start_correction_time,
+        #         snapshot_timepoints=jnp.array(
+        #             [current_end_time - sim_config_training.start_correction_time]
+        #         ),
+        #     )
+        # else:
+        #     current_params_sim = params._replace(
+        #         t_end=current_end_time,
+        #         snapshot_timepoints=jnp.array([current_end_time]),
+        #     )
+        current_params_sim = params._replace(
+            t_end=current_end_time,
+            snapshot_timepoints=jnp.array([current_end_time]),
+        )
         current_initial_state = initial_state
         current_target = target_states[i]
 
