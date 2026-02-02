@@ -17,6 +17,10 @@ from jf1uids.option_classes.simulation_params import SimulationParams
 from jf1uids import get_helper_data, get_registered_variables
 from jaxtyping import Array
 
+import logging
+
+logger = logging.Logger(__name__)
+
 FRONT_TO_BACK = 0
 BACK_TO_FRONT = 1
 
@@ -30,9 +34,7 @@ def timepoint_context(
     target_states: Array,
     initial_state: STATE_TYPE,
     direction: int = BACK_TO_FRONT,
-) -> Tuple[
-    float, SimulationConfig, SimulationParams, STATE_TYPE | SnapshotData, Array, Array
-]:
+) -> Tuple[float, SimulationConfig, SimulationParams, Array, Array, Array]:
     "Returns the end_time, configuration, params, target and key to use during training"
     times = training_config.snapshot_timepoints_train
     if direction == BACK_TO_FRONT:
@@ -102,7 +104,9 @@ def timepoint_context(
         helper_data = get_helper_data(config)
         registered_variables = get_registered_variables(config)
 
+        logger.debug(f"integrate_initial_state {integrate_initial_state}")
         if integrate_initial_state:
+            logger.debug(f"current_start_time {current_start_time}")
             current_initial_state = time_integration(
                 primitive_state=initial_state,
                 config=config._replace(

@@ -1,5 +1,7 @@
 import jax.numpy as jnp
 import jax
+from jaxtyping import Array
+from numpy import array
 from jf1uids.data_classes.simulation_helper_data import HelperData
 import os
 from jf1uids.data_classes.simulation_snapshot_data import SnapshotData
@@ -170,7 +172,7 @@ def get_initial_state_training(
     )
 
 
-def downaverage(state: jnp.ndarray, downaverage_factor: int) -> jnp.ndarray:
+def downaverage(state: jnp.ndarray, downaverage_factor: int) -> Array:
     """Downaverage spatial (and depth) dimensions by non-overlapping block averaging.
 
     This function accepts either:
@@ -266,7 +268,7 @@ def downaverage(state: jnp.ndarray, downaverage_factor: int) -> jnp.ndarray:
         )
 
 
-def perturb_state(key: int, state: jnp.ndarray, noise_level: float = 0.01):
+def perturb_state(key: Array, state: jnp.ndarray, noise_level: float = 0.01):
     mask = jnp.array([1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])[
         :, None, None, None
     ]
@@ -287,15 +289,30 @@ def initialize_training_data(
     correct_from_beggining: bool = False,
     c_cfl: float = 1.5,
     limiter: int = 0,
-):
+) -> Tuple[
+    Array,
+    Tuple[Array, SimulationConfig, SimulationParams, HelperData, RegisteredVariables],
+]:
     "Loads the target data (or if not computes it) and returns the target data with the low res bundle"
-    filename = (
-        "hr_states_"
-        + "_".join([f"{int(t * 100)}" for t in snapshot_timepoints_train])
-        + f"_{num_cells_high_res}"
-        + f"_{int(c_cfl * 10)}"
-        + f"_{limiter}"
-    )
+    if direction == BACK_TO_FRONT:
+        filename = (
+            "hr_states_"
+            + "_".join([f"{int(t * 100)}" for t in snapshot_timepoints_train])
+            + f"_{num_cells_high_res}"
+            + f"_{int(c_cfl * 100)}"
+            + f"_{limiter}"
+        )
+    elif direction == FRONT_TO_BACK:
+        filename = (
+            "hr_states_"
+            + "_".join([f"{int(t * 100)}" for t in [t_end]])
+            + f"_{num_cells_high_res}"
+            + f"_{int(c_cfl * 100)}"
+            + f"_{limiter}"
+        )
+    else:
+        raise ValueError("Direction given nonexistent")
+
     filepath = f"arena/data/{filename}.npy"
     simulation_bundle_high_res, simulation_bundle_low_res = get_initial_state_training(
         num_cells_high_res=num_cells_high_res,
@@ -340,16 +357,10 @@ def initialize_training_data(
             registered_variables=registered_variables,
             helper_data=helper_data_low_res,
         )
-        simulation_bundle_low_res = (
-            initial_state_low_res,
-            config_low_res,
-            params,
-            helper_data_low_res,
-            registered_variables,
-        )
     else:
         print("Using the model from the beggining of the simulation")
 
+    assert isinstance(simulation_bundle_low_res[0], Array)
     # plot_states(
     #     [simulation_bundle_low_res[0], simulation_bundle_high_res[0]],
     #     [16, 32],
