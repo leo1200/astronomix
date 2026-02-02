@@ -122,11 +122,9 @@ class ModelManager:
             pickle.dump(params, f)
         print("✓ Saved model params")
 
-    def save_checkpoint(self, params: PyTree, epoch: int, loss: float):
+    def save_checkpoint(self, params: PyTree, epoch: int):
         checkpoint_dir = self.base_dir / self.model_name / "checkpoints"
-        checkpoint_path = (
-            checkpoint_dir / f"checkpoint_epoch_{epoch:04d}_loss_{loss:.6f}.pkl"
-        )
+        checkpoint_path = checkpoint_dir / f"checkpoint_epoch_{epoch:04d}.pkl"
         with open(checkpoint_path, "wb") as f:
             pickle.dump(params, f)
 
@@ -179,7 +177,7 @@ class ModelManager:
             )
             training = self.load_training_config()
             sim = self.load_simulation_config()
-            print(f"\nBest Loss: {metadata.best_loss:.6e}")
+            print(f"Best Loss: {metadata.best_loss:.6e}")
             if metadata.performance_metric:
                 print(f"Performance: {metadata.performance_metric:.6e}")
             print(f"Hidden: {training.hidden_channels}x{training.hidden_layers}")

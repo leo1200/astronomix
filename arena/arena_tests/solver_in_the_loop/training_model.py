@@ -140,7 +140,6 @@ def create_train_step(
                 results_low_res.states, target_state, **loss_fn_kwargs
             )
 
-            jax.debug.print("loss {x}", x=loss)
             if training_config.use_checkify:
                 jax_checkify.check(jnp.isfinite(loss), "Loss became NaN or Inf!")
 
@@ -311,6 +310,14 @@ def training_model(
                 initial_state=initial_state_low_res,
                 direction=training_config.direction,
             )
+
+            # plot_states(
+            #     [current_target],
+            #     [16],
+            #     training_config.model_name,
+            #     "current_target",
+            #     ["current_target"],
+            # )
             # plot_states(
             #     [current_initial_state],
             #     [16],
@@ -378,9 +385,7 @@ def training_model(
                     best_loss, best_params = float(loss), trained_params
 
                 if (step + 1) % 50 == 0:
-                    model_manager.save_checkpoint(
-                        trained_params, epoch=step + 1, loss=float(loss)
-                    )
+                    model_manager.save_checkpoint(trained_params, epoch=step + 1)
 
                 logger.info(
                     f"t={current_end_time:.3f} | Step {step + 1}/{epochs} | Loss: {loss:.6f} | "
@@ -531,11 +536,11 @@ if __name__ == "__main__":
         "peak_lr": 0.8e-04,
         "end_lr": 3.0e-05,
         "gradient_clip": 0.95,
-        "c_cfl": 1.0,
-        "c_cfl_target": 1.0,
+        "c_cfl": 0.65,
+        "c_cfl_target": 0.65,
         "loss_to_use": "norm_mse",
         "direction": FRONT_TO_BACK,
-        "epochs_per_time": [5, 5, 5],
+        "epochs_per_time": [50, 50, 50],
         "snapshot_timepoints_train": [0.10, 0.05, 0.0],
         "correct_from_beggining": True,
         "t_end": 0.2,
@@ -573,7 +578,7 @@ if __name__ == "__main__":
         model_name=training_params["model_name"],
         t_end=training_params["t_end"],
         direction=training_params["direction"],
-        load_existing=False,
+        load_existing=True,
         load_existing_nan=False,
         correct_from_beggining=training_params["correct_from_beggining"],
         use_checkify=False,
@@ -599,24 +604,28 @@ if __name__ == "__main__":
 
     model_manager = ModelManager(model_name=training_params["model_name"])
     model_metadata = model_manager.load_metadata()
+    training_config = model_manager.load_training_config()
+    sim_training_config = model_manager.load_simulation_config()
 
     if model_metadata.succesful_training:
         plot_training(
             neural_net_params=params,
             neural_net_static=static,
             times_eval=jnp.linspace(0.0, 0.3, 30),
-            num_cells_high_res=num_cells_high_res,
+            num_cells_high_res=64,
             downaverage_factor=2,
-            snapshot_timepoints_train=training_params["snapshot_timepoints_train"],
-            start_correction_time=training_params["start_correction_time"],
-            epochs_per_time=training_params["epochs_per_time"],
-            model_name=training_params["model_name"],
-            cfl=training_params["c_cfl"],
-            limiter=training_params["limiter"],
+            snapshot_timepoints_train=training_config.snapshot_timepoints_train,
+            start_correction_time=sim_training_config.start_correction_time,
+            epochs_per_time=training_config.epochs_per_time,
+            correct_from_beggining=sim_training_config.correct_from_beggining,
+            model_name=training_config.model_name,
+            cfl=sim_training_config.c_cfl,
+            cfl_target=sim_training_config.c_cfl_target,
+            limiter=sim_training_config.limiter,
         )
     # Continue training an existing model
     # train_new_model(model_name="my_experiment", load_existing=True, epochs_per_time=[100])
 
     # List all models
     # manager = ModelManager()
-    # print(manager.list_models())
+    # print(manager.list_modelsinitial_state())
