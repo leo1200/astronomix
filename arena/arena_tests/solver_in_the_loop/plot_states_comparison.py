@@ -141,9 +141,12 @@ def plot_states(
     n_fields = 4  # density, velocity magnitude, pressure, magnetic field
 
     # NOTE: extra float added due to linter
+    vmax_density = max(jnp.max(states[0]).astype(float) for states in states_list)
+    vmax_density = min(jnp.min(states[0]).astype(float) for states in states_list)
+    vmax_pressure = max(jnp.max(states[4]).astype(float) for states in states_list)
+    vmin_pressure = min(jnp.min(states[4]).astype(float) for states in states_list)
     vmax = max(jnp.max(states).astype(float) for states in states_list)
     vmin = min(jnp.min(states).astype(float) for states in states_list)
-
     if titles is None:
         titles = [f"State {i + 1}" for i in range(n_states)]
 
@@ -158,7 +161,7 @@ def plot_states(
         c0 = axs[row][0].imshow(
             states[0, :, :, z_level].T,
             origin="lower",
-            norm=Normalize(vmin=vmin, vmax=vmax),
+            norm=Normalize(vmin=vmax_density, vmax=vmax_density),
         )
         fig.colorbar(c0, ax=axs[row][0])
         axs[row][0].set_title(f"{title_prefix} - Density")
@@ -182,7 +185,7 @@ def plot_states(
         c2 = axs[row][2].imshow(
             states[4, :, :, z_level].T,
             origin="lower",
-            norm=Normalize(vmin=vmin, vmax=vmax),
+            norm=Normalize(vmin=vmin_pressure, vmax=vmax_pressure),
         )
         fig.colorbar(c2, ax=axs[row][2])
         axs[row][2].set_title(f"{title_prefix} - Pressure")
