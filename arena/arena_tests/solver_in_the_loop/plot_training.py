@@ -1,6 +1,7 @@
 from autocvd import autocvd
 import os
 
+
 # autocvd(num_gpus=1)
 os.environ["CUDA_VISIBLE_DEVICES"] = "7"
 os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.45"
@@ -11,6 +12,8 @@ from jf1uids.data_classes.simulation_snapshot_data import SnapshotData
 import jax.numpy as jnp
 from jax import vmap
 from jaxtyping import PyTree
+from typing import List
+from jf1uids.variable_registry.registered_variables import StaticIntVector
 import jax
 
 from jf1uids._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_options import (
@@ -45,12 +48,23 @@ import equinox as eqx
 
 from jf1uids.variable_registry import registered_variables
 import logging
-
+from arena.arena_tests.solver_in_the_loop.timepoint_updater import (
+    FRONT_TO_BACK,
+    BACK_TO_FRONT,
+)
+from jf1uids._finite_difference._magnetic_update._constrained_transport import (
+    YAXIS,
+    XAXIS,
+    ZAXIS,
+)
 from jf1uids.option_classes.simulation_config import (
     FINITE_DIFFERENCE,
 )
 
 from functools import partial
+import warnings
+from jf1uids._finite_difference._maths._differencing import finite_difference_int6
+from jf1uids._finite_difference._maths._interpolate import interp_face_to_center
 
 logger = logging.Logger(__name__)
 
@@ -61,14 +75,13 @@ def plot_training(
     times_eval: jnp.ndarray,
     num_cells_high_res: int,
     downaverage_factor: int,
-    snapshot_timepoints_train: list[float],
     start_correction_time: float,
-    epochs_per_time: list[int],
     model_name: str,
     correct_from_beggining: bool,
     cfl_target: float = 1.5,
     cfl: float = 1.5,
     limiter: int = 0,
+    old_version: bool = False,
 ):
     """
     Args:
@@ -96,10 +109,6 @@ def plot_training(
     # Get the index of the trained times
     for t in timepoints_train:
         snapshot_timepoints_idx.append(int(jnp.argmax(times_eval == t)))
-
-    epochs_total = np.zeros(len(training_config.epochs_per_time))
-    for i, epochs in enumerate(training_config.epochs_per_time):
-        epochs_total[i] = epochs_total[i - 1] + epochs
 
     epochs_total = np.zeros(len(training_config.epochs_per_time))
     for i, epochs in enumerate(training_config.epochs_per_time):
@@ -139,7 +148,7 @@ def plot_training(
     params_low_res = params._replace(C_cfl=cfl)
     states_low_res_uncorrected = time_integration(
         primitive_state=initial_state_low_res,
-        config=config_low_res,
+        config=config_low_res._replace(progress_bar=True),
         params=params_low_res,
         helper_data=helper_data_low_res,
         registered_variables=registered_variables,
@@ -163,7 +172,7 @@ def plot_training(
 
     states_low_res = time_integration(
         initial_state_low_res,
-        config_low_res,
+        config_low_res._replace(progress_bar=True),
         params_low_res,
         helper_data_low_res,
         registered_variables,
@@ -285,7 +294,7 @@ def plot_training(
         linestyle="--",
         label="Initial L2 Error (uncorrected)",
     )
-    for t, epochs in zip(snapshot_timepoints_train, epochs_per_time, strict=False):
+    for t, epochs in zip(timepoints_train, epochs_total, strict=False):
         ax_loss.axvline(
             x=epochs,
             color="gray",
@@ -310,7 +319,7 @@ def plot_training(
         linestyle="--",
     )
 
-    for t, epochs in zip(snapshot_timepoints_train, epochs_per_time, strict=False):
+    for t, epochs in zip(timepoints_train, epochs_total, strict=False):
         ax_errors.axvline(
             x=t,
             color="gray",
@@ -328,9 +337,340 @@ def plot_training(
     plt.savefig(f"arena/data/models/{model_name}/plots/summary.png", dpi=400)
 
 
+def plot_states_histogram(
+    corrections: List[float],
+    corrections_max: List[float],
+    states: List[float],
+    states_max: List[float],
+    times: List[float],
+    model_name: str,
+):
+    # corrections_array = np.array(corrections)
+    states_array = np.array(states)
+    corrections_max_array = np.array(corrections_max)
+    states_max_array = np.array(states_max)
+
+    times_total = np.zeros(len(times))
+    for i, time in enumerate(times):
+        times_total[i] = times_total[i - 1] + time
+
+    reg_vars = get_registered_variables(
+        SimulationConfig(
+            num_cells=32, dimensionality=3, mhd=True, solver_mode=FINITE_DIFFERENCE
+        )
+    )
+    assert isinstance(reg_vars.velocity_index, StaticIntVector)
+    assert isinstance(reg_vars.magnetic_index, StaticIntVector)
+    assert isinstance(reg_vars.interface_magnetic_field_index, StaticIntVector)
+    velocity_states = np.sqrt(
+        states_array[:, reg_vars.velocity_index[0]] ** 2
+        + states_array[:, reg_vars.velocity_index[1]] ** 2
+        + states_array[:, reg_vars.velocity_index[2]] ** 2
+    )
+    magnetic_states = np.sqrt(
+        states_array[:, reg_vars.magnetic_index[0]] ** 2
+        + states_array[:, reg_vars.magnetic_index[1]] ** 2
+        + states_array[:, reg_vars.magnetic_index[2]] ** 2
+    )
+    interface_magnetic_states = np.sqrt(
+        states_array[:, reg_vars.interface_magnetic_field_index[0]] ** 2
+        + states_array[:, reg_vars.interface_magnetic_field_index[1]] ** 2
+        + states_array[:, reg_vars.interface_magnetic_field_index[2]] ** 2
+    )
+    velocity_states_max = np.sqrt(
+        states_max_array[:, reg_vars.velocity_index[0]] ** 2
+        + states_max_array[:, reg_vars.velocity_index[1]] ** 2
+        + states_max_array[:, reg_vars.velocity_index[2]] ** 2
+    )
+    magnetic_states_max = np.sqrt(
+        states_max_array[:, reg_vars.magnetic_index[0]] ** 2
+        + states_max_array[:, reg_vars.magnetic_index[1]] ** 2
+        + states_max_array[:, reg_vars.magnetic_index[2]] ** 2
+    )
+    interface_magnetic_states_max = np.sqrt(
+        states_max_array[:, reg_vars.interface_magnetic_field_index[0]] ** 2
+        + states_max_array[:, reg_vars.interface_magnetic_field_index[1]] ** 2
+        + states_max_array[:, reg_vars.interface_magnetic_field_index[2]] ** 2
+    )
+    histogram_states = [
+        states_array[:, reg_vars.density_index],
+        states_array[:, reg_vars.pressure_index],
+        velocity_states,
+        magnetic_states,
+        interface_magnetic_states,
+    ]
+    histogram_states_max = [
+        states_max_array[:, reg_vars.density_index],
+        states_max_array[:, reg_vars.pressure_index],
+        velocity_states_max,
+        magnetic_states_max,
+        interface_magnetic_states_max,
+    ]
+    titles = ["Density", "Pressure", "Velocity", "Magnetic", "Interface_magnetic"]
+
+    fig = plt.figure(figsize=(20, 12))
+    num_channels = len(histogram_states)
+    bins = 50
+    gs = GridSpec(3, num_channels, height_ratios=[1, 1, 1])
+
+    axs_histograms_avg = [fig.add_subplot(gs[0, i]) for i in range(num_channels)]
+    axs_histograms_max = [fig.add_subplot(gs[1, i]) for i in range(num_channels)]
+
+    axs_time_evolution = fig.add_subplot(gs[2, :])
+
+    for i, (state, state_max, title) in enumerate(
+        zip(histogram_states, histogram_states_max, titles, strict=True)
+    ):
+        axs_histograms_avg[i].hist(state, bins=bins)
+        axs_histograms_avg[i].set_title(f"Average {title}")
+
+        axs_histograms_max[i].hist(state_max, bins=bins)
+        axs_histograms_max[i].set_title(f"Max {title}")
+
+        axs_time_evolution.plot(times_total, state, label=title)
+
+    axs_time_evolution.set_title("Average states evolution")
+    axs_time_evolution.set_ylabel("Average")
+    axs_time_evolution.set_xlabel("Time")
+    axs_time_evolution.legend()
+
+    plt.savefig(f"arena/data/models/{model_name}/plots/states_magnitude.png", dpi=400)
+    pass
+
+
+def model_output_figures(
+    corrections: List[float],
+    effective_corrections: List[float],
+    states: List[float],
+    times: List[float],
+    model_name: str,
+):
+    reg_vars = get_registered_variables(
+        SimulationConfig(
+            num_cells=32, dimensionality=3, mhd=True, solver_mode=FINITE_DIFFERENCE
+        )
+    )
+    corrections_array = np.array(corrections)
+    e_corrections_array = np.array(effective_corrections)
+    states_array = np.array(states)
+    times_total = np.zeros(len(times))
+    # times_delta = np.array(times)
+    for i, time in enumerate(times):
+        times_total[i] = times_total[i - 1] + time
+
+    assert isinstance(reg_vars.velocity_index, StaticIntVector)
+    assert isinstance(reg_vars.magnetic_index, StaticIntVector)
+    assert isinstance(reg_vars.interface_magnetic_field_index, StaticIntVector)
+    velocity_states = np.sqrt(
+        states_array[:, reg_vars.velocity_index[0]] ** 2
+        + states_array[:, reg_vars.velocity_index[1]] ** 2
+        + states_array[:, reg_vars.velocity_index[2]] ** 2
+    )
+    velocity_corr = np.sqrt(
+        corrections_array[:, reg_vars.velocity_index[0]] ** 2
+        + corrections_array[:, reg_vars.velocity_index[1]] ** 2
+        + corrections_array[:, reg_vars.velocity_index[2]] ** 2
+    )
+    velocity_e_corr = np.sqrt(
+        e_corrections_array[:, reg_vars.velocity_index[0]] ** 2
+        + e_corrections_array[:, reg_vars.velocity_index[1]] ** 2
+        + e_corrections_array[:, reg_vars.velocity_index[2]] ** 2
+    )
+
+    velocity_e_corr_norm = velocity_e_corr / velocity_states
+
+    velocity_corr_norm = velocity_corr / velocity_states
+
+    magnetic_states = np.sqrt(
+        states_array[:, reg_vars.magnetic_index[0]] ** 2
+        + states_array[:, reg_vars.magnetic_index[1]] ** 2
+        + states_array[:, reg_vars.magnetic_index[2]] ** 2
+    )
+    magnetic_corr = np.sqrt(
+        corrections_array[:, reg_vars.magnetic_index[0]] ** 2
+        + corrections_array[:, reg_vars.magnetic_index[1]] ** 2
+        + corrections_array[:, reg_vars.magnetic_index[2]] ** 2
+    )
+
+    interface_magnetic_states = np.sqrt(
+        states_array[:, reg_vars.interface_magnetic_field_index[0]] ** 2
+        + states_array[:, reg_vars.interface_magnetic_field_index[1]] ** 2
+        + states_array[:, reg_vars.interface_magnetic_field_index[2]] ** 2
+    )
+    magnetic_e_corr = np.sqrt(
+        e_corrections_array[:, reg_vars.interface_magnetic_field_index[0]] ** 2
+        + e_corrections_array[:, reg_vars.interface_magnetic_field_index[1]] ** 2
+        + e_corrections_array[:, reg_vars.interface_magnetic_field_index[2]] ** 2
+    )
+
+    magnetic_e_corr_norm = magnetic_e_corr / interface_magnetic_states
+    magnetic_corr_norm = magnetic_corr / magnetic_states
+
+    # Histogram
+    # Density
+    density_states = states_array[:, reg_vars.density_index]
+    density_corr = corrections_array[:, reg_vars.density_index]
+    density_e_corr = e_corrections_array[:, reg_vars.density_index]
+    density_corr_norm = density_corr / density_states
+    density_e_corr_norm = density_e_corr / density_states
+    # Pressure
+    pressure_states = states_array[:, reg_vars.pressure_index]
+    pressure_corr = corrections_array[:, reg_vars.pressure_index]
+    pressure_e_corr = e_corrections_array[:, reg_vars.pressure_index]
+    pressure_corr_norm = pressure_corr / pressure_states
+    pressure_e_corr_norm = pressure_e_corr / pressure_states
+
+    pressures = [
+        pressure_corr,
+        pressure_corr_norm,
+        pressure_e_corr,
+        pressure_e_corr_norm,
+    ]
+    densities = [
+        density_corr,
+        density_corr_norm,
+        density_e_corr,
+        density_e_corr_norm,
+    ]
+    magnetics = [
+        magnetic_corr,
+        magnetic_corr_norm,
+        magnetic_e_corr,
+        magnetic_e_corr_norm,
+    ]
+    velocitys = [
+        velocity_corr,
+        velocity_corr_norm,
+        velocity_e_corr,
+        velocity_e_corr_norm,
+    ]
+
+    titles = [
+        "unnormalized",
+        "normalized",
+        "effective_unnormalized",
+        "effective_normalized",
+    ]
+
+    ylabels = [
+        "Correction",
+        "Correction/state",
+        "Correction",
+        "Correction/state",
+    ]
+
+    for pressure, density, magnetic, velocity, title, ylabel in zip(
+        pressures, densities, magnetics, velocitys, titles, ylabels, strict=True
+    ):
+        plot_corrections_figure(
+            density_states=density_states,
+            pressure_states=pressure_states,
+            velocity_states_mag=velocity_states,
+            magnetic_states_mag=interface_magnetic_states,
+            density_corr=density,
+            pressure_corr=pressure,
+            velocity_corr_mag=velocity,
+            magnetic_corr_mag=magnetic,
+            times_total=times_total,
+            bins=100,
+            title_suffix=title,
+            ylabel=ylabel,
+            model_name=model_name,
+        )
+
+
+def plot_corrections_figure(
+    *,
+    density_states,
+    pressure_states,
+    velocity_states_mag,
+    magnetic_states_mag,
+    density_corr,
+    pressure_corr,
+    velocity_corr_mag,
+    magnetic_corr_mag,
+    times_total,
+    bins,
+    title_suffix,
+    ylabel,
+    model_name,
+):
+    fig, axes = plt.subplots(3, 1, figsize=(9, 15))
+    ax_hist_states, ax_hist_corr, ax_time = axes
+
+    # -----------------------
+    # Histogram
+    # -----------------------
+    ax_hist_states.hist(
+        density_states, bins=bins, density=False, alpha=0.6, label="Density"
+    )
+    ax_hist_states.hist(
+        pressure_states, bins=bins, density=False, alpha=0.6, label="Pressure"
+    )
+    ax_hist_states.hist(
+        velocity_states_mag, bins=bins, density=False, alpha=0.6, label="Velocity"
+    )
+    ax_hist_states.hist(
+        magnetic_states_mag,
+        bins=bins,
+        density=False,
+        alpha=0.6,
+        label="Magnetic_interface",
+    )
+
+    ax_hist_states.set_title(f"Distribution of states average ({title_suffix})")
+    ax_hist_states.set_xlabel("Correction value")
+    ax_hist_states.set_ylabel("Probability density")
+    ax_hist_states.legend()
+    ax_hist_states.grid(alpha=0.3)
+
+    ax_hist_corr.hist(
+        density_corr, bins=bins, density=False, alpha=0.6, label="Density"
+    )
+    ax_hist_corr.hist(
+        pressure_corr, bins=bins, density=False, alpha=0.6, label="Pressure"
+    )
+    ax_hist_corr.hist(
+        velocity_corr_mag, bins=bins, density=False, alpha=0.6, label="Velocity"
+    )
+    ax_hist_corr.hist(
+        magnetic_corr_mag,
+        bins=bins,
+        density=False,
+        alpha=0.6,
+        label="Magnetic_interface",
+    )
+
+    ax_hist_corr.set_title(f"Distribution of corrections average ({title_suffix})")
+    ax_hist_corr.set_xlabel("Correction value")
+    ax_hist_corr.set_ylabel("Probability density")
+    ax_hist_corr.legend()
+    ax_hist_corr.grid(alpha=0.3)
+
+    # -----------------------
+    # Time evolution
+    # -----------------------
+    ax_time.plot(times_total, density_corr, label="Density")
+    ax_time.plot(times_total, pressure_corr, label="Pressure")
+
+    ax_time.plot(times_total, velocity_corr_mag, label="Velocity")
+    ax_time.plot(times_total, magnetic_corr_mag, label="Magnetic interface")
+
+    ax_time.set_title(f"Model output ({title_suffix})")
+    ax_time.set_xlabel("Times")
+    ax_time.set_ylabel(ylabel)
+    ax_time.legend()
+
+    plt.tight_layout()
+    plt.savefig(
+        f"arena/data/models/{model_name}/plots/model_output_{title_suffix}.png", dpi=400
+    )
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    model_name = "optuna_params"
+
+    model_name = "test_front_to_back"
     load_model = True
     load_model_nan = False
     legacy_mode = False
@@ -352,10 +692,66 @@ if __name__ == "__main__":
             solver_mode=FINITE_DIFFERENCE,
         )
     )
+    params = SimulationParams()
     model_manager = ModelManager(model_name=model_name)
     model_manager.print_model_info()
     training_config = model_manager.load_training_config()
     sim_training_config = model_manager.load_simulation_config()
+
+    corrections = []
+    states = []
+    times = []
+    corrections_max = []
+    states_max = []
+    effective_corrections = []
+
+    # TODO: change the corrected state calculation to the proper one used in the model
+    def snapshot_callable(time, state, correction):
+        corrections.append(jnp.mean(correction, axis=[1, 2, 3]))
+        states.append(jnp.mean(state, axis=[1, 2, 3]))
+        corrections_max.append(jnp.max(correction, axis=[1, 2, 3]))
+        states_max.append(jnp.max(state, axis=[1, 2, 3]))
+        times.append(time)
+
+        original_state = state
+        corrected_state = state
+
+        # update the primitive corrected_state with the correction
+        corrected_state = corrected_state.at[:5].add(correction[:5] * time)
+        corrected_state = corrected_state.at[-3:].add(correction[-3:] * time)
+
+        Bx_center = interp_face_to_center(corrected_state[-3], XAXIS)
+        By_center = interp_face_to_center(corrected_state[-2], YAXIS)
+        Bz_center = interp_face_to_center(corrected_state[-1], ZAXIS)
+
+        corrected_state = corrected_state.at[registered_variables.magnetic_index.x].set(
+            Bx_center
+        )
+        corrected_state = corrected_state.at[registered_variables.magnetic_index.y].set(
+            By_center
+        )
+        corrected_state = corrected_state.at[registered_variables.magnetic_index.z].set(
+            Bz_center
+        )
+
+        corrected_state = corrected_state.at[registered_variables.pressure_index].set(
+            jnp.maximum(
+                corrected_state[registered_variables.pressure_index],
+                params.minimum_pressure,
+            )
+        )
+        corrected_state = corrected_state.at[registered_variables.density_index].set(
+            jnp.maximum(
+                corrected_state[registered_variables.density_index],
+                params.minimum_density,
+            )
+        )
+
+        effective_corrections.append(
+            jnp.mean(corrected_state - original_state, axis=[1, 2, 3])
+        )
+
+        pass
 
     # Initialize model
     model = CorrectorCNN(
@@ -364,7 +760,9 @@ if __name__ == "__main__":
         hidden_layers=training_config.hidden_layers,
         key=jax.random.PRNGKey(100),
         scale=training_config.model_initialization_scale,
+        snapshot_callable=snapshot_callable,
     )
+
     neural_net_params, neural_net_static = eqx.partition(model, eqx.is_array)
 
     if legacy_mode:
@@ -391,12 +789,30 @@ if __name__ == "__main__":
         times_eval=jnp.linspace(0.0, 0.3, 30),
         num_cells_high_res=64,
         downaverage_factor=2,
-        snapshot_timepoints_train=training_config.snapshot_timepoints_train,
         start_correction_time=sim_training_config.start_correction_time,
-        epochs_per_time=training_config.epochs_per_time,
         correct_from_beggining=sim_training_config.correct_from_beggining,
         model_name=training_config.model_name,
         cfl=sim_training_config.c_cfl,
         cfl_target=sim_training_config.c_cfl_target,
         limiter=sim_training_config.limiter,
+        old_version=False,
+    )
+
+    print(f"Simulation took {len(times)} steps")
+
+    plot_states_histogram(
+        corrections=corrections,
+        corrections_max=corrections_max,
+        states=states,
+        states_max=states_max,
+        times=times,
+        model_name=training_config.model_name,
+    )
+
+    model_output_figures(
+        corrections=corrections,
+        effective_corrections=effective_corrections,
+        states=states,
+        times=times,
+        model_name=model_name,
     )
