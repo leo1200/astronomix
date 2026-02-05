@@ -60,6 +60,7 @@ import numpy as np
 from jf1uids.option_classes.simulation_config import (
     VAN_ALBADA,
 )
+from functools import partial
 
 try:
     from arena.arena_tests.solver_in_the_loop.eval_model import eval_model
@@ -94,6 +95,12 @@ def create_train_step(
     helper_data: HelperData,
     registered_variables: RegisteredVariables,
 ):
+    perturb_state_partial = partial(
+        perturb_state,
+        state=initial_state,
+        noise_level=training_config.noise_level,
+    )
+
     def train_step_core(
         cnn_mhd_corrector_params,
         network_params_arrays,
@@ -109,9 +116,7 @@ def create_train_step(
         #     "initial_state_before_noisy",
         #     ["initial_state"],
         # )
-        noisy_initial_state = perturb_state(
-            key, initial_state, training_config.noise_level
-        )
+        noisy_initial_state = perturb_state_partial(key)
         # jax.debug.callback(
         #     plot_states,
         #     [noisy_initial_state],
@@ -200,18 +205,10 @@ def training_model(
     sim_config_training: SimulationConfigTraining,
     load_model: bool = False,
     load_model_nan: bool = False,
+    description: str = "",
 ):
     start_time = timer()
     total_epochs = int(np.sum(training_config.epochs_per_time))
-    warmup_steps = int(total_epochs * training_config.warmup_steps_fraction)
-
-    lr_scheduler = optax.warmup_cosine_decay_schedule(
-        init_value=training_config.learning_rate,
-        peak_value=training_config.peak_lr,
-        end_value=training_config.end_lr,
-        warmup_steps=warmup_steps,
-        decay_steps=total_epochs - warmup_steps,
-    )
 
     (
         states_high_res_downsampled,
@@ -277,6 +274,30 @@ def training_model(
     )
     params_low_res = params._replace(cnn_mhd_corrector_params=cnn_mhd_corrector_params)
 
+    # reseting the lr_scheduler after changing the training time
+    lr_scheduler = optax.schedules.join_schedules(
+        schedules=[
+            optax.warmup_cosine_decay_schedule(
+                init_value=training_config.learning_rate,
+                peak_value=training_config.peak_lr,
+                end_value=training_config.end_lr,
+                warmup_steps=int(epochs * training_config.warmup_steps_fraction),
+                decay_steps=epochs
+                - int(epochs * training_config.warmup_steps_fraction),
+            )
+            for epochs in training_config.epochs_per_time
+        ],
+        boundaries=training_config.epochs_per_time,
+    )
+    # warmup_steps = int(total_epochs * training_config.warmup_steps_fraction)
+    # base_scheduler = optax.warmup_cosine_decay_schedule(
+    #     init_value=training_config.learning_rate,
+    #     peak_value=training_config.peak_lr,
+    #     end_value=training_config.end_lr,
+    #     warmup_steps=warmup_steps,
+    #     decay_steps=total_epochs - warmup_steps,
+    # )
+
     optimizer = optax.chain(
         optax.clip_by_global_norm(training_config.gradient_clip),
         optax.adamw(learning_rate=lr_scheduler),
@@ -290,7 +311,10 @@ def training_model(
     logger.info("Starting training...")
     total_step = 0
     succesful_training = True
-    early_stopper = EarlyStopper(max_patience=training_config.patience)
+    early_stopper = EarlyStopper(
+        max_patience=training_config.patience,
+        use_early_stopper=training_config.early_stopper,
+    )
     try:
         for i, epochs in enumerate(training_config.epochs_per_time):
             (
@@ -425,6 +449,7 @@ def training_model(
         succesful_training=succesful_training,
         early_stopped=early_stopped,
         final_epoch=total_step,
+        notes=description,
     )
 
     if eval_model and succesful_training:
@@ -449,7 +474,11 @@ def training_model(
 
 
 def train_new_model(
-    model_name=None, load_existing=False, load_existing_nan=False, **overrides
+    model_name=None,
+    load_existing=False,
+    load_existing_nan=False,
+    description="",
+    **overrides,
 ):
     manager = ModelManager(model_name=model_name)
 
@@ -504,6 +533,7 @@ def train_new_model(
         model_name,
         training_config,
         sim_config_training,
+        description=description,
         load_model=load_existing,
         load_model_nan=load_existing_nan,
     )
@@ -522,28 +552,30 @@ if __name__ == "__main__":
 
     # TODO: fix the behavior of not putting a t_end, right now the default on the sim_config_training is 0.2
     model_params = {
-        "model_name": "test_front_to_back",
+        "model_name": "ftb_2",
         "num_cells_high_res": 64,
         "downaverage_factor": 2,
         "limiter": VAN_ALBADA,
         "hidden_channels": 5,
-        "scale": 0.04,
+        "scale": 0.15,
         "correction_time": 0.0,
-        "noise": 0.07,
-        "hidden_layers": 3,
-        "base_lr": 1.5e-05,
+        "noise": 0.04,
+        "hidden_layers": 4,
+        "base_lr": 2.5e-05,
         "warmup_fraction": 0.4,
-        "peak_lr": 0.8e-04,
+        "peak_lr": 1.0e-04,
         "end_lr": 3.0e-05,
-        "gradient_clip": 0.95,
-        "c_cfl": 0.65,
-        "c_cfl_target": 0.65,
+        "gradient_clip": 1.0,
+        "c_cfl": 0.8,
+        "c_cfl_target": 0.8,
         "loss_to_use": "norm_mse",
         "direction": FRONT_TO_BACK,
-        "epochs_per_time": [50, 50, 50],
+        "epochs_per_time": [150, 150, 200],
         "snapshot_timepoints_train": [0.10, 0.05, 0.0],
         "correct_from_beggining": True,
         "t_end": 0.2,
+        "patience": 25,
+        "description": "Testing lr_scheduler per times batch",
     }
 
     optuna_params = {
@@ -558,7 +590,8 @@ if __name__ == "__main__":
         "hidden_layers": 3,
         "base_lr": 1.7231054411611903e-05,
         "warmup_fraction": 0.3983952086077301,
-        "peak_lr": 2.343594314368986e-05,
+        # "peak_lr": 2.343594314368986e-05,
+        "peak_lr": 8.0e-5,
         "end_lr": 3.1872436911245206e-06,
         "gradient_clip": 0.9555056246814991,
         "c_cfl": 0.6558539756738294,
@@ -572,13 +605,13 @@ if __name__ == "__main__":
         # we change the correct_from_beggining to true as the small time was causing problems
     }
 
-    training_params = optuna_params
+    training_params = model_params
 
     params, static = train_new_model(
         model_name=training_params["model_name"],
         t_end=training_params["t_end"],
         direction=training_params["direction"],
-        load_existing=True,
+        load_existing=False,
         load_existing_nan=False,
         correct_from_beggining=training_params["correct_from_beggining"],
         use_checkify=False,
@@ -614,9 +647,7 @@ if __name__ == "__main__":
             times_eval=jnp.linspace(0.0, 0.3, 30),
             num_cells_high_res=64,
             downaverage_factor=2,
-            snapshot_timepoints_train=training_config.snapshot_timepoints_train,
             start_correction_time=sim_training_config.start_correction_time,
-            epochs_per_time=training_config.epochs_per_time,
             correct_from_beggining=sim_training_config.correct_from_beggining,
             model_name=training_config.model_name,
             cfl=sim_training_config.c_cfl,

@@ -1,5 +1,6 @@
 """Timepoint updater logic"""
 
+from jf1uids._physics_modules._cnn_mhd_corrector import _cnn_mhd_corrector_options
 from jf1uids.data_classes.simulation_snapshot_data import SnapshotData
 from typing import Tuple
 import jax
@@ -18,6 +19,10 @@ from jf1uids import get_helper_data, get_registered_variables
 from jaxtyping import Array
 
 import logging
+
+from jf1uids._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_options import (
+    CNNMHDconfig,
+)
 
 logger = logging.Logger(__name__)
 
@@ -113,9 +118,7 @@ def timepoint_context(
                     return_snapshots=False,
                     progress_bar=True,
                     exact_end_time=True,
-                    _cnn_mhd_corrector_options=_cnn_mhd_corrector_options.CNNMHDconfig(
-                        cnn_mhd_corrector=False
-                    ),
+                    cnn_mhd_corrector_config=CNNMHDconfig(cnn_mhd_corrector=False),
                 ),
                 params=params._replace(t_end=current_start_time),
                 registered_variables=registered_variables,
