@@ -5,6 +5,7 @@ import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "7"
 os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.45"
 
+from jf1uids.option_classes.simulation_params import SimulationParams
 from arena.arena_tests.solver_in_the_loop import model_manager
 from jf1uids.data_classes.simulation_snapshot_data import SnapshotData
 import jax.numpy as jnp
@@ -37,7 +38,7 @@ from jf1uids import SimulationConfig
 
 from arena.arena_tests.solver_in_the_loop.model_manager import (
     ModelManager,
-    model_loader,
+    load_legacy_params_into_current,
 )
 import os
 import equinox as eqx
@@ -78,15 +79,31 @@ def plot_training(
     model_manager = ModelManager(model_name=model_name)
     training_config = model_manager.load_training_config()
 
+    if training_config.direction == FRONT_TO_BACK:
+        timepoints_train = [
+            sim_training_config.t_end - t
+            for t in training_config.snapshot_timepoints_train
+        ]
+    else:
+        timepoints_train = training_config.snapshot_timepoints_train
+
     snapshot_timepoints_idx = []
     # Populate the times_eval with the trained times
-    for t in snapshot_timepoints_train:
+    for t in timepoints_train:
         if t not in times_eval:
             times_eval = jnp.sort(jnp.concatenate([times_eval, jnp.array([t])]))
 
     # Get the index of the trained times
-    for t in snapshot_timepoints_train:
+    for t in timepoints_train:
         snapshot_timepoints_idx.append(int(jnp.argmax(times_eval == t)))
+
+    epochs_total = np.zeros(len(training_config.epochs_per_time))
+    for i, epochs in enumerate(training_config.epochs_per_time):
+        epochs_total[i] = epochs_total[i - 1] + epochs
+
+    epochs_total = np.zeros(len(training_config.epochs_per_time))
+    for i, epochs in enumerate(training_config.epochs_per_time):
+        epochs_total[i] = epochs_total[i - 1] + epochs
 
     num_cells_lr = num_cells_high_res // downaverage_factor
 
@@ -96,6 +113,7 @@ def plot_training(
         snapshot_timepoints_train=times_eval,
         c_cfl=cfl_target,
         limiter=limiter,
+        old_version=old_version,
     )
     result_high_res = time_integration(*simulation_bundle_high_res)
     assert isinstance(result_high_res, SnapshotData)
