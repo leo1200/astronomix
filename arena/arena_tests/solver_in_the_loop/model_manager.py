@@ -5,9 +5,11 @@ from dataclasses import dataclass, asdict
 import pickle
 import datetime
 from jaxtyping import PyTree
+import jax.tree_util as jtu
 import os
 import numpy as np
 import logging
+import equinox as eqx
 # ============================================================================
 # MODEL MANAGEMENT CLASSES
 # ============================================================================
@@ -116,18 +118,6 @@ class ModelManager:
             json.dump(metadata.to_dict(), f, indent=2)
         print("✓ Saved metadata")
 
-    def save_model_params(self, params: PyTree, filename: str = "model_params.pkl"):
-        path = self.base_dir / self.model_name / filename
-        with open(path, "wb") as f:
-            pickle.dump(params, f)
-        print("✓ Saved model params")
-
-    def save_checkpoint(self, params: PyTree, epoch: int):
-        checkpoint_dir = self.base_dir / self.model_name / "checkpoints"
-        checkpoint_path = checkpoint_dir / f"checkpoint_epoch_{epoch:04d}.pkl"
-        with open(checkpoint_path, "wb") as f:
-            pickle.dump(params, f)
-
     def save_losses(self, losses):
         path = self.base_dir / self.model_name / "losses.npz"
         np.savez(path, losses=losses)
@@ -138,6 +128,27 @@ class ModelManager:
         with open(path, "r") as f:
             data = json.load(f)
         return TrainingConfig(**data)
+
+    def save_model_params(self, params: PyTree, filename: str = "model_params.eqx"):
+        path = self.base_dir / self.model_name / filename
+        # Equinox leaf serialization is stable across static-field changes
+        eqx.tree_serialise_leaves(path, params)
+        print("✓ Saved model params")
+
+    def load_model_params(self, like: PyTree):
+        path = self.base_dir / self.model_name / "model_params.eqx"
+        return eqx.tree_deserialise_leaves(path, like=like)
+
+    def save_checkpoint(self, params: PyTree, epoch: int):
+        checkpoint_dir = self.base_dir / self.model_name / "checkpoints"
+        checkpoint_path = checkpoint_dir / f"checkpoint_epoch_{epoch:04d}.eqx"
+        eqx.tree_serialise_leaves(checkpoint_path, params)
+
+    def load_model_params_nan(self, like: PyTree):
+        path = self.base_dir / self.model_name / "model_params_NAN.eqx"
+        if os.path.isfile(path):
+            return eqx.tree_deserialise_leaves(path, like=like)
+        raise ValueError(f"Model {self.model_name} doesnt have nan params")
 
     def load_metadata(self) -> ModelMetadata:
         path = self.base_dir / self.model_name / "metadata.json"
@@ -150,19 +161,6 @@ class ModelManager:
         with open(path, "r") as f:
             data = json.load(f)
         return SimulationConfigTraining(**data)
-
-    def load_model_params(self):
-        path = self.base_dir / self.model_name / "model_params.pkl"
-        with open(path, "rb") as f:
-            return pickle.load(f)
-
-    def load_model_params_nan(self):
-        path = self.base_dir / self.model_name / "model_params_NAN.pkl"
-        if os.path.isfile(path):
-            with open(path, "rb") as f:
-                return pickle.load(f)
-        else:
-            raise ValueError(f"Model {self.model_name} doesnt have nan params")
 
     def list_models(self):
         return sorted([d.name for d in self.base_dir.iterdir() if d.is_dir()])
@@ -182,9 +180,31 @@ class ModelManager:
                 print(f"Performance: {metadata.performance_metric:.6e}")
             print(f"Hidden: {training.hidden_channels}x{training.hidden_layers}")
             print(f"Resolution: {sim.num_cells_high_res}")
+            if metadata.notes != "":
+                print(f"Description {metadata.notes}")
         except Exception as e:
             print(f"Error: {e}")
         print("=" * 70)
+
+
+def load_legacy_params_into_current(model, path):
+    # current model params template (new treedef)
+    current_params = eqx.filter(model, eqx.is_array)
+
+    # old saved params
+    with open(path, "rb") as f:
+        loaded_params = pickle.load(f)
+
+    # reuse old leaves, but apply new treedef
+    leaves, _ = jtu.tree_flatten(loaded_params)
+    _, new_treedef = jtu.tree_flatten(current_params)
+
+    if len(leaves) != len(jtu.tree_leaves(current_params)):
+        raise ValueError(
+            "Leaf count mismatch — architecture changed, not just static fields."
+        )
+
+    return jtu.tree_unflatten(new_treedef, leaves)
 
 
 def model_loader(
@@ -192,12 +212,39 @@ def model_loader(
     neural_net_params: PyTree,
     load_model: bool = False,
     load_model_nan: bool = False,
+    model: Optional[eqx.Module] = None,  # add this
 ):
     if load_model and not load_model_nan:
-        neural_net_params = model_manager.load_model_params()
+        # Prefer new .eqx
+        try:
+            neural_net_params = model_manager.load_model_params(like=neural_net_params)
+        except FileNotFoundError:
+            # fallback to legacy .pkl migration
+            if model is None:
+                raise ValueError(
+                    "Must pass `model` to migrate legacy .pkl params"
+                ) from FileNotFoundError
+            legacy_path = (
+                model_manager.base_dir / model_manager.model_name / "model_params.pkl"
+            )
+            neural_net_params = load_legacy_params_into_current(model, legacy_path)
         logger.info("✓ Loaded existing model")
 
     if load_model_nan:
-        neural_net_params = model_manager.load_model_params_nan()
+        try:
+            neural_net_params = model_manager.load_model_params_nan(
+                like=neural_net_params
+            )
+        except FileNotFoundError:
+            if model is None:
+                raise ValueError(
+                    "Must pass `model` to migrate legacy .pkl params"
+                ) from FileNotFoundError
+            legacy_path = (
+                model_manager.base_dir
+                / model_manager.model_name
+                / "model_params_NAN.pkl"
+            )
+            neural_net_params = load_legacy_params_into_current(model, legacy_path)
         logger.info("✓ Loaded existing model nan params")
     return neural_net_params

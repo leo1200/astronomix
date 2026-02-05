@@ -315,7 +315,14 @@ if __name__ == "__main__":
     model_name = "optuna_params"
     load_model = True
     load_model_nan = False
+    legacy_mode = False
 
+    if legacy_mode:
+        warnings.warn(
+            "Using the legacy version of the code (same grid_spacing)",
+            DeprecationWarning,
+            stacklevel=1,
+        )
     assert os.path.exists(f"arena/data/models/{model_name}"), (
         "Model folder doesnt exist"
     )
@@ -341,12 +348,24 @@ if __name__ == "__main__":
         scale=training_config.model_initialization_scale,
     )
     neural_net_params, neural_net_static = eqx.partition(model, eqx.is_array)
-    neural_net_params = model_loader(
-        model_manager,
-        neural_net_params,
-        load_model=load_model,
-        load_model_nan=load_model_nan,
-    )
+
+    if legacy_mode:
+        neural_net_params = load_legacy_params_into_current(
+            model, path=f"arena/data/models/{model_name}/model_params.pkl"
+        )
+        model_manager.save_model_params(params=neural_net_params)
+        logger.info("Loaded model with the legacy pickle and saved it with eqx")
+    else:
+        neural_net_params = model_manager.load_model_params(like=neural_net_params)
+
+    # neural_net_params = model_loader(
+    #     model_manager,
+    #     neural_net_params,
+    #     load_model=load_model,
+    #     load_model_nan=load_model_nan,
+    # )
+
+    model = eqx.combine(neural_net_params, neural_net_static)
 
     plot_training(
         neural_net_params=neural_net_params,
