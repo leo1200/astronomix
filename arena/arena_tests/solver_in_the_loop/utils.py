@@ -49,6 +49,7 @@ def get_initial_state_training(
     direction: int = BACK_TO_FRONT,
     c_cfl: float = 1.5,
     limiter: int = 0,
+    old_version: bool = False,  # NOTE: REALLY BAD PRACTICE
 ) -> Tuple[
     Tuple[
         STATE_TYPE, SimulationConfig, SimulationParams, HelperData, RegisteredVariables
@@ -159,6 +160,11 @@ def get_initial_state_training(
         state=initial_state, downaverage_factor=downaverage_factor
     )
     config_low_res = config._replace(num_cells=config.num_cells // downaverage_factor)
+    if not old_version:
+        config_low_res = finalize_config(config_low_res, initial_state_low_res.shape)
+    logger.info(
+        f"Grid spacing high res {config.grid_spacing}, low res {config_low_res.grid_spacing}"
+    )
     helper_data_low_res = get_helper_data(config_low_res)
     return (
         (initial_state, config, params, helper_data, registered_variables),
