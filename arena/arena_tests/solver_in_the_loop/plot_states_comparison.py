@@ -5,6 +5,9 @@ from matplotlib.colors import Normalize
 from IPython.display import HTML
 import jax.numpy as jnp
 from typing import Optional
+import logging
+
+logger = logging.Logger(__name__)
 
 
 def plot_and_animate_states(states_list, z_levels, titles=None, vmin=0, vmax=1):
@@ -142,7 +145,7 @@ def plot_states(
 
     # NOTE: extra float added due to linter
     vmax_density = max(jnp.max(states[0]).astype(float) for states in states_list)
-    vmax_density = min(jnp.min(states[0]).astype(float) for states in states_list)
+    vmin_density = min(jnp.min(states[0]).astype(float) for states in states_list)
     vmax_pressure = max(jnp.max(states[4]).astype(float) for states in states_list)
     vmin_pressure = min(jnp.min(states[4]).astype(float) for states in states_list)
     vmax = max(jnp.max(states).astype(float) for states in states_list)
@@ -161,7 +164,7 @@ def plot_states(
         c0 = axs[row][0].imshow(
             states[0, :, :, z_level].T,
             origin="lower",
-            norm=Normalize(vmin=vmax_density, vmax=vmax_density),
+            norm=Normalize(vmin=vmin_density, vmax=vmax_density),
         )
         fig.colorbar(c0, ax=axs[row][0])
         axs[row][0].set_title(f"{title_prefix} - Density")
@@ -205,5 +208,6 @@ def plot_states(
 
     plt.tight_layout()
     plt.savefig(f"arena/data/models/{model_name}/plots/{fig_name}.png", dpi=400)
+    logger.info(f"Created fig arena/data/models/{model_name}/plots/{fig_name}.png")
 
     pass
