@@ -142,7 +142,7 @@ def create_train_step(
                 "results is not a snapshot data"
             )
             loss = loss_fn_factory(
-                results_low_res.states, target_state, **loss_fn_kwargs
+                results_low_res.states[-1], target_state, **loss_fn_kwargs
             )
 
             if training_config.use_checkify:
