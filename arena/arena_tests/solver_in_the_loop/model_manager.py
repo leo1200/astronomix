@@ -35,7 +35,7 @@ class TrainingConfig:
     use_interface: bool = False
     physics_weights: Optional[list] = None
     use_checkify: bool = False
-    early_stopper: bool = True
+    use_early_stopper: bool = True
     patience: int = 15
     direction: int = 1  # BACK TO FRONT
 

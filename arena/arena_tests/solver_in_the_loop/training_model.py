@@ -313,7 +313,7 @@ def training_model(
     succesful_training = True
     early_stopper = EarlyStopper(
         max_patience=training_config.patience,
-        use_early_stopper=training_config.early_stopper,
+        use_early_stopper=training_config.use_early_stopper,
     )
     try:
         for i, epochs in enumerate(training_config.epochs_per_time):
@@ -431,7 +431,7 @@ def training_model(
 
     model_manager.save_losses(losses)
 
-    if training_config.early_stopper:
+    if training_config.use_early_stopper:
         early_stopped = early_stopper.early_stopped
     else:
         early_stopped = None
@@ -574,7 +574,8 @@ if __name__ == "__main__":
         "snapshot_timepoints_train": [0.10, 0.05, 0.0],
         "correct_from_beggining": True,
         "t_end": 0.2,
-        "patience": 25,
+        "use_early_stopper": False,
+        "patience": 35,
         "description": "Testing lr_scheduler per times batch",
     }
 
@@ -602,6 +603,9 @@ if __name__ == "__main__":
         "snapshot_timepoints_train": [0.2],
         "correct_from_beggining": True,
         "t_end": 0.2,
+        "use_early_stopper": True,
+        "patience": 30,
+        "description": "optuna params but now with the right loss (before there was a bug)",
         # we change the correct_from_beggining to true as the small time was causing problems
     }
 
