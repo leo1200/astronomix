@@ -228,6 +228,7 @@ def run_single_experiment(
         result["error"] = str(e)
         logger.error(f"Experiment {training_config.model_name} failed: {e}")
 
+    # TODO: change optuna goal to average improvement
     return result
 
 
