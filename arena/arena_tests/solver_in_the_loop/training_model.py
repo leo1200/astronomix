@@ -1,9 +1,9 @@
 from autocvd import autocvd
 import os
 
-# autocvd(num_gpus=1)
-os.environ["CUDA_VISIBLE_DEVICES"] = "7"
-os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.45"
+autocvd(num_gpus=1)
+# os.environ["CUDA_VISIBLE_DEVICES"] = "7"
+# os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.45"
 
 from jf1uids.data_classes.simulation_snapshot_data import SnapshotData
 from jf1uids.data_classes.simulation_helper_data import HelperData
@@ -147,7 +147,7 @@ def create_train_step(
 
             if training_config.use_checkify:
                 jax_checkify.check(jnp.isfinite(loss), "Loss became NaN or Inf!")
-
+            #
             # jax.debug.callback(
             #     plot_states,
             #     [results_low_res.states[-1], target_state],
@@ -156,7 +156,7 @@ def create_train_step(
             #     "final_states",
             #     ["sol", "target"],
             # )
-
+            #
             return loss, results_low_res.time_points[-1]
 
         (loss_value, last_timepoint), grads = eqx.filter_value_and_grad(
@@ -275,6 +275,7 @@ def training_model(
     params_low_res = params._replace(cnn_mhd_corrector_params=cnn_mhd_corrector_params)
 
     # reseting the lr_scheduler after changing the training time
+    cumulative_boundaries = list(np.cumsum(training_config.epochs_per_time)[:-1])
     lr_scheduler = optax.schedules.join_schedules(
         schedules=[
             optax.warmup_cosine_decay_schedule(
@@ -287,7 +288,7 @@ def training_model(
             )
             for epochs in training_config.epochs_per_time
         ],
-        boundaries=training_config.epochs_per_time,
+        boundaries=cumulative_boundaries,
     )
     # warmup_steps = int(total_epochs * training_config.warmup_steps_fraction)
     # base_scheduler = optax.warmup_cosine_decay_schedule(
@@ -339,14 +340,14 @@ def training_model(
             #     [current_target],
             #     [16],
             #     training_config.model_name,
-            #     "current_target",
+            #     f"current_target_{i}",
             #     ["current_target"],
             # )
             # plot_states(
             #     [current_initial_state],
             #     [16],
             #     training_config.model_name,
-            #     "current_initial_state",
+            #     f"current_initial_state_{i}",
             #     ["initial_state"],
             # )
 
@@ -415,8 +416,8 @@ def training_model(
                     f"t={current_end_time:.3f} | Step {step + 1}/{epochs} | Loss: {loss:.6f} | "
                     f"Time: {(timer() - start_time_epoch):.3f}s | Grads: {gradients_mod:.3f} | Last t {last_timepoint:.3f}"
                 )
+                total_step += 1
             succesful_training = True
-            total_step += 1
     except ValueError as e:
         print(e)
         model_manager.save_model_params(trained_params, "model_params_NAN.pkl")
@@ -477,9 +478,9 @@ def train_new_model(
     model_name=None,
     load_existing=False,
     load_existing_nan=False,
-    description="",
     **overrides,
 ):
+    description = overrides.pop("description", "")
     manager = ModelManager(model_name=model_name)
 
     if load_existing and model_name:
@@ -552,23 +553,23 @@ if __name__ == "__main__":
 
     # TODO: fix the behavior of not putting a t_end, right now the default on the sim_config_training is 0.2
     model_params = {
-        "model_name": "ftb_2",
+        "model_name": "ftb_3",
         "num_cells_high_res": 64,
         "downaverage_factor": 2,
         "limiter": VAN_ALBADA,
         "hidden_channels": 5,
-        "scale": 0.15,
-        "correction_time": 0.0,
-        "noise": 0.04,
+        "model_initialization_scale": 0.07,
+        "start_correction_time": 0.0,
+        "noise_level": 0.04,
         "hidden_layers": 4,
-        "base_lr": 2.5e-05,
-        "warmup_fraction": 0.4,
-        "peak_lr": 1.0e-04,
-        "end_lr": 3.0e-05,
+        "learning_rate": 8.5e-05,
+        "warmup_steps_fraction": 0.4,
+        "peak_lr": 1.5e-04,
+        "end_lr": 5.0e-05,
         "gradient_clip": 1.0,
         "c_cfl": 0.8,
         "c_cfl_target": 0.8,
-        "loss_to_use": "norm_mse",
+        "loss_type": "norm_mse",
         "direction": FRONT_TO_BACK,
         "epochs_per_time": [150, 150, 200],
         "snapshot_timepoints_train": [0.10, 0.05, 0.0],
@@ -580,24 +581,25 @@ if __name__ == "__main__":
     }
 
     optuna_params = {
-        "model_name": "optuna_params",
+        "model_name": "optuna_params_2",
         "num_cells_high_res": 64,
         "downaverage_factor": 2,
         "limiter": VAN_ALBADA,
         "hidden_channels": 5,
-        "scale": 0.041574555074364715,
-        "correction_time": 0.0001352420222864028,
-        "noise": 0.06971301853761513,
+        "model_initialization_scale": 0.041574555074364715,
+        "start_correction_time": 0.0001352420222864028,
+        "noise_level": 0.0,
         "hidden_layers": 3,
-        "base_lr": 1.7231054411611903e-05,
-        "warmup_fraction": 0.3983952086077301,
+        "learning_rate": 1.7231054411611903e-05,
+        "warmup_steps_fraction": 0.3983952086077301,
         # "peak_lr": 2.343594314368986e-05,
         "peak_lr": 8.0e-5,
         "end_lr": 3.1872436911245206e-06,
         "gradient_clip": 0.9555056246814991,
-        "c_cfl": 0.6558539756738294,
+        # "c_cfl": 0.6558539756738294,
+        "c_cfl": 0.8,
         "c_cfl_target": 0.8,
-        "loss_to_use": "norm_mse",
+        "loss_type": "norm_mse",
         "direction": BACK_TO_FRONT,
         "epochs_per_time": [300],
         "snapshot_timepoints_train": [0.2],
@@ -609,34 +611,13 @@ if __name__ == "__main__":
         # we change the correct_from_beggining to true as the small time was causing problems
     }
 
-    training_params = model_params
+    training_params = optuna_params
 
     params, static = train_new_model(
-        model_name=training_params["model_name"],
-        t_end=training_params["t_end"],
-        direction=training_params["direction"],
         load_existing=False,
         load_existing_nan=False,
-        correct_from_beggining=training_params["correct_from_beggining"],
         use_checkify=False,
-        limiter=training_params["limiter"],
-        epochs_per_time=training_params["epochs_per_time"],
-        snapshot_timepoints_train=training_params["snapshot_timepoints_train"],
-        hidden_channels=training_params["hidden_channels"],
-        hidden_layers=training_params["hidden_layers"],
-        c_cfl=training_params["c_cfl"],
-        c_cfl_target=training_params["c_cfl_target"],
-        gradient_clip=training_params["gradient_clip"],
-        start_correction_time=training_params["correction_time"],
-        learning_rate=training_params["base_lr"],
-        peak_lr=training_params["peak_lr"],
-        end_lr=training_params["end_lr"],
-        warmup_steps_fraction=training_params["warmup_fraction"],
-        model_initialization_scale=training_params["scale"],
-        noise_level=training_params["noise"],
-        loss_type=training_params["loss_to_use"],
-        patience=20,
-        num_cells_high_res=training_params["num_cells_high_res"],
+        **training_params,
     )
 
     model_manager = ModelManager(model_name=training_params["model_name"])
@@ -649,8 +630,8 @@ if __name__ == "__main__":
             neural_net_params=params,
             neural_net_static=static,
             times_eval=jnp.linspace(0.0, 0.3, 30),
-            num_cells_high_res=64,
-            downaverage_factor=2,
+            num_cells_high_res=training_params["num_cells_high_res"],
+            downaverage_factor=training_params["downaverage_factor"],
             start_correction_time=sim_training_config.start_correction_time,
             correct_from_beggining=sim_training_config.correct_from_beggining,
             model_name=training_config.model_name,

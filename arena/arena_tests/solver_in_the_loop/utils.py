@@ -311,7 +311,7 @@ def initialize_training_data(
     elif direction == FRONT_TO_BACK:
         filename = (
             "hr_states_"
-            + "_".join([f"{int(t * 100)}" for t in [t_end]])
+            + f"_{int(t_end * 100)}"
             + f"_{num_cells_high_res}"
             + f"_{int(c_cfl * 100)}"
             + f"_{limiter}"
