@@ -2,14 +2,14 @@ if __name__ == "__main__":
     from autocvd import autocvd
 
     autocvd(num_gpus=1)
-    from jf1uids import time_integration
+    from astronomix import time_integration
 
 
 import jax.numpy as jnp
-from jf1uids.data_classes.simulation_helper_data import HelperData
+from astronomix.data_classes.simulation_helper_data import HelperData
 from typing import Tuple
 
-from jf1uids import (
+from astronomix import (
     SimulationConfig,
     SimulationParams,
     construct_primitive_state,
@@ -19,22 +19,22 @@ from jf1uids import (
     initialize_interface_fields,
 )
 
-from jf1uids.data_classes.simulation_snapshot_data import SnapshotData
-from jf1uids.option_classes.simulation_config import (
+from astronomix.data_classes.simulation_snapshot_data import SnapshotData
+from astronomix.option_classes.simulation_config import (
     FINITE_VOLUME,
     FORWARDS,
     OPEN_BOUNDARY,
     STATE_TYPE,
 )
-from jf1uids.variable_registry.registered_variables import RegisteredVariables
-from jf1uids._finite_difference._maths._interpolate import interp_face_to_center
-from jf1uids._finite_difference._magnetic_update._constrained_transport import (
+from astronomix.variable_registry.registered_variables import RegisteredVariables
+from astronomix._finite_difference._maths._interpolate import interp_face_to_center
+from astronomix._finite_difference._magnetic_update._constrained_transport import (
     XAXIS,
     YAXIS,
     ZAXIS,
 )
 
-from jf1uids.option_classes.simulation_config import (
+from astronomix.option_classes.simulation_config import (
     BACKWARDS,
     PERIODIC_BOUNDARY,
     BoundarySettings,
@@ -272,7 +272,6 @@ if __name__ == "__main__":
         primitive_state=initial_state,
         config=config,
         params=params,
-        helper_data=helper_data,
         registered_variables=registered_variables,
     )
     assert isinstance(snapshot_data, SnapshotData)

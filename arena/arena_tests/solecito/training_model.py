@@ -13,9 +13,9 @@ from jax import transfer_guard_host_to_device, vmap
 import optax
 import jax.numpy as jnp
 import equinox as eqx
-from jf1uids.data_classes.simulation_helper_data import HelperData
-from jf1uids.data_classes.simulation_snapshot_data import SnapshotData
-from jf1uids.option_classes.simulation_config import (
+from astronomix.data_classes.simulation_helper_data import HelperData
+from astronomix.data_classes.simulation_snapshot_data import SnapshotData
+from astronomix.option_classes.simulation_config import (
     FINITE_DIFFERENCE,
     BoundarySettings,
     BoundarySettings1D,
@@ -25,22 +25,22 @@ from jf1uids.option_classes.simulation_config import (
 
 from timeit import default_timer as timer
 import jax
-from jf1uids._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_finite_element import (
+from astronomix._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_finite_element import (
     CorrectorCNN,
     ScalarFieldCorrectorCNN,
     VectorField,
     VectorFieldCorrectorCNN,
 )
-from jf1uids._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_options import (
+from astronomix._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_options import (
     CNNMHDconfig,
     CNNMHDParams,
 )
-from jf1uids.time_stepping import time_integration
-from jf1uids.variable_registry.registered_variables import (
+from astronomix.time_stepping import time_integration
+from astronomix.variable_registry.registered_variables import (
     RegisteredVariables,
     StaticIntVector,
 )
-from jf1uids import (
+from astronomix import (
     get_helper_data,
     finalize_config,
     get_registered_variables,

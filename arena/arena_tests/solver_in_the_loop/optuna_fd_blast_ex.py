@@ -10,7 +10,7 @@ os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.45"
 # os.environ["CUDA_VISIBLE_DEVICES"] = "6"
 
 
-from jf1uids.data_classes.simulation_helper_data import HelperData
+from astronomix.data_classes.simulation_helper_data import HelperData
 
 from typing import Tuple
 from functools import partial
@@ -20,19 +20,19 @@ import jax.numpy as jnp
 import optax
 from jaxtyping import PyTree, Array
 import math
-from jf1uids import (
+from astronomix import (
     SimulationConfig,
     SimulationParams,
 )
-from jf1uids._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_finite_element import (
+from astronomix._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_finite_element import (
     CorrectorCNN,
 )
-from jf1uids._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_options import (
+from astronomix._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_options import (
     CNNMHDconfig,
     CNNMHDParams,
 )
-from jf1uids.time_stepping import time_integration
-from jf1uids.variable_registry.registered_variables import RegisteredVariables
+from astronomix.time_stepping import time_integration
+from astronomix.variable_registry.registered_variables import RegisteredVariables
 import numpy as np
 from arena.arena_tests.solver_in_the_loop.utils import (
     get_initial_state_training,
@@ -192,7 +192,7 @@ def preparing_optuna_study(
     )
     print(states_high_res_downsampled.shape)
     experiment_folder = os.path.abspath(
-        "/export/home/jalegria/Thesis/jf1uids/arena/data"
+        "/export/home/jalegria/Thesis/astronomix/arena/data"
     )
     study = optuna.create_study(
         study_name="fd_blast_sol",

@@ -1,8 +1,8 @@
 import jax.numpy as jnp
-from jf1uids.data_classes.simulation_helper_data import HelperData
+from astronomix.data_classes.simulation_helper_data import HelperData
 from typing import Tuple
 
-from jf1uids import (
+from astronomix import (
     SimulationConfig,
     SimulationParams,
     construct_primitive_state,
@@ -12,8 +12,8 @@ from jf1uids import (
     initialize_interface_fields,
 )
 
-from jf1uids.option_classes.simulation_config import STATE_TYPE
-from jf1uids.variable_registry.registered_variables import RegisteredVariables
+from astronomix.option_classes.simulation_config import STATE_TYPE
+from astronomix.variable_registry.registered_variables import RegisteredVariables
 
 import logging
 

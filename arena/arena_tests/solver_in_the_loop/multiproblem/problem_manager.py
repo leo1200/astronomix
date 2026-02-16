@@ -1,12 +1,12 @@
 from typing import Callable, List, NamedTuple, Optional, Tuple
 import random
 
-from jf1uids import time_integration
-from jf1uids.data_classes.simulation_helper_data import HelperData
-from jf1uids.data_classes.simulation_snapshot_data import SnapshotData
-from jf1uids.variable_registry.registered_variables import RegisteredVariables
+from astronomix import time_integration
+from astronomix.data_classes.simulation_helper_data import HelperData
+from astronomix.data_classes.simulation_snapshot_data import SnapshotData
+from astronomix.variable_registry.registered_variables import RegisteredVariables
 
-from jf1uids import (
+from astronomix import (
     SimulationConfig,
     SimulationParams,
     finalize_config,
@@ -14,7 +14,7 @@ from jf1uids import (
     get_registered_variables,
 )
 
-from jf1uids.option_classes.simulation_config import (
+from astronomix.option_classes.simulation_config import (
     BACKWARDS,
     PERIODIC_BOUNDARY,
     BoundarySettings,
@@ -23,7 +23,7 @@ from jf1uids.option_classes.simulation_config import (
     STATE_TYPE,
 )
 
-from jf1uids._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_options import (
+from astronomix._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_options import (
     CNNMHDconfig,
     CNNMHDParams,
 )

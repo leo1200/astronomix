@@ -4,16 +4,16 @@ import jax.numpy as jnp
 import equinox as eqx
 from jaxtyping import Array, Float, PRNGKeyArray
 
-from jf1uids._finite_difference._magnetic_update._constrained_transport import (
+from astronomix._finite_difference._magnetic_update._constrained_transport import (
     YAXIS,
     XAXIS,
     ZAXIS,
 )
-from jf1uids._finite_difference._maths._differencing import finite_difference_int6
-from jf1uids.variable_registry.registered_variables import RegisteredVariables
-from jf1uids.option_classes.simulation_config import STATE_TYPE, SimulationConfig
-from jf1uids.option_classes.simulation_params import SimulationParams
-from jf1uids._finite_difference._maths._interpolate import interp_face_to_center
+from astronomix._finite_difference._maths._differencing import finite_difference_int6
+from astronomix.variable_registry.registered_variables import RegisteredVariables
+from astronomix.option_classes.simulation_config import STATE_TYPE, SimulationConfig
+from astronomix.option_classes.simulation_params import SimulationParams
+from astronomix._finite_difference._maths._interpolate import interp_face_to_center
 from typing import Optional, Callable
 from enum import Enum
 

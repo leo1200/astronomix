@@ -6,9 +6,9 @@ autocvd(num_gpus=1)
 # os.environ["CUDA_VISIBLE_DEVICES"] = "7"
 # os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.45"
 
-from jf1uids.data_classes.simulation_snapshot_data import SnapshotData
-from jf1uids.data_classes.simulation_helper_data import HelperData
-from jf1uids.option_classes.simulation_config import STATE_TYPE, SimulationConfig
+from astronomix.data_classes.simulation_snapshot_data import SnapshotData
+from astronomix.data_classes.simulation_helper_data import HelperData
+from astronomix.option_classes.simulation_config import STATE_TYPE, SimulationConfig
 
 from timeit import default_timer as timer
 import datetime
@@ -20,15 +20,15 @@ import equinox as eqx
 import jax.numpy as jnp
 import optax
 import math
-from jf1uids._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_finite_element import (
+from astronomix._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_finite_element import (
     CorrectorCNN,
 )
-from jf1uids._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_options import (
+from astronomix._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_options import (
     CNNMHDconfig,
     CNNMHDParams,
 )
-from jf1uids.time_stepping import time_integration
-from jf1uids.variable_registry.registered_variables import RegisteredVariables
+from astronomix.time_stepping import time_integration
+from astronomix.variable_registry.registered_variables import RegisteredVariables
 
 from arena.arena_tests.solver_in_the_loop.utils import (
     perturb_state,
@@ -61,7 +61,7 @@ from arena.arena_tests.solver_in_the_loop.multiproblem.problem_manager import (
 )
 import numpy as np
 
-from jf1uids.option_classes.simulation_config import (
+from astronomix.option_classes.simulation_config import (
     VAN_ALBADA,
 )
 from functools import partial

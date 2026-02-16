@@ -7,21 +7,21 @@ import os
 # os.environ["CUDA_VISIBLE_DEVICES"] = "7"
 # os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.45"
 
-from jf1uids.option_classes.simulation_params import SimulationParams
+from astronomix.option_classes.simulation_params import SimulationParams
 from arena.arena_tests.solver_in_the_loop import model_manager
-from jf1uids.data_classes.simulation_snapshot_data import SnapshotData
+from astronomix.data_classes.simulation_snapshot_data import SnapshotData
 import jax.numpy as jnp
 from jax import vmap
 from jaxtyping import PyTree
 from typing import List
-from jf1uids.variable_registry.registered_variables import StaticIntVector
+from astronomix.variable_registry.registered_variables import StaticIntVector
 import jax
 
-from jf1uids._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_options import (
+from astronomix._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_options import (
     CNNMHDconfig,
     CNNMHDParams,
 )
-from jf1uids.time_stepping import time_integration
+from astronomix.time_stepping import time_integration
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -34,11 +34,11 @@ from arena.arena_tests.solver_in_the_loop.utils import (
 from arena.arena_tests.solver_in_the_loop.loss import (
     loss_setup,
 )
-from jf1uids._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_finite_element import (
+from astronomix._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_finite_element import (
     CorrectorCNN,
 )
-from jf1uids import get_registered_variables
-from jf1uids import SimulationConfig
+from astronomix import get_registered_variables
+from astronomix import SimulationConfig
 
 from arena.arena_tests.solver_in_the_loop.model_manager import (
     ModelManager,
@@ -47,25 +47,25 @@ from arena.arena_tests.solver_in_the_loop.model_manager import (
 import os
 import equinox as eqx
 
-from jf1uids.variable_registry import registered_variables
+from astronomix.variable_registry import registered_variables
 import logging
 from arena.arena_tests.solver_in_the_loop.timepoint_updater import (
     FRONT_TO_BACK,
     BACK_TO_FRONT,
 )
-from jf1uids._finite_difference._magnetic_update._constrained_transport import (
+from astronomix._finite_difference._magnetic_update._constrained_transport import (
     YAXIS,
     XAXIS,
     ZAXIS,
 )
-from jf1uids.option_classes.simulation_config import (
+from astronomix.option_classes.simulation_config import (
     FINITE_DIFFERENCE,
 )
 
 from functools import partial
 import warnings
-from jf1uids._finite_difference._maths._differencing import finite_difference_int6
-from jf1uids._finite_difference._maths._interpolate import interp_face_to_center
+from astronomix._finite_difference._maths._differencing import finite_difference_int6
+from astronomix._finite_difference._maths._interpolate import interp_face_to_center
 from arena.arena_tests.solver_in_the_loop.plot_states_comparison import plot_states
 from pathlib import Path
 

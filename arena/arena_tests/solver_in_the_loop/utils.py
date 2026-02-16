@@ -2,13 +2,13 @@ import jax.numpy as jnp
 import jax
 from jaxtyping import Array
 from numpy import array
-from jf1uids.data_classes.simulation_helper_data import HelperData
+from astronomix.data_classes.simulation_helper_data import HelperData
 import os
-from jf1uids.data_classes.simulation_snapshot_data import SnapshotData
-from jf1uids.time_stepping import time_integration
+from astronomix.data_classes.simulation_snapshot_data import SnapshotData
+from astronomix.time_stepping import time_integration
 from typing import Optional, Tuple
 
-from jf1uids import (
+from astronomix import (
     SimulationConfig,
     SimulationParams,
     construct_primitive_state,
@@ -18,7 +18,7 @@ from jf1uids import (
     initialize_interface_fields,
 )
 
-from jf1uids.option_classes.simulation_config import (
+from astronomix.option_classes.simulation_config import (
     BACKWARDS,
     FINITE_DIFFERENCE,
     PERIODIC_BOUNDARY,
@@ -27,7 +27,7 @@ from jf1uids.option_classes.simulation_config import (
     BoundarySettings,
     BoundarySettings1D,
 )
-from jf1uids.variable_registry.registered_variables import RegisteredVariables
+from astronomix.variable_registry.registered_variables import RegisteredVariables
 
 from arena.arena_tests.solver_in_the_loop.timepoint_updater import (
     BACK_TO_FRONT,

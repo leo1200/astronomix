@@ -1,11 +1,11 @@
 from jaxtyping import PyTree
-from jf1uids import time_integration
+from astronomix import time_integration
 
 from arena.arena_tests.solver_in_the_loop.utils import (
     get_initial_state_training,
     downaverage,
 )
-from jf1uids._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_options import (
+from astronomix._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_options import (
     CNNMHDconfig,
     CNNMHDParams,
 )

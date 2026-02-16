@@ -1,26 +1,26 @@
 """Timepoint updater logic"""
 
-from jf1uids._physics_modules._cnn_mhd_corrector import _cnn_mhd_corrector_options
-from jf1uids.data_classes.simulation_snapshot_data import SnapshotData
+from astronomix._physics_modules._cnn_mhd_corrector import _cnn_mhd_corrector_options
+from astronomix.data_classes.simulation_snapshot_data import SnapshotData
 from typing import Tuple
 import jax
 
 import jax.numpy as jnp
-from jf1uids.time_stepping import time_integration
+from astronomix.time_stepping import time_integration
 
 from arena.arena_tests.solver_in_the_loop.model_manager import (
     TrainingConfig,
     SimulationConfigTraining,
 )
 
-from jf1uids.option_classes.simulation_config import STATE_TYPE, SimulationConfig
-from jf1uids.option_classes.simulation_params import SimulationParams
-from jf1uids import get_helper_data, get_registered_variables
+from astronomix.option_classes.simulation_config import STATE_TYPE, SimulationConfig
+from astronomix.option_classes.simulation_params import SimulationParams
+from astronomix import get_helper_data, get_registered_variables
 from jaxtyping import Array
 
 import logging
 
-from jf1uids._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_options import (
+from astronomix._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_options import (
     CNNMHDconfig,
 )
 

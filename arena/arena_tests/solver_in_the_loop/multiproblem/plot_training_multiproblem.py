@@ -23,13 +23,13 @@ import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-from jf1uids.time_stepping import time_integration
-from jf1uids.data_classes.simulation_snapshot_data import SnapshotData
-from jf1uids._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_options import (
+from astronomix.time_stepping import time_integration
+from astronomix.data_classes.simulation_snapshot_data import SnapshotData
+from astronomix._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_options import (
     CNNMHDconfig,
     CNNMHDParams,
 )
-from jf1uids._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_finite_element import (
+from astronomix._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_finite_element import (
     CorrectorCNN,
 )
 
@@ -66,14 +66,14 @@ def _build_eval_bundle(
     limiter: int,
 ):
     """Build HR and LR bundles for evaluation at arbitrary snapshot times."""
-    from jf1uids import (
+    from astronomix import (
         SimulationConfig,
         SimulationParams,
         finalize_config,
         get_helper_data,
         get_registered_variables,
     )
-    from jf1uids.option_classes.simulation_config import (
+    from astronomix.option_classes.simulation_config import (
         BACKWARDS,
         PERIODIC_BOUNDARY,
         BoundarySettings,
@@ -380,8 +380,8 @@ if __name__ == "__main__":
     sim_config_training = model_manager.load_simulation_config()
 
     reg_vars_dummy = None
-    from jf1uids import SimulationConfig, get_registered_variables
-    from jf1uids.option_classes.simulation_config import FINITE_DIFFERENCE
+    from astronomix import SimulationConfig, get_registered_variables
+    from astronomix.option_classes.simulation_config import FINITE_DIFFERENCE
 
     reg_vars_dummy = get_registered_variables(
         SimulationConfig(dimensionality=3, mhd=True, solver_mode=FINITE_DIFFERENCE)
