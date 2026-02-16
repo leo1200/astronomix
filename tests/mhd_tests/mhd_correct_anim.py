@@ -9,17 +9,17 @@ import jax
 import jax.numpy as jnp
 jax.config.update("jax_enable_x64", True)
 
-# jf1uids
-from jf1uids import SimulationConfig
-from jf1uids import get_helper_data
-from jf1uids import SimulationParams
-from jf1uids import time_integration
-from jf1uids.initial_condition_generation.construct_primitive_state import construct_primitive_state
-from jf1uids import get_registered_variables
-from jf1uids.option_classes.simulation_config import finalize_config
+# astronomix
+from astronomix import SimulationConfig
+from astronomix import get_helper_data
+from astronomix import SimulationParams
+from astronomix import time_integration
+from astronomix.initial_condition_generation.construct_primitive_state import construct_primitive_state
+from astronomix import get_registered_variables
+from astronomix.option_classes.simulation_config import finalize_config
 
-# jf1uids constants
-from jf1uids.option_classes.simulation_config import (
+# astronomix constants
+from astronomix.option_classes.simulation_config import (
     BACKWARDS, FORWARDS, HLL, HLLC, MINMOD,
     OSHER, PERIODIC_BOUNDARY, BoundarySettings, BoundarySettings1D
 )
@@ -31,8 +31,8 @@ import equinox as eqx
 import optax
 
 # CNN stuff
-from jf1uids._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector import CorrectorCNN
-from jf1uids._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_options import CNNMHDParams, CNNMHDconfig
+from astronomix._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector import CorrectorCNN
+from astronomix._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_options import CNNMHDParams, CNNMHDconfig
 
 # plotting
 import matplotlib.pyplot as plt
@@ -196,11 +196,11 @@ initial_state_low_res = downaverage_state(initial_state_high_res, (num_cells_low
 config_low_res = finalize_config(config_low_res, initial_state_low_res.shape)
 
 # run high resolution simulation
-result_high_res = time_integration(initial_state_high_res, config_high_res, params, helper_data_high_res, registered_variables)
+result_high_res = time_integration(initial_state_high_res, config_high_res, params, registered_variables)
 states_high_res_downsampled = jax.vmap(downaverage_state, in_axes=(0, None), out_axes=0)(result_high_res.states, (num_cells_low_res, num_cells_low_res))
 
 # run low resolution simulation
-result_low_res = time_integration(initial_state_low_res, config_low_res, params, helper_data_low_res, registered_variables)
+result_low_res = time_integration(initial_state_low_res, config_low_res, params, registered_variables)
 
 # calculate the mean squared error between the high and low resolution results
 # the result.states is of shape (num_states, num_vars, H, W)
@@ -245,7 +245,6 @@ def loss_fn(network_params_arrays):
                 network_params = network_params_arrays
             )
         ),
-        helper_data_low_res,
         registered_variables
     )
     # Calculate the L2 loss between the final state and the target state
@@ -333,7 +332,6 @@ result_low_res_cnn = time_integration(
             network_params = trained_params
         )
     ),
-    helper_data_low_res,
     registered_variables
 )
 

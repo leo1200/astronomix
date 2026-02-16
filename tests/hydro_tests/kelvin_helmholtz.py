@@ -12,12 +12,12 @@ jax.config.update("jax_enable_x64", True)
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 
-# jf1uids
-from jf1uids import SimulationConfig, get_helper_data, SimulationParams, time_integration
-from jf1uids.initial_condition_generation.construct_primitive_state import construct_primitive_state
-from jf1uids import get_registered_variables
+# astronomix
+from astronomix import SimulationConfig, get_helper_data, SimulationParams, time_integration
+from astronomix.initial_condition_generation.construct_primitive_state import construct_primitive_state
+from astronomix import get_registered_variables
 import os
-from jf1uids.option_classes.simulation_config import (
+from astronomix.option_classes.simulation_config import (
     HLL, HLLC, FORWARDS, MINMOD, PERIODIC_BOUNDARY,
     BoundarySettings, BoundarySettings1D, finalize_config
 )
@@ -84,7 +84,7 @@ from jf1uids.option_classes.simulation_config import (
 #     config = finalize_config(config, initial_state.shape)
     
 #     # --- Run Time Integration ---
-#     result = time_integration(initial_state, config, params, helper_data, registered_variables)
+#     result = time_integration(initial_state, config, params, registered_variables)
     
 #     # Return only the final density field (index 0)
 #     final_density = result[0, :, :]

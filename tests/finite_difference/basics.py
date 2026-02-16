@@ -20,28 +20,28 @@ import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 
 # fluids
-from jf1uids import SimulationConfig
-from jf1uids import get_helper_data
-from jf1uids import SimulationParams
-from jf1uids import time_integration
-from jf1uids._finite_difference._fluid_equations._eigen import _eigen_x
-from jf1uids._finite_difference._fluid_equations._equations import _b_squared3D, conserved_state_from_primitive_mhd, primitive_state_from_conserved_mhd
-from jf1uids.initial_condition_generation.construct_primitive_state import construct_primitive_state
-from jf1uids import get_registered_variables
-from jf1uids.option_classes.simulation_config import DOUBLE_MINMOD, FINITE_DIFFERENCE, HLLC_LM, LAX_FRIEDRICHS, VAN_ALBADA_PP, finalize_config
+from astronomix import SimulationConfig
+from astronomix import get_helper_data
+from astronomix import SimulationParams
+from astronomix import time_integration
+from astronomix._finite_difference._fluid_equations._eigen import _eigen_x
+from astronomix._finite_difference._fluid_equations._equations import _b_squared3D, conserved_state_from_primitive_mhd, primitive_state_from_conserved_mhd
+from astronomix.initial_condition_generation.construct_primitive_state import construct_primitive_state
+from astronomix import get_registered_variables
+from astronomix.option_classes.simulation_config import DOUBLE_MINMOD, FINITE_DIFFERENCE, HLLC_LM, LAX_FRIEDRICHS, VAN_ALBADA_PP, finalize_config
 import numpy as np
 from matplotlib.colors import LogNorm
 
-from jf1uids._finite_difference._interface_fluxes._weno import _weno_flux_x
+from astronomix._finite_difference._interface_fluxes._weno import _weno_flux_x
 
-from jf1uids._finite_difference._magnetic_update._constrained_transport import initialize_interface_fields
+from astronomix._finite_difference._magnetic_update._constrained_transport import initialize_interface_fields
 
-from jf1uids._finite_volume._magnetic_update._magnetic_field_update import magnetic_update
+from astronomix._finite_volume._magnetic_update._magnetic_field_update import magnetic_update
 
 from mpl_toolkits.axes_grid1.axes_divider import make_axes_locatable
 
-# jf1uids constants
-from jf1uids.option_classes.simulation_config import (
+# astronomix constants
+from astronomix.option_classes.simulation_config import (
     BACKWARDS, FORWARDS, HLL, HLLC, MINMOD,
     OSHER, PERIODIC_BOUNDARY, BoundarySettings, BoundarySettings1D
 )

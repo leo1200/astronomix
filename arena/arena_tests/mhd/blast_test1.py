@@ -17,17 +17,17 @@ pressure = 100 for r <= r0
 with r0 = 0.125, r1 = 1.1 * r0, and B0 = 10. r is
 the radial distance from the center of the box.
 
-The simulation is run until t = 0.02 in a periodic box
+The simulation is run until t = 0.02 in a periodic box 
 of size 1.0.
 
 ## Literature reference
 
-Seo, Jeongbhin, and Dongsu Ryu.
-"HOW-MHD: a high-order WENO-based
-magnetohydrodynamic code with a
-high-order constrained transport
-algorithm for astrophysical
-applications."
+Seo, Jeongbhin, and Dongsu Ryu. 
+"HOW-MHD: a high-order WENO-based 
+magnetohydrodynamic code with a 
+high-order constrained transport 
+algorithm for astrophysical 
+applications." 
 The Astrophysical Journal
 953.1 (2023): 39.
 https://arxiv.org/pdf/2304.04360
@@ -35,17 +35,18 @@ https://arxiv.org/pdf/2304.04360
 
 import os
 
+import jax
+
 # basic numerics
 import jax.numpy as jnp
-import numpy as np
 
 # plotting
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1.axes_divider import make_axes_locatable
 
-# jf1uidsSimulationConfig
-from jf1uids import (
-    # jf1uids data structures
+# astronomixSimulationConfig
+from astronomix import (
+    # astronomix data structures
     SimulationConfig,
     SimulationParams,
     # setup functions
@@ -55,27 +56,33 @@ from jf1uids import (
     get_helper_data,
     initialize_interface_fields,
     # time integration
-    time_integration,
+    time_integration
 )
 
-from jf1uids.option_classes.simulation_config import (
+from astronomix.option_classes.simulation_config import (
     FINITE_DIFFERENCE,
-    PERIODIC_BOUNDARY,
-    BoundarySettings,
+    PERIODIC_BOUNDARY, 
+    BoundarySettings, 
     BoundarySettings1D,
+    SnapshotSettings
 )
-
 
 def mhd_blast_test1(
-    config: SimulationConfig, params: SimulationParams, configuration_name: str
+    config: SimulationConfig,
+    params: SimulationParams,
+    configuration_name: str
 ):
+    
+    # # start profiling
+    # jax.profiler.start_trace("/tmp/profile-data")
+
     test_name = f"mhd_blast_test1_{config.num_cells}cells"
 
     print("👷 setting up mhd_blast_test1 with configuration: ", configuration_name)
 
     num_cells = config.num_cells
 
-    # adapt the params for the
+    # adapt the params for the 
     # correct end time
     params = params._replace(
         t_end=0.02,
@@ -84,6 +91,13 @@ def mhd_blast_test1(
     # set periodic boundaries in all directions
     print("Setting periodic boundaries in all directions.")
     config = config._replace(
+        return_snapshots=True,
+        num_snapshots=40,
+        snapshot_settings=SnapshotSettings(
+            return_states=False,
+            return_final_state=True,
+            return_magnetic_divergence=True
+        ),
         boundary_settings=BoundarySettings(
             BoundarySettings1D(
                 left_boundary=PERIODIC_BOUNDARY, right_boundary=PERIODIC_BOUNDARY
@@ -151,13 +165,13 @@ def mhd_blast_test1(
 
     # run the simulation
     print("🚀 running mhd_blast_test1 simulation")
-    final_state = time_integration(
-        initial_state, config, params, helper_data, registered_variables
+    result = time_integration(
+        initial_state, config, params, registered_variables
     )
-    print(final_state.states.shape)
-    density_states = np.array(final_state.states[:, 0, ...])
-    print(density_states.shape)
-    jnp.save("arena/data/blast_states.npy", jnp.array(density_states))
+    final_state = result.final_state
+    magnetic_divergence = result.magnetic_divergence
+    time_points = result.time_points
+
     # store the simulation result
 
     # create a folder configuration_name in results/
@@ -165,7 +179,7 @@ def mhd_blast_test1(
     output_folder = os.path.join("results", configuration_name, "data")
     os.makedirs(output_folder, exist_ok=True)
     output_file = os.path.join(output_folder, test_name + ".npz")
-    jnp.savez(output_file, final_state=final_state)
+    jnp.savez(output_file, final_state=final_state, magnetic_divergence=magnetic_divergence)
 
     # plot the results
     density = final_state[registered_variables.density_index]
@@ -214,7 +228,7 @@ def mhd_blast_test1(
         cmap="jet",
     )
     cbar = make_axes_locatable(axs[0, 1]).append_axes("right", size="5%", pad=0.1)
-    fig.colorbar(im, cax=cbar, label="v^2")
+    fig.colorbar(im, cax=cbar, label="v²")
     axs[0, 1].set_title("kinetic energy slice")
     axs[0, 1].set_xlabel("x")
     axs[0, 1].set_ylabel("y")
@@ -226,7 +240,7 @@ def mhd_blast_test1(
         cmap="jet",
     )
     cbar = make_axes_locatable(axs[1, 0]).append_axes("right", size="5%", pad=0.1)
-    fig.colorbar(im, cax=cbar, label="B^2")
+    fig.colorbar(im, cax=cbar, label="B²")
     axs[1, 0].set_title("magnetic pressure slice")
     axs[1, 0].set_xlabel("x")
     axs[1, 0].set_ylabel("y")
@@ -238,16 +252,16 @@ def mhd_blast_test1(
         config.box_size / num_cells
     )
     axs[0, 2].plot(r_diag, B_diag)
-    axs[0, 2].set_ylabel("|B|^2")
+    axs[0, 2].set_ylabel("|B|²")
     axs[0, 2].set_xlabel("diagonal")
-    axs[0, 2].set_title("|B|^2 along diagonal")
+    axs[0, 2].set_title("|B|² along diagonal")
 
     # density along the vertical centerline
     pressure_diag = pressure[diag_indices, diag_indices, num_cells // 2]
     axs[1, 2].plot(r_diag, pressure_diag)
     axs[1, 2].set_ylabel("pressure")
     axs[1, 2].set_xlabel("diagonal")
-    axs[1, 2].set_title("Pressure along diagonal")
+    axs[1, 2].set_title("pressure along diagonal")
 
     plt.tight_layout()
 
@@ -256,7 +270,20 @@ def mhd_blast_test1(
     figures_folder = os.path.join("results", configuration_name, "figures")
     os.makedirs(figures_folder, exist_ok=True)
     figure_file = os.path.join(figures_folder, test_name + ".png")
+    plt.savefig(figure_file, dpi=800)
+    plt.close(fig)
+
+    # plot the magnetic divergence over time
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.plot(time_points, magnetic_divergence / (B0 / config.grid_spacing))
+    ax.set_xlabel("time")
+    ax.set_ylabel("max |∇·B| / (B0 / Δx)")
+    ax.set_title("Magnetic Divergence Over Time")
+    plt.tight_layout()
+    figure_file = os.path.join(figures_folder, test_name + "_divergence.svg")
     plt.savefig(figure_file)
     plt.close(fig)
 
     print(f"Results saved in {output_folder} and {figures_folder}.")
+
+    # jax.profiler.stop_trace()

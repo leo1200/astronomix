@@ -12,22 +12,22 @@ from matplotlib.colors import LogNorm
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 # fluids
-from jf1uids._physics_modules._stellar_wind.stellar_wind_options import WindParams
-from jf1uids import SimulationConfig
-from jf1uids import get_helper_data
-from jf1uids import SimulationParams
-from jf1uids import time_integration
-from jf1uids import get_registered_variables
-from jf1uids.initial_condition_generation.construct_primitive_state import construct_primitive_state
+from astronomix._physics_modules._stellar_wind.stellar_wind_options import WindParams
+from astronomix import SimulationConfig
+from astronomix import get_helper_data
+from astronomix import SimulationParams
+from astronomix import time_integration
+from astronomix import get_registered_variables
+from astronomix.initial_condition_generation.construct_primitive_state import construct_primitive_state
 
 
 # units
-from jf1uids import CodeUnits
+from astronomix import CodeUnits
 from astropy import units as u
 import astropy.constants as c
 
-from jf1uids.option_classes.simulation_config import BACKWARDS, SPHERICAL
-from jf1uids._physics_modules._stellar_wind.stellar_wind_options import WindConfig
+from astronomix.option_classes.simulation_config import BACKWARDS, SPHERICAL
+from astronomix._physics_modules._stellar_wind.stellar_wind_options import WindConfig
 
 
 print("👷 Setting up simulation...")
@@ -88,7 +88,7 @@ registered_variables = get_registered_variables(config)
 
 # code units
 
-from jf1uids.option_classes.simulation_config import finalize_config
+from astronomix.option_classes.simulation_config import finalize_config
 
 
 code_length = 3 * u.parsec
@@ -137,7 +137,7 @@ sample_simulation = lambda velocity, mass_loss_rate: time_integration(initial_st
         wind_mass_loss_rate=mass_loss_rate,
         wind_final_velocity=velocity
     )
-), helper_data, registered_variables)
+), registered_variables)
 
 # generate a reference simulation
 M_star = 40 * u.M_sun

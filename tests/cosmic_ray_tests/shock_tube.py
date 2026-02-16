@@ -1,23 +1,23 @@
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 
-from jf1uids.option_classes.simulation_config import SPHERICAL
-from jf1uids import SimulationConfig
-from jf1uids import SimulationParams
-from jf1uids import get_helper_data
-from jf1uids.initial_condition_generation.construct_primitive_state import construct_primitive_state
-from jf1uids import get_registered_variables
-from jf1uids.option_classes.simulation_config import finalize_config
+from astronomix.option_classes.simulation_config import SPHERICAL
+from astronomix import SimulationConfig
+from astronomix import SimulationParams
+from astronomix import get_helper_data
+from astronomix.initial_condition_generation.construct_primitive_state import construct_primitive_state
+from astronomix import get_registered_variables
+from astronomix.option_classes.simulation_config import finalize_config
 
-from jf1uids.option_classes.simulation_config import CARTESIAN, HLL, MINMOD, OSHER
+from astronomix.option_classes.simulation_config import CARTESIAN, HLL, MINMOD, OSHER
 
-from jf1uids import time_integration
+from astronomix import time_integration
 
 # cosmic rays
-from jf1uids._physics_modules._cosmic_rays.cosmic_ray_options import CosmicRayConfig
-from jf1uids._physics_modules._cosmic_rays.cosmic_ray_options import CosmicRayParams
+from astronomix._physics_modules._cosmic_rays.cosmic_ray_options import CosmicRayConfig
+from astronomix._physics_modules._cosmic_rays.cosmic_ray_options import CosmicRayParams
 from analytic_solution import get_cosmic_ray_analytic_solution
-from jf1uids.shock_finder.shock_finder import find_shock_zone, shock_sensor, shock_criteria
+from astronomix.shock_finder.shock_finder import find_shock_zone, shock_sensor, shock_criteria
 
 def shock_tube_test():
 
@@ -83,7 +83,7 @@ def shock_tube_test():
     config2 = finalize_config(config2, initial_state.shape)
 
     # run the simulation without diffusive shock acceleration
-    final_state = time_integration(initial_state, config, params, helper_data, registered_variables)
+    final_state = time_integration(initial_state, config, params, registered_variables)
     rho_final = final_state[registered_variables.density_index]
     u_final = final_state[registered_variables.velocity_index]
     p_final = final_state[registered_variables.pressure_index]
@@ -92,7 +92,7 @@ def shock_tube_test():
     p_gas_final = p_final - p_cr_final
 
     # run the simulation with diffusive shock acceleration
-    final_state_acc = time_integration(initial_state, config2, params, helper_data, registered_variables)
+    final_state_acc = time_integration(initial_state, config2, params, registered_variables)
     rho_final_acc = final_state_acc[registered_variables.density_index]
     u_final_acc = final_state_acc[registered_variables.velocity_index]
     p_final_acc = final_state_acc[registered_variables.pressure_index]

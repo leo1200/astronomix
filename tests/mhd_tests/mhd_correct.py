@@ -1,69 +1,52 @@
 # ==== GPU selection ====
 from autocvd import autocvd
-
-autocvd(num_gpus=1, interval=10)
+autocvd(num_gpus = 1, interval = 10)
 # =======================
 
 # numerics
 import jax
 import jax.numpy as jnp
-
 jax.config.update("jax_enable_x64", True)
 
-# jf1uids
-import os
+# astronomix
+from astronomix import SimulationConfig
+from astronomix import get_helper_data
+from astronomix import SimulationParams
+from astronomix import time_integration
+from astronomix.initial_condition_generation.construct_primitive_state import construct_primitive_state
+from astronomix import get_registered_variables
+from astronomix.option_classes.simulation_config import finalize_config
 
-# timing
-from timeit import default_timer as timer
+# astronomix constants
+from astronomix.option_classes.simulation_config import (
+    BACKWARDS, FORWARDS, HLL, HLLC, MINMOD,
+    OSHER, PERIODIC_BOUNDARY, BoundarySettings, BoundarySettings1D
+)
 
 # equinox
 import equinox as eqx
-import matplotlib.gridspec as gridspec
-
-# plotting
-import matplotlib.pyplot as plt
-
-# io
-import numpy as np
 
 # optax for optimization
 import optax
-from matplotlib.colors import LogNorm
-from matplotlib.gridspec import GridSpec
-from mpl_toolkits.axes_grid1 import make_axes_locatable
-from tqdm import tqdm
-
-from jf1uids import (
-    SimulationConfig,
-    SimulationParams,
-    get_helper_data,
-    get_registered_variables,
-    time_integration,
-)
 
 # CNN stuff
-from jf1uids._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector import CorrectorCNN
-from jf1uids._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_options import (
-    CNNMHDconfig,
-    CNNMHDParams,
-)
-from jf1uids.initial_condition_generation.construct_primitive_state import (
-    construct_primitive_state,
-)
+from astronomix._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector import CorrectorCNN
+from astronomix._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_options import CNNMHDParams, CNNMHDconfig
 
-# jf1uids constants
-from jf1uids.option_classes.simulation_config import (
-    BACKWARDS,
-    FORWARDS,
-    HLL,
-    HLLC,
-    MINMOD,
-    OSHER,
-    PERIODIC_BOUNDARY,
-    BoundarySettings,
-    BoundarySettings1D,
-    finalize_config,
-)
+# plotting
+import matplotlib.pyplot as plt
+from matplotlib.gridspec import GridSpec
+from matplotlib.colors import LogNorm
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+import matplotlib.gridspec as gridspec
+
+# timing
+from timeit import default_timer as timer
+from tqdm import tqdm
+
+# io
+import numpy as np
+import os
 
 # THIS IS THE NEWER ONE
 
@@ -76,18 +59,18 @@ snapshot_timepoints_eval = jnp.linspace(0.0, 0.2, 50)
 
 # baseline config
 baseline_config = SimulationConfig(
-    progress_bar=False,
-    mhd=True,
-    dimensionality=2,
-    limiter=MINMOD,
-    box_size=1.0,
-    num_cells=512,
-    differentiation_mode=BACKWARDS,
-    riemann_solver=HLL,
-    exact_end_time=True,
-    return_snapshots=True,
-    use_specific_snapshot_timepoints=True,
-    num_snapshots=len(snapshot_timepoints_train),
+    progress_bar = False,
+    mhd = True,
+    dimensionality = 2,
+    limiter = MINMOD,
+    box_size = 1.0, 
+    num_cells = 512,
+    differentiation_mode = BACKWARDS,
+    riemann_solver = HLL,
+    exact_end_time = True,
+    return_snapshots = True,
+    use_specific_snapshot_timepoints = True,
+    num_snapshots = len(snapshot_timepoints_train),
 )
 
 # common variable registry
@@ -95,14 +78,16 @@ registered_variables = get_registered_variables(baseline_config)
 
 # baseline simulation parameters
 params = SimulationParams(
-    t_end=0.2, C_cfl=0.1, snapshot_timepoints=snapshot_timepoints_train
+    t_end = 0.2,
+    C_cfl = 0.1,
+    snapshot_timepoints = snapshot_timepoints_train
 )
 
-
 def get_blast_setup(num_cells):
+
     # dummy config for setup
     dummy_config = baseline_config._replace(
-        num_cells=num_cells,
+        num_cells = num_cells,
     )
 
     helper_data = get_helper_data(dummy_config)
@@ -111,16 +96,8 @@ def get_blast_setup(num_cells):
     num_cells = dummy_config.num_cells
     # --- Initial Conditions ---
     grid_spacing = dummy_config.box_size / dummy_config.num_cells
-    x = jnp.linspace(
-        grid_spacing / 2,
-        dummy_config.box_size - grid_spacing / 2,
-        dummy_config.num_cells,
-    )
-    y = jnp.linspace(
-        grid_spacing / 2,
-        dummy_config.box_size - grid_spacing / 2,
-        dummy_config.num_cells,
-    )
+    x = jnp.linspace(grid_spacing / 2, dummy_config.box_size - grid_spacing / 2, dummy_config.num_cells)
+    y = jnp.linspace(grid_spacing / 2, dummy_config.box_size - grid_spacing / 2, dummy_config.num_cells)
     X, Y = jnp.meshgrid(x, y, indexing="ij")
 
     r = helper_data.r
@@ -141,15 +118,15 @@ def get_blast_setup(num_cells):
     B_z = jnp.zeros_like(X)
 
     initial_state = construct_primitive_state(
-        config=dummy_config,
-        registered_variables=registered_variables,
-        density=rho,
-        velocity_x=V_x,
-        velocity_y=V_y,
-        magnetic_field_x=B_x,
-        magnetic_field_y=B_y,
-        magnetic_field_z=B_z,
-        gas_pressure=P,
+        config = dummy_config,
+        registered_variables = registered_variables,
+        density = rho,
+        velocity_x = V_x,
+        velocity_y = V_y,
+        magnetic_field_x = B_x,
+        magnetic_field_y = B_y,
+        magnetic_field_z = B_z,
+        gas_pressure = P
     )
 
     return initial_state, helper_data
@@ -181,23 +158,22 @@ def downaverage_state(state: jnp.ndarray, target_shape: tuple[int, int]) -> jnp.
         raise ValueError(
             f"Input shape {(h_in, w_in)} is not divisible by target shape {(h_out, w_out)}"
         )
-
+    
     # 3. Calculate the block size (or downsampling factor)
     h_factor = h_in // h_out
     w_factor = w_in // w_out
-
+    
     # 4. Reshape to create blocks and then take the mean
     # Original shape: (V, H, W)
     # Reshape to: (V, h_out, h_factor, w_out, w_factor)
     # This groups the original grid into blocks.
     reshaped = state.reshape(num_vars, h_out, h_factor, w_out, w_factor)
-
+    
     # Take the mean over the block axes (h_factor and w_factor).
     # The axes are 2 and 4 in the reshaped array.
     downaveraged = reshaped.mean(axis=(2, 4))
-
+    
     return downaveraged
-
 
 # ===================================================
 # =============== ↑ simulation setup ↑ ==============
@@ -207,47 +183,29 @@ num_cells_high_res = 512
 num_cells_low_res = 64
 
 config_high_res = baseline_config._replace(
-    num_cells=num_cells_high_res,
+    num_cells = num_cells_high_res,
 )
 initial_state_high_res, helper_data_high_res = get_blast_setup(num_cells_high_res)
 config_high_res = finalize_config(config_high_res, initial_state_high_res.shape)
 
 config_low_res = baseline_config._replace(
-    num_cells=num_cells_low_res,
+    num_cells = num_cells_low_res,
 )
 _, helper_data_low_res = get_blast_setup(num_cells_low_res)
 # get the initial low res state by downsampling the high res state
-initial_state_low_res = downaverage_state(
-    initial_state_high_res, (num_cells_low_res, num_cells_low_res)
-)
+initial_state_low_res = downaverage_state(initial_state_high_res, (num_cells_low_res, num_cells_low_res))
 config_low_res = finalize_config(config_low_res, initial_state_low_res.shape)
 
 # run high resolution simulation
-result_high_res = time_integration(
-    initial_state_high_res,
-    config_high_res,
-    params,
-    helper_data_high_res,
-    registered_variables,
-)
-states_high_res_downsampled = jax.vmap(
-    downaverage_state, in_axes=(0, None), out_axes=0
-)(result_high_res.states, (num_cells_low_res, num_cells_low_res))
+result_high_res = time_integration(initial_state_high_res, config_high_res, params, registered_variables)
+states_high_res_downsampled = jax.vmap(downaverage_state, in_axes=(0, None), out_axes=0)(result_high_res.states, (num_cells_low_res, num_cells_low_res))
 
 # run low resolution simulation
-result_low_res = time_integration(
-    initial_state_low_res,
-    config_low_res,
-    params,
-    helper_data_low_res,
-    registered_variables,
-)
+result_low_res = time_integration(initial_state_low_res, config_low_res, params, registered_variables)
 
 # calculate the mean squared error between the high and low resolution results
 # the result.states is of shape (num_states, num_vars, H, W)
-mse_base = jnp.mean(
-    (states_high_res_downsampled - result_low_res.states) ** 2, axis=(1, 2, 3)
-)
+mse_base = jnp.mean((states_high_res_downsampled - result_low_res.states) ** 2, axis=(1, 2, 3))
 print(mse_base)
 
 # ===================================================
@@ -255,25 +213,27 @@ print(mse_base)
 # ===================================================
 
 model = CorrectorCNN(
-    in_channels=registered_variables.num_vars,
-    hidden_channels=16,
-    key=jax.random.PRNGKey(42),
+    in_channels = registered_variables.num_vars,
+    hidden_channels = 16,
+    key = jax.random.PRNGKey(42)
 )
 neural_net_params, neural_net_static = eqx.partition(model, eqx.is_array)
 
 cnn_mhd_corrector_config = CNNMHDconfig(
-    cnn_mhd_corrector=True, network_static=neural_net_static
+    cnn_mhd_corrector = True,
+    network_static = neural_net_static
 )
 
-cnn_mhd_corrector_params = CNNMHDParams(network_params=neural_net_params)
+cnn_mhd_corrector_params = CNNMHDParams(
+    network_params = neural_net_params
+)
 
 config_low_res_cnn = config_low_res._replace(
-    cnn_mhd_corrector_config=cnn_mhd_corrector_config,
+    cnn_mhd_corrector_config = cnn_mhd_corrector_config,
 )
 params_low_res_cnn = params._replace(
-    cnn_mhd_corrector_params=cnn_mhd_corrector_params,
+    cnn_mhd_corrector_params = cnn_mhd_corrector_params,
 )
-
 
 @eqx.filter_jit
 def loss_fn(network_params_arrays):
@@ -282,12 +242,11 @@ def loss_fn(network_params_arrays):
         initial_state_low_res,
         config_low_res_cnn,
         params_low_res_cnn._replace(
-            cnn_mhd_corrector_params=cnn_mhd_corrector_params._replace(
-                network_params=network_params_arrays
+            cnn_mhd_corrector_params = cnn_mhd_corrector_params._replace(
+                network_params = network_params_arrays
             )
         ),
-        helper_data_low_res,
-        registered_variables,
+        registered_variables
     )
     # Calculate the L2 loss between the final state and the target state
     loss = jnp.mean((results_low_res.states - states_high_res_downsampled) ** 2)
@@ -298,7 +257,6 @@ def loss_fn(network_params_arrays):
 learning_rate = 1e-3
 optimizer = optax.adam(learning_rate)
 opt_state = optimizer.init(neural_net_params)
-
 
 @eqx.filter_jit
 def train_step(network_params_arrays, opt_state):
@@ -328,7 +286,7 @@ start_time = timer()
 
 # The main training loop
 pbar = tqdm(range(num_steps))
-best_loss = float("inf")
+best_loss = float('inf')
 best_params = trained_params
 for step in pbar:
     trained_params, opt_state, loss = train_step(trained_params, opt_state)
@@ -336,7 +294,7 @@ for step in pbar:
     if loss < best_loss:
         best_loss = loss
         best_params = trained_params
-    pbar.set_description(f"Step {step + 1}/{num_steps} | Loss: {loss:.2e}")
+    pbar.set_description(f"Step {step+1}/{num_steps} | Loss: {loss:.2e}")
 
 # After training, use the best parameters found
 trained_params = best_params
@@ -347,7 +305,6 @@ input("Press Enter to continue...")
 
 # # # save the trained parameters using pickle
 import pickle
-
 output_dir = "trained_models"
 os.makedirs(output_dir, exist_ok=True)
 output_path = os.path.join(output_dir, "cnn_mhd_corrector_params.pkl")
@@ -362,7 +319,7 @@ with open(output_path, "rb") as f:
 losses_output_path = os.path.join(output_dir, "cnn_mhd_corrector_losses.npz")
 np.savez(losses_output_path, losses=losses)
 # load the losses
-losses = np.load(losses_output_path)["losses"]
+losses = np.load(losses_output_path)['losses']
 
 # ===================================================
 # ================== ↑ Training Loop ↑ ==============
@@ -372,50 +329,47 @@ losses = np.load(losses_output_path)["losses"]
 result_low_res = time_integration(
     initial_state_low_res,
     config_low_res._replace(
-        num_snapshots=len(snapshot_timepoints_eval),
-        use_specific_snapshot_timepoints=True,
+        num_snapshots = len(snapshot_timepoints_eval),
+        use_specific_snapshot_timepoints = True,
     ),
-    params._replace(snapshot_timepoints=snapshot_timepoints_eval),
-    helper_data_low_res,
-    registered_variables,
+    params._replace(
+        snapshot_timepoints = snapshot_timepoints_eval
+    ),
+    registered_variables
 )
 
 # run the low resolution simulation with the trained CNN corrector
 result_low_res_cnn = time_integration(
     initial_state_low_res,
     config_low_res_cnn._replace(
-        num_snapshots=len(snapshot_timepoints_eval),
-        use_specific_snapshot_timepoints=True,
+        num_snapshots = len(snapshot_timepoints_eval),
+        use_specific_snapshot_timepoints = True,
     ),
     params_low_res_cnn._replace(
-        cnn_mhd_corrector_params=params_low_res_cnn.cnn_mhd_corrector_params._replace(
-            network_params=trained_params
+        cnn_mhd_corrector_params = params_low_res_cnn.cnn_mhd_corrector_params._replace(
+            network_params = trained_params
         ),
-        snapshot_timepoints=snapshot_timepoints_eval,
+        snapshot_timepoints = snapshot_timepoints_eval
     ),
-    helper_data_low_res,
-    registered_variables,
+    registered_variables
 )
 
 # get the high res downsampled states at the eval timepoints
 result_high_res = time_integration(
     initial_state_high_res,
     config_high_res._replace(
-        num_snapshots=len(snapshot_timepoints_eval),
-        use_specific_snapshot_timepoints=True,
+        num_snapshots = len(snapshot_timepoints_eval),
+        use_specific_snapshot_timepoints = True,
     ),
-    params._replace(snapshot_timepoints=snapshot_timepoints_eval),
-    helper_data_high_res,
-    registered_variables,
+    params._replace(
+        snapshot_timepoints = snapshot_timepoints_eval
+    ),
+    registered_variables
 )
-states_high_res_downsampled = jax.vmap(
-    downaverage_state, in_axes=(0, None), out_axes=0
-)(result_high_res.states, (num_cells_low_res, num_cells_low_res))
+states_high_res_downsampled = jax.vmap(downaverage_state, in_axes=(0, None), out_axes=0)(result_high_res.states, (num_cells_low_res, num_cells_low_res))
 
 
-mse_trained = jnp.mean(
-    (states_high_res_downsampled - result_low_res_cnn.states) ** 2, axis=(1, 2, 3)
-)
+mse_trained = jnp.mean((states_high_res_downsampled - result_low_res_cnn.states) ** 2, axis=(1, 2, 3))
 # Create a figure with GridSpec: 2 rows, 3 columns
 fig = plt.figure(figsize=(15, 8))
 gs = gridspec.GridSpec(2, 3, height_ratios=[3, 1])
@@ -426,49 +380,26 @@ for i in range(3):
     axs.append(fig.add_subplot(gs[0, i]))
 
 # Plot Low Res (No Correction)
-im0 = axs[0].imshow(
-    result_low_res.states[-1, 0, :, :],
-    extent=(0, config_low_res.box_size, 0, config_low_res.box_size),
-    origin="lower",
-    cmap="viridis",
-    rasterized=True,
-)
-axs[0].set_title(
-    "low res (no correction) (t = {:.2f})".format(result_low_res.time_points[-1])
-)
+im0 = axs[0].imshow(result_low_res.states[-1, 0, :, :], extent=(0, config_low_res.box_size, 0, config_low_res.box_size),
+                    origin='lower', cmap='viridis', rasterized=True)
+axs[0].set_title("low res (no correction) (t = {:.2f})".format(result_low_res.time_points[-1]))
 axs[0].set_xlabel("x")
 axs[0].set_ylabel("y")
 cbar = fig.colorbar(im0, ax=axs[0], fraction=0.046, pad=0.04)
 cbar.set_label("density")
 
 # Plot Low Res (With CNN Correction)
-im1 = axs[1].imshow(
-    result_low_res_cnn.states[-1, 0, :, :],
-    extent=(0, config_low_res.box_size, 0, config_low_res.box_size),
-    origin="lower",
-    cmap="viridis",
-    rasterized=True,
-)
-axs[1].set_title(
-    "low res (with CNN correction) (t = {:.2f})".format(
-        result_low_res_cnn.time_points[-1]
-    )
-)
+im1 = axs[1].imshow(result_low_res_cnn.states[-1, 0, :, :], extent=(0, config_low_res.box_size, 0, config_low_res.box_size),
+                    origin='lower', cmap='viridis', rasterized=True)
+axs[1].set_title("low res (with CNN correction) (t = {:.2f})".format(result_low_res_cnn.time_points[-1]))
 axs[1].set_xlabel("x")
 cbar = fig.colorbar(im1, ax=axs[1], fraction=0.046, pad=0.04)
 cbar.set_label("density")
 
 # Plot High Res (Downsampled)
-im2 = axs[2].imshow(
-    states_high_res_downsampled[-1, 0, :, :],
-    extent=(0, config_low_res.box_size, 0, config_low_res.box_size),
-    origin="lower",
-    cmap="viridis",
-    rasterized=True,
-)
-axs[2].set_title(
-    "high res (downsampled) (t = {:.2f})".format(result_high_res.time_points[-1])
-)
+im2 = axs[2].imshow(states_high_res_downsampled[-1, 0, :, :], extent=(0, config_low_res.box_size, 0, config_low_res.box_size),
+                    origin='lower', cmap='viridis', rasterized=True)
+axs[2].set_title("high res (downsampled) (t = {:.2f})".format(result_high_res.time_points[-1]))
 axs[2].set_xlabel("x")
 cbar = fig.colorbar(im2, ax=axs[2], fraction=0.046, pad=0.04)
 cbar.set_label("density")
@@ -476,17 +407,15 @@ cbar.set_label("density")
 # --- Bottom row: MSE over time across all columns ---
 ax_mse = fig.add_subplot(gs[1, :])
 time_array = snapshot_timepoints_eval
-mse_uncorrected = jnp.mean(
-    (states_high_res_downsampled - result_low_res.states) ** 2, axis=(1, 2, 3)
-)
+mse_uncorrected = jnp.mean((states_high_res_downsampled - result_low_res.states) ** 2, axis=(1, 2, 3))
 mse_corrected = mse_trained
 
-ax_mse.plot(time_array, mse_uncorrected, label="no correction")
-ax_mse.plot(time_array, mse_corrected, label="CNN corrected")
+ax_mse.plot(time_array, mse_uncorrected, label='no correction')
+ax_mse.plot(time_array, mse_corrected, label='CNN corrected')
 # Mark the training timepoints as vertical lines (only label the first one for legend)
 for i, t in enumerate(snapshot_timepoints_train):
     label = "training timepoints" if i == 0 else None
-    ax_mse.axvline(t, color="gray", linestyle="--", alpha=0.5, label=label)
+    ax_mse.axvline(t, color='gray', linestyle='--', alpha=0.5, label=label)
 ax_mse.set_xlabel("time")
 ax_mse.set_ylabel("MSE")
 ax_mse.set_title("mean squared error over time")

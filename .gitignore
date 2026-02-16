@@ -8,6 +8,9 @@ package-lock.json
 
 arena/results/*/data
 
+tests/finite_difference/turb_frames
+tests/finite_difference/wind_frames
+
 tests/cooling_corrector/data
 tests/mhd_tests/data
 tests/lancaster/data
