@@ -1,10 +1,11 @@
-from autocvd import autocvd
+if __name__ == "__main__":
+    from autocvd import autocvd
+
+    autocvd(num_gpus=1)
+
 import os
-
-
-# autocvd(num_gpus=1)
-os.environ["CUDA_VISIBLE_DEVICES"] = "7"
-os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.45"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "7"
+# os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.45"
 
 from jf1uids.option_classes.simulation_params import SimulationParams
 from arena.arena_tests.solver_in_the_loop import model_manager
@@ -65,8 +66,10 @@ from functools import partial
 import warnings
 from jf1uids._finite_difference._maths._differencing import finite_difference_int6
 from jf1uids._finite_difference._maths._interpolate import interp_face_to_center
+from arena.arena_tests.solver_in_the_loop.plot_states_comparison import plot_states
+from pathlib import Path
 
-logger = logging.Logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 def plot_training(
@@ -91,6 +94,7 @@ def plot_training(
 
     model_manager = ModelManager(model_name=model_name)
     training_config = model_manager.load_training_config()
+    sim_training_config = model_manager.load_simulation_config()
 
     if training_config.direction == FRONT_TO_BACK:
         timepoints_train = [
@@ -334,7 +338,7 @@ def plot_training(
     ax_errors.legend()
 
     plt.tight_layout()
-    plt.savefig(f"arena/data/models/{model_name}/plots/summary.png", dpi=400)
+    plt.savefig(Path(model_manager.base_dir) / model_name / "summary.png", dpi=400)
 
 
 def plot_states_histogram(
@@ -670,7 +674,7 @@ def plot_corrections_figure(
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 
-    model_name = "test_front_to_back"
+    model_name = "optuna_params"
     load_model = True
     load_model_nan = False
     legacy_mode = False
