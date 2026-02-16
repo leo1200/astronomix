@@ -103,6 +103,7 @@ FIELD_TYPE = Union[
     Float[Array, "num_cells_x num_cells_y num_cells_z"],
 ]
 
+
 class SnapshotSettings(NamedTuple):
     """Settings for the snapshot output of the simulation."""
 
@@ -188,7 +189,7 @@ class SimulationConfig(NamedTuple):
     mhd: bool = False
 
     # #: Enforce positivity of density and pressure.
-    # #: NOTE: CURRENTLY ONLY IMPLEMENTED FOR 
+    # #: NOTE: CURRENTLY ONLY IMPLEMENTED FOR
     # #: FINITE DIFFERENCE MODE.
     # #: enforce_positivity: bool = True
 
@@ -366,18 +367,18 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
     if config.solver_mode == FINITE_DIFFERENCE:
         if not config.mhd:
             raise ValueError(
-                "Finite difference solver mode is currently " \
-                "only supported for MHD simulations. This will be easy to extend, " \
+                "Finite difference solver mode is currently "
+                "only supported for MHD simulations. This will be easy to extend, "
                 "feel free to contribute."
             )
 
         if config.dimensionality != 3:
             raise ValueError(
-                "Finite difference solver mode is currently " \
-                "only supported for 3D simulations. This will be easy to extend, " \
+                "Finite difference solver mode is currently "
+                "only supported for 3D simulations. This will be easy to extend, "
                 "feel free to contribute."
             )
-        
+
         if config.boundary_settings != BoundarySettings(
             BoundarySettings1D(
                 left_boundary=PERIODIC_BOUNDARY, right_boundary=PERIODIC_BOUNDARY
@@ -392,16 +393,16 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
             raise ValueError(
                 "Finite difference solver mode currently only supports periodic boundaries."
             )
-        
+
         if config.time_integrator != RK4_SSP:
             print(
                 "Setting time integrator to RK4_SSP for finite difference solver mode."
             )
             config = config._replace(time_integrator=RK4_SSP)
-        
+
         if config.boundary_handling != PERIODIC_ROLL:
             print(
-                "Setting boundary handling to " \
+                "Setting boundary handling to "
                 "PERIODIC_ROLL for finite difference solver mode."
             )
             config = config._replace(boundary_handling=PERIODIC_ROLL)
