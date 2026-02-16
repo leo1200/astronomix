@@ -201,3 +201,4 @@ cython_debug/
 .venv
 /poetry.toml
 arena/data
+arena/arena_tests/solecito/models
