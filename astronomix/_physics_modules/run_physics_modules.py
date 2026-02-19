@@ -6,9 +6,6 @@ import jax.numpy as jnp
 from jaxtyping import Array, Float, jaxtyped
 from beartype import beartype as typechecker
 
-from astronomix._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector import (
-    _cnn_mhd_corrector,
-)
 from astronomix._physics_modules._cooling._cooling import (
     first_order_pressure_update,
     update_pressure_by_cooling,
@@ -121,11 +118,6 @@ def _run_physics_modules(
             helper_data,
             dt,
             current_time,
-        )
-
-    if config.cnn_mhd_corrector_config.cnn_mhd_corrector:
-        primitive_state = _cnn_mhd_corrector(
-            primitive_state, config, registered_variables, params, dt
         )
 
     return primitive_state

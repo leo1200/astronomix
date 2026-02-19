@@ -763,6 +763,28 @@ def _time_integration(
                 helper_data_pad,
                 registered_variables,
             )
+            if config.cnn_mhd_corrector_config.cnn_mhd_corrector:
+                if config.cnn_mhd_corrector_config.correct_from_beggining is False:
+
+                    def correct_state(primitive_state: STATE_TYPE):
+                        primitive_state = model(
+                            primitive_state, config, registered_variables, params, dt
+                        )
+                        return primitive_state
+
+                    def no_correct_state(primitive_state: STATE_TYPE):
+                        return primitive_state
+
+                    primitive_state = jax.lax.cond(
+                        time > config.cnn_mhd_corrector_config.start_correction_time,
+                        correct_state,
+                        no_correct_state,
+                        primitive_state,  # Only pass the non-static arguments
+                    )
+                else:
+                    primitive_state = model(
+                        primitive_state, config, registered_variables, params, dt
+                    )
 
         time += dt
 

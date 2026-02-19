@@ -1,5 +1,6 @@
 from typing import NamedTuple
 import jax.numpy as jnp
+from jaxtyping import Array
 
 from astronomix._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_options import (
     CNNMHDParams,
@@ -51,7 +52,7 @@ class SimulationParams(NamedTuple):
     t_end: float = 0.2
 
     #: Snapshot timepoints
-    snapshot_timepoints: jnp.array = jnp.array([0.0])
+    snapshot_timepoints: Array = jnp.array([0.0])
 
     # parameters of physics modules
 
