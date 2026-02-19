@@ -34,7 +34,6 @@ from arena.arena_tests.solver_in_the_loop.timepoint_updater import (
     FRONT_TO_BACK,
 )
 
-from arena.arena_tests.solver_in_the_loop.plot_states_comparison import plot_states
 
 import logging
 
