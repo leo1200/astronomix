@@ -16,12 +16,12 @@ logger = logging.Logger(__name__)
 def plot_and_animate_states(
     states_list,
     z_levels,
-    timepoints: Array,
+    timepoints,
     slice_axis: str = "z",
     titles=None,
     vmin=0,
     vmax=1,
-    save_path: Optional[str] = None,
+    save_path: Optional[str | Path] = None,
 ):
     """
     Plot and animate multiple simulation states (e.g. LR, HR, etc.)
