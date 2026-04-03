@@ -25,7 +25,7 @@ class TrainingConfig:
     learning_rate: float = 0.005
     peak_lr: float = 0.08
     end_lr: float = 0.03
-    warmup_steps_fraction: float = 0.5
+    warmup_steps_fraction: float = 0.4
     hidden_channels: int = 5
     hidden_layers: int = 2
     model_initialization_scale: float = 0.1
@@ -38,6 +38,17 @@ class TrainingConfig:
     use_early_stopper: bool = True
     patience: int = 15
     direction: int = 1  # BACK TO FRONT
+    num_cells_high_res: int = 64
+    downaverage_factor: int = 2
+    start_correction_time: float = 0.0
+    correct_from_beggining: bool = True
+    limiter: int = 4
+    c_cfl: float = 1.0
+    c_cfl_target: float = 0.8
+    t_end: float = 0.2
+    batch_size: int = 2
+    conFIG: bool = False
+    sgd: bool = False
 
     def to_dict(self):
         d = asdict(self)
@@ -135,13 +146,29 @@ class ModelManager:
         eqx.tree_serialise_leaves(path, params)
         print("✓ Saved model params")
 
-    def load_model_params(self, like: PyTree):
-        path = self.base_dir / self.model_name / "model_params.eqx"
+    def load_model_params(self, like: PyTree, param_type: str = "normal"):
+        if param_type == "normal":
+            model_params = "model_params"
+        elif param_type == "best":
+            model_params = "best_model_params"
+        elif param_type == "nan":
+            model_params = "model_params_NAN"
+        else:
+            raise ValueError("param_type given is not defined")
+        path = self.base_dir / self.model_name / f"{model_params}.eqx"
         return eqx.tree_deserialise_leaves(path, like=like)
 
-    def save_checkpoint(self, params: PyTree, epoch: int):
+    def load_best_model_params(self, like: PyTree):
+        path = self.base_dir / self.model_name / "best_model_params.eqx"
+        return eqx.tree_deserialise_leaves(path, like=like)
+
+    def save_checkpoint(self, params: PyTree, epoch: int, name: str = None):
         checkpoint_dir = self.base_dir / self.model_name / "checkpoints"
-        checkpoint_path = checkpoint_dir / f"checkpoint_epoch_{epoch:04d}.eqx"
+        if name is None:
+            checkpoint_name = f"checkpoint_epoch_{epoch:04d}.eqx"
+        else:
+            checkpoint_name = f"{name}.eqx" if not name.endswith(".eqx") else name
+        checkpoint_path = checkpoint_dir / checkpoint_name
         eqx.tree_serialise_leaves(checkpoint_path, params)
 
     def load_model_params_nan(self, like: PyTree):
@@ -174,12 +201,11 @@ class ModelManager:
                 **json.load(open(self.base_dir / self.model_name / "metadata.json"))
             )
             training = self.load_training_config()
-            sim = self.load_simulation_config()
             print(f"Best Loss: {metadata.best_loss:.6e}")
             if metadata.performance_metric:
                 print(f"Performance: {metadata.performance_metric:.6e}")
             print(f"Hidden: {training.hidden_channels}x{training.hidden_layers}")
-            print(f"Resolution: {sim.num_cells_high_res}")
+            print(f"Resolution: {training.num_cells_high_res}")
             if metadata.notes != "":
                 print(f"Description {metadata.notes}")
         except Exception as e:
