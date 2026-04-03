@@ -94,12 +94,10 @@ def plot_training(
 
     model_manager = ModelManager(model_name=model_name)
     training_config = model_manager.load_training_config()
-    sim_training_config = model_manager.load_simulation_config()
 
     if training_config.direction == FRONT_TO_BACK:
         timepoints_train = [
-            sim_training_config.t_end - t
-            for t in training_config.snapshot_timepoints_train
+            training_config.t_end - t for t in training_config.snapshot_timepoints_train
         ]
     else:
         timepoints_train = training_config.snapshot_timepoints_train
@@ -342,8 +340,6 @@ def plot_training(
 
 
 def plot_states_histogram(
-    corrections: List[float],
-    corrections_max: List[float],
     states: List[float],
     states_max: List[float],
     times: List[float],
@@ -351,7 +347,6 @@ def plot_states_histogram(
 ):
     # corrections_array = np.array(corrections)
     states_array = np.array(states)
-    corrections_max_array = np.array(corrections_max)
     states_max_array = np.array(states_max)
 
     times_total = np.zeros(len(times))
@@ -700,7 +695,6 @@ if __name__ == "__main__":
     model_manager = ModelManager(model_name=model_name)
     model_manager.print_model_info()
     training_config = model_manager.load_training_config()
-    sim_training_config = model_manager.load_simulation_config()
 
     corrections = []
     states = []
@@ -793,20 +787,18 @@ if __name__ == "__main__":
         times_eval=jnp.linspace(0.0, 0.3, 30),
         num_cells_high_res=64,
         downaverage_factor=2,
-        start_correction_time=sim_training_config.start_correction_time,
-        correct_from_beggining=sim_training_config.correct_from_beggining,
+        start_correction_time=training_config.start_correction_time,
+        correct_from_beggining=training_config.correct_from_beggining,
         model_name=training_config.model_name,
-        cfl=sim_training_config.c_cfl,
-        cfl_target=sim_training_config.c_cfl_target,
-        limiter=sim_training_config.limiter,
+        cfl=training_config.c_cfl,
+        cfl_target=training_config.c_cfl_target,
+        limiter=training_config.limiter,
         old_version=False,
     )
 
     print(f"Simulation took {len(times)} steps")
 
     plot_states_histogram(
-        corrections=corrections,
-        corrections_max=corrections_max,
         states=states,
         states_max=states_max,
         times=times,
