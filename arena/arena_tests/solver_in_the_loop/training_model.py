@@ -6,7 +6,6 @@ autocvd(num_gpus=1)
 # os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.45"
 
 from astronomix.data_classes.simulation_snapshot_data import SnapshotData
-from astronomix.data_classes.simulation_helper_data import HelperData
 from astronomix.option_classes.simulation_config import STATE_TYPE, SimulationConfig
 
 from timeit import default_timer as timer
@@ -45,7 +44,6 @@ from arena.arena_tests.solver_in_the_loop.plot_training import plot_training
 from arena.arena_tests.solver_in_the_loop.model_manager import (
     ModelManager,
     TrainingConfig,
-    SimulationConfigTraining,
     ModelMetadata,
     model_loader,
 )
@@ -92,7 +90,6 @@ def create_train_step(
     simulation_config: SimulationConfig,
     initial_state: STATE_TYPE,
     target_state: STATE_TYPE | SnapshotData,
-    helper_data: HelperData,
     registered_variables: RegisteredVariables,
 ):
     perturb_state_partial = partial(
@@ -135,7 +132,6 @@ def create_train_step(
                         network_params=network_params_arrays
                     )
                 ),
-                helper_data,
                 registered_variables,
             )
             assert isinstance(results_low_res, SnapshotData), (
@@ -202,7 +198,6 @@ def training_model(
     model_manager: ModelManager,
     model_name: str,
     training_config: TrainingConfig,
-    sim_config_training: SimulationConfigTraining,
     load_model: bool = False,
     load_model_nan: bool = False,
     description: str = "",
@@ -216,19 +211,18 @@ def training_model(
             initial_state_low_res,
             config_low_res,
             params,
-            helper_data_low_res,
             registered_variables,
         ),
     ) = initialize_training_data(
         snapshot_timepoints_train=jnp.array(training_config.snapshot_timepoints_train),
-        t_end=sim_config_training.t_end,
+        t_end=training_config.t_end,
         direction=training_config.direction,
-        num_cells_high_res=sim_config_training.num_cells_high_res,
-        downaverage_factor=sim_config_training.downaverage_factor,
-        start_correction_time=sim_config_training.start_correction_time,
-        correct_from_beggining=sim_config_training.correct_from_beggining,
-        c_cfl=sim_config_training.c_cfl_target,
-        limiter=sim_config_training.limiter,
+        num_cells_high_res=training_config.num_cells_high_res,
+        downaverage_factor=training_config.downaverage_factor,
+        start_correction_time=training_config.start_correction_time,
+        correct_from_beggining=training_config.correct_from_beggining,
+        c_cfl=training_config.c_cfl_target,
+        limiter=training_config.limiter,
     )
 
     logger.debug(
@@ -237,7 +231,7 @@ def training_model(
 
     # using different c_cfl for the final target and the simulation
     # this is due to a mistake in the optuna optimization
-    params = params._replace(C_cfl=sim_config_training.c_cfl)
+    params = params._replace(C_cfl=training_config.c_cfl)
 
     # Setup loss
     # NOTE: take a look at the states inputed should this change per target?
@@ -327,7 +321,6 @@ def training_model(
                 key,
             ) = timepoint_context(
                 i,
-                sim_config_training=sim_config_training,
                 training_config=training_config,
                 config=config_low_res,
                 params=params_low_res,
@@ -361,7 +354,6 @@ def training_model(
                 simulation_config=current_config,
                 initial_state=current_initial_state,
                 target_state=current_target,
-                helper_data=helper_data_low_res,
                 registered_variables=registered_variables,
             )
 
@@ -458,9 +450,9 @@ def training_model(
             neural_net_static,
             best_params,
             jnp.linspace(0.0, 0.2, 35, endpoint=True),
-            sim_config_training.num_cells_high_res,
-            sim_config_training.downaverage_factor,
-            sim_config_training.start_correction_time,
+            training_config.num_cells_high_res,
+            training_config.downaverage_factor,
+            training_config.start_correction_time,
         )
         metadata.performance_metric = float(performance)
         logger.info(f"Performance: {performance:.6e}")
@@ -486,7 +478,6 @@ def train_new_model(
     if load_existing and model_name:
         logger.info(f"Loading configs for model {model_name}")
         training_config = manager.load_training_config()
-        sim_config_training = manager.load_simulation_config()
     else:
         model_name = manager.create_model_directory()
         logger.info(f"Created: {model_name}")
@@ -494,21 +485,17 @@ def train_new_model(
         training_config = TrainingConfig(
             epochs_per_time=[], snapshot_timepoints_train=[]
         )
-        sim_config_training = SimulationConfigTraining()
 
         # Apply overrides
         for key, value in overrides.items():
             if hasattr(training_config, key):
                 setattr(training_config, key, value)
-            elif hasattr(sim_config_training, key):
-                setattr(sim_config_training, key, value)
             else:
-                logger.info(f"key {key} not found in the sim nor training config")
+                logger.info(f"key {key} not found in the training config")
 
         training_config.model_name = model_name
 
         manager.save_training_config(training_config)
-        manager.save_simulation_config(sim_config_training)
 
     logger.info("\n" + "=" * 70)
     logger.info(f"Model: {model_name}")
@@ -519,13 +506,13 @@ def train_new_model(
         f"Architecture: {training_config.hidden_channels}x{training_config.hidden_layers}"
     )
     logger.info(
-        f"Resolution: {sim_config_training.num_cells_high_res}, downsample: {sim_config_training.downaverage_factor}x"
+        f"Resolution: {training_config.num_cells_high_res}, downsample: {training_config.downaverage_factor}x"
     )
     logger.info(
         f"Loss: {training_config.loss_type}, LR: {training_config.learning_rate:.2e} → {training_config.peak_lr:.2e}"
     )
     logger.info(
-        f"C_CFL: {sim_config_training.c_cfl}, C_CFL_TARGET: {sim_config_training.c_cfl_target}, limiter: {sim_config_training.limiter}"
+        f"C_CFL: {training_config.c_cfl}, C_CFL_TARGET: {training_config.c_cfl_target}, limiter: {training_config.limiter}"
     )
     logger.info("=" * 70 + "\n")
 
@@ -533,7 +520,6 @@ def train_new_model(
         manager,
         model_name,
         training_config,
-        sim_config_training,
         description=description,
         load_model=load_existing,
         load_model_nan=load_existing_nan,
@@ -580,6 +566,34 @@ if __name__ == "__main__":
         "description": "Testing lr_scheduler per times batch",
     }
 
+    mp_test_params = {
+        "model_name": "test_after_merge_and_multiproblem",
+        "num_cells_high_res": 64,
+        "downaverage_factor": 2,
+        "limiter": VAN_ALBADA,
+        "hidden_channels": 5,
+        "model_initialization_scale": 0.03,
+        "start_correction_time": 0.0,
+        "noise_level": 0.04,
+        "hidden_layers": 4,
+        "learning_rate": 8.5e-05,
+        "warmup_steps_fraction": 0.4,
+        "peak_lr": 1.5e-04,
+        "end_lr": 5.0e-05,
+        "gradient_clip": 1.0,
+        "c_cfl": 0.8,
+        "c_cfl_target": 0.8,
+        "loss_type": "norm_mse",
+        "direction": BACK_TO_FRONT,
+        "epochs_per_time": [300],
+        "snapshot_timepoints_train": [0.2],
+        "correct_from_beggining": True,
+        "t_end": 0.2,
+        "use_early_stopper": False,
+        "patience": 35,
+        "description": "Testing lr_scheduler per times batch",
+    }
+
     optuna_params = {
         "model_name": "optuna_params_2",
         "num_cells_high_res": 64,
@@ -611,7 +625,7 @@ if __name__ == "__main__":
         # we change the correct_from_beggining to true as the small time was causing problems
     }
 
-    training_params = optuna_params
+    training_params = mp_test_params
 
     params, static = train_new_model(
         load_existing=False,
@@ -623,21 +637,20 @@ if __name__ == "__main__":
     model_manager = ModelManager(model_name=training_params["model_name"])
     model_metadata = model_manager.load_metadata()
     training_config = model_manager.load_training_config()
-    sim_training_config = model_manager.load_simulation_config()
 
     if model_metadata.succesful_training:
         plot_training(
             neural_net_params=params,
             neural_net_static=static,
             times_eval=jnp.linspace(0.0, 0.3, 30),
-            num_cells_high_res=training_params["num_cells_high_res"],
-            downaverage_factor=training_params["downaverage_factor"],
-            start_correction_time=sim_training_config.start_correction_time,
-            correct_from_beggining=sim_training_config.correct_from_beggining,
+            num_cells_high_res=training_config.num_cells_high_res,
+            downaverage_factor=training_config.downaverage_factor,
+            start_correction_time=training_config.start_correction_time,
+            correct_from_beggining=training_config.correct_from_beggining,
             model_name=training_config.model_name,
-            cfl=sim_training_config.c_cfl,
-            cfl_target=sim_training_config.c_cfl_target,
-            limiter=sim_training_config.limiter,
+            cfl=training_config.c_cfl,
+            cfl_target=training_config.c_cfl_target,
+            limiter=training_config.limiter,
         )
     # Continue training an existing model
     # train_new_model(model_name="my_experiment", load_existing=True, epochs_per_time=[100])

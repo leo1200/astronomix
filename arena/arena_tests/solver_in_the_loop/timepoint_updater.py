@@ -10,7 +10,6 @@ from astronomix.time_stepping import time_integration
 
 from arena.arena_tests.solver_in_the_loop.model_manager import (
     TrainingConfig,
-    SimulationConfigTraining,
 )
 
 from astronomix.option_classes.simulation_config import STATE_TYPE, SimulationConfig
@@ -32,7 +31,6 @@ BACK_TO_FRONT = 1
 
 def timepoint_context(
     i: int,
-    sim_config_training: SimulationConfigTraining,
     training_config: TrainingConfig,
     config: SimulationConfig,
     params: SimulationParams,
@@ -51,11 +49,11 @@ def timepoint_context(
         # NOTE: we are taking into account already the start_correction_time
         # in the initial state we use
         #
-        # if not sim_config_training.correct_from_beggining:
+        # if not training_config.correct_from_beggining:
         #     current_params_sim = params._replace(
-        #         t_end=current_end_time - sim_config_training.start_correction_time,
+        #         t_end=current_end_time - training_config.start_correction_time,
         #         snapshot_timepoints=jnp.array(
-        #             [current_end_time - sim_config_training.start_correction_time]
+        #             [current_end_time - training_config.start_correction_time]
         #         ),
         #     )
         # else:
@@ -76,30 +74,30 @@ def timepoint_context(
         )
         absolute_start_time = training_config.snapshot_timepoints_train[i]
         integrate_initial_state = True
-        if sim_config_training.correct_from_beggining:
+        if training_config.correct_from_beggining:
             if absolute_start_time == 0.0:
                 integrate_initial_state = False
 
             current_start_time = absolute_start_time
-            current_end_time = sim_config_training.t_end - current_start_time
+            current_end_time = training_config.t_end - current_start_time
         else:
             if absolute_start_time == 0.0:
                 print(
-                    f"As the start correction time is ahead of 0.0, we start training from {sim_config_training.start_correction_time}"
+                    f"As the start correction time is ahead of 0.0, we start training from {training_config.start_correction_time}"
                 )
                 integrate_initial_state = False
                 current_start_time = 0.0
                 current_end_time = (
-                    sim_config_training.t_end
-                    - sim_config_training.start_correction_time
+                    training_config.t_end
+                    - training_config.start_correction_time
                 )
             else:
                 current_start_time = (
-                    absolute_start_time - sim_config_training.start_correction_time
+                    absolute_start_time - training_config.start_correction_time
                 )
-                current_end_time = sim_config_training.t_end - absolute_start_time
+                current_end_time = training_config.t_end - absolute_start_time
         print(
-            f"current_start_time: {current_start_time} | current_end_time = {current_end_time} | end_time = {sim_config_training.t_end}"
+            f"current_start_time: {current_start_time} | current_end_time = {current_end_time} | end_time = {training_config.t_end}"
         )
         current_config = config._replace(num_snapshots=1)
         current_params_sim = params._replace(

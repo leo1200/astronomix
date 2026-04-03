@@ -50,12 +50,8 @@ def get_initial_state_training(
     limiter: int = 0,
     old_version: bool = False,  # NOTE: REALLY BAD PRACTICE
 ) -> Tuple[
-    Tuple[
-        STATE_TYPE, SimulationConfig, SimulationParams, HelperData, RegisteredVariables
-    ],
-    Tuple[
-        STATE_TYPE, SimulationConfig, SimulationParams, HelperData, RegisteredVariables
-    ],
+    Tuple[STATE_TYPE, SimulationConfig, SimulationParams, RegisteredVariables],
+    Tuple[STATE_TYPE, SimulationConfig, SimulationParams, RegisteredVariables],
 ]:
     if direction == BACK_TO_FRONT:
         snapshot_timepoints = jnp.sort(snapshot_timepoints_train)
@@ -164,14 +160,12 @@ def get_initial_state_training(
     logger.info(
         f"Grid spacing high res {config.grid_spacing}, low res {config_low_res.grid_spacing}"
     )
-    helper_data_low_res = get_helper_data(config_low_res)
     return (
-        (initial_state, config, params, helper_data, registered_variables),
+        (initial_state, config, params, registered_variables),
         (
             initial_state_low_res,
             config_low_res._replace(progress_bar=False),
             params,
-            helper_data_low_res,
             registered_variables,
         ),
     )
@@ -296,7 +290,7 @@ def initialize_training_data(
     limiter: int = 0,
 ) -> Tuple[
     Array,
-    Tuple[Array, SimulationConfig, SimulationParams, HelperData, RegisteredVariables],
+    Tuple[Array, SimulationConfig, SimulationParams, RegisteredVariables],
 ]:
     "Loads the target data (or if not computes it) and returns the target data with the low res bundle"
     if direction == BACK_TO_FRONT:
@@ -347,7 +341,6 @@ def initialize_training_data(
             initial_state_low_res,
             config_low_res,
             params,
-            helper_data_low_res,
             registered_variables,
         ) = simulation_bundle_low_res
 
@@ -360,7 +353,6 @@ def initialize_training_data(
             ),
             params=params._replace(t_end=start_correction_time),
             registered_variables=registered_variables,
-            helper_data=helper_data_low_res,
         )
     else:
         print("Using the model from the beggining of the simulation")
