@@ -30,9 +30,17 @@ def simple_mse_loss(pred_state: jnp.ndarray, target_state: jnp.ndarray):
 
 def loss_setup(training_config: TrainingConfig, target_states: Array):
     if training_config.loss_type == "norm_mse":
-        channel_normalizers = jnp.maximum(
-            jnp.std(target_states, axis=(0, 2, 3, 4)), 1e-8
-        )
+        if target_states.ndim == 5:
+            channel_normalizers = jnp.maximum(
+                jnp.std(target_states, axis=(0, 2, 3, 4)), 1e-8
+            )
+        elif target_states.ndim == 4:
+            channel_normalizers = jnp.maximum(
+                jnp.std(target_states, axis=(1, 2, 3)), 1e-8
+            )
+        else:
+            raise ValueError("target states given was the wrong ndim")
+
         loss_fn_kwargs = {
             "channel_normalizers": channel_normalizers,
             "physics_weights": training_config.physics_weights,
