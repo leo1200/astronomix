@@ -45,8 +45,129 @@ from arena.arena_tests.solver_in_the_loop.plot_states_comparison import (
     animate_several_sims_states_with_diagonal,
 )
 import logging
+from arena.arena_tests.solver_in_the_loop.multiproblem.problems.baseproblem import (
+    BaseProblem,
+)
+from jaxtyping import Array
 
 logger = logging.getLogger(__name__)
+
+
+class OtVortex(BaseProblem):
+    def __init__(
+        self, vortex_axis: str = "z", parity: bool = False, epsilon_p: float = 0.2
+    ) -> None:
+        self.vortex_axis = vortex_axis
+        self.parity = parity
+        self.epsilon_p = epsilon_p
+
+    @property
+    def name(self) -> str:
+        return "ot_vortex"
+
+    @property
+    def t_end(self) -> float:
+        return jnp.pi
+
+    def get_hyperparams(self) -> dict:
+        return {
+            "problem_name": self.name,
+            "params": {
+                "vortex_axis": self.vortex_axis,
+                "parity": self.parity,
+                "epsilon_p": self.epsilon_p,
+            },
+        }
+
+    def generate_initial_state(
+        self, config: SimulationConfig, params: SimulationParams
+    ) -> Tuple[STATE_TYPE, SimulationConfig, SimulationParams, RegisteredVariables]:
+        config = config._replace(**{"box_size": 2 * jnp.pi})
+        params = params._replace(
+            **{
+                "t_end": jnp.pi,
+                "dt_max": 0.1,
+                "minimum_density": 1e-2,
+                "minimum_pressure": 1e-2,
+                "C_cfl": 0.7,
+            }
+        )
+        helper_data = get_helper_data(config)
+        registered_variables = get_registered_variables(config)
+        grid_spacing = config.box_size / config.num_cells
+        if self.vortex_axis == "z":
+            perpendicular_axis = 2
+            plane_axis = [0, 1]
+        elif self.vortex_axis == "y":
+            perpendicular_axis = 1
+            plane_axis = [0, 2]
+        elif self.vortex_axis == "x":
+            perpendicular_axis = 0
+            plane_axis = [1, 2]
+        else:
+            raise ValueError("vortex_axis given is not x,y or z")
+        plane_axis = jnp.array(plane_axis)
+
+        x = jnp.linspace(
+            grid_spacing / 2,
+            config.box_size + grid_spacing / 2,
+            config.num_cells,
+            endpoint=False,
+        )
+        coordinates = jnp.array(jnp.meshgrid(x, x, x, indexing="ij"))
+
+        r = helper_data.r
+
+        rho = jnp.ones_like(r) * (params.gamma) ** 2
+        P = jnp.ones_like(r) * (params.gamma)
+
+        v_s = {}
+        B_s = {}
+
+        plane_axis_asymmetry = [1, 0]
+        for i, axis in enumerate(plane_axis):
+            axis = int(axis)
+
+            v_s[axis] = (
+                (-1) ** (i + self.parity)
+                * (1 + self.epsilon_p * jnp.sin(coordinates[perpendicular_axis]))
+                * jnp.sin(coordinates[plane_axis[plane_axis_asymmetry[i]]])
+            )
+            B_s[axis] = (-1) ** (i + self.parity) * jnp.sin(
+                2 ** (i) * coordinates[plane_axis[plane_axis_asymmetry[i]]]
+            )
+
+        v_s[perpendicular_axis] = self.epsilon_p * jnp.sin(
+            coordinates[perpendicular_axis]
+        )
+        B_s[perpendicular_axis] = jnp.zeros_like(r)
+
+        V_x = v_s[0]
+        V_y = v_s[1]
+        V_z = v_s[2]
+        B_x = B_s[0]
+        B_y = B_s[1]
+        B_z = B_s[2]
+
+        bxb, byb, bzb = initialize_interface_fields(B_x, B_y, B_z)
+        initial_state = construct_primitive_state(
+            config=config,
+            registered_variables=registered_variables,
+            density=rho,
+            velocity_x=V_x,
+            velocity_y=V_y,
+            velocity_z=V_z,
+            magnetic_field_x=B_x,
+            magnetic_field_y=B_y,
+            magnetic_field_z=B_z,
+            interface_magnetic_field_x=bxb,
+            interface_magnetic_field_y=byb,
+            interface_magnetic_field_z=bzb,
+            gas_pressure=P,
+        )
+
+        config = finalize_config(config, initial_state.shape)
+        return (initial_state, config, params, registered_variables)
 
 
 def initial_state_ot_vortex(
@@ -81,7 +202,6 @@ def initial_state_ot_vortex(
         endpoint=False,
     )
     coordinates = jnp.array(jnp.meshgrid(x, x, x, indexing="ij"))
-    print(coordinates.shape)
 
     r = helper_data.r
 
@@ -96,7 +216,6 @@ def initial_state_ot_vortex(
     plane_axis_asymmetry = [1, 0]
     for i, axis in enumerate(plane_axis):
         axis = int(axis)
-        print((-1) ** (i + parity))
 
         v_s[axis] = (
             (-1) ** (i + parity)
@@ -256,14 +375,11 @@ if __name__ == "__main__":
     for state in snapshot_data_lr.states:
         if jnp.any(state != 0.0):
             last_true_state_lr += 1
-    print(last_true_state_lr)
 
     last_true_state_hr = -1
     for state in snapshot_data_hr.states:
         if jnp.any(state != 0.0):
             last_true_state_hr += 1
-
-    print(last_true_state_hr)
 
     plot_states(
         states_list=[initial_state_hr, snapshot_data_hr.states[last_true_state_hr]],
