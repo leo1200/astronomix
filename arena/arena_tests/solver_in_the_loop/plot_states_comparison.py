@@ -754,7 +754,7 @@ def plot_states(
 
     plt.tight_layout()
     if folder is None:
-        folder = f"arena/data/models/{model_name}/plots"
+        folder = f"arena/data/models/single_problem/{model_name}/plots"
     os.makedirs(folder, exist_ok=True)
     plt.savefig(Path(folder) / f"{fig_name}.png", dpi=400)
 

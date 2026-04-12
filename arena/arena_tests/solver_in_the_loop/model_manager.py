@@ -49,6 +49,8 @@ class TrainingConfig:
     batch_size: int = 2
     conFIG: bool = False
     sgd: bool = False
+    normalize_input: bool = False
+    use_film_corrector: bool = False
 
     def to_dict(self):
         d = asdict(self)
@@ -94,7 +96,7 @@ class ModelMetadata:
 
 class ModelManager:
     def __init__(
-        self, base_dir: str = "arena/data/models", model_name: Optional[str] = None
+        self, base_dir: str = "arena/data/models/single_problem", model_name: Optional[str] = None
     ):
         if model_name is None:
             timestamp = datetime.datetime.now().strftime("%Y_%m_%d_%H_%M_%S")

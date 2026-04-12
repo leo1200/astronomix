@@ -186,7 +186,7 @@ def plot_training(
     ]
     final_state_low_res = states_low_res[snapshot_timepoints_idx[-1]]
 
-    losses_data = np.load(f"arena/data/models/{model_name}/losses.npz")
+    losses_data = np.load(f"arena/data/models/single_problem/{model_name}/losses.npz")
     losses = losses_data["losses"]
 
     # --- Create figure and layout ---
@@ -433,7 +433,7 @@ def plot_states_histogram(
     axs_time_evolution.set_xlabel("Time")
     axs_time_evolution.legend()
 
-    plt.savefig(f"arena/data/models/{model_name}/plots/states_magnitude.png", dpi=400)
+    plt.savefig(f"arena/data/models/single_problem/{model_name}/plots/states_magnitude.png", dpi=400)
     pass
 
 
@@ -662,7 +662,7 @@ def plot_corrections_figure(
 
     plt.tight_layout()
     plt.savefig(
-        f"arena/data/models/{model_name}/plots/model_output_{title_suffix}.png", dpi=400
+        f"arena/data/models/single_problem/{model_name}/plots/model_output_{title_suffix}.png", dpi=400
     )
 
 
@@ -680,7 +680,7 @@ if __name__ == "__main__":
             DeprecationWarning,
             stacklevel=1,
         )
-    assert os.path.exists(f"arena/data/models/{model_name}"), (
+    assert os.path.exists(f"arena/data/models/single_problem/{model_name}"), (
         "Model folder doesnt exist"
     )
 
@@ -765,7 +765,7 @@ if __name__ == "__main__":
 
     if legacy_mode:
         neural_net_params = load_legacy_params_into_current(
-            model, path=f"arena/data/models/{model_name}/model_params.pkl"
+            model, path=f"arena/data/models/single_problem/{model_name}/model_params.pkl"
         )
         model_manager.save_model_params(params=neural_net_params)
         logger.info("Loaded model with the legacy pickle and saved it with eqx")
