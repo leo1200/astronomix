@@ -82,6 +82,7 @@ def time_integration(
     registered_variables: RegisteredVariables,
     snapshot_callable=None,
     sharding: Union[NoneType, jax.NamedSharding] = None,
+    step_callable=None,
 ) -> Union[STATE_TYPE, SnapshotData]:
     """
     Integrate the fluid equations in time. For the options of
@@ -108,6 +109,10 @@ def time_integration(
             e.g. only the slice or summary statistics you need.
         sharding: The sharding to use for the padded helper data. If None,
                   no sharding is applied.
+        step_callable: A callable invoked at every integration step with
+            signature callable(time: float, dt: float) -> None via
+            jax.debug.callback. Called only if
+            config.activate_snapshot_callback is True.
 
     Returns:
         Depending on the configuration (return_snapshots, num_snapshots)
@@ -134,13 +139,23 @@ def time_integration(
     if config.donate_state:
         time_integration_jit = jax.jit(
             _time_integration,
-            static_argnames=["config", "registered_variables", "snapshot_callable"],
+            static_argnames=[
+                "config",
+                "registered_variables",
+                "snapshot_callable",
+                "step_callable",
+            ],
             donate_argnames=["state"],
         )
     else:
         time_integration_jit = jax.jit(
             _time_integration,
-            static_argnames=["config", "registered_variables", "snapshot_callable"],
+            static_argnames=[
+                "config",
+                "registered_variables",
+                "snapshot_callable",
+                "step_callable",
+            ],
         )
 
     if config.runtime_debugging:
@@ -161,6 +176,7 @@ def time_integration(
             helper_data,
             helper_data_pad,
             snapshot_callable,
+            step_callable,
         )
         err.throw()
 
@@ -174,6 +190,7 @@ def time_integration(
                 helper_data,
                 helper_data_pad,
                 snapshot_callable,
+                step_callable,
             ).compile()
             compiled_stats = compiled_step.memory_analysis()
             if compiled_stats is not None:
@@ -206,6 +223,7 @@ def time_integration(
                     helper_data,
                     helper_data_pad,
                     snapshot_callable,
+                    step_callable,
                 ).compile()
 
             start_time = timer()
@@ -219,6 +237,7 @@ def time_integration(
             helper_data,
             helper_data_pad,
             snapshot_callable,
+            step_callable,
         )
 
         if config.print_elapsed_time:
@@ -248,6 +267,7 @@ def _time_integration(
     helper_data_unpad: Union[HelperData, NoneType],
     helper_data_pad: Union[HelperData, NoneType],
     snapshot_callable=None,
+    step_callable=None,
 ) -> Union[STATE_TYPE, StateStruct, SnapshotData]:
     """
     Time integration.
@@ -787,6 +807,9 @@ def _time_integration(
                     )
 
         time += dt
+
+        if config.activate_snapshot_callback and step_callable is not None:
+            jax.debug.callback(step_callable, time, dt)
 
         # ----------------- ↑ CENTRAL UPDATE ↑ ----------------
 

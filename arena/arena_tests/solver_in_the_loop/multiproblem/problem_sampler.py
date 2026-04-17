@@ -18,14 +18,14 @@ Example usage:
         problem_descriptors=descriptors,
         problem_counts={"mhd_blast": 30},
     )
-    
+
     # Fixed subset (same problems every epoch)
     sampler = ProblemSampler(
         problem_descriptors=descriptors,
         problem_counts={"mhd_blast": 30},
         use_fixed_subset=True,
     )
-    
+
     # Subset sampling (random from fixed pool)
     sampler = ProblemSampler(
         problem_descriptors=descriptors,
@@ -46,14 +46,14 @@ logger = logging.getLogger(__name__)
 
 def _descriptor_problem_name(problem_descriptor) -> str:
     """Resolve the canonical problem name from descriptor variants.
-    
+
     Args:
-        problem_descriptor: Problem descriptor object with either 'name' or 
+        problem_descriptor: Problem descriptor object with either 'name' or
                           'problem_name' attribute.
-    
+
     Returns:
         The problem name string.
-        
+
     Raises:
         AttributeError: If descriptor has neither 'name' nor 'problem_name'.
     """
@@ -68,12 +68,12 @@ def _descriptor_problem_name(problem_descriptor) -> str:
 
 class ProblemSampler:
     """Manages per-epoch sampling of problems based on configured counts.
-    
+
     Supports three modes:
     1. Random sampling: Each epoch randomly samples from available problems (default)
     2. Fixed subset: Trains on equally-spaced fixed subset every epoch (excludes extrema)
     3. Subset sampling: Randomly samples subset_size from fixed pool each epoch
-    
+
     Attributes:
         problem_descriptors: List of all available problem descriptors
         problem_counts: Dict mapping problem names to pool sizes
@@ -91,15 +91,15 @@ class ProblemSampler:
         subset_size: Optional[int] = None,
     ):
         """Initialize the problem sampler.
-        
+
         Args:
             problem_descriptors: List of all available problem descriptors
-            problem_counts: Dict mapping problem names to counts (pool size if 
+            problem_counts: Dict mapping problem names to counts (pool size if
                           use_fixed_subset=True, otherwise per-epoch count)
             use_fixed_subset: If True, pre-select equally-spaced fixed pool
             subset_size: Optional per-epoch sample size. If specified, must have
                         use_fixed_subset=True. Enables subset sampling mode.
-        
+
         Raises:
             ValueError: If subset_size is specified without use_fixed_subset=True
         """
@@ -107,7 +107,7 @@ class ProblemSampler:
         self.problem_counts = problem_counts
         self.use_fixed_subset = use_fixed_subset
         self.subset_size = subset_size
-        
+
         # Validate subset_size usage
         if subset_size is not None and not use_fixed_subset:
             raise ValueError(
@@ -130,12 +130,10 @@ class ProblemSampler:
                 self.fixed_subsets[problem_name] = self._select_fixed_subset(
                     problem_name, count
                 )
-            
+
             # Log initialization with appropriate mode description
             if self.subset_size is not None:
-                logger.info(
-                    f"ProblemSampler initialized in SUBSET SAMPLING mode"
-                )
+                logger.info(f"ProblemSampler initialized in SUBSET SAMPLING mode")
                 for problem_name in sorted(self.fixed_subsets.keys()):
                     pool_size = len(self.fixed_subsets[problem_name])
                     logger.info(
@@ -158,20 +156,20 @@ class ProblemSampler:
 
     def _select_fixed_subset(self, problem_name: str, count: int) -> List:
         """Select equally-spaced subset of problems, excluding extrema.
-        
+
         Uses numpy.linspace to select indices that are evenly distributed
         across the dataset, excluding the first and last indices (extrema).
-        
+
         Args:
             problem_name: Name of the problem type
             count: Number of problems to select for the fixed pool
-            
+
         Returns:
             List of selected descriptors
         """
         available_descriptors = self.problem_pairs_map[problem_name]
         total_available = len(available_descriptors)
-        
+
         if total_available <= 2:
             # Edge case: not enough problems to exclude extrema
             logger.warning(
@@ -179,7 +177,7 @@ class ProblemSampler:
                 f"Using all available samples."
             )
             return available_descriptors[:count]
-        
+
         # Calculate equally-spaced indices excluding extrema
         # linspace from 1 to (total_available-1), excluding endpoint
         if count >= total_available - 2:
@@ -190,19 +188,19 @@ class ProblemSampler:
             selected_indices = np.linspace(
                 1, total_available - 1, count, endpoint=False, dtype=int
             )
-        
+
         selected_descriptors = [available_descriptors[i] for i in selected_indices]
-        
+
         logger.debug(
             f"Fixed subset for {problem_name}: selected indices {list(selected_indices)} "
-            f"from range [1, {total_available-1})"
+            f"from range [1, {total_available - 1})"
         )
-        
+
         return selected_descriptors
 
     def sample_epoch(self) -> List:
         """Sample descriptors for this epoch based on configured counts.
-        
+
         Behavior depends on initialization mode:
         - Random mode: Randomly samples problems each epoch
         - Fixed mode (no subset_size): Returns same fixed subset every epoch
@@ -214,10 +212,10 @@ class ProblemSampler:
         if self.use_fixed_subset:
             # Fixed subset or subset sampling mode
             sampled_pairs = []
-            
+
             for problem_name in self.problem_counts.keys():
                 fixed_pool = self.fixed_subsets[problem_name]
-                
+
                 if self.subset_size is not None:
                     # Subset sampling: randomly sample from fixed pool
                     sample_size = min(self.subset_size, len(fixed_pool))
@@ -226,9 +224,9 @@ class ProblemSampler:
                 else:
                     # Fixed mode: return entire fixed pool
                     sampled_pairs.extend(fixed_pool)
-            
+
             return sampled_pairs
-        
+
         # Random sampling mode (original behavior)
         sampled_pairs = []
         for problem_name, count in self.problem_counts.items():
