@@ -1,6 +1,5 @@
 # standard gitignore from
 # https://github.com/github/gitignore/blob/main/Python.gitignore
-
 node_modules/
 package.json
 package-lock.json
@@ -205,3 +204,7 @@ cython_debug/
 /poetry.toml
 arena/data
 arena/arena_tests/solecito/models
+results/
+.claude
+.claudeignore
+CLAUDE.md
