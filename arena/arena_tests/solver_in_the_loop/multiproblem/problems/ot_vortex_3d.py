@@ -1,3 +1,7 @@
+"""
+Comes from https://www.sciencedirect.com/science/article/abs/pii/S0045793018300410
+"""
+
 if __name__ == "__main__":
     from autocvd import autocvd
 
