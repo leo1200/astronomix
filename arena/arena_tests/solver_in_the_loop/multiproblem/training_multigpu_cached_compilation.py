@@ -29,9 +29,11 @@ import threading
 from queue import Queue
 import argparse
 import sys
+import traceback
+import time
 
 
-def _resolve_startup_num_gpus(default_num_gpus: int = 2) -> int:
+def _resolve_startup_num_gpus(default_num_gpus: int = 1) -> int:
     """Resolve --num-gpus before JAX setup so autocvd honors CLI."""
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--num-gpus", type=int, default=default_num_gpus)
@@ -155,6 +157,68 @@ def validate_output(last_t: float, gradients_mod: float, problem_name: str) -> N
         raise ValueError(f"NaN in gradients for problem {problem_name}")
 
 
+def is_probable_oom_error(exc: Exception) -> bool:
+    """Best-effort classification for memory exhaustion errors."""
+    error_text = f"{type(exc).__name__}: {exc}".lower()
+    oom_markers = (
+        "out of memory",
+        "oom",
+        "resource exhausted",
+        "resource_exhausted",
+        "cuda_error_out_of_memory",
+        "failed to allocate",
+        "memory allocation",
+    )
+    return any(marker in error_text for marker in oom_markers)
+
+
+def classify_worker_error(exc: Exception) -> str:
+    """Classify worker failures for accurate downstream reporting."""
+    if is_probable_oom_error(exc):
+        return "oom"
+
+    if "nan" in str(exc).lower():
+        return "nan"
+
+    return "other"
+
+
+def print_exception_summary(context: str, exc: Exception) -> None:
+    """Print exception summary to stderr for immediate terminal visibility."""
+    print(
+        f"[EXCEPTION] {context}: {type(exc).__name__}: {exc}",
+        file=sys.stderr,
+        flush=True,
+    )
+
+
+def print_exception_traceback(context: str, traceback_text: str) -> None:
+    """Print exception traceback to stderr for immediate terminal visibility."""
+    if not traceback_text:
+        return
+    print(
+        f"[TRACEBACK] {context}\n{traceback_text}",
+        file=sys.stderr,
+        flush=True,
+    )
+
+
+def _flatten_gradient_pytree(grad_pytree: Any) -> jnp.ndarray:
+    """Flatten a gradient PyTree into a 1D vector of inexact leaves."""
+    flat_leaves = []
+    for leaf in jax.tree_util.tree_leaves(grad_pytree):
+        if leaf is None:
+            continue
+        leaf_array = jnp.asarray(leaf)
+        if jnp.issubdtype(leaf_array.dtype, jnp.inexact):
+            flat_leaves.append(jnp.ravel(leaf_array))
+
+    if not flat_leaves:
+        return jnp.array([], dtype=jnp.float32)
+
+    return jnp.concatenate(flat_leaves)
+
+
 def analyze_gradients_debug(
     all_individual_grads: List,
     epoch: int,
@@ -184,8 +248,7 @@ def analyze_gradients_debug(
     # Flatten each gradient PyTree into a single vector
     flat_grads = []
     for grad in all_individual_grads:
-        leaves = jax.tree_util.tree_leaves(grad)
-        flat = jnp.concatenate([leaf.flatten() for leaf in leaves])
+        flat = _flatten_gradient_pytree(grad)
         flat_grads.append(flat)
 
     # Stack into a matrix: (num_grads, grad_dim)
@@ -261,6 +324,101 @@ def analyze_gradients_debug(
         f.write(f"Std cosine similarity: {cos_values_np.std():.6f}\n")
 
     logger.info(f"  Saved gradient statistics to {stats_path}")
+
+
+# ============================================================================
+# GRADIENT NORMALIZATION AND CLIPPING UTILITIES
+# ============================================================================
+
+
+def normalize_gradients_per_problem(
+    gradients_per_problem: List[Any], problem_names: List[str]
+) -> Tuple[List[Any], Dict[str, float]]:
+    """Normalize gradients for each problem by their L2 norm.
+
+    Args:
+        gradients_per_problem: List of gradient PyTrees, one per problem
+        problem_names: List of problem names corresponding to gradients
+
+    Returns:
+        Tuple of (normalized_gradients, norm_stats_dict)
+    """
+    normalized_grads = []
+    norm_stats = {}
+
+    for grads, problem_name in zip(gradients_per_problem, problem_names, strict=True):
+        # Flatten gradient to compute L2 norm
+        flat_grad = _flatten_gradient_pytree(grads)
+        grad_norm = jnp.linalg.norm(flat_grad)
+
+        # Normalize by dividing each leaf by the norm
+        norm_stats[problem_name] = float(grad_norm)
+        if grad_norm > 1e-10:
+            normalized = jax.tree.map(
+                lambda x: x / grad_norm if x is not None else None, grads
+            )
+        else:
+            # If norm is near zero, keep gradients as-is
+            logger.warning(
+                f"Gradient norm near zero for {problem_name} ({float(grad_norm):.2e}), skipping normalization"
+            )
+            normalized = grads
+
+        normalized_grads.append(normalized)
+
+    logger.info(
+        f"Normalized {len(gradients_per_problem)} problem gradients. "
+        f"Mean norm: {float(jnp.mean(jnp.array(list(norm_stats.values())))):.3f}"
+    )
+
+    return normalized_grads, norm_stats
+
+
+def clip_gradients_per_problem(
+    gradients_per_problem: List[Any],
+    problem_names: List[str],
+    max_norm: float = 1.0,
+) -> Tuple[List[Any], Dict[str, float]]:
+    """Clip gradients for each problem to a maximum L2 norm.
+
+    Args:
+        gradients_per_problem: List of gradient PyTrees, one per problem
+        problem_names: List of problem names corresponding to gradients
+        max_norm: Maximum L2 norm to clip to (default: 1.0)
+
+    Returns:
+        Tuple of (clipped_gradients, norm_stats_dict)
+    """
+    clipped_grads = []
+    norm_stats = {}
+
+    for grads, problem_name in zip(gradients_per_problem, problem_names, strict=True):
+        # Flatten gradient to compute L2 norm
+        flat_grad = _flatten_gradient_pytree(grads)
+        grad_norm = jnp.linalg.norm(flat_grad)
+
+        norm_stats[problem_name] = float(grad_norm)
+
+        # Clip if norm exceeds max_norm
+        if grad_norm > max_norm:
+            clipped = jax.tree.map(
+                lambda x: x * (max_norm / grad_norm) if x is not None else None,
+                grads,
+            )
+        else:
+            clipped = grads
+
+        clipped_grads.append(clipped)
+
+    clipped_count = sum(
+        1 for norm in norm_stats.values() if norm > max_norm
+    )
+    logger.info(
+        f"Clipped gradients for {clipped_count}/{len(gradients_per_problem)} problems to max_norm={max_norm}. "
+        f"Mean norm: {float(jnp.mean(jnp.array(list(norm_stats.values())))):.3f}"
+    )
+
+    return clipped_grads, norm_stats
 
 
 # ============================================================================
@@ -391,9 +549,7 @@ def create_cached_grad_fn(
         (loss_value, last_timepoint), grads = eqx.filter_value_and_grad(
             loss_fn, has_aux=True
         )(network_params)
-        gradients_modulus = jnp.sqrt(
-            sum(jnp.vdot(g, g) for g in jax.tree_util.tree_leaves(grads))
-        )
+        gradients_modulus = jnp.linalg.norm(_flatten_gradient_pytree(grads))
         return loss_value, grads, gradients_modulus, last_timepoint
 
     grad_fn = jax.jit(grad_fn_core)
@@ -571,8 +727,8 @@ def warmup_grad_fn_cache(
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     devices = jax.devices()
-    if len(devices) <= 1:
-        logger.info("Single device detected, skipping cache warmup")
+    if len(devices) == 0:
+        logger.info("No devices detected, cannot warm up cache")
         return
 
     logger.info(f"Warming up JIT cache on {len(devices)} devices (parallel)...")
@@ -868,6 +1024,7 @@ def compute_cached_gradient_worker(
     result_queue: Queue,
     grad_fn_cache: Dict[str, Callable],
     problem_configs: Dict[str, Any],
+    worker_monitor: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Worker using pre-compiled gradient functions with clean signature.
 
@@ -884,11 +1041,20 @@ def compute_cached_gradient_worker(
         result_queue: Queue to send results to
         grad_fn_cache: Pre-compiled gradient functions (read-only)
         problem_configs: Problem configurations (config, params, reg_vars) - unused now
+        worker_monitor: Shared worker activity tracker for concurrency diagnostics
     """
     while True:
         task = task_queue.get()
         if task is None:
             return
+        task_start_time = time.perf_counter()
+        if worker_monitor is not None:
+            with worker_monitor["lock"]:
+                worker_monitor["active_workers"] += 1
+                worker_monitor["max_active_workers"] = max(
+                    worker_monitor["max_active_workers"],
+                    worker_monitor["active_workers"],
+                )
 
         try:
             # Get pre-compiled grad_fn (no compilation happens here)
@@ -906,6 +1072,8 @@ def compute_cached_gradient_worker(
             per_problem_results = []
 
             with jax.default_device(device):
+                # Keep model params on device for all problems in this task.
+                network_on_device = jax.device_put(task.network_params, device)
                 for i, problem_idx in enumerate(task.problem_indices):
                     # Load single problem from H5
                     initial_state, target_state, hyperparams = h5_loader.get_problem(
@@ -914,6 +1082,12 @@ def compute_cached_gradient_worker(
 
                     # Compute channel normalizers OUTSIDE JIT
                     channel_normalizers = compute_channel_normalizers(target_state)
+
+                    # Explicitly place data on device (like warmup does)
+                    init_on_device = jax.device_put(initial_state, device)
+                    target_on_device = jax.device_put(target_state, device)
+                    normalizers_on_device = jax.device_put(channel_normalizers, device)
+                    key_on_device = jax.device_put(task.subkeys[i], device)
 
                     # Log shapes for debugging
                     if i == 0:  # Only log first problem in batch
@@ -929,11 +1103,15 @@ def compute_cached_gradient_worker(
                     # Only arrays passed: initial_state, target_state, network_params,
                     #                     channel_normalizers, key
                     loss_val, grads, grad_mod, last_t = grad_fn(
-                        initial_state,
-                        target_state,
-                        task.network_params,
-                        channel_normalizers,
-                        task.subkeys[i],
+                        init_on_device,
+                        target_on_device,
+                        network_on_device,
+                        normalizers_on_device,
+                        key_on_device,
+                    )
+                    # Pull all outputs to host in one synchronization point.
+                    loss_val, grads, grad_mod, last_t = jax.device_get(
+                        (loss_val, grads, grad_mod, last_t)
                     )
 
                     # Validate output — skip this problem on NaN, don't crash worker
@@ -952,13 +1130,12 @@ def compute_cached_gradient_worker(
                             nan_err,
                         )
                         del initial_state, target_state, grads
-                        gc.collect()
+                        if (i + 1) % 8 == 0:
+                            gc.collect()
                         continue
 
-                    # Move gradients to CPU immediately to free GPU memory.
-                    # All gradient PyTrees would otherwise accumulate on-device
-                    # for the entire task batch, causing OOM with many problems.
-                    individual_grads.append(jax.device_get(grads))
+                    # Keep gradients on host to avoid GPU accumulation/OOM.
+                    individual_grads.append(grads)
                     per_problem_results.append(
                         {
                             "loss": float(loss_val),
@@ -972,7 +1149,8 @@ def compute_cached_gradient_worker(
 
                     # Explicit cleanup to free GPU memory
                     del initial_state, target_state, grads
-                    gc.collect()
+                    if (i + 1) % 8 == 0:
+                        gc.collect()
 
             if not per_problem_results:
                 raise ValueError(
@@ -1005,17 +1183,52 @@ def compute_cached_gradient_worker(
                 )
             )
         except Exception as e:
-            logger.exception(
-                "Cached gradient worker %s failed for %s (batch_size=%d)",
-                worker_id,
-                task.problem_name,
-                task.batch_size,
+            error_kind = classify_worker_error(e)
+            error_traceback = traceback.format_exc()
+            print_exception_summary(
+                context=(
+                    f"worker={worker_id} device={device} problem={task.problem_name} "
+                    f"batch_size={task.batch_size} kind={error_kind}"
+                ),
+                exc=e,
             )
+            print_exception_traceback(
+                context=(
+                    f"worker={worker_id} device={device} problem={task.problem_name} "
+                    f"batch_size={task.batch_size} kind={error_kind}"
+                ),
+                traceback_text=error_traceback,
+            )
+            if error_kind == "nan":
+                logger.warning(
+                    "Cached gradient worker %s skipped %s (batch_size=%d): %s",
+                    worker_id,
+                    task.problem_name,
+                    task.batch_size,
+                    e,
+                )
+            elif error_kind == "oom":
+                logger.exception(
+                    "Cached gradient worker %s hit OOM for %s (batch_size=%d)",
+                    worker_id,
+                    task.problem_name,
+                    task.batch_size,
+                )
+            else:
+                logger.exception(
+                    "Cached gradient worker %s failed for %s (batch_size=%d)",
+                    worker_id,
+                    task.problem_name,
+                    task.batch_size,
+                )
             result_queue.put(
                 (
                     id(task),
                     {
                         "error": str(e),
+                        "error_kind": error_kind,
+                        "error_type": type(e).__name__,
+                        "error_traceback": error_traceback,
                         "cached": True,
                         "worker_id": worker_id,
                         "device": str(device),
@@ -1023,6 +1236,17 @@ def compute_cached_gradient_worker(
                         "batch_size": task.batch_size,
                     },
                 )
+            )
+        finally:
+            if worker_monitor is not None:
+                with worker_monitor["lock"]:
+                    worker_monitor["active_workers"] -= 1
+            logger.debug(
+                "Worker %d finished %s (batch_size=%d) in %.3fs",
+                worker_id,
+                task.problem_name,
+                task.batch_size,
+                time.perf_counter() - task_start_time,
             )
 
 
@@ -1058,7 +1282,7 @@ def _select_training_devices(num_gpus: Optional[int]) -> List[jax.Device]:
 
 def distribute_cached_gradient_computation(
     device_tasks: List[List[CachedGradientTask]],
-    num_gpus: Optional[int],
+    devices: List[jax.Device],
     threads_per_gpu: int,
     grad_fn_cache: Dict[str, Callable],
     problem_configs: Dict[str, Any],
@@ -1072,7 +1296,7 @@ def distribute_cached_gradient_computation(
     Args:
         device_tasks: List of length num_devices, where each element
                       is a list of CachedGradientTask.
-        num_gpus: Number of GPUs/devices to use (None = all available)
+        devices: Resolved devices used for training.
         threads_per_gpu: Number of worker threads per GPU/device
         grad_fn_cache: Pre-compiled gradient functions (read-only)
         problem_configs: Problem configurations (config, params, reg_vars)
@@ -1082,8 +1306,6 @@ def distribute_cached_gradient_computation(
     """
     if threads_per_gpu <= 0:
         raise ValueError(f"threads_per_gpu must be > 0, got {threads_per_gpu}")
-
-    devices = _select_training_devices(num_gpus)
 
     # Count total tasks and problems
     total_tasks = sum(len(tasks) for tasks in device_tasks)
@@ -1117,6 +1339,15 @@ def distribute_cached_gradient_computation(
         task_summary = ", ".join(f"{t.problem_name}:{t.batch_size}" for t in tasks)
         problems_on_device = sum(t.batch_size for t in tasks)
         workers_for_device = min(threads_per_gpu, len(tasks))
+        if workers_for_device < threads_per_gpu:
+            logger.info(
+                "  Device %s requested %d worker thread(s), but only %d task(s) "
+                "are available. Spawning %d worker(s).",
+                devices[device_idx],
+                threads_per_gpu,
+                len(tasks),
+                workers_for_device,
+            )
         logger.info(
             "  Device %s: %d worker(s), %d task(s), %d problems [%s]",
             devices[device_idx],
@@ -1128,6 +1359,11 @@ def distribute_cached_gradient_computation(
 
     result_queue: Queue = Queue()
     threads = []
+    worker_monitor: Dict[str, Any] = {
+        "lock": threading.Lock(),
+        "active_workers": 0,
+        "max_active_workers": 0,
+    }
 
     # Spawn multiple workers per device based on threads_per_gpu
     for device_idx in active_device_indices:
@@ -1157,6 +1393,7 @@ def distribute_cached_gradient_computation(
                     result_queue,
                     grad_fn_cache,
                     problem_configs,
+                    worker_monitor,
                 ),
                 daemon=False,
             )
@@ -1169,11 +1406,40 @@ def distribute_cached_gradient_computation(
     first_error: Optional[Dict[str, Any]] = None
 
     num_errors = 0
+    num_nan_errors = 0
+    num_oom_errors = 0
+    num_other_errors = 0
     for _ in range(total_tasks):
         task_id, result = result_queue.get()
         if "error" in result:
+            error_kind = result.get("error_kind", "other")
+            if error_kind == "nan":
+                num_nan_errors += 1
+            elif error_kind == "oom":
+                num_oom_errors += 1
+            else:
+                num_other_errors += 1
+
+            print(
+                "[WORKER-ERROR] "
+                f"kind={error_kind} worker={result.get('worker_id', 'unknown')} "
+                f"device={result.get('device', 'unknown')} "
+                f"problem={result.get('problem_name', 'unknown')} "
+                f"batch_size={result.get('batch_size', 'unknown')} "
+                f"error={result.get('error')}",
+                file=sys.stderr,
+                flush=True,
+            )
+            print_exception_traceback(
+                context=(
+                    f"worker={result.get('worker_id', 'unknown')} "
+                    f"problem={result.get('problem_name', 'unknown')} kind={error_kind}"
+                ),
+                traceback_text=result.get("error_traceback", ""),
+            )
             logger.warning(
-                "Skipping failed worker (worker=%s, device=%s, problem=%s, batch_size=%s): %s",
+                "Skipping failed worker (kind=%s, worker=%s, device=%s, problem=%s, batch_size=%s): %s",
+                error_kind,
                 result.get("worker_id", "unknown"),
                 result.get("device", "unknown"),
                 result.get("problem_name", "unknown"),
@@ -1193,18 +1459,64 @@ def distribute_cached_gradient_computation(
 
     for thread in threads:
         thread.join()
+    peak_active_workers = worker_monitor["max_active_workers"]
+    logger.info(
+        "Observed peak concurrent active workers: %d/%d",
+        peak_active_workers,
+        max_workers,
+    )
+    if max_workers > 1 and peak_active_workers <= 1:
+        logger.warning(
+            "Worker execution on this epoch was effectively sequential "
+            "(peak_active_workers=%d).",
+            peak_active_workers,
+        )
 
     if not results:
+        if first_error is not None:
+            print(
+                "[FATAL] All gradient workers failed this epoch. "
+                f"first_error_kind={first_error.get('error_kind', 'unknown')} "
+                f"first_error={first_error.get('error', 'unknown')}",
+                file=sys.stderr,
+                flush=True,
+            )
+            print_exception_traceback(
+                context=(
+                    f"first_failed_worker={first_error.get('worker_id', 'unknown')} "
+                    f"problem={first_error.get('problem_name', 'unknown')}"
+                ),
+                traceback_text=first_error.get("error_traceback", ""),
+            )
         raise RuntimeError(
             "All gradient workers failed this epoch — cannot update model. "
-            f"First error: {first_error['error'] if first_error else 'unknown'}"
+            f"First error: {first_error['error'] if first_error else 'unknown'} "
+            f"(kind={first_error.get('error_kind', 'unknown') if first_error else 'unknown'})"
         )
 
     if num_errors > 0:
+        if num_nan_errors > 0:
+            logger.warning(
+                "%d/%d workers had NaN-only batches and were skipped.",
+                num_nan_errors,
+                total_tasks,
+            )
+        if num_oom_errors > 0:
+            logger.error(
+                "%d/%d workers hit OOM and were skipped.",
+                num_oom_errors,
+                total_tasks,
+            )
+        if num_other_errors > 0:
+            logger.warning(
+                "%d/%d workers failed with non-NaN, non-OOM errors and were skipped.",
+                num_other_errors,
+                total_tasks,
+            )
         logger.warning(
-            "%d/%d workers had NaN problems and were skipped. "
-            "Proceeding with %d successful workers.",
-            num_errors, total_tasks, len(results),
+            "Proceeding with %d successful workers out of %d total tasks.",
+            len(results),
+            total_tasks,
         )
 
     return results, step_losses, total_problems
@@ -1224,6 +1536,7 @@ def training_multigpu_cached(
     load_model: bool = False,
     load_model_nan: bool = False,
     description: str = "",
+    h5_param_filters: Optional[Dict[str, Dict[str, Tuple[float, float]]]] = None,
 ):
     """Multi-GPU training with pre-compiled gradient functions.
 
@@ -1241,6 +1554,8 @@ def training_multigpu_cached(
         load_model: Whether to load existing model
         load_model_nan: Whether to load model from NaN checkpoint
         description: Description of the training run
+        h5_param_filters: Parameter filters used during dataset loading
+                         (for saving to config)
 
     Returns:
         Tuple of (best_params, neural_net_static)
@@ -1264,6 +1579,12 @@ def training_multigpu_cached(
             STARTUP_NUM_GPUS,
             multigpu_config.num_gpus,
         )
+    training_devices = _select_training_devices(multigpu_config.num_gpus)
+    logger.info(
+        "Resolved %d training device(s): %s",
+        len(training_devices),
+        ", ".join(str(device) for device in training_devices),
+    )
 
     # Load lightweight problem descriptors from H5 (lazy, no tensors yet)
     problem_descriptors = h5_problem_manager.get_problem_descriptors()
@@ -1420,8 +1741,7 @@ def training_multigpu_cached(
             # Assign tasks to devices with load balancing
             device_tasks = assign_cached_tasks_to_devices(
                 indices_by_problem=indices_by_problem,
-                num_devices=multigpu_config.num_gpus
-                or len(_select_training_devices(None)),
+                num_devices=len(training_devices),
                 h5_problem_manager=h5_problem_manager,
                 network_params=trained_params,
                 key=batch_key,
@@ -1432,7 +1752,7 @@ def training_multigpu_cached(
             results, step_losses, total_problems = (
                 distribute_cached_gradient_computation(
                     device_tasks,
-                    num_gpus=multigpu_config.num_gpus,
+                    devices=training_devices,
                     threads_per_gpu=multigpu_config.threads_per_gpu,
                     grad_fn_cache=grad_fn_cache,
                     problem_configs=problem_configs,
@@ -1443,14 +1763,16 @@ def training_multigpu_cached(
             # COLLECT ALL INDIVIDUAL GRADIENTS FOR conFIG
             # ================================================================
             all_individual_grads = []
+            all_problem_names = []
             total_grad_mod = 0.0
             all_losses = []
 
             for device_task_list in device_tasks:
                 for task in device_task_list:
                     result = results[id(task)]
-                    # Collect ALL individual gradients (not averaged)
+                    # Collect ALL individual gradients (not averaged) and their problem names
                     all_individual_grads.extend(result["individual_grads"])
+                    all_problem_names.extend([result["problem_name"]] * len(result["individual_grads"]))
                     total_grad_mod += sum(
                         pr["grad_mod"] for pr in result["per_problem_results"]
                     )
@@ -1468,6 +1790,16 @@ def training_multigpu_cached(
             # Move CPU-side gradients back to GPU for aggregation.
             # Gradients were offloaded to numpy in the worker to avoid OOM.
             device_grads = [jax.device_put(g) for g in all_individual_grads]
+
+            # Apply per-problem gradient processing if enabled
+            if multigpu_config.normalize_per_problem:
+                device_grads, norm_stats = normalize_gradients_per_problem(
+                    device_grads, all_problem_names
+                )
+            elif multigpu_config.clip_per_problem:
+                device_grads, norm_stats = clip_gradients_per_problem(
+                    device_grads, all_problem_names, max_norm=1.0
+                )
 
             # Apply conFIG to ALL individual gradients
             if multigpu_config.use_config_gradient:
@@ -1543,8 +1875,15 @@ def training_multigpu_cached(
         successful_training = True
 
     except Exception as e:
+        print_exception_traceback("training_multigpu_cached", traceback.format_exc())
+        print_exception_summary("training_multigpu_cached", e)
         logger.error(f"Training failed with error: {e}")
-        model_manager.save_model_params(trained_params, "model_params_NAN.eqx")
+        failure_checkpoint_name = (
+            "model_params_OOM.eqx"
+            if is_probable_oom_error(e)
+            else "model_params_NAN.eqx"
+        )
+        model_manager.save_model_params(trained_params, failure_checkpoint_name)
         successful_training = False
         raise
 
@@ -1599,6 +1938,28 @@ def training_multigpu_cached(
     with open(multigpu_config_path, "w") as f:
         json.dump(asdict(multigpu_config), f, indent=2)
     logger.info(f"MultiGPU config saved to {multigpu_config_path}")
+
+    # Save param filters if they were used
+    if h5_param_filters:
+        param_filter_path = (
+            model_manager.base_dir / model_manager.model_name / "param_filter_config.json"
+        )
+        param_filter_config = {
+            "param_filters": [
+                {
+                    "problem_name": problem_name,
+                    "filters": {
+                        param_name: {"min": min_val, "max": max_val}
+                        for param_name, (min_val, max_val) in filters.items()
+                    }
+                }
+                for problem_name, filters in h5_param_filters.items()
+            ],
+            "notes": "Parameter filters applied during H5 dataset loading"
+        }
+        with open(param_filter_path, "w") as f:
+            json.dump(param_filter_config, f, indent=2)
+        logger.info(f"Param filter config saved to {param_filter_path}")
 
     return best_params, neural_net_static
 
@@ -1711,7 +2072,7 @@ if __name__ == "__main__":
         help="Name of the model (auto-generated if not provided)",
     )
 
-    parser.add_argument("--num-gpus", type=int, default=2, help="Number of GPUs to use")
+    parser.add_argument("--num-gpus", type=int, default=1, help="Number of GPUs to use")
 
     parser.add_argument(
         "--epochs", type=int, default=100, help="Number of training epochs"
@@ -1904,7 +2265,36 @@ if __name__ == "__main__":
         ),
     )
 
+    parser.add_argument(
+        "--normalize-per-problem",
+        action="store_true",
+        default=False,
+        help=(
+            "Normalize gradients per individual problem before aggregation. "
+            "Each problem's gradients are divided by their L2 norm before being "
+            "collected for conFIG or averaging."
+        ),
+    )
+
+    parser.add_argument(
+        "--clip-per-problem",
+        action="store_true",
+        default=False,
+        help=(
+            "Clip gradients per individual problem to L2 norm of 1.0 before aggregation. "
+            "Each problem's gradients are clipped independently to unit norm before being "
+            "collected for conFIG or averaging. Incompatible with --normalize-per-problem."
+        ),
+    )
+
     args = parser.parse_args()
+
+    # Validate that normalize-per-problem and clip-per-problem are mutually exclusive
+    if args.normalize_per_problem and args.clip_per_problem:
+        parser.error(
+            "--normalize-per-problem and --clip-per-problem are mutually exclusive. "
+            "Choose one or neither."
+        )
 
     # Validate subset argument
     if args.subset is not None and not args.fixed_problems:
@@ -2010,6 +2400,8 @@ if __name__ == "__main__":
         early_stopping_patience=args.early_stopping_patience,
         grads_debug=args.grads_debug,
         subset_size=args.subset,
+        normalize_per_problem=args.normalize_per_problem,
+        clip_per_problem=args.clip_per_problem,
     )
 
     training_config_overrides = {

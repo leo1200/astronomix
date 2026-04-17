@@ -35,6 +35,10 @@ class MultiGPUTrainingConfig:
         early_stopping_patience: Number of epochs to wait before early stopping.
         noise_perturbation: If True, apply noise to initial states during training.
         use_config_gradient: If True, use conFIG for gradient averaging instead of simple mean.
+        normalize_per_problem: If True, normalize gradients per problem by their L2 norm before aggregation.
+                              Incompatible with clip_per_problem.
+        clip_per_problem: If True, clip gradients per problem to L2 norm of 1.0 before aggregation.
+                         Incompatible with normalize_per_problem.
     """
 
     problem_counts: Dict[str, int] = field(default_factory=dict)
@@ -52,6 +56,8 @@ class MultiGPUTrainingConfig:
     problems_per_batch: int = 8  # Max problems to load into GPU memory at once
     grads_debug: bool = False  # Enable gradient analysis debug mode
     subset_size: Optional[int] = None  # Per-epoch sample size (requires fixed_problems=True)
+    normalize_per_problem: bool = False  # Normalize gradients per problem by L2 norm
+    clip_per_problem: bool = False  # Clip gradients per problem to L2 norm of 1.0
 
     def validate(self, available_problems: List[str]) -> None:
         """Validate configuration against available problems.
