@@ -98,6 +98,7 @@ class CorrectorCNN(eqx.Module):
             seq = eqx.tree_at(lambda s, idx=i: s.layers[idx].weight, seq, new_w)
         self.layers = seq
         self.active_snapshot_callable = False
+
         if isinstance(snapshot_callable, Callable):
             print("active snapshot callable")
             self.active_snapshot_callable = True
@@ -121,6 +122,7 @@ class CorrectorCNN(eqx.Module):
             + primitive_state[-2] ** 2
             + primitive_state[-1] ** 2
         )
+        # TODO: wrong normalizing for v here, it still works
         B_rms = jnp.maximum(jnp.sqrt(jnp.mean(B2)), 1e-8)
         v_ref = B_rms / jnp.sqrt(rho_mean)
 
@@ -148,6 +150,7 @@ class CorrectorCNN(eqx.Module):
         time_step: Float[Array, ""],
     ) -> Float[Array, "num_vars h w"]:
         """The forward pass of the model."""
+
         if self.normalize_input:
             scales = self._compute_scales(primitive_state, registered_variables)
             n_out = primitive_state.shape[0] - 3
@@ -444,6 +447,7 @@ class VectorFieldCorrectorCNN(eqx.Module):
             registered_variables=registered_variables,
             field_type=self.vector_field_output,
         )
+        return primitive_state
 
 
 class FiLMCorrectorCNN(eqx.Module):
@@ -487,7 +491,9 @@ class FiLMCorrectorCNN(eqx.Module):
             return subkey
 
         def make_conv3d(in_ch, out_ch, use_bias=True):
-            conv = eqx.nn.Conv3d(in_ch, out_ch, 3, padding=1, use_bias=use_bias, key=next_key())
+            conv = eqx.nn.Conv3d(
+                in_ch, out_ch, 3, padding=1, use_bias=use_bias, key=next_key()
+            )
             new_w = scale * jax.random.normal(next_key(), conv.weight.shape)
             return eqx.tree_at(lambda m: m.weight, conv, new_w)
 
@@ -499,10 +505,16 @@ class FiLMCorrectorCNN(eqx.Module):
             return eqx.tree_at(lambda m: m.bias, lin, new_b)
 
         self.input_conv = make_conv3d(in_channels + 2, hidden_channels)
-        self.hidden_convs = tuple(make_conv3d(hidden_channels, hidden_channels) for _ in range(hidden_layers))
+        self.hidden_convs = tuple(
+            make_conv3d(hidden_channels, hidden_channels) for _ in range(hidden_layers)
+        )
         self.output_conv = make_conv3d(hidden_channels, in_channels - 3, use_bias=False)
-        self.film_gamma = tuple(make_film_linear(hidden_channels) for _ in range(hidden_layers))
-        self.film_beta = tuple(make_film_linear(hidden_channels) for _ in range(hidden_layers))
+        self.film_gamma = tuple(
+            make_film_linear(hidden_channels) for _ in range(hidden_layers)
+        )
+        self.film_beta = tuple(
+            make_film_linear(hidden_channels) for _ in range(hidden_layers)
+        )
         self.normalize_input = normalize_input
 
     def _compute_scales(
@@ -553,7 +565,7 @@ class FiLMCorrectorCNN(eqx.Module):
         Bx = primitive_state[registered_variables.magnetic_index.x]
         By = primitive_state[registered_variables.magnetic_index.y]
         Bz = primitive_state[registered_variables.magnetic_index.z]
-        B2_center = Bx ** 2 + By ** 2 + Bz ** 2
+        B2_center = Bx**2 + By**2 + Bz**2
 
         p = primitive_state[registered_variables.pressure_index]
         rho = primitive_state[registered_variables.density_index]
@@ -562,15 +574,17 @@ class FiLMCorrectorCNN(eqx.Module):
         vz = primitive_state[registered_variables.velocity_index.z]
 
         beta_field = 2.0 * p / (B2_center + 1e-8)
-        mach_a_field = jnp.sqrt((vx ** 2 + vy ** 2 + vz ** 2) * rho) / (
+        mach_a_field = jnp.sqrt((vx**2 + vy**2 + vz**2) * rho) / (
             jnp.sqrt(B2_center) + 1e-8
         )
 
         # Global conditioning vector for FiLM: [log(mean_β+1), mean_M_A]
-        z = jnp.array([
-            jnp.log(jnp.mean(beta_field) + 1.0),
-            jnp.mean(mach_a_field),
-        ])
+        z = jnp.array(
+            [
+                jnp.log(jnp.mean(beta_field) + 1.0),
+                jnp.mean(mach_a_field),
+            ]
+        )
 
         # --- 2. Normalize input state ---
         if self.normalize_input:
@@ -587,7 +601,9 @@ class FiLMCorrectorCNN(eqx.Module):
 
         # --- 4. Forward through network with FiLM ---
         x = jax.nn.relu(self.input_conv(net_input))
-        for conv, g_lin, b_lin in zip(self.hidden_convs, self.film_gamma, self.film_beta):
+        for conv, g_lin, b_lin in zip(
+            self.hidden_convs, self.film_gamma, self.film_beta
+        ):
             gamma = g_lin(z)[:, None, None, None] + 1.0  # identity residual init
             shift = b_lin(z)[:, None, None, None]
             x = jax.nn.relu(gamma * conv(x) + shift)
