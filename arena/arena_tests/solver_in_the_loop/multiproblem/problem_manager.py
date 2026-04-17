@@ -102,6 +102,26 @@ class SimulationBundle:
         self.config = self.config._replace(**valid)
         return self
 
+    def override_params(self, strict=False, **overrides):
+        valid_fields = self.params._fields
+        valid, invalid = {}, []
+
+        for k, v in overrides.items():
+            if k in valid_fields:
+                valid[k] = v
+            else:
+                invalid.append(k)
+
+        if invalid:
+            msg = f"Invalid config keys: {invalid}"
+            if strict:
+                raise KeyError(msg)
+            else:
+                print(f"[override_config] Warning: {msg}")
+
+        self.params = self.params._replace(**valid)
+        return self
+
     def unpack_integrate(self):
         kwargs = {
             "primitive_state": self.initial_state,
