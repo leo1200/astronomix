@@ -1,7 +1,5 @@
 """Timepoint updater logic"""
 
-from astronomix._physics_modules._cnn_mhd_corrector import _cnn_mhd_corrector_options
-from astronomix.data_classes.simulation_snapshot_data import SnapshotData
 from typing import Tuple
 import jax
 
@@ -14,7 +12,7 @@ from arena.arena_tests.solver_in_the_loop.model_manager import (
 
 from astronomix.option_classes.simulation_config import STATE_TYPE, SimulationConfig
 from astronomix.option_classes.simulation_params import SimulationParams
-from astronomix import get_helper_data, get_registered_variables
+from astronomix import get_registered_variables
 from jaxtyping import Array
 
 import logging
@@ -46,6 +44,7 @@ def timepoint_context(
         )
         current_end_time = training_config.snapshot_timepoints_train[i]
         current_config = config._replace(num_snapshots=1)
+
         # NOTE: we are taking into account already the start_correction_time
         # in the initial state we use
         #
@@ -88,8 +87,7 @@ def timepoint_context(
                 integrate_initial_state = False
                 current_start_time = 0.0
                 current_end_time = (
-                    training_config.t_end
-                    - training_config.start_correction_time
+                    training_config.t_end - training_config.start_correction_time
                 )
             else:
                 current_start_time = (
@@ -104,7 +102,6 @@ def timepoint_context(
             t_end=current_end_time, snapshot_timepoints=jnp.array([current_end_time])
         )
 
-        helper_data = get_helper_data(config)
         registered_variables = get_registered_variables(config)
 
         logger.debug(f"integrate_initial_state {integrate_initial_state}")
@@ -120,7 +117,6 @@ def timepoint_context(
                 ),
                 params=params._replace(t_end=current_start_time),
                 registered_variables=registered_variables,
-                helper_data=helper_data,
             )
         else:
             current_initial_state = initial_state
@@ -132,6 +128,7 @@ def timepoint_context(
 
     key = jax.random.PRNGKey(112 + i)
     assert isinstance(current_end_time, float)
+    assert isinstance(current_initial_state, STATE_TYPE)
     return (
         current_end_time,
         current_config,

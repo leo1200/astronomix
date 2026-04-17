@@ -32,7 +32,6 @@ def eval_model(
         initial_state_low_res,
         config_low_res,
         params,
-        helper_data_low_res,
         registered_variables,
     ) = sim_bundle_lr
 
@@ -54,7 +53,6 @@ def eval_model(
         initial_state_low_res,
         config_low_res,
         params_low_res,
-        helper_data_low_res,
         registered_variables,
     ).states
 

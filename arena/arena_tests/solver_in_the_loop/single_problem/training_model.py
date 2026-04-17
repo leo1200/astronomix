@@ -1,9 +1,6 @@
 from autocvd import autocvd
-import os
 
 autocvd(num_gpus=1)
-# os.environ["CUDA_VISIBLE_DEVICES"] = "7"
-# os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.45"
 
 from astronomix.data_classes.simulation_snapshot_data import SnapshotData
 from astronomix.option_classes.simulation_config import STATE_TYPE, SimulationConfig
@@ -40,14 +37,16 @@ from arena.arena_tests.solver_in_the_loop.loss import (
     loss_setup,
 )
 
-from arena.arena_tests.solver_in_the_loop.plot_training import plot_training
+from arena.arena_tests.solver_in_the_loop.single_problem.plot_training import (
+    plot_training,
+)
 from arena.arena_tests.solver_in_the_loop.model_manager import (
     ModelManager,
     TrainingConfig,
     ModelMetadata,
     model_loader,
 )
-from arena.arena_tests.solver_in_the_loop.timepoint_updater import (
+from arena.arena_tests.solver_in_the_loop.single_problem.timepoint_updater import (
     FRONT_TO_BACK,
     BACK_TO_FRONT,
     timepoint_context,
@@ -61,7 +60,9 @@ from astronomix.option_classes.simulation_config import (
 from functools import partial
 
 try:
-    from arena.arena_tests.solver_in_the_loop.eval_model import eval_model
+    from arena.arena_tests.solver_in_the_loop.single_problem.eval_model import (
+        eval_model,
+    )
 except:
     eval_model = None
 
@@ -72,6 +73,8 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 # MAIN TRAINING FUNCTION
 # ============================================================================
+
+RNG_SEED = 101  # if i dont write it i usually use 100
 
 
 def validate_output(last_t: float, gradients_mod: float) -> None:
@@ -244,7 +247,7 @@ def training_model(
         in_channels=registered_variables.num_vars,
         hidden_channels=training_config.hidden_channels,
         hidden_layers=training_config.hidden_layers,
-        key=jax.random.PRNGKey(100),
+        key=jax.random.PRNGKey(101),
         scale=training_config.model_initialization_scale,
     )
     neural_net_params, neural_net_static = eqx.partition(model, eqx.is_array)
@@ -539,7 +542,7 @@ if __name__ == "__main__":
 
     # TODO: fix the behavior of not putting a t_end, right now the default on the sim_config_training is 0.2
     model_params = {
-        "model_name": "ftb_3",
+        "model_name": "3",
         "num_cells_high_res": 64,
         "downaverage_factor": 2,
         "limiter": VAN_ALBADA,
@@ -556,76 +559,77 @@ if __name__ == "__main__":
         "c_cfl": 0.8,
         "c_cfl_target": 0.8,
         "loss_type": "norm_mse",
-        "direction": FRONT_TO_BACK,
-        "epochs_per_time": [150, 150, 200],
-        "snapshot_timepoints_train": [0.10, 0.05, 0.0],
-        "correct_from_beggining": True,
-        "t_end": 0.2,
-        "use_early_stopper": False,
-        "patience": 35,
-        "description": "Testing lr_scheduler per times batch",
-    }
-
-    mp_test_params = {
-        "model_name": "test_after_merge_and_multiproblem",
-        "num_cells_high_res": 64,
-        "downaverage_factor": 2,
-        "limiter": VAN_ALBADA,
-        "hidden_channels": 5,
-        "model_initialization_scale": 0.03,
-        "start_correction_time": 0.0,
-        "noise_level": 0.04,
-        "hidden_layers": 4,
-        "learning_rate": 8.5e-05,
-        "warmup_steps_fraction": 0.4,
-        "peak_lr": 1.5e-04,
-        "end_lr": 5.0e-05,
-        "gradient_clip": 1.0,
-        "c_cfl": 0.8,
-        "c_cfl_target": 0.8,
-        "loss_type": "norm_mse",
         "direction": BACK_TO_FRONT,
-        "epochs_per_time": [300],
-        "snapshot_timepoints_train": [0.2],
-        "correct_from_beggining": True,
-        "t_end": 0.2,
-        "use_early_stopper": False,
-        "patience": 35,
-        "description": "Testing lr_scheduler per times batch",
-    }
-
-    optuna_params = {
-        "model_name": "optuna_params_2",
-        "num_cells_high_res": 64,
-        "downaverage_factor": 2,
-        "limiter": VAN_ALBADA,
-        "hidden_channels": 5,
-        "model_initialization_scale": 0.041574555074364715,
-        "start_correction_time": 0.0001352420222864028,
-        "noise_level": 0.0,
-        "hidden_layers": 3,
-        "learning_rate": 1.7231054411611903e-05,
-        "warmup_steps_fraction": 0.3983952086077301,
-        # "peak_lr": 2.343594314368986e-05,
-        "peak_lr": 8.0e-5,
-        "end_lr": 3.1872436911245206e-06,
-        "gradient_clip": 0.9555056246814991,
-        # "c_cfl": 0.6558539756738294,
-        "c_cfl": 0.8,
-        "c_cfl_target": 0.8,
-        "loss_type": "norm_mse",
-        "direction": BACK_TO_FRONT,
-        "epochs_per_time": [300],
+        "epochs_per_time": [500],
         "snapshot_timepoints_train": [0.2],
         "correct_from_beggining": True,
         "t_end": 0.2,
         "use_early_stopper": True,
-        "patience": 30,
-        "description": "optuna params but now with the right loss (before there was a bug)",
-        # we change the correct_from_beggining to true as the small time was causing problems
+        "patience": 50,
+        "description": f"same hyperparams as ftb_3 but only one snapshot timepoint rng_seed {RNG_SEED}",
     }
 
-    training_params = mp_test_params
+    #
+    # mp_test_params = {
+    #     "model_name": "test_after_merge_and_multiproblem",
+    #     "num_cells_high_res": 64,
+    #     "downaverage_factor": 2,
+    #     "limiter": VAN_ALBADA,
+    #     "hidden_channels": 5,
+    #     "model_initialization_scale": 0.03,
+    #     "start_correction_time": 0.0,
+    #     "noise_level": 0.04,
+    #     "hidden_layers": 4,
+    #     "learning_rate": 8.5e-05,
+    #     "warmup_steps_fraction": 0.4,
+    #     "peak_lr": 1.5e-04,
+    #     "end_lr": 5.0e-05,
+    #     "gradient_clip": 1.0,
+    #     "c_cfl": 0.8,
+    #     "c_cfl_target": 0.8,
+    #     "loss_type": "norm_mse",
+    #     "direction": BACK_TO_FRONT,
+    #     "epochs_per_time": [300],
+    #     "snapshot_timepoints_train": [0.2],
+    #     "correct_from_beggining": True,
+    #     "t_end": 0.2,
+    #     "use_early_stopper": False,
+    #     "patience": 35,
+    #     "description": "Testing lr_scheduler per times batch",
+    # }
+    #
+    # optuna_params = {
+    #     "model_name": "optuna_params_2",
+    #     "num_cells_high_res": 64,
+    #     "downaverage_factor": 2,
+    #     "limiter": VAN_ALBADA,
+    #     "hidden_channels": 5,
+    #     "model_initialization_scale": 0.041574555074364715,
+    #     "start_correction_time": 0.0001352420222864028,
+    #     "noise_level": 0.0,
+    #     "hidden_layers": 3,
+    #     "learning_rate": 1.7231054411611903e-05,
+    #     "warmup_steps_fraction": 0.3983952086077301,
+    #     # "peak_lr": 2.343594314368986e-05,
+    #     "peak_lr": 8.0e-5,
+    #     "end_lr": 3.1872436911245206e-06,
+    #     "gradient_clip": 0.9555056246814991,
+    #     # "c_cfl": 0.6558539756738294,
+    #     "c_cfl": 0.8,
+    #     "c_cfl_target": 0.8,
+    #     "loss_type": "norm_mse",
+    #     "direction": BACK_TO_FRONT,
+    #     "epochs_per_time": [300],
+    #     "snapshot_timepoints_train": [0.2],
+    #     "correct_from_beggining": True,
+    #     "t_end": 0.2,
+    #     "use_early_stopper": True,
+    #     "patience": 30,
+    #     "description": "optuna params but now with the right loss (before there was a bug)",
+    #     # we change the correct_from_beggining to true as the small time was causing problems
+    # }
+    #
+    training_params = model_params
 
     params, static = train_new_model(
         load_existing=False,

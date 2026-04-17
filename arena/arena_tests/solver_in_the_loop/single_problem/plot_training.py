@@ -4,8 +4,6 @@ if __name__ == "__main__":
     autocvd(num_gpus=1)
 
 import os
-# os.environ["CUDA_VISIBLE_DEVICES"] = "7"
-# os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.45"
 
 from astronomix.option_classes.simulation_params import SimulationParams
 from arena.arena_tests.solver_in_the_loop import model_manager
@@ -44,12 +42,11 @@ from arena.arena_tests.solver_in_the_loop.model_manager import (
     ModelManager,
     load_legacy_params_into_current,
 )
-import os
 import equinox as eqx
 
 from astronomix.variable_registry import registered_variables
 import logging
-from arena.arena_tests.solver_in_the_loop.timepoint_updater import (
+from arena.arena_tests.solver_in_the_loop.single_problem.timepoint_updater import (
     FRONT_TO_BACK,
     BACK_TO_FRONT,
 )
@@ -135,7 +132,6 @@ def plot_training(
         initial_state_low_res,
         config_low_res,
         params,
-        helper_data_low_res,
         registered_variables,
     ) = simulation_bundle_low_res
 
@@ -152,7 +148,6 @@ def plot_training(
         primitive_state=initial_state_low_res,
         config=config_low_res._replace(progress_bar=True),
         params=params_low_res,
-        helper_data=helper_data_low_res,
         registered_variables=registered_variables,
     ).states
 
@@ -176,7 +171,6 @@ def plot_training(
         initial_state_low_res,
         config_low_res._replace(progress_bar=True),
         params_low_res,
-        helper_data_low_res,
         registered_variables,
     ).states
 
@@ -433,7 +427,10 @@ def plot_states_histogram(
     axs_time_evolution.set_xlabel("Time")
     axs_time_evolution.legend()
 
-    plt.savefig(f"arena/data/models/single_problem/{model_name}/plots/states_magnitude.png", dpi=400)
+    plt.savefig(
+        f"arena/data/models/single_problem/{model_name}/plots/states_magnitude.png",
+        dpi=400,
+    )
     pass
 
 
@@ -662,7 +659,8 @@ def plot_corrections_figure(
 
     plt.tight_layout()
     plt.savefig(
-        f"arena/data/models/single_problem/{model_name}/plots/model_output_{title_suffix}.png", dpi=400
+        f"arena/data/models/single_problem/{model_name}/plots/model_output_{title_suffix}.png",
+        dpi=400,
     )
 
 
@@ -703,7 +701,6 @@ if __name__ == "__main__":
     states_max = []
     effective_corrections = []
 
-    # TODO: change the corrected state calculation to the proper one used in the model
     def snapshot_callable(time, state, correction):
         corrections.append(jnp.mean(correction, axis=[1, 2, 3]))
         states.append(jnp.mean(state, axis=[1, 2, 3]))
@@ -765,7 +762,8 @@ if __name__ == "__main__":
 
     if legacy_mode:
         neural_net_params = load_legacy_params_into_current(
-            model, path=f"arena/data/models/single_problem/{model_name}/model_params.pkl"
+            model,
+            path=f"arena/data/models/single_problem/{model_name}/model_params.pkl",
         )
         model_manager.save_model_params(params=neural_net_params)
         logger.info("Loaded model with the legacy pickle and saved it with eqx")
@@ -798,17 +796,17 @@ if __name__ == "__main__":
 
     print(f"Simulation took {len(times)} steps")
 
-    plot_states_histogram(
-        states=states,
-        states_max=states_max,
-        times=times,
-        model_name=training_config.model_name,
-    )
-
-    model_output_figures(
-        corrections=corrections,
-        effective_corrections=effective_corrections,
-        states=states,
-        times=times,
-        model_name=model_name,
-    )
+    # plot_states_histogram(
+    #     states=states,
+    #     states_max=states_max,
+    #     times=times,
+    #     model_name=training_config.model_name,
+    # )
+    #
+    # model_output_figures(
+    #     corrections=corrections,
+    #     effective_corrections=effective_corrections,
+    #     states=states,
+    #     times=times,
+    #     model_name=model_name,
+    # )

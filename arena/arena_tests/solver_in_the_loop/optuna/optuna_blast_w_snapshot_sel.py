@@ -1,16 +1,8 @@
-"""Optuna process to find the best model
-Uses one last snapshot timepoint
-"""
+"""Optuna process to find the best model with varying training snapshots, needs more work"""
 
-# from autocvd import autocvd
+from autocvd import autocvd
 
-# autocvd(num_gpus=1)
-import os
-
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.25"
-# os.environ["CUDA_VISIBLE_DEVICES"] = "6"
-
+autocvd(num_gpus=1)
 
 from astronomix.data_classes.simulation_helper_data import HelperData
 
@@ -35,8 +27,7 @@ from astronomix._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_options i
 )
 from astronomix.time_stepping import time_integration
 from astronomix.variable_registry.registered_variables import RegisteredVariables
-import numpy as np
-from arena.arena_tests.solver_in_the_loop.fd_blast_sol import (
+from arena.arena_tests.solver_in_the_loop.utils import (
     get_initial_state_training,
     downaverage,
     perturb_state,
@@ -177,12 +168,16 @@ def preparing_optuna_study(
     num_cells_high_res: int,
     downaverage_factor: int,
     end_time: float,
+    target_possible_states: int,
     max_epochs: int,
 ):
+    snapshot_timepoints_full = jnp.linspace(
+        0.03, end_time, target_possible_states, endpoint=True
+    )
     simulation_bundle_high_res, sim_bundle_lr = get_initial_state_training(
         num_cells_high_res=num_cells_high_res,
         downaverage_factor=downaverage_factor,
-        snapshot_timepoints_train=jnp.array([0.2]),
+        snapshot_timepoints_train=snapshot_timepoints_full,
     )
     result_high_res = time_integration(*simulation_bundle_high_res)
     states_high_res_downsampled = downaverage(
@@ -194,19 +189,17 @@ def preparing_optuna_study(
     )
     study = optuna.create_study(
         study_name="fd_blast_sol",
-        storage=f"sqlite:///{os.path.join(experiment_folder, 'sol_optuna_64.db')}",
+        storage=f"sqlite:///{os.path.join(experiment_folder, 'fd_blast_sol_ex_64.db')}",
         load_if_exists=True,
         directions=["minimize"],
     )
-    study.set_user_attr("end_time", end_time)
-    study.set_user_attr("epochs", max_epochs)
     study.optimize(
         partial(
             objective,
             high_res_target=states_high_res_downsampled,
             sim_bundle_lr=sim_bundle_lr,
-            end_time=end_time,
-            epochs=max_epochs,
+            max_epochs=max_epochs,
+            snapshot_timepoints_full=snapshot_timepoints_full,
         ),
         show_progress_bar=True,
         n_trials=70,
@@ -227,20 +220,72 @@ def objective(
     trial: optuna.trial.Trial,
     high_res_target: jnp.ndarray,
     sim_bundle_lr: Tuple,
-    end_time: float,
-    epochs: int,
+    max_epochs: int,
+    snapshot_timepoints_full: jnp.ndarray,
 ):
-    hidden_channels = trial.suggest_int("hidden_channels", 3, 12)
-    model_initialization_scale = trial.suggest_float("scale", 0.001, 0.2)
+    hidden_channels = trial.suggest_int("hidden_channels", 6, 12)
+    model_initialization_scale = trial.suggest_float("scale", 0.001, 0.1)
     start_correction_time = trial.suggest_float("correction_time", 0.0, 0.05)
-    noise_level = trial.suggest_float("noise", 0.0, 0.2)
+    noise_level = trial.suggest_float("noise", 0.0, 0.15)
     hidden_layers = trial.suggest_int("hidden_layers", 1, 4)
     base_lr = trial.suggest_float("base_lr", 1e-5, 1e-3, log=True)
     warmup_fraction = trial.suggest_float("warmup_fraction", 0.1, 0.5)
     peak_lr = trial.suggest_float("peak_lr", base_lr, 1e-2, log=True)
     end_lr = trial.suggest_float("end_lr", 1e-6, base_lr, log=True)
     gradient_clip = trial.suggest_float("gradient_clip", 0.5, 1.5)
-    c_cfl = trial.suggest_float("c_cfl", 0.5, 1.8)
+    c_cfl = trial.suggest_float("c_cfl", 0.4, 1.8)
+
+    num_snapshots = trial.suggest_int("num_snapshots", 1, 3)
+
+    orig_global_indices = jnp.arange(snapshot_timepoints_full.shape[0])
+
+    mask = snapshot_timepoints_full > start_correction_time
+    snapshot_timepoints_full = snapshot_timepoints_full[mask]
+    orig_global_indices = orig_global_indices[mask]
+
+    last_filtered_idx = snapshot_timepoints_full.shape[0] - 1
+    last_global_idx = int(orig_global_indices[last_filtered_idx])
+
+    if num_snapshots == 1:
+        snapshot_indices = [last_global_idx]
+    else:
+        snapshot_indices = [last_global_idx]
+        work_filtered_idxs = jnp.arange(snapshot_timepoints_full.shape[0] - 1)
+        for i in range(num_snapshots - 1):
+            local_idx = trial.suggest_int(
+                f"snapshot_idx_{i}", 0, work_filtered_idxs.shape[0] - 1
+            )
+
+            # Map filtered index -> global index
+            filtered_idx = int(work_filtered_idxs[local_idx])
+            global_idx = int(orig_global_indices[filtered_idx])
+            snapshot_indices.append(global_idx)
+
+            # Remove chosen filtered index from working set
+            work_filtered_idxs = work_filtered_idxs[
+                jnp.arange(work_filtered_idxs.shape[0]) != local_idx
+            ]
+
+        snapshot_indices = sorted(set(snapshot_indices))
+    filtered_pos = [
+        jnp.where(orig_global_indices == idx)[0].item() for idx in snapshot_indices
+    ]
+
+    snapshot_timepoints_train = snapshot_timepoints_full[jnp.array(filtered_pos)]
+    print(f"snapshot_indices {snapshot_indices}")
+    print(f"filtered pos {filtered_pos}")
+    print(f"snapshot_timepoints_full {snapshot_timepoints_full}")
+    remaining_epochs = max_epochs
+    epochs_per_time = []
+    for i in range(num_snapshots):
+        if i == num_snapshots - 1:
+            epochs_per_time.append(remaining_epochs)
+        else:
+            max_for_this = remaining_epochs - (num_snapshots - i - 1)
+            epochs = trial.suggest_int(f"epochs_snapshot_{i}", 1, max(1, max_for_this))
+            epochs_per_time.append(epochs)
+            remaining_epochs -= epochs
+    high_res_target = high_res_target[jnp.array(snapshot_indices)]
 
     loss_to_use = trial.suggest_categorical(
         "loss_to_use", choices=("mse", "norm_mse", "norm_mse_wo_interface")
@@ -277,7 +322,7 @@ def objective(
         if high_res_target.ndim == 5:
             channel_normalizers = jnp.std(high_res_target, axis=(0, 2, 3, 4))
         else:
-            channel_normalizers = jnp.std(high_res_target, axis=(1, 2, 3))
+            channel_normalizers = jnp.std(high_res_target, axis=(2, 2, 3))
         channel_normalizers = jnp.maximum(channel_normalizers, 1e-8)
         loss_fn_kwargs["channel_normalizers"] = channel_normalizers
     print(
@@ -287,6 +332,9 @@ def objective(
         f"{'Init scale:':25} {fmt(model_initialization_scale)}\n"
         f"{'Noise level:':25} {fmt(noise_level)}\n"
         f"{'Start correction time:':25} {fmt(start_correction_time)}\n"
+        f"{'Num snapshots:':25} {fmt(num_snapshots)}\n"
+        f"{'Snapshot times:':25} {snapshot_timepoints_train}\n"
+        f"{'Epochs per time:':25} {fmt(epochs_per_time)}\n"
         f"{'Loss used:':25} {loss_to_use}\n"
         f"{'Base LR:':25} {fmt(base_lr)}\n"
         f"{'Peak LR:':25} {fmt(peak_lr)}\n"
@@ -306,7 +354,7 @@ def objective(
     initial_state_low_res = time_integration(
         primitive_state=initial_state_low_res,
         config=config_low_res._replace(
-            return_snapshots=False, num_snapshots=1, progress_bar=False
+            return_snapshots=False, num_snapshots=1, progress_bar=True
         ),
         params=params._replace(t_end=start_correction_time),
         registered_variables=registered_variables,
@@ -341,8 +389,9 @@ def objective(
     params_low_res = params._replace(cnn_mhd_corrector_params=cnn_mhd_corrector_params)
 
     # Set up the optimizer using optax
-    warmup_steps = int(epochs * warmup_fraction)
-    decay_steps = epochs - warmup_steps
+    total_epochs = sum(epochs_per_time)
+    warmup_steps = int(total_epochs * warmup_fraction)
+    decay_steps = total_epochs - warmup_steps
     lr_scheduler = optax.warmup_cosine_decay_schedule(
         init_value=base_lr,
         peak_value=peak_lr,
@@ -356,6 +405,8 @@ def objective(
     )
 
     opt_state = optimizer.init(neural_net_params)
+
+    losses = []
 
     # This variable will hold the trained parameters and be updated in the loop
     trained_params = neural_net_params
@@ -412,52 +463,62 @@ def objective(
         return network_params_arrays, opt_state, loss_value, gradients_modulus
 
     max_patience = 20
-    patience = 0
+    global_step = 0
     params_low_res = params_low_res._replace(C_cfl=c_cfl)
 
-    # Update the config/params objects for this specific timeframe
-    config_low_res = config_low_res._replace(num_snapshots=1)
-    params_sim_lr = params_low_res._replace(
-        t_end=end_time - start_correction_time,
-        snapshot_timepoints=jnp.array([end_time - start_correction_time]),
-    )
+    for i, epochs in enumerate(epochs_per_time):
+        # Update outer loop variables
+        current_end_time = snapshot_timepoints_train[i]
 
-    target = high_res_target
-
-    for current_epoch in range(epochs):
-        if current_epoch % 10 == 0:
-            print(current_epoch, end="\r")
-        key, subkey = jax.random.split(key)
-
-        trained_params, opt_state, loss, gradients_mod = train_step(
-            trained_params,
-            opt_state,
-            target,
-            initial_state_low_res,
-            config_low_res,
-            params_sim_lr,
-            subkey,
-            helper_data_low_res,
-            registered_variables,
+        # Update the config/params objects for this specific timeframe
+        current_config = config_low_res._replace(num_snapshots=1)
+        current_params_sim = params_low_res._replace(
+            t_end=current_end_time - start_correction_time,
+            snapshot_timepoints=jnp.array([current_end_time - start_correction_time]),
         )
-        if math.isnan(gradients_mod):
-            trial.set_user_attr("diverged", True)
-            trial.set_user_attr("diverge_step", int(epochs))
-            bad_loss = 10 * (epochs - current_epoch)
-            return bad_loss
-        if loss < best_loss:
-            best_loss = loss
-            patience = 0
-        else:
-            patience += 1
-            if patience == max_patience:
-                trial.set_user_attr("early_stopped_step", int(epochs))
-                break
+
+        current_target = high_res_target[i]
+
+        # Reset key for this epoch block if needed, or keep evolving it
+        key = jax.random.PRNGKey(16 + i)
+
+        for _ in range(epochs):
+            global_step += 1
+            if global_step % 10 == 0:
+                print(global_step, end="\r")
+            key, subkey = jax.random.split(key)
+
+            # 3. CALL THE FUNCTION
+            # Notice we pass EVERYTHING that defines the physics here
+            trained_params, opt_state, loss, gradients_mod = train_step(
+                trained_params,
+                opt_state,
+                current_target,
+                initial_state_low_res,
+                current_config,
+                current_params_sim,
+                subkey,
+                helper_data_low_res,
+                registered_variables,
+            )
+            if math.isnan(gradients_mod):
+                trial.set_user_attr("diverged", True)
+                trial.set_user_attr("diverge_step", int(epochs))
+                bad_loss = 10 * (total_epochs - global_step)
+                return bad_loss
+            losses.append(loss)
+            if loss < best_loss:
+                best_loss = loss
+                patience = 0
+            else:
+                patience += 1
+                if patience == max_patience:
+                    break
 
     eval_loss = eval_model(
         network_static=neural_net_static,
         network_params=neural_net_params,
-        times_eval=jnp.linspace(0.0, end_time, num=30),
+        times_eval=jnp.linspace(0.0, float(snapshot_timepoints_full[-1]), num=30),
         num_cells_high_res=high_res_target.shape[-1],
         downaverage_factor=2,
         start_correction_time=start_correction_time,
@@ -523,6 +584,7 @@ def main():
         num_cells_high_res=num_cells_high_res,
         downaverage_factor=downaverage_scale,
         end_time=0.2,
+        target_possible_states=20,
         max_epochs=total_epochs,
     )
 
