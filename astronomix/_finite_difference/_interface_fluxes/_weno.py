@@ -103,17 +103,22 @@ from typing import Union
 
 from jax import checkpoint
 
-from astronomix._finite_difference._fluid_equations._eigen import _eigen_L_row, _eigen_R_col, _eigen_lambdas
-from astronomix._finite_difference._fluid_equations._fluxes import _mhd_flux_x
-from astronomix.option_classes.simulation_config import SimulationConfig
+from astronomix._finite_difference._fluid_equations._eigen_hydro import _eigen_L_row_hydro, _eigen_R_col_hydro, _eigen_lambdas_hydro
+from astronomix._finite_difference._fluid_equations._eigen_hydro_iso import _eigen_L_row_hydro_iso, _eigen_R_col_hydro_iso, _eigen_lambdas_hydro_iso
+from astronomix._finite_difference._fluid_equations._eigen_mhd import _eigen_L_row, _eigen_R_col, _eigen_lambdas
+from astronomix._finite_difference._fluid_equations._eigen_mhd_iso import _eigen_L_row_iso, _eigen_R_col_iso, _eigen_lambdas_iso
+from astronomix._finite_difference._fluid_equations._fluxes import _euler_flux_isothermal_x, _mhd_flux_isothermal_x, _mhd_flux_x
+from astronomix._fluid_equations._equations import primitive_state_from_conserved
+from astronomix._fluid_equations._fluxes import _euler_flux
+from astronomix._stencil_operations._stencil_operations import _shift
+from astronomix.option_classes.simulation_config import IDEAL_GAS, ISOTHERMAL, SimulationConfig
+from astronomix.option_classes.simulation_params import SimulationParams
 from astronomix.variable_registry.registered_variables import RegisteredVariables
 
 @partial(jax.jit, static_argnames=["registered_variables", "config"])
 def _weno_flux_x(
     conserved_state,
-    rhomin: Union[float, jnp.ndarray],
-    pgmin: Union[float, jnp.ndarray],
-    gamma: Union[float, jnp.ndarray],
+    params: SimulationParams,
     config: SimulationConfig,
     registered_variables: RegisteredVariables,
 ):
@@ -121,42 +126,129 @@ def _weno_flux_x(
     WENO flux reconstruction.
     """
 
-    epsilon = 1e-8
+    # if jax.config.jax_enable_x64:
+    #     epsilon = 1e-8
+    # else:
+    #     epsilon = 1e-6
+    epsilon = 1e-7
 
-    # retrieve the center fluxes
-    F = _mhd_flux_x(conserved_state, rhomin, pgmin, gamma, config, registered_variables)
-    
+    # only used in the IDEAL_GAS case
+    rhomin = params.minimum_density
+    pgmin = params.minimum_pressure
+    gamma = params.gamma
+
+    # only used in the ISOTHERMAL case
+    isothermal_sound_speed = params.isothermal_sound_speed
+
+    if config.equation_of_state == IDEAL_GAS:
+        # retrieve the center fluxes
+        if config.mhd:
+            F = _mhd_flux_x(
+                conserved_state,
+                rhomin,
+                pgmin,
+                gamma,
+                config,
+                registered_variables
+            )
+        else:
+            F =  _euler_flux(
+                primitive_state_from_conserved(
+                    conserved_state, gamma, config, registered_variables
+                ),
+                gamma, config, registered_variables, 1
+            )
+    elif config.equation_of_state == ISOTHERMAL:
+        if config.mhd:
+            F = _mhd_flux_isothermal_x(
+                conserved_state,
+                rhomin,
+                isothermal_sound_speed,
+                config,
+                registered_variables,
+            )
+        else:
+            F = _euler_flux_isothermal_x(
+                conserved_state,
+                rhomin,
+                isothermal_sound_speed,
+                config,
+                registered_variables,
+            )
+
+        
     # with this we can already compute the first part of the flux
     F_interface = 1/12 * (
-        -jnp.roll(F, 1, axis=1) + 7 * F + 7 * jnp.roll(F, -1, axis=1) - jnp.roll(F, -2, axis=1)
+        -_shift(F, 1, axis=1) + 7 * F + 7 * _shift(F, -1, axis=1) - _shift(F, -2, axis=1)
     )
 
     def mode_flux(mode, F_current):
 
         # get eigenstructure for this mode
-        lambdas_center = _eigen_lambdas(conserved_state, rhomin, pgmin, gamma, registered_variables, mode)
-        L_row = _eigen_L_row(conserved_state, rhomin, pgmin, gamma, registered_variables, mode)
+        if config.equation_of_state == IDEAL_GAS:
+            if config.mhd:
+                lambdas_center = _eigen_lambdas(conserved_state, rhomin, pgmin, gamma, registered_variables, mode)
+                L_row = _eigen_L_row(conserved_state, rhomin, pgmin, gamma, registered_variables, mode)
+            else:
+                lambdas_center = _eigen_lambdas_hydro(conserved_state, rhomin, pgmin, gamma, config, registered_variables, mode)
+                L_row = _eigen_L_row_hydro(conserved_state, rhomin, pgmin, gamma, config, registered_variables, mode)
+        elif config.equation_of_state == ISOTHERMAL:
+            if config.mhd:
+                lambdas_center = _eigen_lambdas_iso(conserved_state, rhomin, isothermal_sound_speed, registered_variables, mode)
+                L_row = _eigen_L_row_iso(conserved_state, rhomin, isothermal_sound_speed, registered_variables, mode)
+            else:
+                lambdas_center = _eigen_lambdas_hydro_iso(conserved_state, rhomin, isothermal_sound_speed, config, registered_variables, mode)
+                L_row = _eigen_L_row_hydro_iso(conserved_state, rhomin, isothermal_sound_speed, config, registered_variables, mode)
 
-        F0 = jnp.roll(F,  2, axis=1)   # shape (N_vars, Nx, Ny, Nz) — i-2 at target i
-        F1 = jnp.roll(F,  1, axis=1)   # i-1
+        F0 = _shift(F,  2, axis=1)   # shape (N_vars, Nx, Ny, Nz) — i-2 at target i
+        F1 = _shift(F,  1, axis=1)   # i-1
         F2 = F                         # i
-        F3 = jnp.roll(F, -1, axis=1)   # i+1
-        F4 = jnp.roll(F, -2, axis=1)   # i+2
-        F5 = jnp.roll(F, -3, axis=1)   # i+3
+        F3 = _shift(F, -1, axis=1)   # i+1
+        F4 = _shift(F, -2, axis=1)   # i+2
+        F5 = _shift(F, -3, axis=1)   # i+3
 
-        s0 = jnp.einsum('nxyz,nxyz->xyz', L_row, F0)
-        s1 = jnp.einsum('nxyz,nxyz->xyz', L_row, F1)
-        s2 = jnp.einsum('nxyz,nxyz->xyz', L_row, F2)
-        s3 = jnp.einsum('nxyz,nxyz->xyz', L_row, F3)
-        s4 = jnp.einsum('nxyz,nxyz->xyz', L_row, F4)
-        s5 = jnp.einsum('nxyz,nxyz->xyz', L_row, F5)
+        if config.dimensionality == 3:
+            s0 = jnp.einsum('nxyz,nxyz->xyz', L_row, F0)
+            s1 = jnp.einsum('nxyz,nxyz->xyz', L_row, F1)
+            s2 = jnp.einsum('nxyz,nxyz->xyz', L_row, F2)
+            s3 = jnp.einsum('nxyz,nxyz->xyz', L_row, F3)
+            s4 = jnp.einsum('nxyz,nxyz->xyz', L_row, F4)
+            s5 = jnp.einsum('nxyz,nxyz->xyz', L_row, F5)
 
-        q0 = jnp.einsum('nxyz,nxyz->xyz', L_row, jnp.roll(conserved_state, 2, axis=1))
-        q1 = jnp.einsum('nxyz,nxyz->xyz', L_row, jnp.roll(conserved_state, 1, axis=1))
-        q2 = jnp.einsum('nxyz,nxyz->xyz', L_row, conserved_state)
-        q3 = jnp.einsum('nxyz,nxyz->xyz', L_row, jnp.roll(conserved_state, -1, axis=1))
-        q4 = jnp.einsum('nxyz,nxyz->xyz', L_row, jnp.roll(conserved_state, -2, axis=1))
-        q5 = jnp.einsum('nxyz,nxyz->xyz', L_row, jnp.roll(conserved_state, -3, axis=1))
+            q0 = jnp.einsum('nxyz,nxyz->xyz', L_row, _shift(conserved_state, 2, axis=1))
+            q1 = jnp.einsum('nxyz,nxyz->xyz', L_row, _shift(conserved_state, 1, axis=1))
+            q2 = jnp.einsum('nxyz,nxyz->xyz', L_row, conserved_state)
+            q3 = jnp.einsum('nxyz,nxyz->xyz', L_row, _shift(conserved_state, -1, axis=1))
+            q4 = jnp.einsum('nxyz,nxyz->xyz', L_row, _shift(conserved_state, -2, axis=1))
+            q5 = jnp.einsum('nxyz,nxyz->xyz', L_row, _shift(conserved_state, -3, axis=1))
+        elif config.dimensionality == 2:
+            s0 = jnp.einsum('nxy,nxy->xy', L_row, F0)
+            s1 = jnp.einsum('nxy,nxy->xy', L_row, F1)
+            s2 = jnp.einsum('nxy,nxy->xy', L_row, F2)
+            s3 = jnp.einsum('nxy,nxy->xy', L_row, F3)
+            s4 = jnp.einsum('nxy,nxy->xy', L_row, F4)
+            s5 = jnp.einsum('nxy,nxy->xy', L_row, F5)
+
+            q0 = jnp.einsum('nxy,nxy->xy', L_row, _shift(conserved_state, 2, axis=1))
+            q1 = jnp.einsum('nxy,nxy->xy', L_row, _shift(conserved_state, 1, axis=1))
+            q2 = jnp.einsum('nxy,nxy->xy', L_row, conserved_state)
+            q3 = jnp.einsum('nxy,nxy->xy', L_row, _shift(conserved_state, -1, axis=1))
+            q4 = jnp.einsum('nxy,nxy->xy', L_row, _shift(conserved_state, -2, axis=1))
+            q5 = jnp.einsum('nxy,nxy->xy', L_row, _shift(conserved_state, -3, axis=1))
+        else:
+            s0 = jnp.einsum('nx,nx->x', L_row, F0)
+            s1 = jnp.einsum('nx,nx->x', L_row, F1)
+            s2 = jnp.einsum('nx,nx->x', L_row, F2)
+            s3 = jnp.einsum('nx,nx->x', L_row, F3)
+            s4 = jnp.einsum('nx,nx->x', L_row, F4)
+            s5 = jnp.einsum('nx,nx->x', L_row, F5)
+
+            q0 = jnp.einsum('nx,nx->x', L_row, _shift(conserved_state, 2, axis=1))
+            q1 = jnp.einsum('nx,nx->x', L_row, _shift(conserved_state, 1, axis=1))
+            q2 = jnp.einsum('nx,nx->x', L_row, conserved_state)
+            q3 = jnp.einsum('nx,nx->x', L_row, _shift(conserved_state, -1, axis=1))
+            q4 = jnp.einsum('nx,nx->x', L_row, _shift(conserved_state, -2, axis=1))
+            q5 = jnp.einsum('nx,nx->x', L_row, _shift(conserved_state, -3, axis=1))
 
         # dFsk identical to original: d0 = s1 - s0, d1 = s2 - s1, ...
         d0 = s1 - s0
@@ -172,12 +264,12 @@ def _weno_flux_x(
         dq4 = q5 - q4
 
         # compute amx over the same stencil (take abs then max over the six entries)
-        lam0 = jnp.roll(lambdas_center,  2, axis=0)
-        lam1 = jnp.roll(lambdas_center,  1, axis=0)
+        lam0 = _shift(lambdas_center,  2, axis=0)
+        lam1 = _shift(lambdas_center,  1, axis=0)
         lam2 = lambdas_center
-        lam3 = jnp.roll(lambdas_center, -1, axis=0)
-        lam4 = jnp.roll(lambdas_center, -2, axis=0)
-        lam5 = jnp.roll(lambdas_center, -3, axis=0)
+        lam3 = _shift(lambdas_center, -1, axis=0)
+        lam4 = _shift(lambdas_center, -2, axis=0)
+        lam5 = _shift(lambdas_center, -3, axis=0)
         lam_stack = jnp.stack([lam0, lam1, lam2, lam3, lam4, lam5], axis=0)
         amx = jnp.max(jnp.abs(lam_stack), axis=0)
 
@@ -230,12 +322,35 @@ def _weno_flux_x(
         Fs = -second + third
 
         # transform back and add to current flux
-        R_col = _eigen_R_col(conserved_state, rhomin, pgmin, gamma, registered_variables, mode)
-        dF = jnp.einsum('nxyz,xyz->nxyz', R_col, Fs)
+        if config.equation_of_state == IDEAL_GAS:
+            if config.mhd:
+                R_col = _eigen_R_col(conserved_state, rhomin, pgmin, gamma, registered_variables, mode)
+            else:
+                R_col = _eigen_R_col_hydro(conserved_state, rhomin, pgmin, gamma, config, registered_variables, mode)
+        elif config.equation_of_state == ISOTHERMAL:
+            if config.mhd:
+                R_col = _eigen_R_col_iso(conserved_state, rhomin, isothermal_sound_speed, registered_variables, mode)
+            else:
+                R_col = _eigen_R_col_hydro_iso(conserved_state, rhomin, isothermal_sound_speed, config, registered_variables, mode)
+
+        if config.dimensionality == 3:
+            dF = jnp.einsum('nxyz,xyz->nxyz', R_col, Fs)
+        elif config.dimensionality == 2:
+            dF = jnp.einsum('nxy,xy->nxy', R_col, Fs)
+        else:
+            dF = jnp.einsum('nx,x->nx', R_col, Fs)
         return F_current + dF
     
+    if config.mhd:
+        num_modes = 7
+    else:
+        num_modes = config.dimensionality + 2
+
+    if config.equation_of_state == ISOTHERMAL:
+        num_modes -= 1
+    
     return jax.lax.fori_loop(
-        0, 7,
+        0, num_modes,
         mode_flux,
         F_interface
     )
@@ -243,41 +358,53 @@ def _weno_flux_x(
 @partial(jax.jit, static_argnames=["registered_variables", "config"])
 def _weno_flux_y(
     conserved_state,
-    rhomin: Union[float, jnp.ndarray],
-    pgmin: Union[float, jnp.ndarray],
-    gamma: Union[float, jnp.ndarray],
+    params: SimulationParams,
     config: SimulationConfig,
     registered_variables: RegisteredVariables,
 ):
     # Transpose to make y the "x" direction
-    qy = jnp.transpose(conserved_state, (0, 2, 1, 3))
+    if config.dimensionality == 2:
+        qy = jnp.transpose(conserved_state, (0, 2, 1))
+    elif config.dimensionality == 3:
+        qy = jnp.transpose(conserved_state, (0, 2, 1, 3))
     
     # Swap components
     momentum_x = qy[registered_variables.momentum_index.x]
     momentum_y = qy[registered_variables.momentum_index.y]
-    B_x = qy[registered_variables.magnetic_index.x]
-    B_y = qy[registered_variables.magnetic_index.y]
+
+    if config.mhd:
+        B_x = qy[registered_variables.magnetic_index.x]
+        B_y = qy[registered_variables.magnetic_index.y]
     
     qy = qy.at[registered_variables.momentum_index.x].set(momentum_y)
     qy = qy.at[registered_variables.momentum_index.y].set(momentum_x)
-    qy = qy.at[registered_variables.magnetic_index.x].set(B_y)
-    qy = qy.at[registered_variables.magnetic_index.y].set(B_x)
+
+    if config.mhd:
+        qy = qy.at[registered_variables.magnetic_index.x].set(B_y)
+        qy = qy.at[registered_variables.magnetic_index.y].set(B_x)
     
-    Fy = _weno_flux_x(qy, rhomin, pgmin, gamma, config, registered_variables)
+    Fy = _weno_flux_x(qy, params, config, registered_variables)
     
     # Transpose back
-    Fy = jnp.transpose(Fy, (0, 2, 1, 3))
+    if config.dimensionality == 2:
+        Fy = jnp.transpose(Fy, (0, 2, 1))
+    elif config.dimensionality == 3:
+        Fy = jnp.transpose(Fy, (0, 2, 1, 3))
     
     # Swap components back
     Fmomentum_x = Fy[registered_variables.momentum_index.x]
     Fmomentum_y = Fy[registered_variables.momentum_index.y]
-    FB_x = Fy[registered_variables.magnetic_index.x]
-    FB_y = Fy[registered_variables.magnetic_index.y]
+
+    if config.mhd:
+        FB_x = Fy[registered_variables.magnetic_index.x]
+        FB_y = Fy[registered_variables.magnetic_index.y]
     
     Fy = Fy.at[registered_variables.momentum_index.x].set(Fmomentum_y)
     Fy = Fy.at[registered_variables.momentum_index.y].set(Fmomentum_x)
-    Fy = Fy.at[registered_variables.magnetic_index.x].set(FB_y)
-    Fy = Fy.at[registered_variables.magnetic_index.y].set(FB_x)
+
+    if config.mhd:
+        Fy = Fy.at[registered_variables.magnetic_index.x].set(FB_y)
+        Fy = Fy.at[registered_variables.magnetic_index.y].set(FB_x)
     
     return Fy
 
@@ -285,9 +412,7 @@ def _weno_flux_y(
 @partial(jax.jit, static_argnames=["registered_variables", "config"])
 def _weno_flux_z(
     conserved_state,
-    rhomin: Union[float, jnp.ndarray],
-    pgmin: Union[float, jnp.ndarray],
-    gamma: Union[float, jnp.ndarray],
+    params: SimulationParams,
     config: SimulationConfig,
     registered_variables: RegisteredVariables,
 ):
@@ -297,15 +422,19 @@ def _weno_flux_z(
     # Swap components
     momentum_x = qz[registered_variables.momentum_index.x]
     momentum_z = qz[registered_variables.momentum_index.z]
-    B_x = qz[registered_variables.magnetic_index.x]
-    B_z = qz[registered_variables.magnetic_index.z]
+
+    if config.mhd:
+        B_x = qz[registered_variables.magnetic_index.x]
+        B_z = qz[registered_variables.magnetic_index.z]
     
     qz = qz.at[registered_variables.momentum_index.x].set(momentum_z)
     qz = qz.at[registered_variables.momentum_index.z].set(momentum_x)
-    qz = qz.at[registered_variables.magnetic_index.x].set(B_z)
-    qz = qz.at[registered_variables.magnetic_index.z].set(B_x)
+
+    if config.mhd:
+        qz = qz.at[registered_variables.magnetic_index.x].set(B_z)
+        qz = qz.at[registered_variables.magnetic_index.z].set(B_x)
     
-    Fz = _weno_flux_x(qz, rhomin, pgmin, gamma, config, registered_variables)
+    Fz = _weno_flux_x(qz, params, config, registered_variables)
     
     # Transpose back
     Fz = jnp.transpose(Fz, (0, 3, 2, 1))
@@ -313,138 +442,16 @@ def _weno_flux_z(
     # Swap components back
     Fmomentum_x = Fz[registered_variables.momentum_index.x]
     Fmomentum_z = Fz[registered_variables.momentum_index.z]
-    FB_x = Fz[registered_variables.magnetic_index.x]
-    FB_z = Fz[registered_variables.magnetic_index.z]
+
+    if config.mhd:
+        FB_x = Fz[registered_variables.magnetic_index.x]
+        FB_z = Fz[registered_variables.magnetic_index.z]
     
     Fz = Fz.at[registered_variables.momentum_index.x].set(Fmomentum_z)
     Fz = Fz.at[registered_variables.momentum_index.z].set(Fmomentum_x)
-    Fz = Fz.at[registered_variables.magnetic_index.x].set(FB_z)
-    Fz = Fz.at[registered_variables.magnetic_index.z].set(FB_x)
+
+    if config.mhd:
+        Fz = Fz.at[registered_variables.magnetic_index.x].set(FB_z)
+        Fz = Fz.at[registered_variables.magnetic_index.z].set(FB_x)
     
     return Fz
-
-# also seems to be slower
-# @partial(jax.jit, static_argnames=["registered_variables"])
-# def _weno_flux_x(
-#     conserved_state,
-#     rhomin: Union[float, jnp.ndarray],
-#     pgmin: Union[float, jnp.ndarray],
-#     gamma: Union[float, jnp.ndarray],
-#     registered_variables: RegisteredVariables,
-# ):
-#     """
-#     WENO flux reconstruction.
-#     """
-    
-#     q = conserved_state
-#     epsilon = 1e-8
-    
-#     # Get eigenstructure
-#     lambdas_center, R, L = _eigen_x(q, rhomin, pgmin, gamma, registered_variables)
-    
-#     # Get physical fluxes at cell centers
-#     F = _mhd_flux_x(q, gamma, registered_variables)
-
-#     F_stencil = jnp.stack([
-#         jnp.roll(F, 2, axis=1),   # i-2
-#         jnp.roll(F, 1, axis=1),   # i-1
-#         F,                        # i
-#         jnp.roll(F, -1, axis=1),  # i+1
-#         jnp.roll(F, -2, axis=1),  # i+2
-#         jnp.roll(F, -3, axis=1),  # i+3
-#     ], axis=0)
-    
-#     q_stencil = jnp.stack([
-#         jnp.roll(q, 2, axis=1),
-#         jnp.roll(q, 1, axis=1),
-#         q,
-#         jnp.roll(q, -1, axis=1),
-#         jnp.roll(q, -2, axis=1),
-#         jnp.roll(q, -3, axis=1),
-#     ], axis=0)
-    
-#     # Get maximum eigenvalue over stencil
-#     lambda_stencil = jnp.stack([
-#         jnp.roll(lambdas_center, 2, axis=1),
-#         jnp.roll(lambdas_center, 1, axis=1),
-#         lambdas_center,
-#         jnp.roll(lambdas_center, -1, axis=1),
-#         jnp.roll(lambdas_center, -2, axis=1),
-#         jnp.roll(lambdas_center, -3, axis=1),
-#     ], axis=0)
-    
-#     amx = jnp.max(jnp.abs(lambda_stencil), axis=0)  # Shape: (7, Nx, Ny, Nz)
-    
-#     # Transform stencil to characteristic variables
-#     # L has shape (7, N_vars, Nx, Ny, Nz) at interfaces
-#     # F_stencil: (6, N_vars, Nx, Ny, Nz)
-#     # Result: (6, 7, Nx, Ny, Nz)
-#     Fsk = jnp.einsum('mnxyz,snxyz->smxyz', L, F_stencil)
-#     qsk = jnp.einsum('mnxyz,snxyz->smxyz', L, q_stencil)
-    
-#     # Compute differences
-#     dFsk = Fsk[1:, ...] - Fsk[:-1, ...]  # (5, 7, Nx, Ny, Nz)
-#     dqsk = qsk[1:, ...] - qsk[:-1, ...]
-    
-#     # Forward WENO (positive flux)
-#     aterm_p = 0.5 * (dFsk[0, ...] + amx * dqsk[0, ...])
-#     bterm_p = 0.5 * (dFsk[1, ...] + amx * dqsk[1, ...])
-#     cterm_p = 0.5 * (dFsk[2, ...] + amx * dqsk[2, ...])
-#     dterm_p = 0.5 * (dFsk[3, ...] + amx * dqsk[3, ...])
-    
-#     IS0_p = 13.0 * (aterm_p - bterm_p)**2 + 3.0 * (aterm_p - 3.0*bterm_p)**2
-#     IS1_p = 13.0 * (bterm_p - cterm_p)**2 + 3.0 * (bterm_p + cterm_p)**2
-#     IS2_p = 13.0 * (cterm_p - dterm_p)**2 + 3.0 * (3.0*cterm_p - dterm_p)**2
-    
-#     alpha0_p = 1.0 / (epsilon + IS0_p)**2
-#     alpha1_p = 6.0 / (epsilon + IS1_p)**2
-#     alpha2_p = 3.0 / (epsilon + IS2_p)**2
-    
-#     alpha_sum_p = alpha0_p + alpha1_p + alpha2_p
-#     alpha_sum_p = jnp.maximum(alpha_sum_p, 1e-14)  # prevent division by zero
-
-#     omega0_p = alpha0_p / alpha_sum_p
-#     omega2_p = alpha2_p / alpha_sum_p
-    
-#     second = (omega0_p * (aterm_p - 2.0*bterm_p + cterm_p) / 3.0 
-#               + (omega2_p - 0.5) * (bterm_p - 2.0*cterm_p + dterm_p) / 6.0)
-    
-#     # Backward WENO (negative flux)
-#     aterm_m = 0.5 * (dFsk[4, ...] - amx * dqsk[4, ...])
-#     bterm_m = 0.5 * (dFsk[3, ...] - amx * dqsk[3, ...])
-#     cterm_m = 0.5 * (dFsk[2, ...] - amx * dqsk[2, ...])
-#     dterm_m = 0.5 * (dFsk[1, ...] - amx * dqsk[1, ...])
-    
-#     IS0_m = 13.0 * (aterm_m - bterm_m)**2 + 3.0 * (aterm_m - 3.0*bterm_m)**2
-#     IS1_m = 13.0 * (bterm_m - cterm_m)**2 + 3.0 * (bterm_m + cterm_m)**2
-#     IS2_m = 13.0 * (cterm_m - dterm_m)**2 + 3.0 * (3.0*cterm_m - dterm_m)**2
-    
-#     alpha0_m = 1.0 / (epsilon + IS0_m)**2
-#     alpha1_m = 6.0 / (epsilon + IS1_m)**2
-#     alpha2_m = 3.0 / (epsilon + IS2_m)**2
-    
-#     alpha_sum_m = alpha0_m + alpha1_m + alpha2_m
-#     alpha_sum_m = jnp.maximum(alpha_sum_m, 1e-14)  # prevent division by zero
-
-#     omega0_m = alpha0_m / alpha_sum_m
-#     omega2_m = alpha2_m / alpha_sum_m
-    
-#     third = (omega0_m * (aterm_m - 2.0*bterm_m + cterm_m) / 3.0 
-#              + (omega2_m - 0.5) * (bterm_m - 2.0*cterm_m + dterm_m) / 6.0)
-    
-#     # Combine
-#     Fs = - second + third  # Shape: (7, Nx, Ny, Nz)
-    
-#     # Transform back to physical variables
-#     # R has shape (N_vars, 7, Nx, Ny, Nz)
-#     dF = jnp.einsum('nmxyz,mxyz->nxyz', R, Fs)  # Shape: (N_vars, Nx, Ny, Nz)
-
-#     # Base 4th-order flux
-#     # first = (-Fsk[1, ...] + 7.0*Fsk[2, ...] + 7.0*Fsk[3, ...] - Fsk[4, ...]) / 12.0
-#     first = 1/12 * (
-#         -jnp.roll(F, 1, axis=1) + 7 * F + 7 * jnp.roll(F, -1, axis=1) - jnp.roll(F, -2, axis=1)
-#     )
-
-#     dF = first + dF
-
-#     return dF

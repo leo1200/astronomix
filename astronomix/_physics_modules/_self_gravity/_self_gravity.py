@@ -384,7 +384,6 @@ def _apply_self_gravity(
         conserved_state, gamma, config, registered_variables
     )
 
-
     if config.boundary_handling == GHOST_CELLS:
         primitive_state = _boundary_handler(primitive_state, config)
 

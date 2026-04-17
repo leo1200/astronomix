@@ -36,6 +36,19 @@ class SnapshotData(NamedTuple):
     #: Mean absolute magnetic field divergence
     magnetic_divergence: jnp.ndarray = None
 
+    #: The kinetic energy spectrum at the times the snapshots were taken.
+    kinetic_energy_spectrum: jnp.ndarray = None
+
+    #: The magnetic energy spectrum at the times the snapshots were taken.
+    magnetic_energy_spectrum: jnp.ndarray = None
+
+    #: The helicity spectrum at the times the snapshots were taken.
+    helicity_spectrum: jnp.ndarray = None
+
+    #: The k-vector corresponding to the spectra 
+    #: (same for each time snapshot and each spectrum).
+    k_spectra: jnp.ndarray = None
+
     # The runtime of the simulation-loop.
     runtime: float = 0.0
 

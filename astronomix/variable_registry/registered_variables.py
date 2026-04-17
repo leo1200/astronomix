@@ -20,13 +20,10 @@ from jaxtyping import Array, Float, Int
 
 from typing import Union
 
-from astronomix.option_classes.simulation_config import FINITE_DIFFERENCE, XAXIS, YAXIS, ZAXIS, SimulationConfig
+from astronomix.option_classes.simulation_config import (
+    FINITE_DIFFERENCE, FINITE_VOLUME, IDEAL_GAS, ISOTHERMAL, XAXIS, YAXIS, ZAXIS, SimulationConfig, StaticIntVector
+)
 
-
-class StaticIntVector(NamedTuple):
-    x: int
-    y: int
-    z: int
 
 # =============================================================
 
@@ -58,10 +55,6 @@ class RegisteredVariables(NamedTuple):
     in the state array is important and should be consistent
     throughout the code.
     """
-
-    #: Axes information. For now only
-    #: implemented for 3D simulations.
-    axes_info: tuple[AxisInfo, ...] = ()
 
     #: Number of variables
     num_vars: int = 3
@@ -112,7 +105,7 @@ class RegisteredVariables(NamedTuple):
 
     # here you can add more variables
 
-
+# TODO: update
 def get_registered_variables(config: SimulationConfig) -> RegisteredVariables:
     """Get the registered variables for the simulation.
 
@@ -124,114 +117,149 @@ def get_registered_variables(config: SimulationConfig) -> RegisteredVariables:
     """
 
     registered_variables = RegisteredVariables()
+    
+    if config.solver_mode == FINITE_VOLUME:
 
-    if config.dimensionality == 2:
-        # we have two velocity components
-        registered_variables = registered_variables._replace(
-            num_vars=registered_variables.num_vars + 1
-        )
-
-        # update the velocity index
-        registered_variables = registered_variables._replace(
-            velocity_index=StaticIntVector(1, 2, -1)
-        )
-
-        # TODO: unified MHD approach in 1D/2D/3D
-        # magnetic field index
-        if config.mhd:
-            # TODO: better indexing
-            registered_variables = registered_variables._replace(pressure_index=3)
+        if config.dimensionality == 2:
+            # we have two velocity components
             registered_variables = registered_variables._replace(
-                magnetic_index=StaticIntVector(4, 5, 6)
+                num_vars=registered_variables.num_vars + 1
             )
+
+            # update the velocity index
             registered_variables = registered_variables._replace(
-                num_vars=registered_variables.num_vars + 3
+                velocity_index=StaticIntVector(1, 2, -1)
             )
-        else:
+
+            # TODO: unified MHD approach in 1D/2D/3D
+            # magnetic field index
+            if config.mhd:
+                # TODO: better indexing
+                registered_variables = registered_variables._replace(pressure_index=3)
+                registered_variables = registered_variables._replace(
+                    magnetic_index=StaticIntVector(4, 5, 6)
+                )
+                registered_variables = registered_variables._replace(
+                    num_vars=registered_variables.num_vars + 3
+                )
+            else:
+                # update the pressure index
+                registered_variables = registered_variables._replace(
+                    pressure_index=registered_variables.num_vars - 1
+                )
+
+        if config.dimensionality == 3:
+            # we have three velocity components
+            registered_variables = registered_variables._replace(
+                num_vars=registered_variables.num_vars + 2
+            )
+
+            # update the velocity index to be an array
+            registered_variables = registered_variables._replace(
+                velocity_index=StaticIntVector(1, 2, 3)
+            )
+
             # update the pressure index
             registered_variables = registered_variables._replace(
                 pressure_index=registered_variables.num_vars - 1
             )
 
-    if config.dimensionality == 3:
-        # we have three velocity components
-        registered_variables = registered_variables._replace(
-            num_vars=registered_variables.num_vars + 2
-        )
+            # update the magnetic field index
+            if config.mhd:
+                registered_variables = registered_variables._replace(
+                    magnetic_index=StaticIntVector(5, 6, 7)
+                )
+                registered_variables = registered_variables._replace(
+                    num_vars=registered_variables.num_vars + 3
+                )
+        
+        # NOTE: CURRENTLY ONLY IMPLEMENTED FOR FINITE VOLUME MODE
+        if config.wind_config.trace_wind_density:
+            registered_variables = registered_variables._replace(
+                wind_density_index=registered_variables.num_vars
+            )
+            registered_variables = registered_variables._replace(
+                num_vars=registered_variables.num_vars + 1
+            )
+            registered_variables = registered_variables._replace(wind_density_active=True)
 
-        # update the velocity index to be an array
-        registered_variables = registered_variables._replace(
-            velocity_index=StaticIntVector(1, 2, 3)
-        )
+        # NOTE: CURRENTLY ONLY IMPLEMENTED FOR FINITE VOLUME MODE
+        if config.cosmic_ray_config.cosmic_rays:
+            registered_variables = registered_variables._replace(
+                cosmic_ray_n_index=registered_variables.num_vars
+            )
+            registered_variables = registered_variables._replace(
+                num_vars=registered_variables.num_vars + 1
+            )
+            registered_variables = registered_variables._replace(cosmic_ray_n_active=True)
 
-        # update the pressure index
-        registered_variables = registered_variables._replace(
-            pressure_index=registered_variables.num_vars - 1
-        )
 
-        # update the magnetic field index
+    if config.solver_mode == FINITE_DIFFERENCE:
+
         if config.mhd:
-            registered_variables = registered_variables._replace(
-                magnetic_index=StaticIntVector(5, 6, 7)
-            )
-            registered_variables = registered_variables._replace(
-                num_vars=registered_variables.num_vars + 3
-            )
+            
+            # we always assume all velocity fields present, 
+            # even in 1D and 2D, for the magnetic update
 
-    if config.mhd and config.solver_mode == FINITE_DIFFERENCE:
-        # interface magnetic field indices
-        registered_variables = registered_variables._replace(
-            interface_magnetic_field_index=StaticIntVector(
-                registered_variables.num_vars,
-                registered_variables.num_vars + 1,
-                registered_variables.num_vars + 2,
-            )
-        )
-        registered_variables = registered_variables._replace(
-            num_vars=registered_variables.num_vars + 3
-        )
+            # TEMPORARY: set the registered variables manually
+            if config.equation_of_state == IDEAL_GAS:
+                registered_variables = RegisteredVariables(
+                    density_index=0,
+                    velocity_index=StaticIntVector(1, 2, 3),
+                    pressure_index=4,
+                    magnetic_index=StaticIntVector(5, 6, 7),
+                    interface_magnetic_field_index=StaticIntVector(8, 9, 10),
+                    num_vars=11,
+                )
+            elif config.equation_of_state == ISOTHERMAL:
+                registered_variables = RegisteredVariables(
+                    density_index=0,
+                    velocity_index=StaticIntVector(1, 2, 3),
+                    pressure_index=-1,
+                    magnetic_index=StaticIntVector(4, 5, 6),
+                    interface_magnetic_field_index=StaticIntVector(7, 8, 9),
+                    num_vars=10,
+                )
+        else:
+            # redundant with the FINITE_VOLUME case
+            # included for readability
+            if config.dimensionality == 1:
+                registered_variables = RegisteredVariables(
+                    density_index=0,
+                    velocity_index=1,
+                    pressure_index=2,
+                    num_vars=3,
+                )
+            elif config.dimensionality == 2:
+                registered_variables = RegisteredVariables(
+                    density_index=0,
+                    velocity_index=StaticIntVector(1, 2),
+                    pressure_index=3,
+                    num_vars=4,
+                )
+            elif config.dimensionality == 3:
+                registered_variables = RegisteredVariables(
+                    density_index=0,
+                    velocity_index=StaticIntVector(1, 2, 3),
+                    pressure_index=4,
+                    num_vars=5,
+                )
+            
+            if config.equation_of_state == ISOTHERMAL:
+                registered_variables = registered_variables._replace(
+                    pressure_index=-1
+                )
+                registered_variables = registered_variables._replace(
+                    num_vars=registered_variables.num_vars - 1
+                )
 
-    if config.wind_config.trace_wind_density:
-        registered_variables = registered_variables._replace(
-            wind_density_index=registered_variables.num_vars
-        )
-        registered_variables = registered_variables._replace(
-            num_vars=registered_variables.num_vars + 1
-        )
-        registered_variables = registered_variables._replace(wind_density_active=True)
-
-    if config.cosmic_ray_config.cosmic_rays:
-        registered_variables = registered_variables._replace(
-            cosmic_ray_n_index=registered_variables.num_vars
-        )
-        registered_variables = registered_variables._replace(
-            num_vars=registered_variables.num_vars + 1
-        )
-        registered_variables = registered_variables._replace(cosmic_ray_n_active=True)
-
-    # axes info
-    if config.dimensionality == 3 and config.mhd:
-        axes_info = (
-            AxisInfo(
-                axis_in_array=XAXIS,
-                velocity_index=registered_variables.velocity_index.x,
-                magnetic_index=registered_variables.magnetic_index.x,
-            ),
-            AxisInfo(
-                axis_in_array=YAXIS,
-                velocity_index=registered_variables.velocity_index.y,
-                magnetic_index=registered_variables.magnetic_index.y,
-            ),
-            AxisInfo(
-                axis_in_array=ZAXIS,
-                velocity_index=registered_variables.velocity_index.z,
-                magnetic_index=registered_variables.magnetic_index.z,
-            ),
-        )
-        registered_variables = registered_variables._replace(axes_info=axes_info)
-
-    registered_variables = registered_variables._replace(momentum_index=registered_variables.velocity_index)
-    registered_variables = registered_variables._replace(energy_index=registered_variables.pressure_index)
+    # shorthands
+    registered_variables = registered_variables._replace(
+        momentum_index=registered_variables.velocity_index
+    )
+    registered_variables = registered_variables._replace(
+        energy_index=registered_variables.pressure_index
+    )
 
     # here you can register more variables
 

@@ -1,5 +1,5 @@
 from astronomix.variable_registry.registered_variables import RegisteredVariables
-from astronomix.option_classes.simulation_config import FIELD_TYPE, FINITE_DIFFERENCE, STATE_TYPE, SimulationConfig
+from astronomix.option_classes.simulation_config import FIELD_TYPE, FINITE_DIFFERENCE, IDEAL_GAS, STATE_TYPE, SimulationConfig
 
 from typing import Union
 
@@ -88,6 +88,14 @@ def construct_primitive_state(
             )
 
         if config.solver_mode == FINITE_DIFFERENCE:
+
+            # we always assume all velocity fields present
+            if velocity_y is not None:
+                state = state.at[registered_variables.velocity_index.y].set(velocity_y)
+            if velocity_z is not None:
+                state = state.at[registered_variables.velocity_index.z].set(velocity_z)
+            # otherwise zero by default
+
             if interface_magnetic_field_x is not None:
                 state = state.at[
                     registered_variables.interface_magnetic_field_index.x
@@ -101,7 +109,9 @@ def construct_primitive_state(
                     registered_variables.interface_magnetic_field_index.z
                 ].set(interface_magnetic_field_z)
     
-    state = state.at[registered_variables.pressure_index].set(gas_pressure)
+    if config.equation_of_state == IDEAL_GAS:
+        state = state.at[registered_variables.pressure_index].set(gas_pressure)
+    # in the ISOTHERMAL case the pressure follows from p = c_s^2 * rho
 
     if registered_variables.cosmic_ray_n_active:
         # TODO: get from params

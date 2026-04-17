@@ -1,4 +1,5 @@
 from functools import partial
+import math
 from types import NoneType
 from typing import NamedTuple, Union
 from jax import NamedSharding
@@ -9,6 +10,8 @@ from astronomix.option_classes.simulation_config import (
     CYLINDRICAL,
     SPHERICAL,
     SimulationConfig,
+    StaticFloatVector,
+    StaticIntVector,
 )
 import jax
 
@@ -59,14 +62,53 @@ def get_helper_data(
     else:
         ngc = 0
 
-    grid_spacing = config.box_size / config.num_cells
+    if isinstance(config.box_size, float):
+        config = config._replace(
+            box_size=StaticFloatVector(
+                config.box_size,
+                config.box_size,
+                config.box_size
+            )
+        )
+
+    if isinstance(config.num_cells, int):
+        config = config._replace(
+            num_cells=StaticIntVector(
+                config.num_cells,
+                config.num_cells,
+                config.num_cells
+            )
+        )
+
+    grid_spacing_vec = config.box_size / config.num_cells
+
+    # as soon as we accept a grid spacing vector, 
+    # this will not be necessary anymore
+    if config.dimensionality == 1:
+        config = config._replace(grid_spacing=grid_spacing_vec.x)
+    elif config.dimensionality == 2:
+        config = config._replace(grid_spacing=grid_spacing_vec.x)
+        if not math.isclose(grid_spacing_vec.x, grid_spacing_vec.y):
+            raise ValueError(
+                "For now, we assume the grid spacing is the same in all dimensions. "
+                f"Got grid spacing {grid_spacing_vec}."
+            )
+    elif config.dimensionality == 3:
+        config = config._replace(grid_spacing=grid_spacing_vec.x)
+        if not (math.isclose(grid_spacing_vec.x, grid_spacing_vec.y) and math.isclose(grid_spacing_vec.x, grid_spacing_vec.z)):
+            raise ValueError(
+                "For now, we assume the grid spacing is the same in all dimensions. "
+                f"Got grid spacing {grid_spacing_vec}."
+            )
+
+    grid_spacing = config.grid_spacing
 
     # in spherical or cylindrical symmetry, we always need the helper data
     if config.geometry == SPHERICAL or config.geometry == CYLINDRICAL:
         r = jnp.linspace(
             grid_spacing / 2 - ngc * grid_spacing,
-            config.box_size + grid_spacing / 2 + ngc * grid_spacing,
-            config.num_cells + 2 * ngc,
+            config.box_size.x + grid_spacing / 2 + ngc * grid_spacing,
+            config.num_cells.x + 2 * ngc,
             endpoint=False,
         )
         inner_cell_boundaries = r - grid_spacing / 2
@@ -94,35 +136,40 @@ def get_helper_data(
             if config.dimensionality > 1:
                 x = jnp.linspace(
                     grid_spacing / 2 - ngc * grid_spacing,
-                    config.box_size + grid_spacing / 2 + ngc * grid_spacing,
-                    config.num_cells + 2 * ngc,
+                    config.box_size.x + grid_spacing / 2 + ngc * grid_spacing,
+                    config.num_cells.x + 2 * ngc,
                     endpoint=False,
                 )
                 y = jnp.linspace(
                     grid_spacing / 2 - ngc * grid_spacing,
-                    config.box_size + grid_spacing / 2 + ngc * grid_spacing,
-                    config.num_cells + 2 * ngc,
+                    config.box_size.y + grid_spacing / 2 + ngc * grid_spacing,
+                    config.num_cells.y + 2 * ngc,
                     endpoint=False,
                 )
 
                 if config.dimensionality == 3:
                     z = jnp.linspace(
                         grid_spacing / 2 - ngc * grid_spacing,
-                        config.box_size + grid_spacing / 2 + ngc * grid_spacing,
-                        config.num_cells + 2 * ngc,
+                        config.box_size.z + grid_spacing / 2 + ngc * grid_spacing,
+                        config.num_cells.z + 2 * ngc,
                         endpoint=False,
                     )
                     if sharding is not None:
                         geometric_centers = jax.lax.with_sharding_constraint(
-                            jnp.array(jnp.meshgrid(x, y, z)), sharding
+                            jnp.array(jnp.meshgrid(x, y, z, indexing='ij')), sharding
                         )
                     else:
-                        geometric_centers = jnp.array(jnp.meshgrid(x, y, z))
+                        geometric_centers = jnp.array(jnp.meshgrid(x, y, z, indexing='ij'))
                 else:
-                    geometric_centers = jnp.array(jnp.meshgrid(x, y))
+                    geometric_centers = jnp.array(jnp.meshgrid(x, y, indexing='ij'))
 
                 # calculate the distances from the cell centers to the box center
-                box_center = jnp.zeros(config.dimensionality) + config.box_size / 2
+                if config.dimensionality == 1:
+                    box_center = jnp.array([config.box_size.x / 2])
+                elif config.dimensionality == 2:
+                    box_center = jnp.array([config.box_size.x / 2, config.box_size.y / 2])
+                elif config.dimensionality == 3:
+                    box_center = jnp.array([config.box_size.x / 2, config.box_size.y / 2, config.box_size.z / 2])
 
                 geometric_centers = jnp.moveaxis(geometric_centers, 0, -1)
 
@@ -138,8 +185,8 @@ def get_helper_data(
             else:
                 r = jnp.linspace(
                     grid_spacing / 2 - ngc * grid_spacing,
-                    config.box_size - grid_spacing / 2 + ngc * grid_spacing,
-                    config.num_cells + 2 * ngc,
+                    config.box_size.x - grid_spacing / 2 + ngc * grid_spacing,
+                    config.num_cells.x + 2 * ngc,
                 )
                 r_hat = grid_spacing * jnp.ones_like(r)  # not really
                 cell_volumes = grid_spacing * jnp.ones_like(r)

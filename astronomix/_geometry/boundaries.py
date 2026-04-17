@@ -1,3 +1,8 @@
+"""
+THE FOR LOOPS IN THIS FILE ARE THE REASON FOR LONG COMPILATION TIMES!
+TODO: FIX THIS.
+"""
+
 from typing import NamedTuple
 import jax.numpy as jnp
 from functools import partial
@@ -174,7 +179,7 @@ def _boundary_handler(
                 config.num_ghost_cells,
                 axis=2,
                 grid_spacing=config.grid_spacing,
-                num_cells=config.num_cells,
+                num_cells=config.num_cells.y,
                 type_handled=type_handled,
             )
 

@@ -24,7 +24,7 @@ from astronomix import SimulationConfig
 from astronomix import get_helper_data
 from astronomix import SimulationParams
 from astronomix import time_integration
-from astronomix._finite_difference._fluid_equations._eigen import _eigen_x
+from astronomix._finite_difference._fluid_equations._eigen_mhd import _eigen_x
 from astronomix._finite_difference._fluid_equations._equations import _b_squared3D, conserved_state_from_primitive_mhd, primitive_state_from_conserved_mhd
 from astronomix.initial_condition_generation.construct_primitive_state import construct_primitive_state
 from astronomix import get_registered_variables

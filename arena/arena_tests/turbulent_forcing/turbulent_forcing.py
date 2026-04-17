@@ -235,7 +235,7 @@ def turbulent_forcing_test(
     im = ax.imshow(
         E_K[:, :, num_cells // 2],
         origin="lower",
-        extent=(0, config.box_size, 0, config.box_size),
+        extent=(0, config.box_size.x, 0, config.box_size.y),
         norm=LogNorm()
     )
     cbar = make_axes_locatable(ax).append_axes("right", size="5%", pad=0.1)

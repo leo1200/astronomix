@@ -64,12 +64,12 @@ def _unpad(state: STATE_TYPE, config: SimulationConfig) -> STATE_TYPE_ALTERED:
 @partial(jax.jit, static_argnames=["config"])
 def _pad(state: STATE_TYPE, config: SimulationConfig) -> STATE_TYPE_ALTERED:
     if config.dimensionality == 1:
-        state = jnp.pad(state, ((0, 0), (2, 2)), mode="edge")
+        state = jnp.pad(state, ((0, 0), (config.num_ghost_cells, config.num_ghost_cells)), mode="edge")
 
     elif config.dimensionality == 2:
-        state = jnp.pad(state, ((0, 0), (2, 2), (2, 2)), mode="edge")
+        state = jnp.pad(state, ((0, 0), (config.num_ghost_cells, config.num_ghost_cells), (config.num_ghost_cells, config.num_ghost_cells)), mode="edge")
 
     elif config.dimensionality == 3:
-        state = jnp.pad(state, ((0, 0), (2, 2), (2, 2), (2, 2)), mode="edge")
+        state = jnp.pad(state, ((0, 0), (config.num_ghost_cells, config.num_ghost_cells), (config.num_ghost_cells, config.num_ghost_cells), (config.num_ghost_cells, config.num_ghost_cells)), mode="edge")
 
     return state

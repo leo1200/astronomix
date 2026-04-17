@@ -93,9 +93,7 @@ def primitive_state_from_conserved(
 
     return primitive_state
 
-
 # ===========================================
-
 # ======= Create the conserved state ========
 
 

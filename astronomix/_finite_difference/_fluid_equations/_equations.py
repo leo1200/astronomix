@@ -152,6 +152,83 @@ def primitive_state_from_conserved_mhd(
 
     return primitive_state
 
+@partial(jax.jit, static_argnames=["registered_variables", 'config'])
+def primitive_state_from_conserved_isothermal(
+    conserved_state: STATE_TYPE,
+    minimum_density: Union[float, Float[Array, ""]],
+    config: SimulationConfig,
+    registered_variables: RegisteredVariables,
+) -> STATE_TYPE:
+    """Convert the conserved state to the primitive state for the isothermal case."""
+
+    rho = conserved_state[registered_variables.density_index]
+
+    if config.enforce_positivity:
+        rho = jnp.maximum(rho, minimum_density)
+    
+    if config.dimensionality == 1 and not config.mhd:
+        primitive_state = conserved_state.at[registered_variables.velocity_index].set(
+            conserved_state[registered_variables.velocity_index] / rho
+        )
+    elif config.dimensionality == 2 and not config.mhd:
+        primitive_state = conserved_state.at[registered_variables.velocity_index.x].set(
+            conserved_state[registered_variables.velocity_index.x] / rho
+        )
+        primitive_state = primitive_state.at[registered_variables.velocity_index.y].set(
+            conserved_state[registered_variables.velocity_index.y] / rho
+        )
+    # in the FD MHD case wel always have 3 velocity components, even in 2D
+    elif config.dimensionality == 3 or config.mhd:
+        primitive_state = conserved_state.at[registered_variables.velocity_index.x].set(
+            conserved_state[registered_variables.velocity_index.x] / rho
+        )
+        primitive_state = primitive_state.at[registered_variables.velocity_index.y].set(
+            conserved_state[registered_variables.velocity_index.y] / rho
+        )
+        primitive_state = primitive_state.at[registered_variables.velocity_index.z].set(
+            conserved_state[registered_variables.velocity_index.z] / rho
+        )
+    
+    # there is no pressure variable, so no need to set anything there
+
+    return primitive_state
+
+@partial(jax.jit, static_argnames=["registered_variables", 'config'])
+def conserved_state_from_primitive_isothermal(
+    primitive_state: STATE_TYPE,
+    config: SimulationConfig,
+    registered_variables: RegisteredVariables,
+) -> STATE_TYPE:
+    """Convert the primitive state to the conserved state for the isothermal case."""
+
+    rho = primitive_state[registered_variables.density_index]
+
+    if config.dimensionality == 1 and not config.mhd:
+        primitive_state = primitive_state.at[registered_variables.velocity_index].set(
+            primitive_state[registered_variables.velocity_index] * rho
+        )
+    elif config.dimensionality == 2 and not config.mhd:
+        primitive_state = primitive_state.at[registered_variables.velocity_index.x].set(
+            primitive_state[registered_variables.velocity_index.x] * rho
+        )
+        primitive_state = primitive_state.at[registered_variables.velocity_index.y].set(
+            primitive_state[registered_variables.velocity_index.y] * rho
+        )
+    # in the FD MHD case wel always have 3 velocity components, even in 2D
+    elif config.dimensionality == 3 or config.mhd:
+        primitive_state = primitive_state.at[registered_variables.velocity_index.x].set(
+            primitive_state[registered_variables.velocity_index.x] * rho
+        )
+        primitive_state = primitive_state.at[registered_variables.velocity_index.y].set(
+            primitive_state[registered_variables.velocity_index.y] * rho
+        )
+        primitive_state = primitive_state.at[registered_variables.velocity_index.z].set(
+            primitive_state[registered_variables.velocity_index.z] * rho
+        )
+    
+    # there is no pressure variable, so no need to set anything there
+
+    return primitive_state
 
 @partial(jax.jit, static_argnames=["registered_variables"])
 def total_pressure_from_conserved_mhd(

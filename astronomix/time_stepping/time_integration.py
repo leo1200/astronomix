@@ -23,11 +23,18 @@ from astronomix._finite_difference._state_evolution._evolve_state import (
 )
 from astronomix._finite_difference._timestep_estimation._timestep_estimator import (
     _cfl_time_step_fd,
+    _cfl_time_step_fd_hydro,
 )
 from astronomix._finite_volume._magnetic_update._vector_maths import divergence3D
 from astronomix._geometry.boundaries import _boundary_handler
 from astronomix._physics_modules._turbulent_forcing._turbulent_forcing import (
     _apply_forcing,
+)
+from astronomix.analysis_helpers.energy_spectrum import (
+    _wavenumber_bins,
+    get_kinetic_energy_spectrum,
+    get_magnetic_energy_spectrum,
+    get_magnetic_helicity_spectrum,
 )
 from astronomix.data_classes.simulation_state_struct import StateStruct
 from astronomix.option_classes.simulation_config import (
@@ -36,6 +43,8 @@ from astronomix.option_classes.simulation_config import (
     FINITE_VOLUME,
     FORWARDS,
     GHOST_CELLS,
+    IDEAL_GAS,
+    PERIODIC_ROLL,
     STATE_TYPE,
 )
 
@@ -70,8 +79,6 @@ from astronomix.time_stepping._progress_bar import _show_progress
 
 # timing
 from timeit import default_timer as timer
-
-import equinox as eqx
 
 
 # @jaxtyped(typechecker=typechecker)
@@ -127,10 +134,13 @@ def time_integration(
     # time if requested, compiling the function for memory analysis if
     # requested, etc.
 
+    # depending on the boundary handling, we might need to pad the state
+    #  - for periodic boundaries implicitly enforced by only rolling arrays
+    #    this is not necessary
     helper_data_pad = get_helper_data(
         config,
         sharding,
-        padded=config.boundary_handling == GHOST_CELLS,
+        padded=config.boundary_handling != PERIODIC_ROLL,
         production=True,
     )
 
@@ -297,9 +307,10 @@ def _time_integration(
     # to account for the periodic boundary conditions
     original_shape = primitive_state.shape
 
-    if config.boundary_handling == GHOST_CELLS:
+    if config.boundary_handling != PERIODIC_ROLL:
         primitive_state = _pad(primitive_state, config)
 
+    if config.boundary_handling == GHOST_CELLS:
         # important for active boundaries influencing
         # the time step criterion for now only gas state
         if config.mhd:
@@ -317,6 +328,13 @@ def _time_integration(
     # statistics) at certain time points (and not only a
     # final state at the end), we have to set up the arrays
     # to store this data.
+
+    # The maximum timestep is also limited by the number of
+    # snapshots we want to take.
+    if config.return_snapshots:
+        params = params._replace(
+            dt_max=jnp.minimum(params.dt_max, params.t_end / config.num_snapshots)
+        )
 
     if config.return_snapshots:
         time_points = jnp.zeros(config.num_snapshots)
@@ -365,6 +383,35 @@ def _time_integration(
             else None
         )
 
+        if (
+            config.snapshot_settings.return_kinetic_energy_spectrum
+            or config.snapshot_settings.return_magnetic_energy_spectrum
+            or config.snapshot_settings.return_helicity_spectrum
+        ):
+            k_idx, n_bins, k_centers = _wavenumber_bins(
+                config.num_cells.x,
+                config.num_cells.y,
+                config.num_cells.z,
+            )
+            k_spectra = k_centers
+        else:
+            k_spectra = None
+
+        if config.snapshot_settings.return_kinetic_energy_spectrum:
+            kinetic_energy_spectrum = jnp.zeros((config.num_snapshots, n_bins))
+        else:
+            kinetic_energy_spectrum = None
+
+        if config.snapshot_settings.return_magnetic_energy_spectrum:
+            magnetic_energy_spectrum = jnp.zeros((config.num_snapshots, n_bins))
+        else:
+            magnetic_energy_spectrum = None
+
+        if config.snapshot_settings.return_helicity_spectrum:
+            helicity_spectrum = jnp.zeros((config.num_snapshots, n_bins))
+        else:
+            helicity_spectrum = None
+
         current_checkpoint = 0
 
         snapshot_data = SnapshotData(
@@ -378,6 +425,10 @@ def _time_integration(
             current_checkpoint=current_checkpoint,
             radial_momentum=radial_momentum,
             magnetic_divergence=magnetic_divergence,
+            k_spectra=k_spectra,
+            kinetic_energy_spectrum=kinetic_energy_spectrum,
+            magnetic_energy_spectrum=magnetic_energy_spectrum,
+            helicity_spectrum=helicity_spectrum,
             final_state=None,
         )
 
@@ -389,6 +440,10 @@ def _time_integration(
             total_mass=None,
             total_energy=None,
             current_checkpoint=current_checkpoint,
+            kinetic_energy_spectrum=None,
+            magnetic_energy_spectrum=None,
+            helicity_spectrum=None,
+            k_spectra=None,
         )
 
     # -------------------------------------------------------------
@@ -405,10 +460,6 @@ def _time_integration(
     # after a time step. However, the data which actually needs to be
     # updated may be more complex, e.g. the SnapshotData needs to be
     # updated appropriately if snapshots are requested.
-    if config.cnn_mhd_corrector_config.cnn_mhd_corrector:
-        neural_net_params = params.cnn_mhd_corrector_params.network_params
-        neural_net_static = config.cnn_mhd_corrector_config.network_static
-        model = eqx.combine(neural_net_params, neural_net_static)
 
     def update_step(carry):
         # --------------- ↓ Carry unpacking+ ↓ ----------------
@@ -420,6 +471,10 @@ def _time_integration(
         # We need to appropriately unpack the carry and in case we
         # have snapshot data, we also directly update it here at
         # the beginning of the time step.
+
+        # WARNING: Currently config.return_snapshots and
+        # config.activate_snapshot_callback are mutually
+        # exclusive.
 
         if config.return_snapshots:
             # When SnapshotData is involved, we need to unpack the carry
@@ -433,7 +488,7 @@ def _time_integration(
                     snapshot_data.current_checkpoint
                 ].set(time)
 
-                if config.boundary_handling == GHOST_CELLS:
+                if config.boundary_handling != PERIODIC_ROLL:
                     unpad_primitive_state = _unpad(primitive_state, config)
                 else:
                     unpad_primitive_state = primitive_state
@@ -571,6 +626,48 @@ def _time_integration(
                     else None
                 )
 
+                if config.snapshot_settings.return_kinetic_energy_spectrum:
+                    _, kinetic_energy_spectrum_i = get_kinetic_energy_spectrum(
+                        unpad_primitive_state[registered_variables.velocity_index.x],
+                        unpad_primitive_state[registered_variables.velocity_index.y],
+                        unpad_primitive_state[registered_variables.velocity_index.z],
+                        unpad_primitive_state[registered_variables.density_index],
+                    )
+                    kinetic_energy_spectrum = snapshot_data.kinetic_energy_spectrum.at[
+                        snapshot_data.current_checkpoint
+                    ].set(kinetic_energy_spectrum_i)
+                else:
+                    kinetic_energy_spectrum = None
+
+                if (
+                    config.snapshot_settings.return_magnetic_energy_spectrum
+                    and config.mhd
+                ):
+                    _, magnetic_energy_spectrum_i = get_magnetic_energy_spectrum(
+                        unpad_primitive_state[registered_variables.magnetic_index.x],
+                        unpad_primitive_state[registered_variables.magnetic_index.y],
+                        unpad_primitive_state[registered_variables.magnetic_index.z],
+                    )
+                    magnetic_energy_spectrum = (
+                        snapshot_data.magnetic_energy_spectrum.at[
+                            snapshot_data.current_checkpoint
+                        ].set(magnetic_energy_spectrum_i)
+                    )
+                else:
+                    magnetic_energy_spectrum = None
+
+                if config.snapshot_settings.return_helicity_spectrum and config.mhd:
+                    _, helicity_spectrum_i = get_magnetic_helicity_spectrum(
+                        unpad_primitive_state[registered_variables.magnetic_index.x],
+                        unpad_primitive_state[registered_variables.magnetic_index.y],
+                        unpad_primitive_state[registered_variables.magnetic_index.z],
+                    )
+                    helicity_spectrum = snapshot_data.helicity_spectrum.at[
+                        snapshot_data.current_checkpoint
+                    ].set(helicity_spectrum_i)
+                else:
+                    helicity_spectrum = None
+
                 current_checkpoint = snapshot_data.current_checkpoint + 1
                 snapshot_data = snapshot_data._replace(
                     time_points=time_points,
@@ -583,6 +680,9 @@ def _time_integration(
                     gravitational_energy=gravitational_energy,
                     radial_momentum=radial_momentum,
                     magnetic_divergence=magnetic_divergence,
+                    kinetic_energy_spectrum=kinetic_energy_spectrum,
+                    magnetic_energy_spectrum=magnetic_energy_spectrum,
+                    helicity_spectrum=helicity_spectrum,
                 )
                 return snapshot_data
 
@@ -626,7 +726,7 @@ def _time_integration(
 
             time, key, primitive_state, snapshot_data = carry
 
-            def update_snapshot_data(snapshot_data):
+            def update_snapshot_data(time, primitive_state, snapshot_data):
                 current_checkpoint = snapshot_data.current_checkpoint + 1
                 snapshot_data = snapshot_data._replace(
                     current_checkpoint=current_checkpoint
@@ -646,7 +746,7 @@ def _time_integration(
 
                 return snapshot_data
 
-            def dont_update_snapshot_data(snapshot_data):
+            def dont_update_snapshot_data(time, primitive_state, snapshot_data):
                 return snapshot_data
 
             snapshot_data = jax.lax.cond(
@@ -656,6 +756,8 @@ def _time_integration(
                 / config.num_snapshots,
                 update_snapshot_data,
                 dont_update_snapshot_data,
+                time,
+                primitive_state,
                 snapshot_data,
             )
 
@@ -693,32 +795,45 @@ def _time_integration(
                     dt = jax.lax.stop_gradient(
                         _cfl_time_step(
                             primitive_state,
+                            config,
+                            params,
+                            registered_variables,
+                        )
+                    )
+            elif config.solver_mode == FINITE_DIFFERENCE:
+                if config.mhd:
+                    dt = jax.lax.stop_gradient(
+                        _cfl_time_step_fd(
+                            primitive_state,
                             config.grid_spacing,
                             params.dt_max,
                             params.gamma,
                             config,
+                            params,
                             registered_variables,
                             params.C_cfl,
                         )
                     )
-            elif config.solver_mode == FINITE_DIFFERENCE:
-                dt = jax.lax.stop_gradient(
-                    _cfl_time_step_fd(
-                        primitive_state,
-                        config.grid_spacing,
-                        params.dt_max,
-                        params.gamma,
-                        config,
-                        params,
-                        registered_variables,
-                        params.C_cfl,
+                else:
+                    dt = jax.lax.stop_gradient(
+                        _cfl_time_step_fd_hydro(
+                            primitive_state,
+                            config.grid_spacing,
+                            params.dt_max,
+                            params.gamma,
+                            config,
+                            params,
+                            registered_variables,
+                            params.C_cfl,
+                        )
                     )
-                )
         else:
             dt = params.t_end / config.num_timesteps
 
         # make sure we exactly hit the snapshot time points
-        if config.use_specific_snapshot_timepoints and config.return_snapshots:
+        if config.use_specific_snapshot_timepoints and (
+            config.return_snapshots or config.activate_snapshot_callback
+        ):
             dt = jnp.minimum(
                 dt, params.snapshot_timepoints[snapshot_data.current_checkpoint] - time
             )
@@ -760,6 +875,26 @@ def _time_integration(
                 registered_variables,
             )
 
+        # better safe than sorry
+        if config.enforce_positivity:
+            primitive_state = primitive_state.at[
+                registered_variables.density_index
+            ].set(
+                jnp.maximum(
+                    primitive_state[registered_variables.density_index],
+                    params.minimum_density,
+                )
+            )
+            if config.equation_of_state == IDEAL_GAS:
+                primitive_state = primitive_state.at[
+                    registered_variables.pressure_index
+                ].set(
+                    jnp.maximum(
+                        primitive_state[registered_variables.pressure_index],
+                        params.minimum_pressure,
+                    )
+                )
+
         # EVOLVE THE STATE
         if config.solver_mode == FINITE_VOLUME:
             primitive_state = _evolve_state_fv(
@@ -783,28 +918,6 @@ def _time_integration(
                 helper_data_pad,
                 registered_variables,
             )
-            if config.cnn_mhd_corrector_config.cnn_mhd_corrector:
-                if config.cnn_mhd_corrector_config.correct_from_beggining is False:
-
-                    def correct_state(primitive_state: STATE_TYPE):
-                        primitive_state = model(
-                            primitive_state, config, registered_variables, params, dt
-                        )
-                        return primitive_state
-
-                    def no_correct_state(primitive_state: STATE_TYPE):
-                        return primitive_state
-
-                    primitive_state = jax.lax.cond(
-                        time > config.cnn_mhd_corrector_config.start_correction_time,
-                        correct_state,
-                        no_correct_state,
-                        primitive_state,  # Only pass the non-static arguments
-                    )
-                else:
-                    primitive_state = model(
-                        primitive_state, config, registered_variables, params, dt
-                    )
 
         time += dt
 
@@ -814,7 +927,7 @@ def _time_integration(
         # ----------------- ↑ CENTRAL UPDATE ↑ ----------------
 
         # If we are in the last time step, we also want to update the snapshot data.
-        if config.use_specific_snapshot_timepoints and config.return_snapshots:
+        if config.return_snapshots or config.activate_snapshot_callback:
             snapshot_data = jax.lax.cond(
                 jnp.abs(time - params.t_end) < 1e-12,
                 update_snapshot_data,
@@ -891,7 +1004,7 @@ def _time_integration(
 
         if config.return_snapshots:
             if config.snapshot_settings.return_final_state:
-                if config.boundary_handling == GHOST_CELLS:
+                if config.boundary_handling != PERIODIC_ROLL:
                     unpad_primitive_state = _unpad(primitive_state, config)
                 else:
                     unpad_primitive_state = primitive_state
@@ -901,7 +1014,7 @@ def _time_integration(
                 )
             return snapshot_data
         else:
-            if config.boundary_handling == GHOST_CELLS:
+            if config.boundary_handling != PERIODIC_ROLL:
                 primitive_state = _unpad(primitive_state, config)
             if config.state_struct:
                 return StateStruct(primitive_state=primitive_state)
@@ -911,7 +1024,7 @@ def _time_integration(
         _, _, primitive_state = carry
 
         # unpad the primitive state if we padded it
-        if config.boundary_handling == GHOST_CELLS:
+        if config.boundary_handling != PERIODIC_ROLL:
             primitive_state = _unpad(primitive_state, config)
 
         if config.state_struct:

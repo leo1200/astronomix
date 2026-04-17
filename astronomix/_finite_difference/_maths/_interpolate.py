@@ -4,6 +4,8 @@ import jax.numpy as jnp
 
 from functools import partial
 
+from astronomix._stencil_operations._stencil_operations import _shift
+
 
 @partial(jax.jit, static_argnames=["axis"])
 def interp_center_to_face(arr, axis):
@@ -13,10 +15,10 @@ def interp_center_to_face(arr, axis):
     The i-th array index in the output corresponds to the i+1/2 interface.
     """
     return (
-        -jnp.roll(arr, 1, axis=axis)
+        -_shift(arr, 1, axis=axis)
         + 9 * arr
-        + 9 * jnp.roll(arr, -1, axis=axis)
-        - jnp.roll(arr, -2, axis=axis)
+        + 9 * _shift(arr, -1, axis=axis)
+        - _shift(arr, -2, axis=axis)
     ) / 16.0
 
 
@@ -26,12 +28,12 @@ def interp_face_to_center(f_int, axis):
     6th order interpolation from face to center.
     """
     return (
-        3 * jnp.roll(f_int, 3, axis=axis)
-        - 25 * jnp.roll(f_int, 2, axis=axis)
-        + 150 * jnp.roll(f_int, 1, axis=axis)
+        3 * _shift(f_int, 3, axis=axis)
+        - 25 * _shift(f_int, 2, axis=axis)
+        + 150 * _shift(f_int, 1, axis=axis)
         + 150 * f_int
-        - 25 * jnp.roll(f_int, -1, axis=axis)
-        + 3 * jnp.roll(f_int, -2, axis=axis)
+        - 25 * _shift(f_int, -1, axis=axis)
+        + 3 * _shift(f_int, -2, axis=axis)
     ) / 256.0
 
 
@@ -55,9 +57,19 @@ def point_values_to_averages(q, axisA, axisB):
     in dimensionally split settings.    
     """
     smooth_x = (
-        jnp.roll(q, 1, axis=axisA) - 2 * q + jnp.roll(q, -1, axis=axisA)
+        _shift(q, 1, axis=axisA) - 2 * q + _shift(q, -1, axis=axisA)
     ) / 24.0
     smooth_y = (
-        jnp.roll(q, 1, axis=axisB) - 2 * q + jnp.roll(q, -1, axis=axisB)
+        _shift(q, 1, axis=axisB) - 2 * q + _shift(q, -1, axis=axisB)
     ) / 24.0
     return q + smooth_x + smooth_y
+
+@partial(jax.jit, static_argnames=["axisA"])
+def point_values_to_averages_single_axis(q, axisA):
+    """
+    Single axis version of point_values_to_averages.
+    """
+    smooth = (
+        _shift(q, 1, axis=axisA) - 2 * q + _shift(q, -1, axis=axisA)
+    ) / 24.0
+    return q + smooth

@@ -16,6 +16,7 @@ from astronomix import SimulationParams
 from astronomix.option_classes.simulation_config import (
     DONOR_ACCOUNTING,
     HLLC_LM,
+    MIDPOINT_OPTIM,
     RIEMANN_SPLIT,
     RIEMANN_SPLIT_UNSTABLE,
     BoundarySettings,
@@ -52,6 +53,8 @@ from astronomix.option_classes.simulation_config import (
 )
 
 self_gravity_version = RIEMANN_SPLIT_UNSTABLE
+# Riemann split versions reduce scatter in entropy
+# the unstable version slightly better than the stable one
 
 # simulation settings
 gamma = 5/3
@@ -67,10 +70,10 @@ baseline_config = SimulationConfig(
     first_order_fallback = False,
     dimensionality = 3,
     box_size = box_size,
-    split = SPLIT,
+    split = UNSPLIT,
     differentiation_mode = FORWARDS,
     limiter = MINMOD,
-    time_integrator = MUSCL,
+    time_integrator = RK2_SSP, # MIDPOINT_OPTIM,
     riemann_solver = HLLC,
     boundary_settings = BoundarySettings(
         BoundarySettings1D(
@@ -164,7 +167,7 @@ def simulate_collapse(num_cells, t_end = 3.0, return_snapshots = True):
 
 def resolution_study_collapse():
 
-    num_cells_list = [64, 128]
+    num_cells_list = [64,]
     line_styles = ['-', '--', '-.', ':']
 
     fig, ax = plt.subplots(1, 1, figsize=(10, 5))
@@ -185,15 +188,17 @@ def resolution_study_collapse():
         ax.set_ylabel("Energy")
 
     ax.set_ylim(-2.5, 2.5)
+    # ax.set_ylim(-0.7, -0.4)
+    # ax.set_xlim(0.8, 1.0)
 
     ax.legend(fontsize="x-small", ncol=len(num_cells_list))
     ax.set_title("Resolution Study for Evrard's Collapse")
 
-    plt.savefig(f"collapse_resolution_study_{'simple' if self_gravity_version == SIMPLE_SOURCE_TERM else 'conservative'}_source_term.svg")
+    plt.savefig(f"figures/collapse_resolution_study_{'simple' if self_gravity_version == SIMPLE_SOURCE_TERM else 'conservative'}_source_term.svg")
 
 def radial_profile_study():
 
-    num_cells_list = [64, 128]
+    num_cells_list = [128,]
 
     for num_cells in num_cells_list:
 
@@ -233,10 +238,10 @@ def radial_profile_study():
 
         plt.tight_layout()
 
-        plt.savefig(f"collapse_radial_profile_{num_cells}.png")
+        plt.savefig(f"figures/collapse_radial_profile_{num_cells}.png")
 
 
-resolution_study_collapse()
+# resolution_study_collapse()
 radial_profile_study()
 
 

@@ -4,6 +4,8 @@ import jax.numpy as jnp
 
 from functools import partial
 
+from astronomix._stencil_operations._stencil_operations import _shift
+
 
 # @partial(jax.jit, static_argnames=["axis"])
 def finite_difference_int6(f_int, axis):
@@ -24,9 +26,9 @@ def finite_difference_int6(f_int, axis):
     """
     c1, c2, c3 = 75.0 / 64.0, -25.0 / 384.0, 3.0 / 640.0
     return (
-        c1 * (f_int - jnp.roll(f_int, 1, axis=axis))
-        + c2 * (jnp.roll(f_int, -1, axis=axis) - jnp.roll(f_int, 2, axis=axis))
-        + c3 * (jnp.roll(f_int, -2, axis=axis) - jnp.roll(f_int, 3, axis=axis))
+        c1 * (f_int - _shift(f_int, 1, axis=axis))
+        + c2 * (_shift(f_int, -1, axis=axis) - _shift(f_int, 2, axis=axis))
+        + c3 * (_shift(f_int, -2, axis=axis) - _shift(f_int, 3, axis=axis))
     )
 
 

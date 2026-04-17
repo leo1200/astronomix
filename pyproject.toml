@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "astronomix"
-version = "0.5.1"
+version = "0.5.8"
 description = "differentiable (magneto)hydrodynamics for astrophysics in JAX"
 authors = ["Leonard Storcks"]
 readme = "README.md"
@@ -22,4 +22,4 @@ build-backend = "poetry.core.masonry.api"
 [tool.ruff]
 extend-select = ["E", "F", "C", "B", "Q"]
 # Globally ignore "module level import not at top of file"
-ignore = ["E402"]
+extend-ignore = ["E402"]

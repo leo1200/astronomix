@@ -8,7 +8,7 @@ from jaxtyping import Array, Float, jaxtyped
 from beartype import beartype as typechecker
 from typing import Union
 from astronomix._physics_modules._stellar_wind.stellar_wind import _wind_injection
-from astronomix.option_classes.simulation_config import STATE_TYPE, UNSPLIT
+from astronomix.option_classes.simulation_config import DYNAMIC_VISCOSITY, KINEMATIC_VISCOSITY, STATE_TYPE, UNSPLIT
 
 # astronomix containers
 from astronomix.data_classes.simulation_helper_data import HelperData
@@ -94,26 +94,27 @@ def get_wave_speeds(
 @partial(jax.jit, static_argnames=["config", "registered_variables"])
 def _cfl_time_step(
     primitive_state: STATE_TYPE,
-    grid_spacing: Union[float, Float[Array, ""]],
-    dt_max: Union[float, Float[Array, ""]],
-    gamma: Union[float, Float[Array, ""]],
     config: SimulationConfig,
+    params: SimulationParams,
     registered_variables: RegisteredVariables,
-    C_CFL: Union[float, Float[Array, ""]] = 0.8,
 ) -> Float[Array, ""]:
     """Calculate the time step based on the CFL condition.
 
     Args:
         primitive_state: The primitive state array.
-        grid_spacing: The cell width.
-        dt_max: The maximum time step.
-        gamma: The adiabatic index.
-        C_CFL: The CFL number.
+        params: The simulation parameters.
+        config: The simulation configuration.
+        registered_variables: The registered variables.
 
     Returns:
         The time step.
 
     """
+
+    C_CFL = params.C_cfl
+    grid_spacing = config.grid_spacing
+    dt_max = params.dt_max
+    gamma = params.gamma
 
     if config.split == UNSPLIT:
         rho = primitive_state[registered_variables.density_index]
@@ -125,7 +126,7 @@ def _cfl_time_step(
             alpha_lax_i = jnp.max(jnp.abs(u) + c)
             alpha_lax = alpha_lax.at[axis - 1].set(alpha_lax_i)
 
-        return C_CFL * 1 / jnp.sum(alpha_lax / grid_spacing)
+        dt = C_CFL * 1 / jnp.sum(alpha_lax / grid_spacing)
 
     else:
         if config.dimensionality == 3:
@@ -214,8 +215,27 @@ def _cfl_time_step(
 
         if config.use_max_adaptive_timestep:
             dt = jnp.minimum(dt, dt_max)
+
+    # viscous time step constraint
+    if config.diffusion:
         
-        return dt
+        if config.enforce_positivity:
+            rho_min = jnp.maximum(
+                jnp.min(primitive_state[registered_variables.density_index]),
+                params.minimum_density,
+            )
+        else:
+            rho_min = jnp.min(primitive_state[registered_variables.density_index])
+        
+        if config.viscosity_type == DYNAMIC_VISCOSITY:
+            nu_max = params.viscosity / rho_min
+        elif config.viscosity_type == KINEMATIC_VISCOSITY:
+            nu_max = params.viscosity
+
+        dt_visc = C_CFL * grid_spacing**2 / (2.0 * config.dimensionality * nu_max)
+        dt = jnp.minimum(dt, dt_visc)
+
+    return dt
 
 
 # @jaxtyped(typechecker=typechecker)
@@ -247,12 +267,9 @@ def _source_term_aware_time_step(
     # calculate the time step based on the CFL condition
     dt = _cfl_time_step(
         primitive_state,
-        config.grid_spacing,
-        params.dt_max,
-        params.gamma,
         config,
+        params,
         registered_variables,
-        params.C_cfl,
     )
 
     # independent of config.use_max_adaptive_timestep
@@ -279,12 +296,9 @@ def _source_term_aware_time_step(
 
     dt = _cfl_time_step(
         hypothetical_new_state,
-        config.grid_spacing,
-        params.dt_max,
-        params.gamma,
         config,
+        params,
         registered_variables,
-        params.C_cfl,
     )
 
     # ===========================================================================

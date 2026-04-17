@@ -47,7 +47,8 @@ def _neural_net_force(
     neural_net_static = config.neural_net_force_config.network_static
     model = eqx.combine(neural_net_params, neural_net_static)
 
-    N = config.num_cells
+    # TODO: ASSUMES SAME NUMBER OF CELLS IN X AND Y DIRECTION, NEEDS TO BE FIXED FOR GENERAL CASE
+    N = config.num_cells.x
     positions = helper_data.geometric_centers
     positions_flat = positions.reshape(-1, 2)  # (N*N, 2)
 

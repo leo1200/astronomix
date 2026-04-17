@@ -30,6 +30,16 @@ class SimulationParams(NamedTuple):
     #: Gravitational constant.
     gravitational_constant: float = 1.0
 
+    #: Dynamic or kinematic viscosity depending 
+    #: on the viscosity_type in SimulationConfig.
+    viscosity: float = 0.0
+
+    #: The isothermal sound speed used when
+    #: config.equation_of_state is ISOTHERMAL.
+    #: NOTE: CURRENTLY ONLY IMPLEMENTED FOR 
+    #: FINITE DIFFERENCE MODE.
+    isothermal_sound_speed: float = 1.0
+
     #: The adiabatic index of the gas.
     gamma: float = 5 / 3
 
@@ -46,7 +56,7 @@ class SimulationParams(NamedTuple):
     minimum_pressure: float = 1e-14
 
     #: The maximum time step.
-    dt_max: float = 0.001
+    dt_max: float = jnp.inf
 
     #: The final time of the simulation.
     t_end: float = 0.2

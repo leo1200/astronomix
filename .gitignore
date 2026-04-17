@@ -10,10 +10,15 @@ arena/results/*/data
 tests/finite_difference/turb_frames
 tests/finite_difference/wind_frames
 
+tests/kelvin_helmholtz/data
+
+tests/kelvin_helmholtz/figures/collection
+
 tests/cooling_corrector/data
 tests/mhd_tests/data
 tests/lancaster/data
 tests/finite_difference/data
+tests/field_level_inference/frames
 
 tests/cooling_corrector/models
 

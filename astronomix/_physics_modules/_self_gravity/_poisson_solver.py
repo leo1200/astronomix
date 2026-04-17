@@ -76,9 +76,12 @@ def _compute_gravitational_potential(
         ):
             non_periodic_boundaries = True
 
+    if config.poisson_manual_open_boundaries:
+        non_periodic_boundaries = True
+
     # if periodic boundaries
     if not non_periodic_boundaries:
-        # jeans swindle (?)
+        # jeans swindle
         gas_density = gas_density - jnp.mean(gas_density)
 
     if not non_periodic_boundaries:
@@ -88,18 +91,23 @@ def _compute_gravitational_potential(
         # Compute FFT of the density field.
         density_k = fftn(gas_density)
 
-        # Build the k–vector (note that fftfreq returns cycles/unit; multiply by 2π).
-        num_cells = gas_density.shape[0]
-        k_base = jnp.fft.fftfreq(num_cells, d=grid_spacing) * 2 * jnp.pi
-
         if dimensionality == 1:
-            k = k_base  # 1D case.
+            num_cells_x = gas_density.shape[0]
+            k_base_x = jnp.fft.fftfreq(num_cells_x, d=grid_spacing) * 2 * jnp.pi
+            k = k_base_x  # 1D case.
             k_squared = k**2
         elif dimensionality == 2:
-            kx, ky = jnp.meshgrid(k_base, k_base, indexing="ij")
+            num_cells_x, num_cells_y = gas_density.shape
+            k_base_x = jnp.fft.fftfreq(num_cells_x, d=grid_spacing) * 2 * jnp.pi
+            k_base_y = jnp.fft.fftfreq(num_cells_y, d=grid_spacing) * 2 * jnp.pi
+            kx, ky = jnp.meshgrid(k_base_x, k_base_y, indexing="ij")
             k_squared = kx**2 + ky**2
         elif dimensionality == 3:
-            kx, ky, kz = jnp.meshgrid(k_base, k_base, k_base, indexing="ij")
+            num_cells_x, num_cells_y, num_cells_z = gas_density.shape
+            k_base_x = jnp.fft.fftfreq(num_cells_x, d=grid_spacing) * 2 * jnp.pi
+            k_base_y = jnp.fft.fftfreq(num_cells_y, d=grid_spacing) * 2 * jnp.pi
+            k_base_z = jnp.fft.fftfreq(num_cells_z, d=grid_spacing) * 2 * jnp.pi
+            kx, ky, kz = jnp.meshgrid(k_base_x, k_base_y, k_base_z, indexing="ij")
             k_squared = kx**2 + ky**2 + kz**2
 
         # Avoid division by zero (k = 0 mode).
@@ -115,6 +123,7 @@ def _compute_gravitational_potential(
         return gravitational_potential
 
     else:
+        # TODO: check if it works for different cell numbers in each dimension
         # ----------------------------------------------------
         # Open boundaries version via Hockney & Eastwood method
         # ----------------------------------------------------

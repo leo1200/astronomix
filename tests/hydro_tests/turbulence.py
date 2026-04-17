@@ -226,7 +226,7 @@ im = axs[0, 1].imshow(
     initial_state_turb[registered_variables.density_index, :, :, num_cells // 2],
     origin="lower",
     cmap="viridis",
-    extent=(0, config.box_size, 0, config.box_size)
+    extent=(0, config.box_size.x, 0, config.box_size.y)
 )
 axs[0, 1].set_title("initial density field")
 axs[0, 1].set_xlabel("x")
@@ -241,7 +241,7 @@ im = axs[1, 1].imshow(
     final_state_pure_turb[registered_variables.density_index, :, :, num_cells // 2],
     origin="lower",
     cmap="viridis",
-    extent=(0, config.box_size, 0, config.box_size)
+    extent=(0, config.box_size.x, 0, config.box_size.y)
 )
 axs[1, 1].set_title("final density field")
 axs[1, 1].set_xlabel("x")
@@ -292,7 +292,7 @@ im = axs.imshow(
     final_state_wind[registered_variables.density_index, :, :, num_cells // 2],
     origin="lower",
     cmap="viridis",
-    extent=(0, config.box_size, 0, config.box_size),
+    extent=(0, config.box_size.x, 0, config.box_size.y),
     norm = LogNorm()
 )
 # add a colorbar

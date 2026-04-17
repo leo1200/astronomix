@@ -1,7 +1,7 @@
-# # ==== GPU selection ====
-# from autocvd import autocvd
-# autocvd(num_gpus = 1)
-# # =======================
+# ==== GPU selection ====
+from autocvd import autocvd
+autocvd(num_gpus = 1)
+# =======================
 
 # numerics
 import jax

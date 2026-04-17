@@ -153,7 +153,7 @@ fig, axs = plt.subplots(2, 3, figsize=(9, 6))
 im = axs[0, 0].imshow(
     density[:, :, num_cells//2],
     origin='lower',
-    extent=(0, config.box_size, 0, config.box_size),
+    extent=(0, config.box_size.x, 0, config.box_size.y),
     cmap = "jet",
     vmin = 0.2,
     vmax = 3.5
@@ -168,7 +168,7 @@ axs[0, 0].set_ylabel('y')
 im = axs[0, 1].imshow(
     jnp.log10(pressure[:, :, num_cells//2]),
     origin='lower',
-    extent=(0, config.box_size, 0, config.box_size),
+    extent=(0, config.box_size.x, 0, config.box_size.y),
     cmap="jet",
     vmin = -1.0,
     vmax = 2.3
@@ -183,7 +183,7 @@ axs[0, 1].set_ylabel('y')
 im = axs[1, 0].imshow(
     v2_half[:, :, num_cells//2],
     origin='lower',
-    extent=(0, config.box_size, 0, config.box_size),
+    extent=(0, config.box_size.x, 0, config.box_size.y),
     cmap = "jet",
     vmin = 0.0,
     vmax = 160.0
@@ -198,7 +198,7 @@ axs[1, 0].set_ylabel('y')
 im = axs[1, 1].imshow(
     magnetic_pressure[:, :, num_cells//2],
     origin='lower',
-    extent=(0, config.box_size, 0, config.box_size),
+    extent=(0, config.box_size.x, 0, config.box_size.y),
     cmap = "jet",
     vmin = 170,
     vmax = 480
@@ -212,7 +212,7 @@ axs[1, 1].set_ylabel('y')
 # 0, 2: |B|^2 / 2 along the diagonal from the center
 diag_indices = jnp.arange(num_cells // 2, num_cells)
 B_diag = magnetic_pressure[diag_indices, diag_indices, num_cells//2]
-r_diag = jnp.sqrt((diag_indices - num_cells//2)**2 + (diag_indices - num_cells//2)**2) * (config.box_size / num_cells)
+r_diag = jnp.sqrt((diag_indices - num_cells//2)**2 + (diag_indices - num_cells//2)**2) * (config.box_size.x / num_cells)
 axs[0, 2].plot(r_diag, B_diag)
 axs[0, 2].set_ylabel('|B|^2 / 2')
 axs[0, 2].set_xlabel('r')
@@ -222,7 +222,7 @@ axs[0, 2].set_title('|B|^2 / 2 along diagonal')
 
 # density along the vertical centerline
 density_center = density[num_cells//2, num_cells//2, :]
-axs[1, 2].plot(jnp.linspace(0, config.box_size, num_cells), density_center)
+axs[1, 2].plot(jnp.linspace(0, config.box_size.x, num_cells), density_center)
 axs[1, 2].set_ylabel('density')
 axs[1, 2].set_xlabel('z')
 axs[1, 2].set_xlim(0.5, 1.0)

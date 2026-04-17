@@ -14,6 +14,7 @@ from typing import Union, Tuple
 from astronomix._finite_difference._fluid_equations._enforce_positivity import (
     _enforce_positivity,
 )
+from astronomix._finite_difference._fluid_equations._equations import conserved_state_from_primitive_mhd, primitive_state_from_conserved_mhd
 from astronomix._finite_difference._interface_fluxes._weno import (
     _weno_flux_x,
     _weno_flux_y,
@@ -24,155 +25,12 @@ from astronomix._finite_difference._magnetic_update._constrained_transport impor
     constrained_transport_rhs,
     update_cell_center_fields,
 )
-from astronomix._finite_difference._maths._differencing import finite_difference_int6
-from astronomix._physics_modules._stellar_wind.stellar_wind import _wind_ei3D_source
+from astronomix._physics_modules.run_physics_modules import _physics_sources
+from astronomix._stencil_operations._stencil_operations import _shift
 from astronomix.data_classes.simulation_helper_data import HelperData
 from astronomix.option_classes.simulation_config import SimulationConfig
 from astronomix.option_classes.simulation_params import SimulationParams
 from astronomix.variable_registry.registered_variables import RegisteredVariables
-
-
-# @partial(jax.jit, static_argnames=["registered_variables", "config"], donate_argnames=["conserved_state", "bx_interface", "by_interface", "bz_interface"])
-# def _ssprk4_with_ct(
-#     conserved_state,
-#     bx_interface,
-#     by_interface,
-#     bz_interface,
-#     gamma: Union[float, jnp.ndarray],
-#     grid_spacing: Union[float, jnp.ndarray],
-#     dt: Union[float, jnp.ndarray],
-#     params: SimulationParams,
-#     helper_data: HelperData,
-#     config: SimulationConfig,
-#     registered_variables: RegisteredVariables,
-# ):
-#     """
-#     Integrates the MHD equations for one time step using a 5-stage, 4th-order
-#     Strong Stability Preserving Runge-Kutta (SSPRK) method
-#     with Constrained Transport (CT).
-#     """
-
-#     def compute_rhs(current_q, bx, by, bz, k2_coeff):
-#         """
-#         Computes the right-hand side (RHS) of the MHD equations for a given stage.
-#         The `k2_coeff` scales the timestep `dt` for the current RK stage.
-#         """
-
-#         current_q = update_cell_center_fields(
-#             current_q, bx, by, bz, registered_variables
-#         )
-
-#         # in the future we might support
-#         # different grid spacings in each direction
-#         dtdx = k2_coeff * dt / grid_spacing
-#         dtdy = k2_coeff * dt / grid_spacing
-#         dtdz = k2_coeff * dt / grid_spacing
-
-#         # Calculate fluxes based on the state of the current stage
-#         dF_x = _weno_flux_x(current_q, params.minimum_density, params.minimum_pressure, gamma, registered_variables)
-#         dF_y = _weno_flux_y(current_q, params.minimum_density, params.minimum_pressure, gamma, registered_variables)
-#         dF_z = _weno_flux_z(current_q, params.minimum_density, params.minimum_pressure, gamma, registered_variables)
-
-#         # Calculate RHS for interface magnetic fields using Constrained Transport
-#         rhs_bx, rhs_by, rhs_bz = constrained_transport_rhs(
-#             current_q, dF_x, dF_y, dF_z, dtdx, dtdy, dtdz, registered_variables
-#         )
-
-#         # Calculate RHS for conserved fluid variables
-#         rhs_q = -dtdx * (
-#             (dF_x - jnp.roll(dF_x, 1, axis=1))
-#             + (dF_y - jnp.roll(dF_y, 1, axis=2))
-#             + (dF_z - jnp.roll(dF_z, 1, axis=3))
-#         )
-
-#         if config.wind_config.stellar_wind:
-#             rhs_q += (
-#                 _wind_ei3D_source(
-#                     params.wind_params,
-#                     current_q,
-#                     config,
-#                     helper_data,
-#                     config.wind_config.num_injection_cells,
-#                     registered_variables,
-#                 )
-#                 * k2_coeff
-#                 * dt
-#             )
-
-#         return rhs_q, rhs_bx, rhs_by, rhs_bz
-
-#     # Store the initial state (t = n)
-#     q0 = conserved_state
-#     bx0, by0, bz0 = bx_interface, by_interface, bz_interface
-
-#     # Stage 1
-#     k1_1 = 1.0
-#     k2_1 = 0.39175222700392
-#     # k3_1 = 0.0, so it's omitted
-
-#     rhs_q0, rhs_bx0, rhs_by0, rhs_bz0 = compute_rhs(q0, bx0, by0, bz0, k2_1)
-
-#     q1 = q0 + rhs_q0
-#     bx1, by1, bz1 = bx0 + rhs_bx0, by0 + rhs_by0, bz0 + rhs_bz0
-
-#     # Stage 2
-#     k1_2 = 0.44437049406734
-#     k2_2 = 0.36841059262959
-#     k3_2 = 0.55562950593266
-
-#     rhs_q1, rhs_bx1, rhs_by1, rhs_bz1 = compute_rhs(q1, bx1, by1, bz1, k2_2)
-
-#     q2 = k1_2 * q0 + k3_2 * q1 + rhs_q1
-#     bx2 = k1_2 * bx0 + k3_2 * bx1 + rhs_bx1
-#     by2 = k1_2 * by0 + k3_2 * by1 + rhs_by1
-#     bz2 = k1_2 * bz0 + k3_2 * bz1 + rhs_bz1
-
-#     # Stage 3
-#     k1_3 = 0.62010185138540
-#     k2_3 = 0.25189177424738
-#     k3_3 = 0.37989814861460
-
-#     rhs_q2, rhs_bx2, rhs_by2, rhs_bz2 = compute_rhs(q2, bx2, by2, bz2, k2_3)
-
-#     q3 = k1_3 * q0 + k3_3 * q2 + rhs_q2
-#     bx3 = k1_3 * bx0 + k3_3 * bx2 + rhs_bx2
-#     by3 = k1_3 * by0 + k3_3 * by2 + rhs_by2
-#     bz3 = k1_3 * bz0 + k3_3 * bz2 + rhs_bz2
-
-#     # Stage 4
-#     k1_4 = 0.17807995410773
-#     k2_4 = 0.54497475021237
-#     k3_4 = 0.82192004589227
-
-#     rhs_q3, rhs_bx3, rhs_by3, rhs_bz3 = compute_rhs(q3, bx3, by3, bz3, k2_4)
-
-#     q4 = k1_4 * q0 + k3_4 * q3 + rhs_q3
-#     bx4 = k1_4 * bx0 + k3_4 * bx3 + rhs_bx3
-#     by4 = k1_4 * by0 + k3_4 * by3 + rhs_by3
-#     bz4 = k1_4 * bz0 + k3_4 * bz3 + rhs_bz3
-
-#     # Stage 5 (Final Stage)
-#     k1_5 = -2.081261929715610e-02
-#     k2_5 = 0.22600748319395
-#     k3_5 = 5.03580947213895e-01  # This corresponds to k3 in the Fortran code
-#     k4_5 = 0.51723167208978  # This corresponds to k4
-#     k5_5 = -6.518979800418380e-12  # This corresponds to k5
-
-#     rhs_q4, rhs_bx4, rhs_by4, rhs_bz4 = compute_rhs(q4, bx4, by4, bz4, k2_5)
-
-#     q5 = (k1_5 * q0) + (k4_5 * q2) + (k5_5 * q3) + (k3_5 * q4) + rhs_q4
-#     bx_final = (k1_5 * bx0) + (k4_5 * bx2) + (k5_5 * bx3) + (k3_5 * bx4) + rhs_bx4
-#     by_final = (k1_5 * by0) + (k4_5 * by2) + (k5_5 * by3) + (k3_5 * by4) + rhs_by4
-#     bz_final = (k1_5 * bz0) + (k4_5 * bz2) + (k5_5 * bz3) + (k3_5 * bz4) + rhs_bz4
-
-#     # Update the cell-centered magnetic fields in the conserved state array
-#     # from the final interface magnetic fields.
-#     q_final = update_cell_center_fields(
-#         q5, bx_final, by_final, bz_final, registered_variables
-#     )
-
-#     return q_final, bx_final, by_final, bz_final
-
 
 @partial(jax.jit, static_argnames=["registered_variables", "config"], donate_argnames=["conserved_state", "bx_interface", "by_interface", "bz_interface"])
 def _ssprk4_with_ct(
@@ -194,6 +52,10 @@ def _ssprk4_with_ct(
     with Constrained Transport (CT).
     """
 
+    # for procceses with similar or smaller time scales as the hydrodynamics,
+    # they should be included as source terms in the RK stages, otherwise
+    # they could be handled outside
+
     def compute_rhs(current_q, bx, by, bz, k2_coeff):
         """
         Computes the right-hand side (RHS) of the MHD equations for a given stage.
@@ -201,44 +63,74 @@ def _ssprk4_with_ct(
         """
 
         current_q = update_cell_center_fields(
-            current_q, bx, by, bz, registered_variables
+            current_q, bx, by, bz, config, registered_variables
         )
+
+        dt_tilde = k2_coeff * dt
 
         # in the future we might support
         # different grid spacings in each direction
-        dtdx = k2_coeff * dt / grid_spacing
-        dtdy = k2_coeff * dt / grid_spacing
-        dtdz = k2_coeff * dt / grid_spacing
+        dtdx = dt_tilde / grid_spacing
+        dtdy = dt_tilde / grid_spacing
+        dtdz = dt_tilde / grid_spacing
 
         # Calculate fluxes based on the state of the current stage
-        dF_x = _weno_flux_x(current_q, params.minimum_density, params.minimum_pressure, gamma, config, registered_variables)
-        dF_y = _weno_flux_y(current_q, params.minimum_density, params.minimum_pressure, gamma, config, registered_variables)
-        dF_z = _weno_flux_z(current_q, params.minimum_density, params.minimum_pressure, gamma, config, registered_variables)
+        dF_x = _weno_flux_x(current_q, params, config, registered_variables)
+
+        if config.dimensionality == 1:
+            dF_y = 0.0
+            dF_z = 0.0
+
+        if config.dimensionality == 2:
+            dF_y = _weno_flux_y(current_q, params, config, registered_variables)
+            dF_z = 0.0
+
+        if config.dimensionality == 3:
+            dF_y = _weno_flux_y(current_q, params, config, registered_variables)
+            dF_z = _weno_flux_z(current_q, params, config, registered_variables)
 
         # Calculate RHS for interface magnetic fields using Constrained Transport
         rhs_bx, rhs_by, rhs_bz = constrained_transport_rhs(
-            current_q, dF_x, dF_y, dF_z, dtdx, dtdy, dtdz, registered_variables
+            current_q, dF_x, dF_y, dF_z, dtdx, dtdy, dtdz, config, registered_variables
         )
 
         # Calculate RHS for conserved fluid variables
-        rhs_q = -dtdx * (
-            (dF_x - jnp.roll(dF_x, 1, axis=1))
-            + (dF_y - jnp.roll(dF_y, 1, axis=2))
-            + (dF_z - jnp.roll(dF_z, 1, axis=3))
-        )
-
-        if config.wind_config.stellar_wind:
-            rhs_q += (
-                _wind_ei3D_source(
-                    params.wind_params,
-                    current_q,
-                    k2_coeff * dt,
-                    config,
-                    helper_data,
-                    config.wind_config.num_injection_cells,
-                    registered_variables,
-                )
+        if config.dimensionality == 1:
+            rhs_q = -dtdx * (
+                (dF_x - _shift(dF_x, 1, axis=1))
             )
+        elif config.dimensionality == 2:
+            rhs_q = -dtdx * (
+                (dF_x - _shift(dF_x, 1, axis=1))
+                + (dF_y - _shift(dF_y, 1, axis=2))
+            )
+        elif config.dimensionality == 3:
+            rhs_q = -dtdx * (
+                (dF_x - _shift(dF_x, 1, axis=1))
+                + (dF_y - _shift(dF_y, 1, axis=2))
+                + (dF_z - _shift(dF_z, 1, axis=3))
+            )
+
+        if config.dimensionality == 1:
+            density_fluxes = (dF_x[registered_variables.density_index],)
+        elif config.dimensionality == 2:
+            density_fluxes = (dF_x[registered_variables.density_index], dF_y[registered_variables.density_index])
+        elif config.dimensionality == 3:
+            density_fluxes = (dF_x[registered_variables.density_index], dF_y[registered_variables.density_index], dF_z[registered_variables.density_index])
+
+
+        # Add physics source terms
+        rhs_q += _physics_sources(
+            current_q,
+            density_fluxes,
+            rhs_q[registered_variables.density_index], # drho
+            dt_tilde,
+            gamma,
+            config,
+            params,
+            helper_data,
+            registered_variables,
+        )
 
         return rhs_q, rhs_bx, rhs_by, rhs_bz
 
@@ -262,9 +154,9 @@ def _ssprk4_with_ct(
 
     k1_5 = -2.081261929715610e-02
     k2_5 = 0.22600748319395
-    k3_5 = 5.03580947213895e-01  # This corresponds to k3 in the Fortran code
-    k4_5 = 0.51723167208978  # This corresponds to k4
-    k5_5 = -6.518979800418380e-12  # This corresponds to k5
+    k3_5 = 5.03580947213895e-01
+    k4_5 = 0.51723167208978
+    k5_5 = -6.518979800418380e-12
 
     final_factors = jnp.array([k1_5, 0.0, k4_5, k5_5, k3_5])
     k_rhs_s = jnp.array([k2_1, k2_2, k2_3, k2_4, k2_5])
@@ -285,6 +177,7 @@ def _ssprk4_with_ct(
         if config.enforce_positivity:
             q_curr = _enforce_positivity(
                 q_curr,
+                config,
                 gamma,
                 params.minimum_density,
                 params.minimum_pressure,
@@ -334,16 +227,181 @@ def _ssprk4_with_ct(
     # Update the cell-centered magnetic fields in the conserved state array
     # from the final interface magnetic fields.
     q_final = update_cell_center_fields(
-        q_final, bx_final, by_final, bz_final, registered_variables
+        q_final, bx_final, by_final, bz_final, config, registered_variables
     )
 
     if config.enforce_positivity:
         q_final = _enforce_positivity(
             q_final,
+            config,
             gamma,
             params.minimum_density,
             params.minimum_pressure,
             registered_variables,
         )
-
+    
     return q_final, bx_final, by_final, bz_final
+
+
+@partial(jax.jit, static_argnames=["registered_variables", "config"], donate_argnames=["conserved_state"])
+def _ssprk4_hydro(
+    conserved_state,
+    gamma: Union[float, jnp.ndarray],
+    grid_spacing: Union[float, jnp.ndarray],
+    dt: Union[float, jnp.ndarray],
+    params, # Assuming SimulationParams type
+    helper_data, # Assuming HelperData type
+    config, # Assuming SimulationConfig type
+    registered_variables: RegisteredVariables,
+):
+    """
+    Integrates the Euler (hydrodynamics) equations for one time step using a 
+    5-stage, 4th-order Strong Stability Preserving Runge-Kutta (SSPRK) method.
+    """
+
+    # for procceses with similar or smaller time scales as the hydrodynamics,
+    # they should be included as source terms in the RK stages, otherwise
+    # they could be handled outside
+
+    def compute_rhs(current_q, k2_coeff):
+        """
+        Computes the right-hand side (RHS) of the hydro equations for a given stage.
+        The `k2_coeff` scales the timestep `dt` for the current RK stage.
+        """
+
+        dt_tilde = k2_coeff * dt
+
+        # in the future we might support
+        # different grid spacings in each direction
+        dtdx = dt_tilde / grid_spacing
+        dtdy = dt_tilde / grid_spacing
+        dtdz = dt_tilde / grid_spacing
+
+        # Calculate fluxes based on the state of the current stage
+        dF_x = _weno_flux_x(current_q, params, config, registered_variables)
+
+        if config.dimensionality >= 2:
+            dF_y = _weno_flux_y(current_q, params, config, registered_variables)
+
+        if config.dimensionality == 3:
+            dF_z = _weno_flux_z(current_q, params, config, registered_variables)
+
+        # Calculate RHS for conserved fluid variables
+        if config.dimensionality == 1:
+            rhs_q = -dtdx * (
+                (dF_x - _shift(dF_x, 1, axis=1))
+            )
+        elif config.dimensionality == 2:
+            rhs_q = -dtdx * (
+                (dF_x - _shift(dF_x, 1, axis=1))
+                + (dF_y - _shift(dF_y, 1, axis=2))
+            )
+        elif config.dimensionality == 3:
+            rhs_q = -dtdx * (
+                (dF_x - _shift(dF_x, 1, axis=1))
+                + (dF_y - _shift(dF_y, 1, axis=2))
+                + (dF_z - _shift(dF_z, 1, axis=3))
+            )
+
+        if config.dimensionality == 1:
+            density_fluxes = (dF_x[registered_variables.density_index],)
+        elif config.dimensionality == 2:
+            density_fluxes = (dF_x[registered_variables.density_index], dF_y[registered_variables.density_index])
+        elif config.dimensionality == 3:
+            density_fluxes = (dF_x[registered_variables.density_index], dF_y[registered_variables.density_index], dF_z[registered_variables.density_index])
+
+        # Add physics source terms
+        rhs_q += _physics_sources(
+            current_q,
+            density_fluxes,
+            rhs_q[registered_variables.density_index], # drho
+            dt_tilde,
+            gamma,
+            config,
+            params,
+            helper_data,
+            registered_variables,
+        )
+
+        return rhs_q
+
+    # define the SSPRK4 coefficients
+
+    k1_1 = 1.0
+    k2_1 = 0.39175222700392
+    k3_1 = 0.0
+
+    k1_2 = 0.44437049406734
+    k2_2 = 0.36841059262959
+    k3_2 = 0.55562950593266
+
+    k1_3 = 0.62010185138540
+    k2_3 = 0.25189177424738
+    k3_3 = 0.37989814861460
+    
+    k1_4 = 0.17807995410773
+    k2_4 = 0.54497475021237
+    k3_4 = 0.82192004589227
+
+    k1_5 = -2.081261929715610e-02
+    k2_5 = 0.22600748319395
+    k3_5 = 5.03580947213895e-01
+    k4_5 = 0.51723167208978
+    k5_5 = -6.518979800418380e-12
+
+    final_factors = jnp.array([k1_5, 0.0, k4_5, k5_5, k3_5])
+    k_rhs_s = jnp.array([k2_1, k2_2, k2_3, k2_4, k2_5])
+    k_0_s = jnp.array([k1_1, k1_2, k1_3, k1_4, k1_5])
+    k_curr_s = jnp.array([k3_1, k3_2, k3_3, k3_4, k3_5])
+
+    # Store the initial state (t = n)
+    q0 = conserved_state
+
+    def ssprk_stage(stage_idx, carry):
+
+        # unpack carry
+        q_curr, q_final = carry
+
+        if config.enforce_positivity:
+            q_curr = _enforce_positivity(
+                q_curr,
+                config,
+                gamma,
+                params.minimum_density,
+                params.minimum_pressure,
+                registered_variables,
+            )
+
+        k_rhs = k_rhs_s[stage_idx]
+        k_0 = k_0_s[stage_idx]
+        k_curr = k_curr_s[stage_idx]
+
+        # update the current state
+        rhs_q = compute_rhs(q_curr, k_rhs)
+        q_curr = k_0 * q0 + k_curr * q_curr + rhs_q
+
+        # update the final state
+        final_factor = final_factors[stage_idx + 1]
+        q_final += q_curr * final_factor
+
+        return (q_curr, q_final)
+
+    q4, q_final = jax.lax.fori_loop(
+        0, 4, ssprk_stage, (q0, final_factors[0] * q0)
+    )
+
+    # Final Stage (Stage 5)
+    rhs_q4 = compute_rhs(q4, k2_5)
+    q_final = q_final + rhs_q4
+
+    if config.enforce_positivity:
+        q_final = _enforce_positivity(
+            q_final,
+            config,
+            gamma,
+            params.minimum_density,
+            params.minimum_pressure,
+            registered_variables,
+        )
+    
+    return q_final

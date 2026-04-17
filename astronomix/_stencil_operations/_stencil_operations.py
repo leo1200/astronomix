@@ -14,7 +14,6 @@ from beartype import beartype as typechecker
 from jaxtyping import Array, Float, jaxtyped
 from typing import Tuple, Union
 
-
 # @jaxtyped(typechecker=typechecker)
 @partial(jax.jit, static_argnames=["shift", "axis"])
 def custom_roll(input_array: jnp.ndarray, shift: int, axis: int) -> jnp.ndarray:
@@ -27,6 +26,21 @@ def custom_roll(input_array: jnp.ndarray, shift: int, axis: int) -> jnp.ndarray:
         dimension=axis,
     )
 
+# this can possibly be used for van neumann boundary conditions
+# via array shifting
+# @partial(jax.jit, static_argnames=["shift", "axis"])
+# def shift_neumann(input_array: jnp.ndarray, shift: int, axis: int) -> jnp.ndarray:
+#     if shift == 0:
+#         return input_array
+#     size = input_array.shape[axis]
+#     indices = jnp.arange(size)
+#     indices = indices - shift
+#     indices = jnp.clip(indices, 0, size - 1)
+#     return jnp.take(input_array, indices, axis=axis)
+
+def _shift(input_array: jnp.ndarray, shift: int, axis: int) -> jnp.ndarray:
+    # the shift function might generally support differend boundary conditions
+    return custom_roll(input_array, shift, axis)
 
 # @jaxtyped(typechecker=typechecker)
 @partial(jax.jit, static_argnames=["indices", "axis"])

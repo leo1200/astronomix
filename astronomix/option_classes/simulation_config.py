@@ -1,5 +1,8 @@
+import math
 from types import NoneType
 from typing import NamedTuple, Union
+
+import jax
 
 from astronomix._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_options import (
     CNNMHDconfig,
@@ -50,6 +53,7 @@ AM_HLLC = 5
 # time integrators
 # currently only for finite volume
 RK2_SSP = 0
+MIDPOINT_OPTIM = 10  # experiment
 MUSCL = 1
 # currently only for finite difference
 RK4_SSP = 2
@@ -78,6 +82,7 @@ ZAXIS = 3
 # boundary handling modes
 GHOST_CELLS = 0
 PERIODIC_ROLL = 1
+# OPEN_SHIFT = 2
 
 # self-gravity versions
 SIMPLE_SOURCE_TERM = 0
@@ -85,6 +90,8 @@ DONOR_ACCOUNTING = 1
 RIEMANN_SPLIT = 2
 RIEMANN_SPLIT_UNSTABLE = 3
 HALF_SPLIT = 4
+FD_FLUX_GRAVITY = 5
+WENO_FLUX_GRAVITY = 6
 
 # Magnetic part integrators for split MHD
 IMPLICIT_MIDPOINT = 0
@@ -94,9 +101,39 @@ IMPLICIT_EULER = 1
 SINGLE_PRECISION = 0
 DOUBLE_PRECISION = 1
 
+# Viscosity types
+KINEMATIC_VISCOSITY = 0
+DYNAMIC_VISCOSITY = 1
+
+# Equation of state
+IDEAL_GAS = 0
+ISOTHERMAL = 1
+
 # ============================================================
 
 # ===================== type definitions =====================
+
+
+class StaticIntVector(NamedTuple):
+    x: int = -1
+    y: int = -1
+    z: int = -1
+
+
+class StaticFloatVector(NamedTuple):
+    x: float = -1.0
+    y: float = -1.0
+    z: float = -1.0
+
+    def __truediv__(self, other: StaticIntVector) -> "StaticFloatVector":
+        if not isinstance(other, StaticIntVector):
+            return NotImplemented
+        return StaticFloatVector(
+            x=self.x / other.x,
+            y=self.y / other.y,
+            z=self.z / other.z,
+        )
+
 
 STATE_TYPE = Union[
     Float[Array, "num_vars num_cells_x"],
@@ -143,6 +180,15 @@ class SnapshotSettings(NamedTuple):
 
     #: Whether to return radial momentum
     return_radial_momentum: bool = False
+
+    #: Whether to return the kinetic energy spectrum
+    return_kinetic_energy_spectrum: bool = False
+
+    #: Whether to return the magnetic energy spectrum
+    return_magnetic_energy_spectrum: bool = False
+
+    #: Whether to return the helicity spectrum
+    return_helicity_spectrum: bool = False
 
     #: Whether to return the magnetic field divergence
     #: NOTE: currently only implemented for finite difference MHD
@@ -207,6 +253,11 @@ class SimulationConfig(NamedTuple):
     #: The geometry of the simulation.
     geometry: int = CARTESIAN
 
+    #: The equation of state for the simulation.
+    #: NOTE: CURRENTLY ONLY IMPLEMENTED FOR
+    #: FINITE DIFFERENCE MODE.
+    equation_of_state: int = IDEAL_GAS
+
     #: Magnetohydrodynamics switch.
     mhd: bool = False
 
@@ -221,13 +272,27 @@ class SimulationConfig(NamedTuple):
     #: Self gravity switch, currently only
     #: for periodic boundaries.
     self_gravity: bool = False
+
+    #: Coupling of the self-gravity to the
+    #: hydrodynamics.
     self_gravity_version: int = DONOR_ACCOUNTING
 
-    #: The size of the simulation box.
-    box_size: float = 1.0
+    #: Manual open boundary conditions in the
+    #: Poisson solver.
+    poisson_manual_open_boundaries: bool = False
 
-    #: The number of cells in the simulation (including ghost cells).
-    num_cells: int = 400
+    #: Explicit diffusion term
+    #: (currently only for finite difference mode)
+    diffusion: bool = False
+
+    #: Viscosity type - either kinematic or dynamic viscosity.
+    viscosity_type: int = DYNAMIC_VISCOSITY
+
+    #: The size of the simulation box.
+    box_size: Union[float, StaticFloatVector] = 1.0
+
+    #: The number of cells in the simulation.
+    num_cells: Union[int, StaticIntVector] = 400
 
     #: The reconstruction order is the number of
     #: cells on each side of the cell of interest
@@ -348,19 +413,61 @@ class SimulationConfig(NamedTuple):
 def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
     """Finalizes the simulation configuration."""
 
-    num_cells = state_shape[-1]
-    config = config._replace(num_cells=num_cells)
+    # num_cells = state_shape[-1]
+    # config = config._replace(num_cells=num_cells)
 
+    if jax.config.jax_enable_x64:
+        config._replace(numerical_precision=DOUBLE_PRECISION)
+    else:
+        config._replace(numerical_precision=SINGLE_PRECISION)
+
+    # set the number of cells
+    if config.dimensionality == 1:
+        num_cells_x = state_shape[-1]
+        config = config._replace(num_cells=StaticIntVector(num_cells_x, -1, -1))
     if config.dimensionality == 2:
         num_cells_x, num_cells_y = state_shape[-2:]
-        if num_cells_x != num_cells_y:
-            raise ValueError("The number of cells in x and y must be equal.")
+        config = config._replace(
+            num_cells=StaticIntVector(num_cells_x, num_cells_y, -1)
+        )
     elif config.dimensionality == 3:
         num_cells_x, num_cells_y, num_cells_z = state_shape[-3:]
-        if num_cells_x != num_cells_y or num_cells_x != num_cells_z:
-            raise ValueError("The number of cells in x, y and z must be equal.")
+        config = config._replace(
+            num_cells=StaticIntVector(num_cells_x, num_cells_y, num_cells_z)
+        )
 
-    config = config._replace(grid_spacing=config.box_size / config.num_cells)
+    if isinstance(config.box_size, float):
+        config = config._replace(
+            box_size=StaticFloatVector(
+                config.box_size, config.box_size, config.box_size
+            )
+        )
+
+    # for now we assume the grid spacing is the same in all dimensions
+    grid_spacing_vec = config.box_size / config.num_cells
+
+    # as soon as we accept a grid spacing vector,
+    # this will not be necessary anymore
+    # config = config._replace(grid_spacing=config.box_size / config.num_cells)
+    if config.dimensionality == 1:
+        config = config._replace(grid_spacing=grid_spacing_vec.x)
+    elif config.dimensionality == 2:
+        config = config._replace(grid_spacing=grid_spacing_vec.x)
+        if not math.isclose(grid_spacing_vec.x, grid_spacing_vec.y):
+            raise ValueError(
+                "For now, we assume the grid spacing is the same in all dimensions. "
+                f"Got grid spacing {grid_spacing_vec}."
+            )
+    elif config.dimensionality == 3:
+        config = config._replace(grid_spacing=grid_spacing_vec.x)
+        if not (
+            math.isclose(grid_spacing_vec.x, grid_spacing_vec.y)
+            and math.isclose(grid_spacing_vec.x, grid_spacing_vec.z)
+        ):
+            raise ValueError(
+                "For now, we assume the grid spacing is the same in all dimensions. "
+                f"Got grid spacing {grid_spacing_vec}."
+            )
 
     if config.geometry == SPHERICAL:
         print(
@@ -393,24 +500,36 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
 
     # finite difference specific checks
     if config.solver_mode == FINITE_DIFFERENCE:
-        if not config.mhd:
-            raise ValueError(
-                "Finite difference solver mode is currently "
-                "only supported for MHD simulations. This will be easy to extend, "
-                "feel free to contribute."
-            )
+        # if not config.mhd:
+        #     raise ValueError(
+        #         "Finite difference solver mode is currently " \
+        #         "only supported for MHD simulations. This will be easy to extend, " \
+        #         "feel free to contribute."
+        #     )
 
-        if config.dimensionality != 3:
-            raise ValueError(
-                "Finite difference solver mode is currently "
-                "only supported for 3D simulations. This will be easy to extend, "
-                "feel free to contribute."
-            )
+        # if config.dimensionality != 3 and config.mhd:
+        #     raise ValueError(
+        #         "Finite difference solver mode in MHD mode is currently " \
+        #         "only supported for 3D simulations. This will be easy to extend, " \
+        #         "feel free to contribute."
+        #     )
 
-        if config.boundary_settings != BoundarySettings(
+        if config.dimensionality == 3 and config.boundary_settings != BoundarySettings(
             BoundarySettings1D(
                 left_boundary=PERIODIC_BOUNDARY, right_boundary=PERIODIC_BOUNDARY
             ),
+            BoundarySettings1D(
+                left_boundary=PERIODIC_BOUNDARY, right_boundary=PERIODIC_BOUNDARY
+            ),
+            BoundarySettings1D(
+                left_boundary=PERIODIC_BOUNDARY, right_boundary=PERIODIC_BOUNDARY
+            ),
+        ):
+            raise ValueError(
+                "Finite difference solver mode currently only supports periodic boundaries."
+            )
+
+        if config.dimensionality == 2 and config.boundary_settings != BoundarySettings(
             BoundarySettings1D(
                 left_boundary=PERIODIC_BOUNDARY, right_boundary=PERIODIC_BOUNDARY
             ),
@@ -428,12 +547,15 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
             )
             config = config._replace(time_integrator=RK4_SSP)
 
-        if config.boundary_handling != PERIODIC_ROLL:
+        if config.boundary_handling == GHOST_CELLS:
             print(
                 "Setting boundary handling to "
                 "PERIODIC_ROLL for finite difference solver mode."
             )
             config = config._replace(boundary_handling=PERIODIC_ROLL)
+
+        if config.boundary_handling == PERIODIC_ROLL:
+            config = config._replace(num_ghost_cells=0)
 
     # set boundary conditions if not set
     if config.boundary_settings is None:
