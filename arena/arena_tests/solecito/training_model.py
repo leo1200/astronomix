@@ -412,7 +412,6 @@ def initialize_target_data(
             primitive_state=initial_state,
             config=simulation_config._replace(progress_bar=True),
             params=simulation_params,
-            helper_data=helper_data,
             registered_variables=registered_variables,
         )
         assert isinstance(final_state_high_res, Array)
@@ -464,7 +463,6 @@ def create_train_step(
                         network_params=network_params_arrays
                     )
                 ),
-                helper_data,
                 registered_variables,
             )
             # assert isinstance(results_low_res, Array), "results is not a snapshot data"
@@ -592,7 +590,6 @@ def plot_training(
         primitive_state=initial_state_high_res,
         config=simulation_config_high_res,
         params=simulation_params,
-        helper_data=helper_data_high_res,
         registered_variables=registered_variables,
     )
     assert isinstance(result_high_res, SnapshotData)
@@ -808,11 +805,18 @@ def initialize_model(
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    training_config = PartialCNNConfig(
-        model_name="density_cfl_08_hc_1",
-        channel_index=0,
-        c_cfl=0.8,
-        hidden_layers=1,
+    training_config = VectorFieldCNNConfig(
+        model_name="best_model",
+        vector_field="magnetic",
+        c_cfl=1.2,
+        hidden_layers=2,
+        hidden_channels=24,
+        learning_rate=8.5e-5,
+        peak_lr=0.004,
+        end_lr=3e-5,
+        warmup_steps_fraction=0.25,
+        model_initialization_scale=0.018,
+        noise_level=0.018,
         epochs=300,
     )
     print(training_config)
