@@ -63,6 +63,10 @@ class TurbulentBlast(BaseProblem):
     def t_end(self) -> float:
         return 0.4
 
+    @property
+    def dimensionalty(self) -> float:
+        return 3
+
     def get_hyperparams(self) -> dict:
         return {
             "problem_name": self.name,

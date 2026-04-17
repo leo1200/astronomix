@@ -22,6 +22,11 @@ class BaseProblem(ABC):
     def t_end(self) -> float:
         pass
 
+    @property
+    @abstractmethod
+    def dimensionality(self) -> float:
+        pass
+
     @abstractmethod
     def generate_initial_state(
         self, config: SimulationConfig, params: SimulationParams
