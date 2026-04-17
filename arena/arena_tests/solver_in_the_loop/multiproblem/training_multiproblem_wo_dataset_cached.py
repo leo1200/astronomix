@@ -100,8 +100,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 PROBLEM_NOISE_LEVELS: Dict[str, float] = {
-    "mhd_blast": 0.03,
-    "ot_vortex": 0.03,
+    "mhd_blast": 0.04,
+    "ot_vortex": 0.04,
     "turbulence": 0.00,
 }
 
