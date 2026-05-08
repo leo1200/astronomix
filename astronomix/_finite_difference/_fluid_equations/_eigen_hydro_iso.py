@@ -340,7 +340,6 @@ def _eigen_lambdas_hydro_iso(
         return jax.lax.switch(mode, [mode_minus, mode_contact, mode_contact, mode_plus])
 
 
-@partial(jax.jit, static_argnames=["registered_variables", "config"])
 def _eigen_R_col_hydro_iso(
     conserved_state,
     rhomin: Union[float, jnp.ndarray],
@@ -355,7 +354,6 @@ def _eigen_R_col_hydro_iso(
     return _eigen_R_col_hydro_iso_from_blocks(blocks, conserved_state, config, registered_variables, col)
 
 
-@partial(jax.jit, static_argnames=["registered_variables", "config"])
 def _eigen_L_row_hydro_iso(
     conserved_state,
     rhomin: Union[float, jnp.ndarray],

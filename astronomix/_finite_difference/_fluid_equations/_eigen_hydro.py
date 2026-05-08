@@ -529,7 +529,6 @@ def _eigen_lambdas_hydro(
         )
 
 
-@partial(jax.jit, static_argnames=["registered_variables", "config"])
 def _eigen_R_col_hydro(
     conserved_state,
     rhomin: Union[float, jnp.ndarray],
@@ -545,7 +544,6 @@ def _eigen_R_col_hydro(
     return _eigen_R_col_hydro_from_blocks(blocks, conserved_state, config, registered_variables, col)
 
 
-@partial(jax.jit, static_argnames=["registered_variables", "config"])
 def _eigen_L_row_hydro(
     conserved_state,
     rhomin: Union[float, jnp.ndarray],

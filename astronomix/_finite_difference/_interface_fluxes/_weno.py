@@ -80,32 +80,46 @@ import jax.numpy as jnp
 
 from astronomix._finite_difference._fluid_equations._eigen_hydro import (
     _eigen_all_lambdas_hydro,
+    _eigen_lambdas_hydro,
     _eigen_L_pairs_hydro_from_blocks,
+    _eigen_L_row_hydro,
     _eigen_L_row_hydro_from_blocks,
+    _eigen_R_col_hydro,
     _eigen_R_col_hydro_from_blocks,
     _eigen_R_pairs_hydro_from_blocks,
     _eigenvector_building_blocks as _eigen_blocks_hydro,
 )
 from astronomix._finite_difference._fluid_equations._eigen_hydro_iso import (
     _eigen_all_lambdas_hydro_iso,
+    _eigen_lambdas_hydro_iso,
     _eigen_L_pairs_hydro_iso_from_blocks,
+    _eigen_L_row_hydro_iso,
     _eigen_L_row_hydro_iso_from_blocks,
+    _eigen_R_col_hydro_iso,
     _eigen_R_col_hydro_iso_from_blocks,
     _eigen_R_pairs_hydro_iso_from_blocks,
     _eigenvector_building_blocks as _eigen_blocks_hydro_iso,
 )
 from astronomix._finite_difference._fluid_equations._eigen_mhd import (
     _eigen_all_lambdas,
+    _eigen_lambdas,
     _eigen_L_pairs_from_blocks,
+    _eigen_L_row,
     _eigen_L_row_from_blocks,
+    _eigen_L_stack_from_blocks,
+    _eigen_R_col,
     _eigen_R_col_from_blocks,
     _eigen_R_pairs_from_blocks,
+    _eigen_R_stack_from_blocks,
     _eigenvector_building_blocks as _eigen_blocks_mhd,
 )
 from astronomix._finite_difference._fluid_equations._eigen_mhd_iso import (
     _eigen_all_lambdas_iso,
+    _eigen_lambdas_iso,
     _eigen_L_pairs_iso_from_blocks,
+    _eigen_L_row_iso,
     _eigen_L_row_iso_from_blocks,
+    _eigen_R_col_iso,
     _eigen_R_col_iso_from_blocks,
     _eigen_R_pairs_iso_from_blocks,
     _eigenvector_building_blocks as _eigen_blocks_mhd_iso,
@@ -256,8 +270,131 @@ def _weno_flux_x(
                 conserved_state, rhomin, isothermal_sound_speed, config, registered_variables
             )
 
-    # Eigenvector building blocks + all eigenvalues. Computed ONCE per
-    # direction; shared by every characteristic mode.
+    # Number of characteristic modes is static.
+    if config.mhd:
+        num_modes = 6 if config.equation_of_state == ISOTHERMAL else 7
+    else:
+        num_modes = config.dimensionality + (1 if config.equation_of_state == ISOTHERMAL else 2)
+
+    # Central 5th-order stencil flux F_{i+1/2} (state-shape).
+    F_interface = (1.0 / 12.0) * (
+        -_shift(F, 1, axis=1) + 7.0 * F + 7.0 * _shift(F, -1, axis=1) - _shift(F, -2, axis=1)
+    )
+
+    if config.weno_low_memory:
+        # ----- Memory-efficient path -----
+        # Everything is computed inline in the ``lax.fori_loop`` body so
+        # nothing is hoisted as resident state across iterations: per-mode
+        # eigenvectors / eigenvalues, the F and Q shifts of the 6-cell
+        # WENO stencil, and the WENO reconstruction itself. XLA CSEs the
+        # eigen building-block computation between L_row, R_col and lambdas
+        # within a single iteration; across iterations each iteration starts
+        # from a clean slate so the working set never grows with mode count.
+        if config.dimensionality == 3:
+            proj_spec = "nxyz,nxyz->xyz"
+            bcast_spec = "nxyz,xyz->nxyz"
+        elif config.dimensionality == 2:
+            proj_spec = "nxy,nxy->xy"
+            bcast_spec = "nxy,xy->nxy"
+        else:
+            proj_spec = "nx,nx->x"
+            bcast_spec = "nx,x->nx"
+
+        def body(mode, F_current):
+            # L_row + lambdas computed first; R_col is computed at the END
+            # of the body (matching main's structure) so it doesn't share
+            # the body's peak working set with L_row + the s_k / q_k
+            # projections. This gives XLA the smallest per-iteration footprint.
+            if config.equation_of_state == IDEAL_GAS:
+                if config.mhd:
+                    lambdas_center = _eigen_lambdas(
+                        conserved_state, rhomin, pgmin, gamma, registered_variables, mode
+                    )
+                    L_row = _eigen_L_row(
+                        conserved_state, rhomin, pgmin, gamma, registered_variables, mode
+                    )
+                else:
+                    lambdas_center = _eigen_lambdas_hydro(
+                        conserved_state, rhomin, pgmin, gamma, config, registered_variables, mode
+                    )
+                    L_row = _eigen_L_row_hydro(
+                        conserved_state, rhomin, pgmin, gamma, config, registered_variables, mode
+                    )
+            else:
+                if config.mhd:
+                    lambdas_center = _eigen_lambdas_iso(
+                        conserved_state, rhomin, isothermal_sound_speed, registered_variables, mode
+                    )
+                    L_row = _eigen_L_row_iso(
+                        conserved_state, rhomin, isothermal_sound_speed, registered_variables, mode
+                    )
+                else:
+                    lambdas_center = _eigen_lambdas_hydro_iso(
+                        conserved_state, rhomin, isothermal_sound_speed, config, registered_variables, mode
+                    )
+                    L_row = _eigen_L_row_hydro_iso(
+                        conserved_state, rhomin, isothermal_sound_speed, config, registered_variables, mode
+                    )
+
+            F_p2 = _shift(F,  2, axis=1)
+            F_p1 = _shift(F,  1, axis=1)
+            F_m1 = _shift(F, -1, axis=1)
+            F_m2 = _shift(F, -2, axis=1)
+            F_m3 = _shift(F, -3, axis=1)
+
+            s0 = jnp.einsum(proj_spec, L_row, F_p2)
+            s1 = jnp.einsum(proj_spec, L_row, F_p1)
+            s2 = jnp.einsum(proj_spec, L_row, F)
+            s3 = jnp.einsum(proj_spec, L_row, F_m1)
+            s4 = jnp.einsum(proj_spec, L_row, F_m2)
+            s5 = jnp.einsum(proj_spec, L_row, F_m3)
+
+            q0 = jnp.einsum(proj_spec, L_row, _shift(conserved_state,  2, axis=1))
+            q1 = jnp.einsum(proj_spec, L_row, _shift(conserved_state,  1, axis=1))
+            q2 = jnp.einsum(proj_spec, L_row, conserved_state)
+            q3 = jnp.einsum(proj_spec, L_row, _shift(conserved_state, -1, axis=1))
+            q4 = jnp.einsum(proj_spec, L_row, _shift(conserved_state, -2, axis=1))
+            q5 = jnp.einsum(proj_spec, L_row, _shift(conserved_state, -3, axis=1))
+
+            amx = _alpha_max(lambdas_center)
+            Fs = _weno_reconstruct(
+                s1 - s0, s2 - s1, s3 - s2, s4 - s3, s5 - s4,
+                q1 - q0, q2 - q1, q3 - q2, q4 - q3, q5 - q4,
+                amx, epsilon,
+            )
+
+            # R_col last — keeps the working-set window narrow.
+            if config.equation_of_state == IDEAL_GAS:
+                if config.mhd:
+                    R_col = _eigen_R_col(
+                        conserved_state, rhomin, pgmin, gamma, registered_variables, mode
+                    )
+                else:
+                    R_col = _eigen_R_col_hydro(
+                        conserved_state, rhomin, pgmin, gamma, config, registered_variables, mode
+                    )
+            else:
+                if config.mhd:
+                    R_col = _eigen_R_col_iso(
+                        conserved_state, rhomin, isothermal_sound_speed, registered_variables, mode
+                    )
+                else:
+                    R_col = _eigen_R_col_hydro_iso(
+                        conserved_state, rhomin, isothermal_sound_speed, config, registered_variables, mode
+                    )
+            return F_current + jnp.einsum(bcast_spec, R_col, Fs)
+
+        return jax.lax.fori_loop(0, num_modes, body, F_interface)
+
+    # ----- Performance path -----
+    # Pre-differences (dF_k = F_shift_{k+1} - F_shift_k) are state-shape; each
+    # mode projects them in characteristic space. This saves one projection
+    # per mode versus projecting six absolute-value shifts.
+    #
+    # Eigenvector building blocks + all eigenvalues are hoisted out of the
+    # mode loop so the per-mode work shares them. This is the explicit speed-
+    # vs-memory trade vs the low_memory branch above (which recomputes per
+    # iteration so nothing is resident).
     if config.equation_of_state == IDEAL_GAS:
         if config.mhd:
             blocks = _eigen_blocks_mhd(
@@ -266,7 +403,6 @@ def _weno_flux_x(
             all_lambdas = _eigen_all_lambdas(
                 conserved_state, rhomin, pgmin, gamma, registered_variables
             )
-            num_modes = 7
 
             def L_pairs_fn(mode):
                 return _eigen_L_pairs_from_blocks(blocks, registered_variables, mode)
@@ -280,7 +416,6 @@ def _weno_flux_x(
             all_lambdas = _eigen_all_lambdas_hydro(
                 conserved_state, rhomin, pgmin, gamma, config, registered_variables
             )
-            num_modes = config.dimensionality + 2
 
             def L_pairs_fn(mode):
                 return _eigen_L_pairs_hydro_from_blocks(blocks, config, registered_variables, mode)
@@ -295,7 +430,6 @@ def _weno_flux_x(
             all_lambdas = _eigen_all_lambdas_iso(
                 conserved_state, rhomin, isothermal_sound_speed, registered_variables
             )
-            num_modes = 6
 
             def L_pairs_fn(mode):
                 return _eigen_L_pairs_iso_from_blocks(blocks, registered_variables, mode)
@@ -309,7 +443,6 @@ def _weno_flux_x(
             all_lambdas = _eigen_all_lambdas_hydro_iso(
                 conserved_state, rhomin, isothermal_sound_speed, config, registered_variables
             )
-            num_modes = config.dimensionality + 1
 
             def L_pairs_fn(mode):
                 return _eigen_L_pairs_hydro_iso_from_blocks(blocks, config, registered_variables, mode)
@@ -317,103 +450,6 @@ def _weno_flux_x(
             def R_pairs_fn(mode):
                 return _eigen_R_pairs_hydro_iso_from_blocks(blocks, config, registered_variables, mode)
 
-    # Central 5th-order stencil flux F_{i+1/2} (state-shape).
-    F_interface = (1.0 / 12.0) * (
-        -_shift(F, 1, axis=1) + 7.0 * F + 7.0 * _shift(F, -1, axis=1) - _shift(F, -2, axis=1)
-    )
-
-    if config.weno_low_memory:
-        # ----- Memory-efficient path -----
-        # ``lax.fori_loop`` over modes, state-shape L_row / R_col built per
-        # iteration via ``_eigen_*_from_blocks``. Six F-shifts and Q-shifts
-        # are the only pre-loop intermediates; each loop iteration's working
-        # set is bounded so XLA cannot blow up the temp memory across modes.
-        F_p2 = _shift(F,  2, axis=1)
-        F_p1 = _shift(F,  1, axis=1)
-        F_m1 = _shift(F, -1, axis=1)
-        F_m2 = _shift(F, -2, axis=1)
-        F_m3 = _shift(F, -3, axis=1)
-        Q_p2 = _shift(conserved_state,  2, axis=1)
-        Q_p1 = _shift(conserved_state,  1, axis=1)
-        Q_m1 = _shift(conserved_state, -1, axis=1)
-        Q_m2 = _shift(conserved_state, -2, axis=1)
-        Q_m3 = _shift(conserved_state, -3, axis=1)
-
-        if config.dimensionality == 3:
-            proj_spec = "nxyz,nxyz->xyz"
-            bcast_spec = "nxyz,xyz->nxyz"
-        elif config.dimensionality == 2:
-            proj_spec = "nxy,nxy->xy"
-            bcast_spec = "nxy,xy->nxy"
-        else:
-            proj_spec = "nx,nx->x"
-            bcast_spec = "nx,x->nx"
-
-        def _L_row_fn(mode):
-            if config.equation_of_state == IDEAL_GAS:
-                if config.mhd:
-                    return _eigen_L_row_from_blocks(
-                        blocks, conserved_state, registered_variables, mode
-                    )
-                return _eigen_L_row_hydro_from_blocks(
-                    blocks, conserved_state, config, registered_variables, mode
-                )
-            if config.mhd:
-                return _eigen_L_row_iso_from_blocks(
-                    blocks, conserved_state, registered_variables, mode
-                )
-            return _eigen_L_row_hydro_iso_from_blocks(
-                blocks, conserved_state, config, registered_variables, mode
-            )
-
-        def _R_col_fn(mode):
-            if config.equation_of_state == IDEAL_GAS:
-                if config.mhd:
-                    return _eigen_R_col_from_blocks(
-                        blocks, conserved_state, registered_variables, mode
-                    )
-                return _eigen_R_col_hydro_from_blocks(
-                    blocks, conserved_state, config, registered_variables, mode
-                )
-            if config.mhd:
-                return _eigen_R_col_iso_from_blocks(
-                    blocks, conserved_state, registered_variables, mode
-                )
-            return _eigen_R_col_hydro_iso_from_blocks(
-                blocks, conserved_state, config, registered_variables, mode
-            )
-
-        def body(mode, F_total):
-            L_row = _L_row_fn(mode)
-            R_col = _R_col_fn(mode)
-
-            s0 = jnp.einsum(proj_spec, L_row, F_p2)
-            s1 = jnp.einsum(proj_spec, L_row, F_p1)
-            s2 = jnp.einsum(proj_spec, L_row, F)
-            s3 = jnp.einsum(proj_spec, L_row, F_m1)
-            s4 = jnp.einsum(proj_spec, L_row, F_m2)
-            s5 = jnp.einsum(proj_spec, L_row, F_m3)
-            q0 = jnp.einsum(proj_spec, L_row, Q_p2)
-            q1 = jnp.einsum(proj_spec, L_row, Q_p1)
-            q2 = jnp.einsum(proj_spec, L_row, conserved_state)
-            q3 = jnp.einsum(proj_spec, L_row, Q_m1)
-            q4 = jnp.einsum(proj_spec, L_row, Q_m2)
-            q5 = jnp.einsum(proj_spec, L_row, Q_m3)
-
-            amx = _alpha_max(all_lambdas[mode])
-            Fs = _weno_reconstruct(
-                s1 - s0, s2 - s1, s3 - s2, s4 - s3, s5 - s4,
-                q1 - q0, q2 - q1, q3 - q2, q4 - q3, q5 - q4,
-                amx, epsilon,
-            )
-            return F_total + jnp.einsum(bcast_spec, R_col, Fs)
-
-        return jax.lax.fori_loop(0, num_modes, body, F_interface)
-
-    # ----- Performance path (Python-unrolled, manual projection, barrier) -----
-    # Pre-differences: dF_k = F_shift_{k+1} - F_shift_k. Five state-shape
-    # arrays, replacing six absolute-value shifts; makes each mode do 5
-    # projections instead of 6.
     F_p2 = _shift(F,  2, axis=1)
     F_p1 = _shift(F,  1, axis=1)
     F_m1 = _shift(F, -1, axis=1)
@@ -436,18 +472,61 @@ def _weno_flux_x(
     dQ3 = Q_m2 - Q_m1
     dQ4 = Q_m3 - Q_m2
 
-    # Per-component F_total accumulators. Untouched slots (e.g. Bx in MHD)
-    # keep their central-stencil value at reassembly time.
+    if config.mhd and config.equation_of_state == IDEAL_GAS:
+        # JAX-native path: ``lax.fori_loop`` over modes; ``lax.switch``
+        # dispatches the (K=7, *spatial) eigen helpers. dF / dQ are gathered
+        # at the K touched indices ONCE and stacked along a new leading axis,
+        # so each iteration runs ONE batched einsum per stencil-side. No
+        # Python iteration in the body, no state-shape L_row / R_col
+        # materialization.
+        rv = registered_variables
+        indices = jnp.array(
+            [
+                rv.density_index,
+                rv.momentum_index.x,
+                rv.momentum_index.y,
+                rv.momentum_index.z,
+                rv.magnetic_index.y,
+                rv.magnetic_index.z,
+                rv.energy_index,
+            ]
+        )
+        # Stack dF/dQ at the touched indices: shape (5, K, *spatial).
+        dF_stack = jnp.stack(
+            [dF0[indices], dF1[indices], dF2[indices], dF3[indices], dF4[indices]],
+            axis=0,
+        )
+        dQ_stack = jnp.stack(
+            [dQ0[indices], dQ1[indices], dQ2[indices], dQ3[indices], dQ4[indices]],
+            axis=0,
+        )
+
+        def body(mode, F_total):
+            L_stack = _eigen_L_stack_from_blocks(blocks, mode)
+            R_stack = _eigen_R_stack_from_blocks(blocks, mode)
+
+            # Batched projection: contract K, keep j (= which difference).
+            d_proj = jnp.einsum("k...,jk...->j...", L_stack, dF_stack)
+            dq_proj = jnp.einsum("k...,jk...->j...", L_stack, dQ_stack)
+
+            amx = _alpha_max(all_lambdas[mode])
+            Fs = _weno_reconstruct(
+                d_proj[0], d_proj[1], d_proj[2], d_proj[3], d_proj[4],
+                dq_proj[0], dq_proj[1], dq_proj[2], dq_proj[3], dq_proj[4],
+                amx, epsilon,
+            )
+
+            return F_total.at[indices].add(R_stack * Fs[None])
+
+        return jax.lax.fori_loop(0, num_modes, body, F_interface)
+
+    # ----- Fallback path (Python-unrolled) for non-MHD-ideal cases.
+    # TODO: extend stack helpers to mhd_iso / hydro / hydro_iso so this branch
+    # can be removed.
     touched = _touched_indices(config, registered_variables)
     F_acc = {idx: F_interface[idx] for idx in touched}
     touched_keys = list(F_acc.keys())
 
-    # Mode loop (Python-unrolled). Each iteration projects 5 dF / 5 dQ via
-    # manual component sum (no L_row tensor), computes WENO weights, and
-    # accumulates R_col * Fs into per-component buffers. The
-    # ``optimization_barrier`` between iterations caps cross-mode XLA fusion;
-    # without it the unrolled body fuses into one mega-kernel whose working
-    # set blows up.
     for mode in range(num_modes):
         L_pairs = L_pairs_fn(mode)
         R_pairs = R_pairs_fn(mode)

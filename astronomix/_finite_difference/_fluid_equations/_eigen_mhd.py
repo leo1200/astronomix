@@ -1000,7 +1000,6 @@ def _eigen_lambdas(
     )
 
 
-@partial(jax.jit, static_argnames=["registered_variables"])
 def _eigen_R_col(
     conserved_state,
     rhomin: Union[float, jnp.ndarray],
@@ -1015,7 +1014,6 @@ def _eigen_R_col(
     return _eigen_R_col_from_blocks(blocks, conserved_state, registered_variables, col)
 
 
-@partial(jax.jit, static_argnames=["registered_variables"])
 def _eigen_L_row(
     conserved_state,
     rhomin: Union[float, jnp.ndarray],
@@ -1281,3 +1279,219 @@ def _eigen_R_pairs_from_blocks(blocks, registered_variables, col: int):
                    - smw * vslow * bt_dot_v * sgn_bx), rv.energy_index),
         ]
     raise ValueError(f"Invalid col {col}")
+
+
+# ---------------------------------------------------------------------------
+# Stacked-tensor eigen helpers (JAX-native, lax.switch-friendly).
+#
+# Returns the L row / R column as a (K=7, *spatial) tensor whose K axis
+# follows the canonical order [density, mom_x, mom_y, mom_z, mag_y, mag_z,
+# energy]. The Bx slot is always zero in MHD eigenvectors and is omitted.
+# Designed for use inside lax.fori_loop / lax.scan via lax.switch on `mode`.
+# ---------------------------------------------------------------------------
+
+def _eigen_L_stack_from_blocks(blocks, mode):
+    """L row in canonical-K stacked form. ``mode`` may be a tracer."""
+    (
+        rho_interface, sqrt_rho, vx, vy, vz, vsq,
+        magnetic_x_interface, by_int, bz_int,
+        bt_y, bt_z, sgn_bx, sgn_bt,
+        cs, cs_sq, cs_sq_inv, cs_gt_alf,
+        vfast, valf, vslow,
+        fmw, smw, gam0, gam1, gam2,
+    ) = blocks
+    bt_dot_v = bt_y * vy + bt_z * vz
+
+    def row_0():  # fast minus
+        L_d  = fmw * (gam1 * vsq + vfast * vx) - smw * vslow * bt_dot_v * sgn_bx
+        L_mx = fmw * (gam0 * vx - vfast)
+        L_my = gam0 * fmw * vy + smw * vslow * bt_y * sgn_bx
+        L_mz = gam0 * fmw * vz + smw * vslow * bt_z * sgn_bx
+        L_by = gam0 * fmw * by_int + cs * smw * bt_y * sqrt_rho
+        L_bz = gam0 * fmw * bz_int + cs * smw * bt_z * sqrt_rho
+        L_e  = -gam0 * fmw
+        f = 0.5 * cs_sq_inv * jnp.where(~cs_gt_alf, sgn_bt, 1.0)
+        return jnp.stack([f * L_d, f * L_mx, f * L_my, f * L_mz, f * L_by, f * L_bz, f * L_e], axis=0)
+
+    def row_1():  # alfven minus
+        L_d  = 0.5 * (bt_z * vy - bt_y * vz)
+        L_my = -0.5 * bt_z
+        L_mz = 0.5 * bt_y
+        L_by = -0.5 * bt_z * sgn_bx * sqrt_rho
+        L_bz = 0.5 * bt_y * sgn_bx * sqrt_rho
+        zero = jnp.zeros_like(L_d)
+        return jnp.stack([L_d, zero, L_my, L_mz, L_by, L_bz, zero], axis=0)
+
+    def row_2():  # slow minus
+        L_d  = smw * (gam1 * vsq + vslow * vx) + fmw * vfast * bt_dot_v * sgn_bx
+        L_mx = gam0 * smw * vx - smw * vslow
+        L_my = gam0 * smw * vy - fmw * vfast * bt_y * sgn_bx
+        L_mz = gam0 * smw * vz - fmw * vfast * bt_z * sgn_bx
+        L_by = gam0 * smw * by_int - cs * fmw * bt_y * sqrt_rho
+        L_bz = gam0 * smw * bz_int - cs * fmw * bt_z * sqrt_rho
+        L_e  = -gam0 * smw
+        f = 0.5 * cs_sq_inv * jnp.where(cs_gt_alf, sgn_bt, 1.0)
+        return jnp.stack([f * L_d, f * L_mx, f * L_my, f * L_mz, f * L_by, f * L_bz, f * L_e], axis=0)
+
+    def row_3():  # entropy
+        f = -gam0 * cs_sq_inv
+        return jnp.stack(
+            [
+                f * (-cs_sq / gam0 - 0.5 * vsq),
+                f * vx,
+                f * vy,
+                f * vz,
+                f * by_int,
+                f * bz_int,
+                -f,
+            ],
+            axis=0,
+        )
+
+    def row_4():  # slow plus
+        L_d  = smw * (gam1 * vsq - vslow * vx) - fmw * vfast * bt_dot_v * sgn_bx
+        L_mx = smw * (gam0 * vx + vslow)
+        L_my = gam0 * smw * vy + fmw * vfast * bt_y * sgn_bx
+        L_mz = gam0 * smw * vz + fmw * vfast * bt_z * sgn_bx
+        L_by = gam0 * smw * by_int - cs * fmw * bt_y * sqrt_rho
+        L_bz = gam0 * smw * bz_int - cs * fmw * bt_z * sqrt_rho
+        L_e  = -gam0 * smw
+        f = 0.5 * cs_sq_inv * jnp.where(cs_gt_alf, sgn_bt, 1.0)
+        return jnp.stack([f * L_d, f * L_mx, f * L_my, f * L_mz, f * L_by, f * L_bz, f * L_e], axis=0)
+
+    def row_5():  # alfven plus
+        L_d  = 0.5 * (bt_z * vy - bt_y * vz)
+        L_my = -0.5 * bt_z
+        L_mz = 0.5 * bt_y
+        L_by = 0.5 * bt_z * sgn_bx * sqrt_rho
+        L_bz = -0.5 * bt_y * sgn_bx * sqrt_rho
+        zero = jnp.zeros_like(L_d)
+        return jnp.stack([L_d, zero, L_my, L_mz, L_by, L_bz, zero], axis=0)
+
+    def row_6():  # fast plus
+        L_d  = fmw * (gam1 * vsq - vfast * vx) + smw * vslow * bt_dot_v * sgn_bx
+        L_mx = fmw * (gam0 * vx + vfast)
+        L_my = gam0 * fmw * vy - smw * vslow * bt_y * sgn_bx
+        L_mz = gam0 * fmw * vz - smw * vslow * bt_z * sgn_bx
+        L_by = gam0 * fmw * by_int + cs * smw * bt_y * sqrt_rho
+        L_bz = gam0 * fmw * bz_int + cs * smw * bt_z * sqrt_rho
+        L_e  = -gam0 * fmw
+        f = 0.5 * cs_sq_inv * jnp.where(~cs_gt_alf, sgn_bt, 1.0)
+        return jnp.stack([f * L_d, f * L_mx, f * L_my, f * L_mz, f * L_by, f * L_bz, f * L_e], axis=0)
+
+    return jax.lax.switch(mode, [row_0, row_1, row_2, row_3, row_4, row_5, row_6])
+
+
+def _eigen_R_stack_from_blocks(blocks, mode):
+    """R column in canonical-K stacked form. ``mode`` may be a tracer."""
+    (
+        rho_interface, sqrt_rho, vx, vy, vz, vsq,
+        magnetic_x_interface, by_int, bz_int,
+        bt_y, bt_z, sgn_bx, sgn_bt,
+        cs, cs_sq, cs_sq_inv, cs_gt_alf,
+        vfast, valf, vslow,
+        fmw, smw, gam0, gam1, gam2,
+    ) = blocks
+    bt_dot_v = bt_y * vy + bt_z * vz
+    inv_sqrt_rho = 1.0 / sqrt_rho
+
+    def col_0():  # fast minus
+        sb = jnp.where(~cs_gt_alf, sgn_bt, 1.0)
+        return jnp.stack(
+            [
+                sb * fmw,
+                sb * fmw * (vx - vfast),
+                sb * (fmw * vy + smw * vslow * bt_y * sgn_bx),
+                sb * (fmw * vz + smw * vslow * bt_z * sgn_bx),
+                sb * cs * smw * bt_y * inv_sqrt_rho,
+                sb * cs * smw * bt_z * inv_sqrt_rho,
+                sb * (fmw * (vfast * vfast - vfast * vx + 0.5 * vsq - gam2 * cs_sq)
+                      + smw * vslow * bt_dot_v * sgn_bx),
+            ],
+            axis=0,
+        )
+
+    def col_1():  # alfven minus
+        zero = jnp.zeros_like(bt_y)
+        return jnp.stack(
+            [
+                zero,
+                zero,
+                -bt_z,
+                bt_y,
+                -bt_z * sgn_bx * inv_sqrt_rho,
+                bt_y * sgn_bx * inv_sqrt_rho,
+                bt_y * vz - bt_z * vy,
+            ],
+            axis=0,
+        )
+
+    def col_2():  # slow minus
+        sb = jnp.where(cs_gt_alf, sgn_bt, 1.0)
+        return jnp.stack(
+            [
+                sb * smw,
+                sb * smw * (vx - vslow),
+                sb * (smw * vy - fmw * vfast * bt_y * sgn_bx),
+                sb * (smw * vz - fmw * vfast * bt_z * sgn_bx),
+                -sb * cs * fmw * bt_y * inv_sqrt_rho,
+                -sb * cs * fmw * bt_z * inv_sqrt_rho,
+                sb * (smw * (vslow * vslow - vslow * vx + 0.5 * vsq - gam2 * cs_sq)
+                      - fmw * vfast * bt_dot_v * sgn_bx),
+            ],
+            axis=0,
+        )
+
+    def col_3():  # entropy
+        one = jnp.ones_like(vx)
+        zero = jnp.zeros_like(vx)
+        return jnp.stack([one, vx, vy, vz, zero, zero, 0.5 * vsq], axis=0)
+
+    def col_4():  # slow plus
+        sb = jnp.where(cs_gt_alf, sgn_bt, 1.0)
+        return jnp.stack(
+            [
+                sb * smw,
+                sb * smw * (vx + vslow),
+                sb * (smw * vy + fmw * vfast * bt_y * sgn_bx),
+                sb * (smw * vz + fmw * vfast * bt_z * sgn_bx),
+                -sb * cs * fmw * bt_y * inv_sqrt_rho,
+                -sb * cs * fmw * bt_z * inv_sqrt_rho,
+                sb * (smw * (vslow * vslow + vslow * vx + 0.5 * vsq - gam2 * cs_sq)
+                      + fmw * vfast * bt_dot_v * sgn_bx),
+            ],
+            axis=0,
+        )
+
+    def col_5():  # alfven plus
+        zero = jnp.zeros_like(bt_y)
+        return jnp.stack(
+            [
+                zero,
+                zero,
+                -bt_z,
+                bt_y,
+                bt_z * sgn_bx * inv_sqrt_rho,
+                -bt_y * sgn_bx * inv_sqrt_rho,
+                bt_y * vz - bt_z * vy,
+            ],
+            axis=0,
+        )
+
+    def col_6():  # fast plus
+        sb = jnp.where(~cs_gt_alf, sgn_bt, 1.0)
+        return jnp.stack(
+            [
+                sb * fmw,
+                sb * fmw * (vx + vfast),
+                sb * (fmw * vy - smw * vslow * bt_y * sgn_bx),
+                sb * (fmw * vz - smw * vslow * bt_z * sgn_bx),
+                sb * cs * smw * bt_y * inv_sqrt_rho,
+                sb * cs * smw * bt_z * inv_sqrt_rho,
+                sb * (fmw * (vfast * vfast + vfast * vx + 0.5 * vsq - gam2 * cs_sq)
+                      - smw * vslow * bt_dot_v * sgn_bx),
+            ],
+            axis=0,
+        )
+
+    return jax.lax.switch(mode, [col_0, col_1, col_2, col_3, col_4, col_5, col_6])

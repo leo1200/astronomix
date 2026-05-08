@@ -757,7 +757,6 @@ def _eigen_lambdas_iso(
     )
 
 
-@partial(jax.jit, static_argnames=["registered_variables"])
 def _eigen_R_col_iso(
     conserved_state,
     rhomin: Union[float, jnp.ndarray],
@@ -771,7 +770,6 @@ def _eigen_R_col_iso(
     return _eigen_R_col_iso_from_blocks(blocks, conserved_state, registered_variables, col)
 
 
-@partial(jax.jit, static_argnames=["registered_variables"])
 def _eigen_L_row_iso(
     conserved_state,
     rhomin: Union[float, jnp.ndarray],
