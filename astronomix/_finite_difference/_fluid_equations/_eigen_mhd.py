@@ -361,11 +361,9 @@ def _eigenvector_building_blocks(
 
 
 @partial(jax.jit, static_argnames=["registered_variables"])
-def _eigen_R_col(
+def _eigen_R_col_from_blocks(
+    blocks,
     conserved_state,
-    rhomin: Union[float, jnp.ndarray],
-    pgmin: Union[float, jnp.ndarray],
-    gamma: Union[float, jnp.ndarray],
     registered_variables: RegisteredVariables,
     col: int,
 ):
@@ -395,13 +393,7 @@ def _eigen_R_col(
         gam0,
         gam1,
         gam2,
-    ) = _eigenvector_building_blocks(
-        conserved_state,
-        gamma,
-        rhomin,
-        pgmin,
-        registered_variables,
-    )
+    ) = blocks
 
     # shorter names for registry indices
     density_index = registered_variables.density_index
@@ -646,11 +638,9 @@ def _eigen_R_col(
 
 
 @partial(jax.jit, static_argnames=["registered_variables"])
-def _eigen_L_row(
+def _eigen_L_row_from_blocks(
+    blocks,
     conserved_state,
-    rhomin: Union[float, jnp.ndarray],
-    pgmin: Union[float, jnp.ndarray],
-    gamma: Union[float, jnp.ndarray],
     registered_variables: RegisteredVariables,
     row: int,
 ):
@@ -680,13 +670,7 @@ def _eigen_L_row(
         gam0,
         gam1,
         gam2,
-    ) = _eigenvector_building_blocks(
-        conserved_state,
-        gamma,
-        rhomin,
-        pgmin,
-        registered_variables,
-    )
+    ) = blocks
 
     # shorter names for registry indices
     density_index = registered_variables.density_index
@@ -1014,3 +998,286 @@ def _eigen_lambdas(
     return jax.lax.switch(
         mode, [mode_0, mode_1, mode_2, mode_3, mode_4, mode_5, mode_6]
     )
+
+
+@partial(jax.jit, static_argnames=["registered_variables"])
+def _eigen_R_col(
+    conserved_state,
+    rhomin: Union[float, jnp.ndarray],
+    pgmin: Union[float, jnp.ndarray],
+    gamma: Union[float, jnp.ndarray],
+    registered_variables: RegisteredVariables,
+    col: int,
+):
+    blocks = _eigenvector_building_blocks(
+        conserved_state, gamma, rhomin, pgmin, registered_variables
+    )
+    return _eigen_R_col_from_blocks(blocks, conserved_state, registered_variables, col)
+
+
+@partial(jax.jit, static_argnames=["registered_variables"])
+def _eigen_L_row(
+    conserved_state,
+    rhomin: Union[float, jnp.ndarray],
+    pgmin: Union[float, jnp.ndarray],
+    gamma: Union[float, jnp.ndarray],
+    registered_variables: RegisteredVariables,
+    row: int,
+):
+    blocks = _eigenvector_building_blocks(
+        conserved_state, gamma, rhomin, pgmin, registered_variables
+    )
+    return _eigen_L_row_from_blocks(blocks, conserved_state, registered_variables, row)
+
+
+# ---------------------------------------------------------------------------
+# Component-tuple eigen helpers (no state-shape tensor materialization).
+#
+# These return lists of (scalar_field, var_index) for the nonzero entries of
+# the row-th L or col-th R, instead of building a full (num_vars, *spatial)
+# array. The WENO loop projects manually as sum_k field_k * X[idx_k].
+# ---------------------------------------------------------------------------
+
+def _eigen_L_pairs_from_blocks(blocks, registered_variables, row: int):
+    (
+        rho_interface,
+        sqrt_rho,
+        vx,
+        vy,
+        vz,
+        vsq,
+        magnetic_x_interface,
+        by_int,
+        bz_int,
+        bt_y,
+        bt_z,
+        sgn_bx,
+        sgn_bt,
+        cs,
+        cs_sq,
+        cs_sq_inv,
+        cs_gt_alf,
+        vfast,
+        valf,
+        vslow,
+        fmw,
+        smw,
+        gam0,
+        gam1,
+        gam2,
+    ) = blocks
+
+    rv = registered_variables
+    bt_dot_v = bt_y * vy + bt_z * vz
+
+    if row == 0:  # fast minus
+        L_d  = fmw * (gam1 * vsq + vfast * vx) - smw * vslow * bt_dot_v * sgn_bx
+        L_mx = fmw * (gam0 * vx - vfast)
+        L_my = gam0 * fmw * vy + smw * vslow * bt_y * sgn_bx
+        L_mz = gam0 * fmw * vz + smw * vslow * bt_z * sgn_bx
+        L_by = gam0 * fmw * by_int + cs * smw * bt_y * sqrt_rho
+        L_bz = gam0 * fmw * bz_int + cs * smw * bt_z * sqrt_rho
+        L_e  = -gam0 * fmw
+        factor = 0.5 * cs_sq_inv * jnp.where(~cs_gt_alf, sgn_bt, 1.0)
+        return [
+            (L_d  * factor, rv.density_index),
+            (L_mx * factor, rv.momentum_index.x),
+            (L_my * factor, rv.momentum_index.y),
+            (L_mz * factor, rv.momentum_index.z),
+            (L_by * factor, rv.magnetic_index.y),
+            (L_bz * factor, rv.magnetic_index.z),
+            (L_e  * factor, rv.energy_index),
+        ]
+    if row == 1:  # alfven minus
+        h = 0.5
+        return [
+            (h * (bt_z * vy - bt_y * vz), rv.density_index),
+            (-h * bt_z, rv.momentum_index.y),
+            (h * bt_y, rv.momentum_index.z),
+            (-h * bt_z * sgn_bx * sqrt_rho, rv.magnetic_index.y),
+            (h * bt_y * sgn_bx * sqrt_rho, rv.magnetic_index.z),
+        ]
+    if row == 2:  # slow minus
+        L_d  = smw * (gam1 * vsq + vslow * vx) + fmw * vfast * bt_dot_v * sgn_bx
+        L_mx = gam0 * smw * vx - smw * vslow
+        L_my = gam0 * smw * vy - fmw * vfast * bt_y * sgn_bx
+        L_mz = gam0 * smw * vz - fmw * vfast * bt_z * sgn_bx
+        L_by = gam0 * smw * by_int - cs * fmw * bt_y * sqrt_rho
+        L_bz = gam0 * smw * bz_int - cs * fmw * bt_z * sqrt_rho
+        L_e  = -gam0 * smw
+        factor = 0.5 * cs_sq_inv * jnp.where(cs_gt_alf, sgn_bt, 1.0)
+        return [
+            (L_d  * factor, rv.density_index),
+            (L_mx * factor, rv.momentum_index.x),
+            (L_my * factor, rv.momentum_index.y),
+            (L_mz * factor, rv.momentum_index.z),
+            (L_by * factor, rv.magnetic_index.y),
+            (L_bz * factor, rv.magnetic_index.z),
+            (L_e  * factor, rv.energy_index),
+        ]
+    if row == 3:  # entropy
+        # L = -gam0 * L_raw * cs_sq_inv
+        f = -gam0 * cs_sq_inv
+        return [
+            (f * (-cs_sq / gam0 - 0.5 * vsq), rv.density_index),
+            (f * vx, rv.momentum_index.x),
+            (f * vy, rv.momentum_index.y),
+            (f * vz, rv.momentum_index.z),
+            (f * by_int, rv.magnetic_index.y),
+            (f * bz_int, rv.magnetic_index.z),
+            (-f, rv.energy_index),
+        ]
+    if row == 4:  # slow plus
+        L_d  = smw * (gam1 * vsq - vslow * vx) - fmw * vfast * bt_dot_v * sgn_bx
+        L_mx = smw * (gam0 * vx + vslow)
+        L_my = gam0 * smw * vy + fmw * vfast * bt_y * sgn_bx
+        L_mz = gam0 * smw * vz + fmw * vfast * bt_z * sgn_bx
+        L_by = gam0 * smw * by_int - cs * fmw * bt_y * sqrt_rho
+        L_bz = gam0 * smw * bz_int - cs * fmw * bt_z * sqrt_rho
+        L_e  = -gam0 * smw
+        factor = 0.5 * cs_sq_inv * jnp.where(cs_gt_alf, sgn_bt, 1.0)
+        return [
+            (L_d  * factor, rv.density_index),
+            (L_mx * factor, rv.momentum_index.x),
+            (L_my * factor, rv.momentum_index.y),
+            (L_mz * factor, rv.momentum_index.z),
+            (L_by * factor, rv.magnetic_index.y),
+            (L_bz * factor, rv.magnetic_index.z),
+            (L_e  * factor, rv.energy_index),
+        ]
+    if row == 5:  # alfven plus
+        h = 0.5
+        return [
+            (h * (bt_z * vy - bt_y * vz), rv.density_index),
+            (-h * bt_z, rv.momentum_index.y),
+            (h * bt_y, rv.momentum_index.z),
+            (h * bt_z * sgn_bx * sqrt_rho, rv.magnetic_index.y),
+            (-h * bt_y * sgn_bx * sqrt_rho, rv.magnetic_index.z),
+        ]
+    if row == 6:  # fast plus
+        L_d  = fmw * (gam1 * vsq - vfast * vx) + smw * vslow * bt_dot_v * sgn_bx
+        L_mx = fmw * (gam0 * vx + vfast)
+        L_my = gam0 * fmw * vy - smw * vslow * bt_y * sgn_bx
+        L_mz = gam0 * fmw * vz - smw * vslow * bt_z * sgn_bx
+        L_by = gam0 * fmw * by_int + cs * smw * bt_y * sqrt_rho
+        L_bz = gam0 * fmw * bz_int + cs * smw * bt_z * sqrt_rho
+        L_e  = -gam0 * fmw
+        factor = 0.5 * cs_sq_inv * jnp.where(~cs_gt_alf, sgn_bt, 1.0)
+        return [
+            (L_d  * factor, rv.density_index),
+            (L_mx * factor, rv.momentum_index.x),
+            (L_my * factor, rv.momentum_index.y),
+            (L_mz * factor, rv.momentum_index.z),
+            (L_by * factor, rv.magnetic_index.y),
+            (L_bz * factor, rv.magnetic_index.z),
+            (L_e  * factor, rv.energy_index),
+        ]
+    raise ValueError(f"Invalid row {row}")
+
+
+def _eigen_R_pairs_from_blocks(blocks, registered_variables, col: int):
+    (
+        rho_interface,
+        sqrt_rho,
+        vx,
+        vy,
+        vz,
+        vsq,
+        magnetic_x_interface,
+        by_int,
+        bz_int,
+        bt_y,
+        bt_z,
+        sgn_bx,
+        sgn_bt,
+        cs,
+        cs_sq,
+        cs_sq_inv,
+        cs_gt_alf,
+        vfast,
+        valf,
+        vslow,
+        fmw,
+        smw,
+        gam0,
+        gam1,
+        gam2,
+    ) = blocks
+
+    rv = registered_variables
+    bt_dot_v = bt_y * vy + bt_z * vz
+    inv_sqrt_rho = 1.0 / sqrt_rho
+
+    if col == 0:  # fast minus
+        sb = jnp.where(~cs_gt_alf, sgn_bt, 1.0)
+        return [
+            (sb * fmw, rv.density_index),
+            (sb * fmw * (vx - vfast), rv.momentum_index.x),
+            (sb * (fmw * vy + smw * vslow * bt_y * sgn_bx), rv.momentum_index.y),
+            (sb * (fmw * vz + smw * vslow * bt_z * sgn_bx), rv.momentum_index.z),
+            (sb * cs * smw * bt_y * inv_sqrt_rho, rv.magnetic_index.y),
+            (sb * cs * smw * bt_z * inv_sqrt_rho, rv.magnetic_index.z),
+            (sb * (fmw * (vfast * vfast - vfast * vx + 0.5 * vsq - gam2 * cs_sq)
+                   + smw * vslow * bt_dot_v * sgn_bx), rv.energy_index),
+        ]
+    if col == 1:  # alfven minus
+        return [
+            (-bt_z, rv.momentum_index.y),
+            (bt_y, rv.momentum_index.z),
+            (-bt_z * sgn_bx * inv_sqrt_rho, rv.magnetic_index.y),
+            (bt_y * sgn_bx * inv_sqrt_rho, rv.magnetic_index.z),
+            (bt_y * vz - bt_z * vy, rv.energy_index),
+        ]
+    if col == 2:  # slow minus
+        sb = jnp.where(cs_gt_alf, sgn_bt, 1.0)
+        return [
+            (sb * smw, rv.density_index),
+            (sb * smw * (vx - vslow), rv.momentum_index.x),
+            (sb * (smw * vy - fmw * vfast * bt_y * sgn_bx), rv.momentum_index.y),
+            (sb * (smw * vz - fmw * vfast * bt_z * sgn_bx), rv.momentum_index.z),
+            (-sb * cs * fmw * bt_y * inv_sqrt_rho, rv.magnetic_index.y),
+            (-sb * cs * fmw * bt_z * inv_sqrt_rho, rv.magnetic_index.z),
+            (sb * (smw * (vslow * vslow - vslow * vx + 0.5 * vsq - gam2 * cs_sq)
+                   - fmw * vfast * bt_dot_v * sgn_bx), rv.energy_index),
+        ]
+    if col == 3:  # entropy
+        return [
+            (1.0, rv.density_index),
+            (vx, rv.momentum_index.x),
+            (vy, rv.momentum_index.y),
+            (vz, rv.momentum_index.z),
+            (0.5 * vsq, rv.energy_index),
+        ]
+    if col == 4:  # slow plus
+        sb = jnp.where(cs_gt_alf, sgn_bt, 1.0)
+        return [
+            (sb * smw, rv.density_index),
+            (sb * smw * (vx + vslow), rv.momentum_index.x),
+            (sb * (smw * vy + fmw * vfast * bt_y * sgn_bx), rv.momentum_index.y),
+            (sb * (smw * vz + fmw * vfast * bt_z * sgn_bx), rv.momentum_index.z),
+            (-sb * cs * fmw * bt_y * inv_sqrt_rho, rv.magnetic_index.y),
+            (-sb * cs * fmw * bt_z * inv_sqrt_rho, rv.magnetic_index.z),
+            (sb * (smw * (vslow * vslow + vslow * vx + 0.5 * vsq - gam2 * cs_sq)
+                   + fmw * vfast * bt_dot_v * sgn_bx), rv.energy_index),
+        ]
+    if col == 5:  # alfven plus
+        return [
+            (-bt_z, rv.momentum_index.y),
+            (bt_y, rv.momentum_index.z),
+            (bt_z * sgn_bx * inv_sqrt_rho, rv.magnetic_index.y),
+            (-bt_y * sgn_bx * inv_sqrt_rho, rv.magnetic_index.z),
+            (bt_y * vz - bt_z * vy, rv.energy_index),
+        ]
+    if col == 6:  # fast plus
+        sb = jnp.where(~cs_gt_alf, sgn_bt, 1.0)
+        return [
+            (sb * fmw, rv.density_index),
+            (sb * fmw * (vx + vfast), rv.momentum_index.x),
+            (sb * (fmw * vy - smw * vslow * bt_y * sgn_bx), rv.momentum_index.y),
+            (sb * (fmw * vz - smw * vslow * bt_z * sgn_bx), rv.momentum_index.z),
+            (sb * cs * smw * bt_y * inv_sqrt_rho, rv.magnetic_index.y),
+            (sb * cs * smw * bt_z * inv_sqrt_rho, rv.magnetic_index.z),
+            (sb * (fmw * (vfast * vfast + vfast * vx + 0.5 * vsq - gam2 * cs_sq)
+                   - smw * vslow * bt_dot_v * sgn_bx), rv.energy_index),
+        ]
+    raise ValueError(f"Invalid col {col}")

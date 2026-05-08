@@ -309,6 +309,15 @@ class SimulationConfig(NamedTuple):
     #: Only for finite volume mode.
     riemann_solver: int = HLL
 
+    #: Memory-efficient finite-difference WENO path. When True the WENO loop
+    #: uses the in-place ``_eigen_{L,R}_*_from_blocks`` helpers and
+    #: ``lax.fori_loop`` over modes — lower temp memory but slower. When False
+    #: (the default) the loop is Python-unrolled and uses component-tuple
+    #: eigen helpers + cross-mode optimization barriers — faster but ~50%
+    #: more compiled temp memory at typical resolutions. Only affects
+    #: ``solver_mode == FINITE_DIFFERENCE``.
+    weno_low_memory: bool = False
+
     #: Dimensional splitting / unsplit mode.
     #: Note that the UNSPLIT scheme currently
     #: interferes with energy conservation in settings

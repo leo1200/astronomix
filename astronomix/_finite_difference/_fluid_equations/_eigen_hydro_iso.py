@@ -124,10 +124,9 @@ def _eigenvector_building_blocks(
 
 
 @partial(jax.jit, static_argnames=["registered_variables", "config"])
-def _eigen_R_col_hydro_iso(
+def _eigen_R_col_hydro_iso_from_blocks(
+    blocks,
     conserved_state,
-    rhomin: Union[float, jnp.ndarray],
-    sound_speed: Union[float, jnp.ndarray],
     config: SimulationConfig,
     registered_variables: RegisteredVariables,
     col: int,
@@ -139,9 +138,7 @@ def _eigen_R_col_hydro_iso(
         cs,
         cs2,
         cs2_inverse,
-    ) = _eigenvector_building_blocks(
-        conserved_state, sound_speed, rhomin, config, registered_variables,
-    )
+    ) = blocks
 
     density_index = registered_variables.density_index
 
@@ -210,10 +207,9 @@ def _eigen_R_col_hydro_iso(
 
 
 @partial(jax.jit, static_argnames=["registered_variables", "config"])
-def _eigen_L_row_hydro_iso(
+def _eigen_L_row_hydro_iso_from_blocks(
+    blocks,
     conserved_state,
-    rhomin: Union[float, jnp.ndarray],
-    sound_speed: Union[float, jnp.ndarray],
     config: SimulationConfig,
     registered_variables: RegisteredVariables,
     row: int,
@@ -225,9 +221,7 @@ def _eigen_L_row_hydro_iso(
         cs,
         cs2,
         cs2_inverse,
-    ) = _eigenvector_building_blocks(
-        conserved_state, sound_speed, rhomin, config, registered_variables,
-    )
+    ) = blocks
 
     density_index = registered_variables.density_index
 
@@ -344,3 +338,127 @@ def _eigen_lambdas_hydro_iso(
         return jax.lax.switch(mode, [mode_minus, mode_contact, mode_plus])
     if config.dimensionality == 3:
         return jax.lax.switch(mode, [mode_minus, mode_contact, mode_contact, mode_plus])
+
+
+@partial(jax.jit, static_argnames=["registered_variables", "config"])
+def _eigen_R_col_hydro_iso(
+    conserved_state,
+    rhomin: Union[float, jnp.ndarray],
+    sound_speed: Union[float, jnp.ndarray],
+    config: SimulationConfig,
+    registered_variables: RegisteredVariables,
+    col: int,
+):
+    blocks = _eigenvector_building_blocks(
+        conserved_state, sound_speed, rhomin, config, registered_variables
+    )
+    return _eigen_R_col_hydro_iso_from_blocks(blocks, conserved_state, config, registered_variables, col)
+
+
+@partial(jax.jit, static_argnames=["registered_variables", "config"])
+def _eigen_L_row_hydro_iso(
+    conserved_state,
+    rhomin: Union[float, jnp.ndarray],
+    sound_speed: Union[float, jnp.ndarray],
+    config: SimulationConfig,
+    registered_variables: RegisteredVariables,
+    row: int,
+):
+    blocks = _eigenvector_building_blocks(
+        conserved_state, sound_speed, rhomin, config, registered_variables
+    )
+    return _eigen_L_row_hydro_iso_from_blocks(blocks, conserved_state, config, registered_variables, row)
+
+
+# ---------------------------------------------------------------------------
+# Component-tuple eigen helpers (no state-shape tensor materialization).
+# Iso hydro: 1D=2 modes, 2D=3, 3D=4. WENO mode index → row index:
+#   1D: [0, 3]    (u-cs, u+cs)
+#   2D: [0, 1, 3] (u-cs, shear-y, u+cs)
+#   3D: [0, 1, 2, 3] (u-cs, shear-y, shear-z, u+cs)
+# ---------------------------------------------------------------------------
+
+def _hydro_iso_indices(config, registered_variables):
+    rv = registered_variables
+    d_idx = rv.density_index
+    if config.dimensionality == 1:
+        mx_idx = rv.momentum_index
+    else:
+        mx_idx = rv.momentum_index.x
+    my_idx = rv.momentum_index.y if config.dimensionality >= 2 else None
+    mz_idx = rv.momentum_index.z if config.dimensionality == 3 else None
+    return d_idx, mx_idx, my_idx, mz_idx
+
+
+def _hydro_iso_row_for_mode(config, mode):
+    if config.dimensionality == 1:
+        return [0, 3][mode]
+    if config.dimensionality == 2:
+        return [0, 1, 3][mode]
+    return [0, 1, 2, 3][mode]
+
+
+def _eigen_L_pairs_hydro_iso_from_blocks(blocks, config, registered_variables, mode: int):
+    (vx, vy, vz, cs, cs2, cs2_inv) = blocks
+    d_idx, mx_idx, my_idx, mz_idx = _hydro_iso_indices(config, registered_variables)
+    row = _hydro_iso_row_for_mode(config, mode)
+
+    if row == 0:  # u - cs
+        f = 0.5 * cs2_inv
+        return [
+            (f * (cs2 + vx * cs), d_idx),
+            (-f * cs, mx_idx),
+        ]
+    if row == 1:  # shear y
+        return [
+            (-vy, d_idx),
+            (1.0, my_idx),
+        ]
+    if row == 2:  # shear z
+        return [
+            (-vz, d_idx),
+            (1.0, mz_idx),
+        ]
+    if row == 3:  # u + cs
+        f = 0.5 * cs2_inv
+        return [
+            (f * (cs2 - vx * cs), d_idx),
+            (f * cs, mx_idx),
+        ]
+    raise ValueError(f"Invalid row {row}")
+
+
+def _eigen_R_pairs_hydro_iso_from_blocks(blocks, config, registered_variables, mode: int):
+    (vx, vy, vz, cs, cs2, cs2_inv) = blocks
+    d_idx, mx_idx, my_idx, mz_idx = _hydro_iso_indices(config, registered_variables)
+    col = _hydro_iso_row_for_mode(config, mode)
+
+    if col == 0:  # u - cs
+        pairs = [
+            (1.0, d_idx),
+            (vx - cs, mx_idx),
+        ]
+        if config.dimensionality >= 2:
+            pairs.append((vy, my_idx))
+        if config.dimensionality == 3:
+            pairs.append((vz, mz_idx))
+        return pairs
+    if col == 1:  # shear y
+        return [
+            (1.0, my_idx),
+        ]
+    if col == 2:  # shear z
+        return [
+            (1.0, mz_idx),
+        ]
+    if col == 3:  # u + cs
+        pairs = [
+            (1.0, d_idx),
+            (vx + cs, mx_idx),
+        ]
+        if config.dimensionality >= 2:
+            pairs.append((vy, my_idx))
+        if config.dimensionality == 3:
+            pairs.append((vz, mz_idx))
+        return pairs
+    raise ValueError(f"Invalid col {col}")

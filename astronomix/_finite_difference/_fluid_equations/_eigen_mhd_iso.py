@@ -264,10 +264,9 @@ def _eigenvector_building_blocks(
 
 
 @partial(jax.jit, static_argnames=["registered_variables"])
-def _eigen_R_col_iso(
+def _eigen_R_col_iso_from_blocks(
+    blocks,
     conserved_state,
-    rhomin: Union[float, jnp.ndarray],
-    sound_speed: Union[float, jnp.ndarray],
     registered_variables: RegisteredVariables,
     col: int,
 ):
@@ -293,12 +292,7 @@ def _eigen_R_col_iso(
         slow_magnetosonic_velocity_interface,
         fast_mode_weighting,
         slow_mode_weighting,
-    ) = _eigenvector_building_blocks(
-        conserved_state,
-        sound_speed,
-        rhomin,
-        registered_variables,
-    )
+    ) = blocks
 
     # shorter names for registry indices
     density_index = registered_variables.density_index
@@ -460,10 +454,9 @@ def _eigen_R_col_iso(
 
 
 @partial(jax.jit, static_argnames=["registered_variables"])
-def _eigen_L_row_iso(
+def _eigen_L_row_iso_from_blocks(
+    blocks,
     conserved_state,
-    rhomin: Union[float, jnp.ndarray],
-    sound_speed: Union[float, jnp.ndarray],
     registered_variables: RegisteredVariables,
     row: int,
 ):
@@ -489,12 +482,7 @@ def _eigen_L_row_iso(
         slow_magnetosonic_velocity_interface,
         fast_mode_weighting,
         slow_mode_weighting,
-    ) = _eigenvector_building_blocks(
-        conserved_state,
-        sound_speed,
-        rhomin,
-        registered_variables,
-    )
+    ) = blocks
 
     # shorter names for registry indices
     density_index = registered_variables.density_index
@@ -767,3 +755,234 @@ def _eigen_lambdas_iso(
     return jax.lax.switch(
         mode, [mode_0, mode_1, mode_2, mode_3, mode_4, mode_5]
     )
+
+
+@partial(jax.jit, static_argnames=["registered_variables"])
+def _eigen_R_col_iso(
+    conserved_state,
+    rhomin: Union[float, jnp.ndarray],
+    sound_speed: Union[float, jnp.ndarray],
+    registered_variables: RegisteredVariables,
+    col: int,
+):
+    blocks = _eigenvector_building_blocks(
+        conserved_state, sound_speed, rhomin, registered_variables
+    )
+    return _eigen_R_col_iso_from_blocks(blocks, conserved_state, registered_variables, col)
+
+
+@partial(jax.jit, static_argnames=["registered_variables"])
+def _eigen_L_row_iso(
+    conserved_state,
+    rhomin: Union[float, jnp.ndarray],
+    sound_speed: Union[float, jnp.ndarray],
+    registered_variables: RegisteredVariables,
+    row: int,
+):
+    blocks = _eigenvector_building_blocks(
+        conserved_state, sound_speed, rhomin, registered_variables
+    )
+    return _eigen_L_row_iso_from_blocks(blocks, conserved_state, registered_variables, row)
+
+
+# ---------------------------------------------------------------------------
+# Component-tuple eigen helpers (no state-shape tensor materialization).
+# Iso MHD has 6 modes (0=fast-, 1=alfven-, 2=slow-, 3=slow+, 4=alfven+, 5=fast+).
+# ---------------------------------------------------------------------------
+
+def _eigen_L_pairs_iso_from_blocks(blocks, registered_variables, row: int):
+    (
+        rho_interface,
+        sqrt_rho,
+        vx,
+        vy,
+        vz,
+        magnetic_x_interface,
+        by_int,
+        bz_int,
+        bt_y,
+        bt_z,
+        sgn_bx,
+        sgn_bt,
+        cs,
+        cs2,
+        cs2_inv,
+        cs_gt_alf,
+        vfast,
+        valf,
+        vslow,
+        fmw,
+        smw,
+    ) = blocks
+
+    rv = registered_variables
+    bt_dot_v = bt_y * vy + bt_z * vz
+
+    if row == 0:  # fast minus
+        L_d  = fmw * (cs2 + vfast * vx) - smw * vslow * bt_dot_v * sgn_bx
+        L_mx = -fmw * vfast
+        L_my = smw * vslow * bt_y * sgn_bx
+        L_mz = smw * vslow * bt_z * sgn_bx
+        L_by = cs * smw * bt_y * sqrt_rho
+        L_bz = cs * smw * bt_z * sqrt_rho
+        f = 0.5 * cs2_inv * jnp.where(~cs_gt_alf, sgn_bt, 1.0)
+        return [
+            (L_d * f, rv.density_index),
+            (L_mx * f, rv.momentum_index.x),
+            (L_my * f, rv.momentum_index.y),
+            (L_mz * f, rv.momentum_index.z),
+            (L_by * f, rv.magnetic_index.y),
+            (L_bz * f, rv.magnetic_index.z),
+        ]
+    if row == 1:  # alfven minus
+        h = 0.5
+        return [
+            (h * (bt_z * vy - bt_y * vz), rv.density_index),
+            (-h * bt_z, rv.momentum_index.y),
+            (h * bt_y, rv.momentum_index.z),
+            (-h * bt_z * sgn_bx * sqrt_rho, rv.magnetic_index.y),
+            (h * bt_y * sgn_bx * sqrt_rho, rv.magnetic_index.z),
+        ]
+    if row == 2:  # slow minus
+        L_d  = smw * (cs2 + vslow * vx) + fmw * vfast * bt_dot_v * sgn_bx
+        L_mx = -smw * vslow
+        L_my = -fmw * vfast * bt_y * sgn_bx
+        L_mz = -fmw * vfast * bt_z * sgn_bx
+        L_by = -cs * fmw * bt_y * sqrt_rho
+        L_bz = -cs * fmw * bt_z * sqrt_rho
+        f = 0.5 * cs2_inv * jnp.where(cs_gt_alf, sgn_bt, 1.0)
+        return [
+            (L_d * f, rv.density_index),
+            (L_mx * f, rv.momentum_index.x),
+            (L_my * f, rv.momentum_index.y),
+            (L_mz * f, rv.momentum_index.z),
+            (L_by * f, rv.magnetic_index.y),
+            (L_bz * f, rv.magnetic_index.z),
+        ]
+    if row == 3:  # slow plus
+        L_d  = smw * (cs2 - vslow * vx) - fmw * vfast * bt_dot_v * sgn_bx
+        L_mx = smw * vslow
+        L_my = fmw * vfast * bt_y * sgn_bx
+        L_mz = fmw * vfast * bt_z * sgn_bx
+        L_by = -cs * fmw * bt_y * sqrt_rho
+        L_bz = -cs * fmw * bt_z * sqrt_rho
+        f = 0.5 * cs2_inv * jnp.where(cs_gt_alf, sgn_bt, 1.0)
+        return [
+            (L_d * f, rv.density_index),
+            (L_mx * f, rv.momentum_index.x),
+            (L_my * f, rv.momentum_index.y),
+            (L_mz * f, rv.momentum_index.z),
+            (L_by * f, rv.magnetic_index.y),
+            (L_bz * f, rv.magnetic_index.z),
+        ]
+    if row == 4:  # alfven plus
+        h = 0.5
+        return [
+            (h * (bt_z * vy - bt_y * vz), rv.density_index),
+            (-h * bt_z, rv.momentum_index.y),
+            (h * bt_y, rv.momentum_index.z),
+            (h * bt_z * sgn_bx * sqrt_rho, rv.magnetic_index.y),
+            (-h * bt_y * sgn_bx * sqrt_rho, rv.magnetic_index.z),
+        ]
+    if row == 5:  # fast plus
+        L_d  = fmw * (cs2 - vfast * vx) + smw * vslow * bt_dot_v * sgn_bx
+        L_mx = fmw * vfast
+        L_my = -smw * vslow * bt_y * sgn_bx
+        L_mz = -smw * vslow * bt_z * sgn_bx
+        L_by = cs * smw * bt_y * sqrt_rho
+        L_bz = cs * smw * bt_z * sqrt_rho
+        f = 0.5 * cs2_inv * jnp.where(~cs_gt_alf, sgn_bt, 1.0)
+        return [
+            (L_d * f, rv.density_index),
+            (L_mx * f, rv.momentum_index.x),
+            (L_my * f, rv.momentum_index.y),
+            (L_mz * f, rv.momentum_index.z),
+            (L_by * f, rv.magnetic_index.y),
+            (L_bz * f, rv.magnetic_index.z),
+        ]
+    raise ValueError(f"Invalid row {row}")
+
+
+def _eigen_R_pairs_iso_from_blocks(blocks, registered_variables, col: int):
+    (
+        rho_interface,
+        sqrt_rho,
+        vx,
+        vy,
+        vz,
+        magnetic_x_interface,
+        by_int,
+        bz_int,
+        bt_y,
+        bt_z,
+        sgn_bx,
+        sgn_bt,
+        cs,
+        cs2,
+        cs2_inv,
+        cs_gt_alf,
+        vfast,
+        valf,
+        vslow,
+        fmw,
+        smw,
+    ) = blocks
+
+    rv = registered_variables
+    inv_sqrt_rho = 1.0 / sqrt_rho
+
+    if col == 0:  # fast minus
+        sb = jnp.where(~cs_gt_alf, sgn_bt, 1.0)
+        return [
+            (sb * fmw, rv.density_index),
+            (sb * fmw * (vx - vfast), rv.momentum_index.x),
+            (sb * (fmw * vy + smw * vslow * bt_y * sgn_bx), rv.momentum_index.y),
+            (sb * (fmw * vz + smw * vslow * bt_z * sgn_bx), rv.momentum_index.z),
+            (sb * cs * smw * bt_y * inv_sqrt_rho, rv.magnetic_index.y),
+            (sb * cs * smw * bt_z * inv_sqrt_rho, rv.magnetic_index.z),
+        ]
+    if col == 1:  # alfven minus
+        return [
+            (-bt_z, rv.momentum_index.y),
+            (bt_y, rv.momentum_index.z),
+            (-bt_z * sgn_bx * inv_sqrt_rho, rv.magnetic_index.y),
+            (bt_y * sgn_bx * inv_sqrt_rho, rv.magnetic_index.z),
+        ]
+    if col == 2:  # slow minus
+        sb = jnp.where(cs_gt_alf, sgn_bt, 1.0)
+        return [
+            (sb * smw, rv.density_index),
+            (sb * smw * (vx - vslow), rv.momentum_index.x),
+            (sb * (smw * vy - fmw * vfast * bt_y * sgn_bx), rv.momentum_index.y),
+            (sb * (smw * vz - fmw * vfast * bt_z * sgn_bx), rv.momentum_index.z),
+            (-sb * cs * fmw * bt_y * inv_sqrt_rho, rv.magnetic_index.y),
+            (-sb * cs * fmw * bt_z * inv_sqrt_rho, rv.magnetic_index.z),
+        ]
+    if col == 3:  # slow plus
+        sb = jnp.where(cs_gt_alf, sgn_bt, 1.0)
+        return [
+            (sb * smw, rv.density_index),
+            (sb * smw * (vx + vslow), rv.momentum_index.x),
+            (sb * (smw * vy + fmw * vfast * bt_y * sgn_bx), rv.momentum_index.y),
+            (sb * (smw * vz + fmw * vfast * bt_z * sgn_bx), rv.momentum_index.z),
+            (-sb * cs * fmw * bt_y * inv_sqrt_rho, rv.magnetic_index.y),
+            (-sb * cs * fmw * bt_z * inv_sqrt_rho, rv.magnetic_index.z),
+        ]
+    if col == 4:  # alfven plus
+        return [
+            (-bt_z, rv.momentum_index.y),
+            (bt_y, rv.momentum_index.z),
+            (bt_z * sgn_bx * inv_sqrt_rho, rv.magnetic_index.y),
+            (-bt_y * sgn_bx * inv_sqrt_rho, rv.magnetic_index.z),
+        ]
+    if col == 5:  # fast plus
+        sb = jnp.where(~cs_gt_alf, sgn_bt, 1.0)
+        return [
+            (sb * fmw, rv.density_index),
+            (sb * fmw * (vx + vfast), rv.momentum_index.x),
+            (sb * (fmw * vy - smw * vslow * bt_y * sgn_bx), rv.momentum_index.y),
+            (sb * (fmw * vz - smw * vslow * bt_z * sgn_bx), rv.momentum_index.z),
+            (sb * cs * smw * bt_y * inv_sqrt_rho, rv.magnetic_index.y),
+            (sb * cs * smw * bt_z * inv_sqrt_rho, rv.magnetic_index.z),
+        ]
+    raise ValueError(f"Invalid col {col}")
