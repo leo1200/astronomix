@@ -142,4 +142,63 @@ axes[3].legend()
 plt.xlabel("x")
 plt.tight_layout()
 plt.show()
+
+# %%
+# ── shock stats ─────────────────────────────────────────
+print("Shock surface x position:", r[new_surface_idx])
+print("Mach number at shock:", new_result.mach_numbers[new_result.shock_surface_cells])
+print("Number of shock zone cells:", new_zone_idx.size)
+
+#%%
+# ── 4-panel fluid plot ──────────────────────────────────
+entropy = p_final / rho_final ** (5/3)
+
+fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+
+axes[0,0].plot(r, rho_final)
+axes[0,0].set_title("density")
+axes[0,0].set_ylabel("ρ")
+
+axes[0,1].plot(r, u_final)
+axes[0,1].set_title("velocity")
+axes[0,1].set_ylabel("v_x")
+
+axes[1,0].plot(r, entropy)
+axes[1,0].set_title("entropy")
+axes[1,0].set_ylabel("P/ρ^γ")
+
+axes[1,1].plot(r, p_final)
+axes[1,1].set_title("pressure")
+axes[1,1].set_ylabel("P")
+
+# mark shock surface on all panels
+for ax in axes.flat:
+    for idx in new_surface_idx:
+        ax.axvline(r[idx], linestyle="--", color="red", label="shock")
+    ax.set_xlabel("x")
+
+axes[0,0].legend()
+plt.tight_layout()
+plt.show()
+
+#%%
+print("Mach number raw:", new_result.mach_numbers[new_result.shock_surface_cells])
+print("Mach min threshold:", 1.3)
+# %%
+# Analytical Sod tube Mach number
+gamma = 5/3
+p_ratio = 0.1  # p_right / p_left initial conditions
+# analytical shock Mach number for Sod tube
+M_analytical = 1.7521  # known result
+
+print(f"Analytical Mach: {M_analytical:.4f}")
+print(f"Measured Mach:   {new_result.mach_numbers[new_result.shock_surface_cells][0]:.4f}")
+print(f"Ratio: {new_result.mach_numbers[new_result.shock_surface_cells][0] / M_analytical:.4f}")
+
+# also check raw pressure ratio at shock
+shock_idx = new_surface_idx[0]
+print(f"\nPressure left of shock:  {p_final[shock_idx-1]:.4f}")
+print(f"Pressure at shock:       {p_final[shock_idx]:.4f}")
+print(f"Pressure right of shock: {p_final[shock_idx+1]:.4f}")
+print(f"Pressure ratio p2/p1:    {p_final[shock_idx-1] / p_final[shock_idx+1]:.4f}")
 # %%

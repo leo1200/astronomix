@@ -114,3 +114,62 @@ plt.tight_layout()
 #plt.savefig("figures/run_shock_finder.svg")
 
 # %%
+from astronomix.shock_finder.shock_finder_copy import (
+    shock_criteria,
+    shock_sensor,
+    find_shock_zone,
+    _calculate_1d_divergence,
+)
+
+# extract fields
+r = helper_data.geometric_centers
+pressure = final_state[registered_variables.pressure_index]
+density = final_state[registered_variables.density_index]
+velocity = final_state[registered_variables.velocity_index]
+
+# ── old criteria broken out individually ───────────────
+# criterion 1: ∇·v < 0
+div_v = _calculate_1d_divergence(velocity, config, r)
+c1_old = div_v < 0
+
+# criterion 2: ∇T·∇ρ > 0
+pseudo_temperature = pressure / density
+div_T = jnp.zeros_like(pseudo_temperature)
+div_T = div_T.at[1:-1].set((pseudo_temperature[2:] - pseudo_temperature[:-2]) / 2)
+div_rho = jnp.zeros_like(density)
+div_rho = div_rho.at[1:-1].set((density[2:] - density[:-2]) / 2)
+c2_old = div_T * div_rho > 0
+
+# criterion 3: combined shock_criteria (all three AND'd)
+shock_crit_old = shock_criteria(final_state, config, registered_variables, helper_data)
+sensor = shock_sensor(pressure)
+
+# old shock zone
+max_idx, left_idx, right_idx = find_shock_zone(final_state, config, registered_variables, helper_data)
+
+# ── plot ───────────────────────────────────────────────
+fig, axes = plt.subplots(4, 1, figsize=(10, 10), sharex=True)
+
+axes[0].plot(r, pressure, label="pressure")
+axes[0].plot(r, sensor / sensor.max() * pressure.max(), label="scaled shock sensor", alpha=0.6)
+axes[0].axvline(r[max_idx], linestyle="--", color="black", label="shock center")
+axes[0].axvline(r[left_idx], linestyle=":", color="gray", label="left/right boundary")
+axes[0].axvline(r[right_idx], linestyle=":", color="gray")
+axes[0].set_ylabel("pressure")
+axes[0].legend()
+
+axes[1].plot(r, c1_old.astype(float), color="tab:orange", label="criterion 1: ∇·v < 0")
+axes[1].set_ylabel("True/False")
+axes[1].legend()
+
+axes[2].plot(r, c2_old.astype(float), color="tab:green", label="criterion 2: ∇T·∇ρ > 0")
+axes[2].set_ylabel("True/False")
+axes[2].legend()
+
+axes[3].plot(r, shock_crit_old.astype(float), color="tab:red", label="criterion 3 (all AND'd)")
+axes[3].set_ylabel("True/False")
+axes[3].legend()
+
+plt.xlabel("x")
+plt.tight_layout()
+plt.show()

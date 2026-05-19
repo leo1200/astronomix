@@ -25,6 +25,8 @@ from astronomix.shock_finder.shock_finder import find_shock_zone
 
 
 # %%
+limiter = MINMOD
+num_cells = 101
 config = SimulationConfig(
     dimensionality=1,
     geometry=CARTESIAN,

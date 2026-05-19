@@ -326,71 +326,34 @@ def _shock_zone_criterion_minimum_mach(
     helper_data: HelperData,
     mach_min: float = 1.3
 ) -> FIELD_TYPE:
-    """
-    Check criterion 3: Minimum Mach number (M > M_min).
-    
-    Reuses the advanced Mach number calculation from shock_criteria.
-    This filters out weak compressions and acoustic waves.
-    
-    Args:
-        primitive_state: Primitive state variables
-        config: Simulation configuration
-        registered_variables: Registered variables
-        helper_data: Helper data
-        mach_min: Minimum Mach number threshold (default 1.3)
-    
-    Returns:
-        Boolean field, True where M > M_min
-    """
     gamma_gas = 5 / 3
-    gamma_cr = 4 / 3
-    
+
     pressure = primitive_state[registered_variables.pressure_index]
     density = primitive_state[registered_variables.density_index]
-    P_CRs = primitive_state[registered_variables.cosmic_ray_n_index] ** gamma_cr
-    
-    # Extract pre- and post-shock states (assuming left-to-right shock)
-    # Region 2 (post-shock): indices [:-2]
-    # Region 1 (pre-shock): indices [2:]
-    P2 = pressure[:-2]
-    P2_CRs = P_CRs[:-2]
-    P2_gas = P2 - P2_CRs
-    e2_gas = P2_gas / (gamma_gas - 1)
-    e2_crs = P2_CRs / (gamma_cr - 1)
-    e2 = e2_gas + e2_crs
-    rho2 = density[:-2]
-    
-    P1 = pressure[2:]
-    P1_CRs = P_CRs[2:]
-    P1_gas = P1 - P1_CRs
-    e1_gas = P1_gas / (gamma_gas - 1)
-    e1_crs = P1_CRs / (gamma_cr - 1)
-    e1 = e1_gas + e1_crs
-    rho1 = density[2:]
-    
-    gamma_eff1 = (gamma_cr * P1_CRs + gamma_gas * P1_gas) / P1
-    gamma_eff2 = (gamma_cr * P2_CRs + gamma_gas * P2_gas) / P2
-    
-    gamma1 = P1 / e1 + 1
-    gamma2 = P2 / e2 + 1
-    
-    gammat = P2 / P1
-    C = ((gamma2 + 1) * gammat + gamma2 - 1) * (gamma1 - 1)
-    
-    # Advanced Mach number formula (Dubois et al. 2019, equation 16)
-    denominator = jnp.where(
-        jnp.abs(C - ((gamma1 + 1) + (gamma1 - 1) * gammat) * (gamma2 - 1)) > 1e-6,
-        (C - ((gamma1 + 1) + (gamma1 - 1) * gammat) * (gamma2 - 1)),
-        1e-6,
-    )
-    M1sq = 1 / gamma_eff2 * (gammat - 1) * C / denominator
-    
-    # Build criterion array (padding with False at boundaries where Mach is undefined)
-    mach_criterion = jnp.zeros_like(pressure, dtype=jnp.bool_)
-    mach_criterion = mach_criterion.at[1:-1].set(M1sq > mach_min**2)
-    
-    return mach_criterion
+    temperature = pressure / density  # pseudo-temperature T = P/rho
 
+    # Minimum jumps at M = mach_min from Rankine-Hugoniot relations
+    M2 = mach_min ** 2
+    p_ratio_min = (2 * gamma_gas * M2 - (gamma_gas - 1)) / (gamma_gas + 1)
+    T_ratio_min = p_ratio_min * ((gamma_gas - 1) * M2 + 2) / ((gamma_gas + 1) * M2)
+
+    log_p_min = jnp.log(p_ratio_min)
+    log_T_min = jnp.log(T_ratio_min)
+
+    # Local jumps: post-shock (left, [:-2]) minus pre-shock (right, [2:])
+    log_p_jump = jnp.zeros_like(pressure)
+    log_T_jump = jnp.zeros_like(pressure)
+
+    log_p_jump = log_p_jump.at[1:-1].set(
+        jnp.log(jnp.maximum(pressure[:-2], 1e-30))
+        - jnp.log(jnp.maximum(pressure[2:], 1e-30))
+    )
+    log_T_jump = log_T_jump.at[1:-1].set(
+        jnp.log(jnp.maximum(temperature[:-2], 1e-30))
+        - jnp.log(jnp.maximum(temperature[2:], 1e-30))
+    )
+
+    return (log_p_jump >= log_p_min) & (log_T_jump >= log_T_min)
 
 @partial(jax.jit, static_argnames=["registered_variables", "config"])
 def identify_shock_zones(
@@ -551,71 +514,23 @@ def _calculate_mach_at_surface(
     config: SimulationConfig,
     registered_variables: RegisteredVariables
 ) -> FIELD_TYPE:
-    """
-    Calculate Mach numbers at shock surface cells.
-    
-    Reuses the advanced Mach formula from Dubois et al. 2019 (equation 16).
-    Only computed where shock_surface is True; elsewhere returns 0.
-    
-    Args:
-        primitive_state: Primitive state variables
-        shock_surface: Boolean array marking surface cells
-        config: Simulation configuration
-        registered_variables: Registered variables
-    
-    Returns:
-        Array of Mach numbers (1D or higher where surface exists)
-    """
     gamma_gas = 5 / 3
-    gamma_cr = 4 / 3
-    
+
     pressure = primitive_state[registered_variables.pressure_index]
-    density = primitive_state[registered_variables.density_index]
-    P_CRs = primitive_state[registered_variables.cosmic_ray_n_index] ** gamma_cr
-    
-    # Initialize Mach array
     mach_array = jnp.zeros_like(pressure)
-    
-    # Extract pre- and post-shock states
-    P2 = pressure[:-2]
-    P2_CRs = P_CRs[:-2]
-    P2_gas = P2 - P2_CRs
-    e2_gas = P2_gas / (gamma_gas - 1)
-    e2_crs = P2_CRs / (gamma_cr - 1)
-    e2 = e2_gas + e2_crs
-    rho2 = density[:-2]
-    
-    P1 = pressure[2:]
-    P1_CRs = P_CRs[2:]
-    P1_gas = P1 - P1_CRs
-    e1_gas = P1_gas / (gamma_gas - 1)
-    e1_crs = P1_CRs / (gamma_cr - 1)
-    e1 = e1_gas + e1_crs
-    rho1 = density[2:]
-    
-    gamma_eff1 = (gamma_cr * P1_CRs + gamma_gas * P1_gas) / P1
-    gamma_eff2 = (gamma_cr * P2_CRs + gamma_gas * P2_gas) / P2
-    
-    gamma1 = P1 / e1 + 1
-    gamma2 = P2 / e2 + 1
-    
-    gammat = P2 / P1
-    C = ((gamma2 + 1) * gammat + gamma2 - 1) * (gamma1 - 1)
-    
-    # Advanced Mach formula
-    denominator = jnp.where(
-        jnp.abs(C - ((gamma1 + 1) + (gamma1 - 1) * gammat) * (gamma2 - 1)) > 1e-6,
-        (C - ((gamma1 + 1) + (gamma1 - 1) * gammat) * (gamma2 - 1)),
-        1e-6,
-    )
-    M1sq = 1 / gamma_eff2 * (gammat - 1) * C / denominator
-    M1 = jnp.sqrt(jnp.maximum(M1sq, 0.0))
-    
-    # Assign Mach numbers only at surface cells
+
+    # p2 = post-shock (left), p1 = pre-shock (right)
+    p2 = pressure[:-2]
+    p1 = pressure[2:]
+
+    # Simple Rankine-Hugoniot — correct for pure gas, handles p2/p1=1 edge case
+    p_ratio = jnp.maximum(p2 / jnp.maximum(p1, 1e-30), 1.0)
+    M = jnp.sqrt((p_ratio * (gamma_gas + 1) + (gamma_gas - 1)) / (2 * gamma_gas))
+
     mach_array = mach_array.at[1:-1].set(
-        jnp.where(shock_surface[1:-1], M1, 0.0)
+        jnp.where(shock_surface[1:-1], M, 0.0)
     )
-    
+
     return mach_array
 
 
