@@ -119,6 +119,41 @@ plt.ylabel("pressure / scaled sensor")
 plt.legend()
 plt.tight_layout()
 
+
+# %%
+# 4-panel fluid plot
+entropy = p_final / rho_final ** (5/3)
+
+fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+
+axes[0, 0].plot(r, rho_final)
+axes[0, 0].set_title("density")
+axes[0, 0].set_ylabel("ρ")
+
+axes[0, 1].plot(r, u_final)
+axes[0, 1].set_title("velocity")
+axes[0, 1].set_ylabel("v_x")
+
+axes[1, 0].plot(r, entropy)
+axes[1, 0].set_title("entropy")
+axes[1, 0].set_ylabel("P/ρ^γ")
+
+axes[1, 1].plot(r, p_final)
+axes[1, 1].set_title("pressure")
+axes[1, 1].set_ylabel("P")
+
+# mark shock surface on all panels
+for ax in axes.flat:
+    for idx in new_surface_idx:
+        ax.axvline(r[idx], linestyle="--", color="red", label="shock")
+    ax.set_xlabel("x")
+
+axes[0, 0].legend()
+plt.tight_layout()
+plt.show()
+
+
+## For debugging only
 # %%
 from astronomix.shock_finder.shock_finder_own import (
     _calculate_shock_direction,
@@ -162,43 +197,3 @@ axes[3].legend()
 plt.xlabel("x")
 plt.tight_layout()
 plt.show()
-
-# %%
-# shock stats
-print("Shock surface x position:", r[new_surface_idx])
-print("Mach number at shock:",     new_result.mach_numbers[new_result.shock_surface_cells])
-print("Number of shock zone cells:", new_zone_idx.size)
-
-# %%
-# 4-panel fluid plot
-entropy = p_final / rho_final ** (5/3)
-
-fig, axes = plt.subplots(2, 2, figsize=(12, 8))
-
-axes[0, 0].plot(r, rho_final)
-axes[0, 0].set_title("density")
-axes[0, 0].set_ylabel("ρ")
-
-axes[0, 1].plot(r, u_final)
-axes[0, 1].set_title("velocity")
-axes[0, 1].set_ylabel("v_x")
-
-axes[1, 0].plot(r, entropy)
-axes[1, 0].set_title("entropy")
-axes[1, 0].set_ylabel("P/ρ^γ")
-
-axes[1, 1].plot(r, p_final)
-axes[1, 1].set_title("pressure")
-axes[1, 1].set_ylabel("P")
-
-# mark shock surface on all panels
-for ax in axes.flat:
-    for idx in new_surface_idx:
-        ax.axvline(r[idx], linestyle="--", color="red", label="shock")
-    ax.set_xlabel("x")
-
-axes[0, 0].legend()
-plt.tight_layout()
-plt.show()
-
-# %%
