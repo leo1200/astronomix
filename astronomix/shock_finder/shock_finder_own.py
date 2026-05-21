@@ -3,6 +3,7 @@ from functools import partial
 from dataclasses import dataclass
 import jax.numpy as jnp
 import jax
+from jax import tree_util
 
 # typing
 from typing import Tuple, Union, NamedTuple
@@ -10,7 +11,7 @@ from astronomix.data_classes.simulation_helper_data import HelperData
 from astronomix.variable_registry.registered_variables import RegisteredVariables
 from astronomix.option_classes.simulation_config import (
     CARTESIAN,
-    FIELD_TYPE,
+    FIELD_TYPE, INT_FIELD_TYPE, BOOL_FIELD_TYPE,
     SPHERICAL,
     STATE_TYPE,
     SimulationConfig,
@@ -20,46 +21,39 @@ from beartype import beartype as typechecker
 
 from astronomix.option_classes.simulation_params import SimulationParams
 
-# ============================================================================
-# PFROMMER ET AL. 2017 SHOCK FINDER REIMPLEMENTATION
-# ============================================================================
-# Following: https://arxiv.org/abs/1604.07399
-# 
-# This implementation identifies shock zones and surfaces using:
-# 1. Shock direction: d_s = -∇T / |∇T|
-# 2. Shock zone criteria: converging flow, aligned gradients, Mach filtering
-# 3. Shock surface: single layer of maximum compression
-# 4. Mach number calculation: advanced formula from Dubois et al. 2019
-# 
-# NOTE: Currently 1D only. Architecture supports 2D/3D extension via axis parameter.
-# ============================================================================
-
 
 @dataclass
 class ShockFinderResult:
     """
-    Result structure from shock finder analysis.
-    
-    Attributes:
-        shock_surface_cells: Boolean array marking shock surface cells (single layer)
-        shock_direction: Array of shock direction vectors (∇T normalized)
-        mach_numbers: Mach numbers computed at shock surface cells
-        shock_zones: Boolean array marking all cells in shock zones (3-4 cells thick)
-        num_shocks: Number of distinct shock zones identified
-        shock_ids: Integer array labeling which shock each surface cell belongs to
-        shock_zone_ids: Integer array labeling zone membership
+    each field is a snapshot of a different layer of the shock analysis:
+    * shock_surface_cells: 
+        boolean array, 
+        one True per shock (the single cell of maximum compression)
+    * shock_direction: 
+        the unit vector field 
+        d_s = -∇T/|∇T| at every cell, pointing from hot toward cold gas
+    * mach_numbers: 
+        float array, 
+        nonzero only at surface cells; holds the Rankine-Hugoniot Mach number
+    * shock_zones: 
+        boolean array 
+        marking the broader 3-4 cell thick region around each shock
+    * num_shocks: 
+        scalar int32, 
+        currently just sum(shock_surface_cells), so one count per surface cell
+    * shock_ids: 
+        integer array, 
+        1 where shock_surface is True, 0 elsewhere (stub for future multi-shock labeling)
+    * shock_zone_ids: same idea but for the broader zone
     """
-    shock_surface_cells: FIELD_TYPE
-    shock_direction: FIELD_TYPE
-    mach_numbers: FIELD_TYPE
-    shock_zones: FIELD_TYPE
-    num_shocks: int
-    shock_ids: FIELD_TYPE
-    shock_zone_ids: FIELD_TYPE
+    shock_surface_cells: BOOL_FIELD_TYPE
+    shock_direction:     FIELD_TYPE
+    mach_numbers:        FIELD_TYPE 
+    shock_zones:         BOOL_FIELD_TYPE
+    num_shocks:          int
+    shock_ids:           INT_FIELD_TYPE
+    shock_zone_ids:      INT_FIELD_TYPE
 
-
-# Register as JAX pytree so it can be returned from JIT-compiled functions
-from jax import tree_util
 
 def _shockresult_flatten(r):
     children = (
@@ -69,8 +63,9 @@ def _shockresult_flatten(r):
         r.shock_zones,
         r.shock_ids,
         r.shock_zone_ids,
+        r.num_shocks,          # moved from aux to children
     )
-    aux = r.num_shocks  # static aux data (not a JAX array)
+    aux = None                 # nothing truly static here
     return children, aux
 
 def _shockresult_unflatten(aux, children):
@@ -79,9 +74,9 @@ def _shockresult_unflatten(aux, children):
         shock_direction=children[1],
         mach_numbers=children[2],
         shock_zones=children[3],
-        num_shocks=aux,
         shock_ids=children[4],
         shock_zone_ids=children[5],
+        num_shocks=children[6],
     )
 
 tree_util.register_pytree_node(
@@ -90,10 +85,9 @@ tree_util.register_pytree_node(
     _shockresult_unflatten,
 )
 
-# ============================================================================
-# PHASE 1: FOUNDATIONAL HELPER FUNCTIONS
-# ============================================================================
-
+# ==========================
+# PHASE 1: HELPER FUNCTIONS
+# ==========================
 
 @partial(jax.jit, static_argnames=["config"])
 def _calculate_gradient(
@@ -112,7 +106,7 @@ def _calculate_gradient(
     
     Args:
         field: Scalar field to differentiate
-        config: Simulation configuration
+        config: Simulation configuration, only needed for geometry type and grid spacing
         r: Radial coordinates (required for spherical geometry)
     
     Returns:
@@ -121,6 +115,8 @@ def _calculate_gradient(
     grad_field = jnp.zeros_like(field)
     
     if config.geometry == CARTESIAN:
+        # grad_field[i] is immutable, so we use .at[].set() to update the interior points
+        # grad_field[1:-1] means consider all points except the first and last (boundary points)
         grad_field = grad_field.at[1:-1].set(
             (field[2:] - field[:-2]) / (2 * config.grid_spacing)
         )
@@ -147,14 +143,12 @@ def _calculate_temperature_gradient(
     r: FIELD_TYPE = None
 ) -> FIELD_TYPE:
     """
-    Calculate the temperature gradient.
+    Computes ∇T across the grid
     
-    Temperature is computed as T = P / ρ (up to physical constants).
-    The gradient is computed as:
-        ∇T = ∇(P/ρ)
+    T is not the true thermodynamic temperature but a pseudo-temperature
+    defined as T_eff[i] = P[i] / ρ[i]
     
-    For simplicity, we compute pseudo-temperature T_eff[i] = P[i] / ρ[i]
-    and then take its gradient.
+    then gradient is computed via _calculate_gradient for T_eff field
     
     Args:
         pressure: Gas pressure field
@@ -177,7 +171,8 @@ def _calculate_density_gradient(
     r: FIELD_TYPE = None
 ) -> FIELD_TYPE:
     """
-    Calculate the density gradient.
+    Calculate the density gradient ∇ρ across the grid
+    by using _calculate_gradient on the density field.
     
     Args:
         density: Density field
@@ -197,7 +192,7 @@ def _normalize_vector(
     epsilon: float = 1e-12
 ) -> FIELD_TYPE:
     """
-    Normalize a vector field to unit magnitude.
+    Converts a vector field to unit magnitude everywhere:
     
     normalized[i] = vector[i] / (|vector[i]| + epsilon)
     
@@ -210,6 +205,7 @@ def _normalize_vector(
     Returns:
         Normalized vector field (magnitude 1 except where input is near-zero)
     """
+    ## TODO: do this for 2D and 3D also, now only works for 1D scalar fields (shock direction in 1D is just a sign)
     magnitude = jnp.abs(vector) + epsilon
     normalized = vector / magnitude
     return normalized
@@ -224,16 +220,17 @@ def _calculate_shock_direction(
 ) -> FIELD_TYPE:
     """
     Calculate the shock direction vector at each cell.
+    Shock direction points from the hot (shocked) gas toward the cold (pre-shocked) gas.
     
     The shock direction is defined as:
         d_s = -∇T / |∇T|
-    
-    This points from the hot (shocked) gas toward the cold (pre-shocked) gas.
+    ∇T from _calculate_temperature_gradient with given pressure and density fields.
+
+    step: compute ∇T, negate it, normalize it
     
     Physical interpretation:
         - Negative gradient means temperature decreases in that direction
         - The negative sign points in the direction of decreasing temperature
-        - Normalized to unit magnitude
     
     Args:
         pressure: Gas pressure field
@@ -249,7 +246,6 @@ def _calculate_shock_direction(
     # Shock direction is -∇T (points toward cold gas)
     shock_dir = -grad_T
     
-    # Normalize to unit vector
     shock_dir_normalized = _normalize_vector(shock_dir)
     
     return shock_dir_normalized
@@ -258,8 +254,9 @@ def _calculate_shock_direction(
 # ============================================================================
 # PHASE 2: SHOCK ZONE IDENTIFICATION
 # ============================================================================
-# Identify cells that are in the shock zone using three criteria from 
-# Pfrommer et al. 2017:
+#  goal is to produce a boolean field marking every cell that belongs to a shock zone
+# 
+# Identify cells that are in the shock zone using three criteria:
 # 1. Converging flow: ∇·v < 0
 # 2. Aligned gradients: ∇T·∇ρ > 0
 # 3. Minimum Mach number: M > M_min = 1.3
@@ -270,11 +267,11 @@ def _shock_zone_criterion_converging_flow(
     velocity: FIELD_TYPE,
     config: SimulationConfig,
     r: FIELD_TYPE = None
-) -> FIELD_TYPE:
+) -> BOOL_FIELD_TYPE:
     """
     Check criterion 1: Converging flow (∇·v < 0).
     
-    In 1D, divergence is simply ∂v/∂x. If negative, gas is being compressed.
+    In 1D, it means checking if the velocity gradient is negative
     
     Args:
         velocity: Velocity field (1D)
@@ -294,13 +291,11 @@ def _shock_zone_criterion_aligned_gradients(
     density: FIELD_TYPE,
     config: SimulationConfig,
     r: FIELD_TYPE = None
-) -> FIELD_TYPE:
+) -> BOOL_FIELD_TYPE:
     """
     Check criterion 2: Aligned gradients (∇T·∇ρ > 0).
     
-    Temperature and density gradients point in the same direction,
-    indicating a compression where both increase/decrease together.
-    This filters out contact discontinuities and tangential discontinuities.
+    Temperature and density gradients point in the same direction
     
     Args:
         pressure: Gas pressure field
@@ -317,17 +312,33 @@ def _shock_zone_criterion_aligned_gradients(
     dot_product = grad_T * grad_rho
     return dot_product > 0
 
+def get_post_pre_shock_values(shock_direction, pressure, temperature):
+    is_rightward = shock_direction[1:-1] > 0  # shock moves left to right
+
+    p_left  = pressure[:-2]   # pressure at i-1
+    p_right = pressure[2:]    # pressure at i+1
+    T_left  = temperature[:-2]
+    T_right = temperature[2:]
+
+    # select post and pre shock values based on shock direction
+    p_post = jnp.where(is_rightward, p_left,  p_right)
+    p_pre  = jnp.where(is_rightward, p_right, p_left)
+    T_post = jnp.where(is_rightward, T_left,  T_right)
+    T_pre  = jnp.where(is_rightward, T_right, T_left)
+    return p_post,p_pre,T_post,T_pre
 
 @partial(jax.jit, static_argnames=["registered_variables", "config"])
 def _shock_zone_criterion_minimum_mach(
     primitive_state: STATE_TYPE,
-    config: SimulationConfig,
     registered_variables: RegisteredVariables,
-    helper_data: HelperData,
+    shock_direction: FIELD_TYPE,
     mach_min: float = 1.3
-) -> FIELD_TYPE:
+) -> BOOL_FIELD_TYPE:
+    
+    # compute minimum jumps from Rankine-Hugoniot relations
+    # If a shock has Mach number M, how much pressure and temperature must jump to reach M?
+    # -> p_ratio_min and T_ratio_min from Rankine-Hugoniot for given M and gamma
     gamma_gas = 5 / 3
-
     pressure = primitive_state[registered_variables.pressure_index]
     density = primitive_state[registered_variables.density_index]
     temperature = pressure / density  # pseudo-temperature T = P/rho
@@ -337,23 +348,35 @@ def _shock_zone_criterion_minimum_mach(
     p_ratio_min = (2 * gamma_gas * M2 - (gamma_gas - 1)) / (gamma_gas + 1)
     T_ratio_min = p_ratio_min * ((gamma_gas - 1) * M2 + 2) / ((gamma_gas + 1) * M2)
 
+    # convert thresholds to log space for numerical stability
     log_p_min = jnp.log(p_ratio_min)
     log_T_min = jnp.log(T_ratio_min)
 
-    # Local jumps: post-shock (left, [:-2]) minus pre-shock (right, [2:])
+    # use shock_direction to determine which neighbor is post-shock (upstream)
+    # and which is pre-shock (downstream) at each interior cell.
+    # shock_direction = -∇T/|∇T| points from hot (post) toward cold (pre) gas.
+    # if d_s[i] > 0 → post-shock is on the left  (i-1), pre-shock on the right (i+1)
+    # if d_s[i] < 0 → post-shock is on the right (i+1), pre-shock on the left  (i-1)
+    p_post, p_pre, T_post, T_pre = get_post_pre_shock_values(shock_direction, pressure, temperature)
+
+    # compute log jumps: log(post/pre) = log(post) - log(pre)
+    # clamp to 1e-30 to avoid log(0) = -inf → NaN
     log_p_jump = jnp.zeros_like(pressure)
-    log_T_jump = jnp.zeros_like(pressure)
+    log_T_jump = jnp.zeros_like(temperature)
 
     log_p_jump = log_p_jump.at[1:-1].set(
-        jnp.log(jnp.maximum(pressure[:-2], 1e-30))
-        - jnp.log(jnp.maximum(pressure[2:], 1e-30))
+        jnp.log(jnp.maximum(p_post, 1e-30))
+        - jnp.log(jnp.maximum(p_pre,  1e-30))
     )
     log_T_jump = log_T_jump.at[1:-1].set(
-        jnp.log(jnp.maximum(temperature[:-2], 1e-30))
-        - jnp.log(jnp.maximum(temperature[2:], 1e-30))
+        jnp.log(jnp.maximum(T_post, 1e-30))
+        - jnp.log(jnp.maximum(T_pre,  1e-30))
     )
 
+    # paper criterion: Δlog T >= log(T2/T1)|_Mmin  AND  Δlog P >= log(P2/P1)|_Mmin
     return (log_p_jump >= log_p_min) & (log_T_jump >= log_T_min)
+
+
 
 @partial(jax.jit, static_argnames=["registered_variables", "config"])
 def identify_shock_zones(
@@ -361,15 +384,17 @@ def identify_shock_zones(
     config: SimulationConfig,
     registered_variables: RegisteredVariables,
     helper_data: HelperData,
+    shock_direction: FIELD_TYPE,
     mach_min: float = 1.3
-) -> FIELD_TYPE:
+) -> BOOL_FIELD_TYPE:
     """
     Identify all cells in shock zones.
     
     A cell is in a shock zone if ALL three criteria are met:
     1. Converging flow: ∇·v < 0
     2. Aligned gradients: ∇T·∇ρ > 0
-    3. Minimum Mach: M > M_min
+    3. Minimum Mach: Δlog T >= log(T2/T1)|_Mmin AND Δlog P >= log(P2/P1)|_Mmin
+       (Pfrommer et al. 2017, jumps measured along shock_direction)
     
     Results in a shock zone thickness of ~3-4 cells per shock (Pfrommer et al. 2017).
     
@@ -378,28 +403,31 @@ def identify_shock_zones(
         config: Simulation configuration
         registered_variables: Registered variables
         helper_data: Helper data
+        shock_direction: Unit vector field d_s = -∇T/|∇T|, from Phase 1
         mach_min: Minimum Mach number threshold
     
     Returns:
         Boolean field marking all shock zone cells
     """
     pressure = primitive_state[registered_variables.pressure_index]
-    density = primitive_state[registered_variables.density_index]
+    density  = primitive_state[registered_variables.density_index]
     velocity = primitive_state[registered_variables.velocity_index]
-    
-    # Get radial coordinates if needed
+
+    # get radial coordinates if needed
     r = helper_data.geometric_centers if config.geometry == SPHERICAL else None
-    
-    # Evaluate all three criteria
+
+    # evaluate all three criteria
     criterion_1 = _shock_zone_criterion_converging_flow(velocity, config, r)
     criterion_2 = _shock_zone_criterion_aligned_gradients(pressure, density, config, r)
     criterion_3 = _shock_zone_criterion_minimum_mach(
-        primitive_state, config, registered_variables, helper_data, mach_min
+        primitive_state, registered_variables,
+        shock_direction,   # ← direction-aware jump measurement
+        mach_min
     )
-    
-    # Combine with AND logic (all must be satisfied)
+
+    # combine with AND logic (all must be satisfied)
     shock_zones = criterion_1 & criterion_2 & criterion_3
-    
+
     return shock_zones
 
 
@@ -586,7 +614,7 @@ def find_shocks_pfrommer(
     
     # Count number of distinct shocks (simplified: count connected components of shock_surface)
     # For 1D, this is straightforward
-    num_shocks = jnp.int32(jnp.sum(shock_surface))
+    num_shocks = jnp.sum(shock_surface, dtype=jnp.int32)
     
     # Shock IDs: for now, single label per cell on surface
     shock_ids = jnp.where(shock_surface, 1, 0)
