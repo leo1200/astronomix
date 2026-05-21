@@ -312,6 +312,7 @@ def _shock_zone_criterion_aligned_gradients(
     dot_product = grad_T * grad_rho
     return dot_product > 0
 
+
 def get_post_pre_shock_values(shock_direction, pressure, temperature):
     is_rightward = shock_direction[1:-1] > 0  # shock moves left to right
 
@@ -327,10 +328,13 @@ def get_post_pre_shock_values(shock_direction, pressure, temperature):
     T_pre  = jnp.where(is_rightward, T_right, T_left)
     return p_post,p_pre,T_post,T_pre
 
+
 @partial(jax.jit, static_argnames=["registered_variables", "config"])
 def _shock_zone_criterion_minimum_mach(
     primitive_state: STATE_TYPE,
+    config: SimulationConfig,
     registered_variables: RegisteredVariables,
+    helper_data: HelperData,
     shock_direction: FIELD_TYPE,
     mach_min: float = 1.3
 ) -> BOOL_FIELD_TYPE:
@@ -420,7 +424,7 @@ def identify_shock_zones(
     criterion_1 = _shock_zone_criterion_converging_flow(velocity, config, r)
     criterion_2 = _shock_zone_criterion_aligned_gradients(pressure, density, config, r)
     criterion_3 = _shock_zone_criterion_minimum_mach(
-        primitive_state, registered_variables,
+        primitive_state, config,registered_variables, helper_data,
         shock_direction,   # ← direction-aware jump measurement
         mach_min
     )
@@ -460,72 +464,165 @@ def _calculate_velocity_divergence(
     """
     return _calculate_gradient(velocity, config, r)
 
+"""
+shock direction in 1D has no use
+in 2D, expectation is sth like this
+def _find_shock_surface_raycasting_2d(
+    velocity_x: FIELD_TYPE,
+    velocity_y: FIELD_TYPE,
+    shock_zones: BOOL_FIELD_TYPE,
+    shock_direction_x: FIELD_TYPE,   # x-component of d_s
+    shock_direction_y: FIELD_TYPE,   # y-component of d_s
+) -> BOOL_FIELD_TYPE:
+div_v = _calculate_divergence_2d(velocity_x, velocity_y)
 
-# Replace _find_shock_surface_simple entirely — remove its @jax.jit decorator
-# and rewrite to avoid lax.cond
+    # for each cell, determine step direction from d_s
+    # dominant axis: whichever component of d_s has larger magnitude
+    step_x = jnp.sign(shock_direction_x).astype(jnp.int32)
+    step_y = jnp.sign(shock_direction_y).astype(jnp.int32)
 
-def _find_shock_surface_simple(
+    # walk from each cell along (step_x, step_y) while remaining in shock_zone
+    # keep cell only if no subsequent cell along the ray has smaller div_v
+    # ... (ray march via lax.while_loop per cell)
+"""
+def _find_shock_surface_raycasting(
     velocity: FIELD_TYPE,
-    shock_zones: FIELD_TYPE
-) -> FIELD_TYPE:
+    shock_zones: BOOL_FIELD_TYPE,
+    shock_direction: FIELD_TYPE,
+) -> BOOL_FIELD_TYPE:
     """
-    Identify shock surface as the cell with minimum velocity divergence
-    within each shock zone.
-    
-    Always-compute pattern: calculate argmin unconditionally, 
-    then zero out result when no shock zones exist. This avoids
-    TracerBoolConversionError from nested JIT + lax.cond interaction.
+    Identify shock surface cells using the ray-casting procedure from
+    Pfrommer et al. 2017.
+
+    For each cell in the shock zone, a ray is fired along d_s. The ray
+    walks through consecutive shock zone cells in that direction. A cell
+    is marked as a shock surface cell if it has the minimum velocity
+    divergence (maximum compression) along its ray — i.e. no cell further
+    along the ray has a more negative divergence.
+
+    In 1D this reduces to: within each connected shock zone segment,
+    find the single cell with minimum divergence.
+
+    Args:
+        velocity:        velocity field
+        shock_zones:     boolean field from Phase 2, ~3-4 cells thick
+        shock_direction: unit vector field d_s = -∇T/|∇T| from Phase 1
+
+    Returns:
+        boolean field, True only at shock surface cells (one per shock zone)
     """
+    n = velocity.shape[0]
+
+    # --- Step 1: compute velocity divergence everywhere ---
+    # simplified central difference — denominator cancels when comparing
     div_v = jnp.zeros_like(velocity)
     div_v = div_v.at[1:-1].set((velocity[2:] - velocity[:-2]) / 2.0)
 
-    # Always compute — safe because argmin on all-inf is defined (returns 0)
-    masked_div_v = jnp.where(shock_zones, div_v, jnp.inf)
-    max_compression_idx = jnp.argmin(masked_div_v)
-    
-    shock_surface = jnp.zeros_like(shock_zones, dtype=jnp.bool_)
-    shock_surface = shock_surface.at[max_compression_idx].set(True)
-    
-    # Only keep result if at least one shock zone cell exists
+    # --- Step 2: label connected shock zone segments ---
+    # each contiguous group of True cells in shock_zones gets a unique integer id
+    # this allows us to find the argmin independently within each group
+    #
+    # method: a transition from False→True starts a new segment.
+    # scan left to right, incrementing the label counter at each transition.
+    #
+    # example:
+    #   shock_zones:  [F, F, T, T, T, F, F, T, T, F]
+    #   segment_ids:  [0, 0, 1, 1, 1, 0, 0, 2, 2, 0]  (0 = not in zone)
+
+    def label_scan(carry, x):
+        prev_in_zone, current_label = carry
+        in_zone = x
+        # start new segment when transitioning False → True
+        new_label = jnp.where(
+            in_zone & ~prev_in_zone,
+            current_label + 1,
+            current_label
+        )
+        # assign label only inside zone, 0 outside
+        out_label = jnp.where(in_zone, new_label, 0)
+        return (in_zone, new_label), out_label
+
+    _, segment_ids = jax.lax.scan(
+        label_scan,
+        (jnp.bool_(False), jnp.int32(0)),
+        shock_zones
+    )
+    # segment_ids: shape (n,), dtype int32
+    # 0 = not in any shock zone, 1,2,3,... = distinct shock zone segments
+
+    # --- Step 3: find max number of segments ---
+    # needed to loop over each segment independently
+    # upper bound: at most n//2 segments (alternating T/F pattern)
+    num_segments = jnp.max(segment_ids)
+
+    # --- Step 4: for each segment, find the cell with minimum div_v ---
+    # mask div_v per segment, take argmin within that mask
+
+    # mask div_v: only keep values inside the zone, set others to +inf
+    div_v_masked_base = jnp.where(shock_zones, div_v, jnp.inf)
+
+    def find_segment_surface(seg_id, shock_surface):
+        """
+        For one segment (seg_id), mask to only that segment's cells,
+        find argmin of div_v, mark it as surface cell.
+        """
+        # mask to this segment only
+        in_segment = segment_ids == seg_id
+        div_v_seg = jnp.where(in_segment, div_v_masked_base, jnp.inf)
+
+        # argmin within segment → the surface cell
+        surface_idx = jnp.argmin(div_v_seg)
+
+        # mark it, but only if this segment actually exists
+        # (seg_id might exceed actual num_segments if we loop to upper bound)
+        segment_exists = seg_id <= num_segments
+        shock_surface = shock_surface.at[surface_idx].set(
+            shock_surface[surface_idx] | (in_segment[surface_idx] & segment_exists)
+        )
+        return shock_surface
+
+    # loop over all possible segment ids (1-indexed)
+    # use lax.fori_loop for JIT compatibility
+    shock_surface_init = jnp.zeros(n, dtype=jnp.bool_)
+
+    shock_surface = jax.lax.fori_loop(
+        1,                          # start: first segment id
+        n // 2 + 2,                 # stop:  upper bound on segments
+        lambda seg_id, surf: find_segment_surface(jnp.int32(seg_id), surf),
+        shock_surface_init
+    )
+
+    # --- Step 5: guard — if no shock zones exist, return all False ---
     has_shock = jnp.any(shock_zones)
     shock_surface = shock_surface & has_shock
-    
+
     return shock_surface
 
 @partial(jax.jit, static_argnames=["config"])
 def identify_shock_surface(
     primitive_state: STATE_TYPE,
-    shock_zones: FIELD_TYPE,
+    shock_zones: BOOL_FIELD_TYPE,
+    shock_direction: FIELD_TYPE,
     config: SimulationConfig,
-    registered_variables: RegisteredVariables
-) -> FIELD_TYPE:
+    registered_variables: RegisteredVariables,
+) -> BOOL_FIELD_TYPE:
     """
-    Identify the shock surface: single layer of cells with maximum compression.
-    
-    From Pfrommer et al. 2017:
-    "Each ray stores the velocity divergence of the cell from which it started.
-     If a ray traverses a cell with a smaller divergence, the ray is discarded.
-     We call these cells with minimum velocity divergence (i.e., maximum compression)
-     across the shock zone the shock surface cells."
-    
-    For 1D, we find cells where velocity divergence is minimum (most negative)
-    within the shock zone.
-    
+    Identify the shock surface: single layer of cells with maximum compression,
+    one per connected shock zone segment, using the ray-casting procedure from
+    Pfrommer et al. 2017.
+
     Args:
-        primitive_state: Primitive state variables
-        shock_zones: Boolean array marking shock zone cells
-        config: Simulation configuration
-        registered_variables: Registered variables
-    
+        primitive_state:  primitive state variables
+        shock_zones:      boolean field from Phase 2
+        shock_direction:  unit vector field d_s from Phase 1
+        config:           simulation configuration
+        registered_variables: registered variables
+
     Returns:
-        Boolean array marking shock surface cells (single layer per shock zone)
+        boolean field, True at shock surface cells only
     """
     velocity = primitive_state[registered_variables.velocity_index]
-    
-    # For now, use simple approach
-    # TODO: Extend with connected component analysis for multiple shocks
-    shock_surface = _find_shock_surface_simple(velocity, shock_zones)
-    
+    shock_surface = _find_shock_surface_raycasting(velocity, shock_zones, shock_direction)
     return shock_surface
 
 
@@ -538,30 +635,37 @@ def identify_shock_surface(
 @partial(jax.jit, static_argnames=["registered_variables", "config"])
 def _calculate_mach_at_surface(
     primitive_state: STATE_TYPE,
-    shock_surface: FIELD_TYPE,
+    shock_surface: BOOL_FIELD_TYPE,
+    shock_direction: FIELD_TYPE,        # ← needed for direction-aware p_post/p_pre
     config: SimulationConfig,
     registered_variables: RegisteredVariables
 ) -> FIELD_TYPE:
     gamma_gas = 5 / 3
 
     pressure = primitive_state[registered_variables.pressure_index]
-    mach_array = jnp.zeros_like(pressure)
+    density  = primitive_state[registered_variables.density_index]
+    temperature = pressure / density
 
-    # p2 = post-shock (left), p1 = pre-shock (right)
-    p2 = pressure[:-2]
-    p1 = pressure[2:]
+    # direction-aware post/pre selection — same helper as criterion 3
+    p_post, p_pre, _, _ = get_post_pre_shock_values(
+        shock_direction, pressure, temperature
+    )
 
-    # Simple Rankine-Hugoniot — correct for pure gas, handles p2/p1=1 edge case
-    p_ratio = jnp.maximum(p2 / jnp.maximum(p1, 1e-30), 1.0)
+    # calculate Mach number for all cells
+    # p₂/p₁ = p_post/p_pre, but clamp to 1 to avoid numerical issues with very weak shocks
+    p_ratio = jnp.maximum(p_post / jnp.maximum(p_pre, 1e-30), 1.0)
+    # as p₂/p₁ = (2γM² − (γ−1)) / (γ+1) so M = √[ (p₂/p₁ · (γ+1) + (γ−1)) / (2γ) ]
     M = jnp.sqrt((p_ratio * (gamma_gas + 1) + (gamma_gas - 1)) / (2 * gamma_gas))
 
+    # write Mach only at surface cells, zero elsewhere
+    mach_array = jnp.zeros_like(pressure)
     mach_array = mach_array.at[1:-1].set(
         jnp.where(shock_surface[1:-1], M, 0.0)
     )
 
     return mach_array
 
-
+##### public entry point ######
 @partial(jax.jit, static_argnames=["registered_variables", "config"])
 def find_shocks_pfrommer(
     primitive_state: STATE_TYPE,
@@ -599,21 +703,23 @@ def find_shocks_pfrommer(
     
     # Phase 2: Identify shock zones
     shock_zones = identify_shock_zones(
-        primitive_state, config, registered_variables, helper_data, mach_min
+        primitive_state, config, registered_variables,
+        helper_data, shock_direction, mach_min
     )
     
     # Phase 3: Identify shock surface
     shock_surface = identify_shock_surface(
-        primitive_state, shock_zones, config, registered_variables
+        primitive_state, shock_zones, shock_direction,
+        config, registered_variables
     )
     
     # Phase 4: Calculate Mach numbers at surface
     mach_numbers = _calculate_mach_at_surface(
-        primitive_state, shock_surface, config, registered_variables
+        primitive_state, shock_surface, shock_direction,
+        config, registered_variables
     )
     
-    # Count number of distinct shocks (simplified: count connected components of shock_surface)
-    # For 1D, this is straightforward
+    # num_shocks counts distinct surface cells
     num_shocks = jnp.sum(shock_surface, dtype=jnp.int32)
     
     # Shock IDs: for now, single label per cell on surface
@@ -629,235 +735,3 @@ def find_shocks_pfrommer(
         shock_ids=shock_ids,
         shock_zone_ids=shock_zone_ids
     )
-
-
-# ============================================================================
-# LEGACY FUNCTIONS (KEPT FOR REFERENCE/TRANSITION)
-# ============================================================================
-# These functions were from the original implementation.
-# They are being replaced by the new Pfrommer et al. methodology,
-# but are kept here for reference and gradual migration.
-
-
-@partial(jax.jit, static_argnames=["config"])
-def _calculate_1d_divergence(
-    field: FIELD_TYPE, config: SimulationConfig, r: FIELD_TYPE
-) -> FIELD_TYPE:
-    # calculate the 1d divergence by a simple
-    # central difference approximation
-    div_field = jnp.zeros_like(field)
-    if config.geometry == CARTESIAN:
-        div_field = div_field.at[1:-1].set(
-            (field[2:] - field[:-2]) / (2 * config.grid_spacing)
-        )
-    elif config.geometry == SPHERICAL:
-        div_field = jnp.zeros_like(field)
-        # this is not exactly correct, as our field values are
-        # defined at the volumetric not geometric cell centers etc
-        # but should be fine for the shock finder
-        div_field = div_field.at[1:-1].set(
-            (r[2:] ** 2 * field[2:] - r[:-2] ** 2 * field[:-2])
-            / (2 * config.grid_spacing * r[1:-1] ** 2)
-        )
-    else:
-        raise NotImplementedError(
-            "Only Cartesian and Spherical geometry supported for the shock finder."
-        )
-    return div_field
-
-
-@jax.jit
-def shock_sensor(pressure: FIELD_TYPE) -> FIELD_TYPE:
-    """
-    WENO-JS 1D smoothness indicator for shock detection.
-
-    Args:
-        pressure: the 1d pressure
-
-    Returns:
-        shock sensors, high where large pressure jumps
-
-    """
-
-    shock_sensors = jnp.zeros_like(pressure)
-    shock_sensors = shock_sensors.at[1:-1].set(
-        1 / 4 * (pressure[2:] - pressure[:-2]) ** 2
-        + 13 / 12 * (pressure[2:] - 2 * pressure[1:-1] + pressure[:-2]) ** 2
-    )
-
-    return shock_sensors
-
-
-# @jaxtyped(typechecker=typechecker)
-@partial(jax.jit, static_argnames=["registered_variables", "config"])
-def shock_criteria(
-    primitive_state: STATE_TYPE,
-    config: SimulationConfig,
-    registered_variables: RegisteredVariables,
-    helper_data: HelperData,
-) -> jnp.ndarray:
-    """
-    Implement the shock criteria from Pfrommer et al, 2017.
-    https://arxiv.org/abs/1604.07399
-
-    # NOTE: for now only 1D
-
-    """
-
-    gamma_gas = 5 / 3
-    gamma_cr = 4 / 3
-
-    # get the velocity
-    velocity = primitive_state[registered_variables.velocity_index]
-
-    # get the cosmic ray pressure
-    P_CRs = primitive_state[registered_variables.cosmic_ray_n_index] ** gamma_cr
-
-    # i) \nabla \cdot \vec{v} < 0
-    div_v = _calculate_1d_divergence(velocity, config, helper_data.geometric_centers)
-    converging_flow_criterion = div_v < 0
-
-    # ii) \nabla T \cdot \nabla \rho > 0
-    pseudo_temperature = (
-        primitive_state[registered_variables.pressure_index]
-        / primitive_state[registered_variables.density_index]
-    )
-    div_T = jnp.zeros_like(pseudo_temperature)
-    div_T = div_T.at[1:-1].set((pseudo_temperature[2:] - pseudo_temperature[:-2]) / 2)
-    div_rho = jnp.zeros_like(primitive_state[registered_variables.density_index])
-    div_rho = div_rho.at[1:-1].set(
-        (
-            primitive_state[registered_variables.density_index][2:]
-            - primitive_state[registered_variables.density_index][:-2]
-        )
-        / 2
-    )
-    no_spurious_shocks = div_T * div_rho > 0
-
-    # iii) M1 > Mmin
-    Mmin = 1.3
-    # NOTE: currently we only consider shocks moving left to right
-    
-    # --- Downstream State (Region 2) ---
-    P2 = primitive_state[registered_variables.pressure_index, :-2]
-    P2_CRs = P_CRs[:-2]
-    P2_gas = P2 - P2_CRs  # Define gas pressure component
-    
-    # FIX: Compute energy density using (P / (gamma - 1))
-    e2_gas = P2_gas / (gamma_gas - 1)  
-    e2_crs = P2_CRs / (gamma_cr - 1)
-    e2 = e2_gas + e2_crs
-    rho2 = primitive_state[registered_variables.density_index, :-2]
-
-    # --- Upstream State (Region 1) ---
-    P1 = primitive_state[registered_variables.pressure_index, 2:]
-    P1_CRs = P_CRs[2:]
-    P1_gas = P1 - P1_CRs
-    e1_gas = P1_gas / (gamma_gas - 1)
-    e1_crs = P1_CRs / (gamma_cr - 1)
-    e1 = e1_gas + e1_crs
-    rho1 = primitive_state[registered_variables.density_index, 2:]
-
-    # --- Consistent Effective Gamma Calculation ---
-    # FIX: Use gas-only pressure (P_gas) for both gamma_eff1 and gamma_eff2
-    gamma_eff1 = (gamma_cr * P1_CRs + gamma_gas * P1_gas) / P1
-    gamma_eff2 = (gamma_cr * P2_CRs + gamma_gas * P2_gas) / P2
-
-    gamma1 = P1 / e1 + 1
-    gamma2 = P2 / e2 + 1
-
-    gammat = P2 / P1
-
-    C = ((gamma2 + 1) * gammat + gamma2 - 1) * (gamma1 - 1)
-
-    # advanced Mach number calculation, formula 16 from Dubois et al, 2019
-    denominator = jnp.where(
-        jnp.abs(C - ((gamma1 + 1) + (gamma1 - 1) * gammat) * (gamma2 - 1)) > 1e-6,
-        (C - ((gamma1 + 1) + (gamma1 - 1) * gammat) * (gamma2 - 1)),
-        1e-6,
-    )
-    M1sq = 1 / gamma_eff2 * (gammat - 1) * C / denominator
-
-    # simple Mach number calculation, crashes
-    # the simulation where x_s = 1, better just evaluate
-    # this where the other criterions hold / add a numerical
-    # safeguard
-    # x_s = rho2 / rho1
-    # M1sq = (P2 / P1 - 1) * x_s / (gamma_eff1 * (x_s - 1))
-
-    mach_number_criterion = jnp.zeros_like(converging_flow_criterion, dtype=jnp.bool_)
-
-    mach_number_criterion = mach_number_criterion.at[1:-1].set(M1sq > Mmin**2)
-
-    return converging_flow_criterion & no_spurious_shocks & mach_number_criterion
-
-
-@partial(jax.jit, static_argnames=["registered_variables", "config"])
-def find_shock_zone(
-    primitive_state: STATE_TYPE,
-    config: SimulationConfig,
-    registered_variables: RegisteredVariables,
-    helper_data: HelperData,
-) -> Tuple[
-    Union[int, Int[Array, ""]], Union[int, Int[Array, ""]], Union[int, Int[Array, ""]]
-]:
-    """
-    Find a numerically broadened shock region based of the strongest shock based
-    on the result of the shock_sensor function and the pressure difference
-    between adjacent cells. Assumes a shock front moving left to right.
-
-    Args:
-        pressure: 1d pressure
-        velocity: 1d velocity
-
-    Returns:
-        index of max shock sensor,
-        left boundary of broadened shock,
-        right boundary of broadened shock
-
-    """
-
-    pressure = primitive_state[registered_variables.pressure_index]
-    num_cells = pressure.shape[0]
-
-    # one can either use the maximum of the shock sensor
-    sensors = shock_sensor(pressure)
-    # or the cell with maximum compression, as in Pfrommer et al 2017
-    # div_v = _calculate_1d_divergence(primitive_state[registered_variables.velocity_index], config, helper_data.geometric_centers)
-
-    shock_crit = shock_criteria(
-        primitive_state, config, registered_variables, helper_data
-    )
-
-    max_shock_idx = jnp.argmax(jnp.where(shock_crit, sensors, -1))
-    # max_shock_idx = jnp.argmin(jnp.where(shock_crit, div_v, 1))
-
-    # calculate differences in pressure
-    pressure_differences = jnp.zeros_like(pressure)
-    # 0 <- 1 - 0
-    pressure_differences = pressure_differences.at[1:].set(pressure[1:] - pressure[:-1])
-
-    # bound on the change in pressure between adjacent cells compared
-    # to the pressure jump at the max_shock_index
-    bound_diff = 0.1 * jnp.abs(pressure_differences[max_shock_idx])
-
-    # left index: closest left index where |pressure_difference| < bound_diff or switched sign
-    # right index: closest right index where |pressure_difference| < bound_diff or switched sign
-    indices = jnp.arange(num_cells)
-    left_indices = jnp.where(
-        (indices < max_shock_idx)
-        & ((jnp.abs(pressure_differences) < bound_diff) | (pressure_differences > 0)),
-        indices,
-        -1,
-    )
-    right_indices = jnp.where(
-        (indices > max_shock_idx)
-        & ((jnp.abs(pressure_differences) < bound_diff) | (pressure_differences < 0)),
-        indices,
-        num_cells,
-    )
-    left_idx = jnp.max(left_indices)
-    right_idx = jnp.min(right_indices)
-
-    return max_shock_idx, left_idx, right_idx
-
