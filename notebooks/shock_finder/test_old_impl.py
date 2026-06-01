@@ -16,7 +16,7 @@ from astronomix import get_helper_data
 from astronomix import finalize_config
 from astronomix import get_registered_variables
 from astronomix import construct_primitive_state
-from astronomix.shock_finder.shock_finder_copy import (
+from astronomix.shock_finder.shock_finder_adjust_equation import (
     find_shock_zone,
     shock_criteria,
     shock_sensor,
@@ -114,7 +114,7 @@ plt.tight_layout()
 #plt.savefig("figures/run_shock_finder.svg")
 
 # %%
-from astronomix.shock_finder.shock_finder_copy import (
+from astronomix.shock_finder.shock_finder_adjust_equation import (
     shock_criteria,
     shock_sensor,
     find_shock_zone,
