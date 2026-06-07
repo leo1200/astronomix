@@ -23,6 +23,7 @@ from astronomix.option_classes.simulation_config import HLLC, MINMOD, StaticIntV
 from astronomix._physics_modules._shock_finder.shock_finder_2d import find_shocks_pfrommer
 
 
+#%%
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
@@ -69,6 +70,7 @@ initial_state = construct_primitive_state(
 config = finalize_config(config, initial_state.shape)
 
 
+#%%
 # ============================================================================
 # RUN SIMULATION
 # ============================================================================
@@ -81,6 +83,7 @@ vy_final  = final_state[registered_variables.velocity_index.y]    # (nx, ny)
 p_final   = final_state[registered_variables.pressure_index]      # (nx, ny)
 
 
+#%%
 # ============================================================================
 # RUN SHOCK FINDER
 # ============================================================================
@@ -98,6 +101,7 @@ result = find_shocks_pfrommer(
 # shock_zones:         (nx, ny) bool
 
 
+#%%
 # ============================================================================
 # DIAGNOSTICS
 # ============================================================================

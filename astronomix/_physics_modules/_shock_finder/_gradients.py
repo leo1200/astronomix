@@ -193,7 +193,7 @@ def _calculate_shock_direction(
     return _normalize_vector(-grad_T)
 
 
-@partial(jax.jit, static_argnames=["config"])
+@partial(jax.jit, static_argnames=["config", "registered_variables"])
 def _calculate_velocity_divergence(
     primitive_state,
     config: SimulationConfig,

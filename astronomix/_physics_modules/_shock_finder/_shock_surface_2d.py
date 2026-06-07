@@ -135,7 +135,7 @@ def _find_shock_surface_raycasting_2d(
         sy = step_y[i, j]
 
         # walk up to max(nx, ny) steps along the ray
-        max_steps = jnp.maximum(nx, ny)
+        max_steps = int(max(nx, ny))
 
         def ray_step(carry, _):
             ci, cj, found_smaller = carry
@@ -158,7 +158,7 @@ def _find_shock_surface_raycasting_2d(
             ray_step,
             (i, j, jnp.bool_(False)),
             None,
-            length=max_steps,
+            length=max_steps,   # ← static Python int, fine
         )
 
         return shock_zones[i, j] & ~found_smaller
