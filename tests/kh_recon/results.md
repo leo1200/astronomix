@@ -437,8 +437,8 @@ robust statistic.
 |---|---:|---:|---|---:|---:|
 | single shooting | 1/100 | **0.01** | [0.00,0.03] | 0.041 | 2.40 |
 | GN-MS M=4 | 13/100 | 0.13 | [0.10,0.17] | 0.015 | 1.34 |
-| GN-MS M=8 | 19/99 | **0.19** | [0.16,0.23] | 0.007 | 0.71 |
-| GN-MS M=16 | 13/97 | 0.13 | [0.10,0.17] | 0.013 | 0.63 |
+| GN-MS M=8 | 19/100 | **0.19** | [0.15,0.23] | 0.007 | 0.68 |
+| GN-MS M=16 | 13/100 | 0.13 | [0.10,0.17] | 0.013 | 0.61 |
 
 → **Constrained GN multiple shooting beats single shooting decisively** (13-19%
 vs 1%, ~13-19x). The advantage is segmentation-driven but **does not scale with M**:
