@@ -1697,6 +1697,359 @@ def _weno_flux_mhd_iso_pallas_local(
     )
 
 
+# -----------------------------------------------------------------------------
+# Pallas WENO for the isothermal hydrodynamic (Euler) equations.
+# -----------------------------------------------------------------------------
+
+
+def _hydro_iso_pallas_flux_supported(conserved_state, config: SimulationConfig) -> bool:
+    """Whether the Pallas isothermal-hydro WENO kernel can be used.
+
+    Handles isothermal (no-energy) hydrodynamics in 1/2/3-D: ncomp =
+    num_modes = ndim+1 (density + ndim momenta; acoustic-/shear/acoustic+
+    waves, no entropy mode).  Ideal-gas hydro and MHD fall back to their own
+    kernels / the native path.  See ``pallas_backend_implementation_guide.md``
+    §4.2 and ``_eigen_hydro_iso`` for the isothermal eigenstructure.
+    """
+    if pl is None:
+        return False
+    if not _backend_is_pallas(config):
+        return False
+    if config.mhd:
+        return False
+    if config.equation_of_state != ISOTHERMAL:
+        return False
+    ndim = int(config.dimensionality)
+    if ndim not in (1, 2, 3):
+        return False
+    if conserved_state.ndim != ndim + 1:
+        return False
+    block_shape = _as_3tuple_block_shape(config.pallas_block_shape, ndim)
+    spatial_shape = conserved_state.shape[1:]
+    for n, b in zip(spatial_shape, block_shape[:ndim], strict=True):
+        if int(n) % int(b) != 0:
+            return False
+    return True
+
+
+def _hydro_iso_indices_for_axis(config: SimulationConfig, registered_variables: RegisteredVariables, axis: int):
+    """Local conserved-variable order for an isothermal-hydro flux normal to
+    ``axis``: (density, normal momentum, transverse momenta…).  No energy.
+
+    Mirrors ``_hydro_indices_for_axis`` with the energy slot dropped, so the
+    same characteristic-projection structure applies with one fewer wave.
+    """
+    density_index = int(registered_variables.density_index)
+    ndim = int(config.dimensionality)
+
+    if ndim == 1:
+        momentum_x = int(registered_variables.momentum_index)
+        return (density_index, momentum_x)
+
+    mx = int(registered_variables.momentum_index.x)
+    my = int(registered_variables.momentum_index.y)
+    if ndim == 2:
+        if axis == 0:
+            return (density_index, mx, my)
+        return (density_index, my, mx)
+
+    mz = int(registered_variables.momentum_index.z)
+    if axis == 0:
+        return (density_index, mx, my, mz)
+    if axis == 1:
+        return (density_index, my, mx, mz)
+    return (density_index, mz, my, mx)
+
+
+def _weno_flux_hydro_iso_pallas(
+    conserved_state,
+    params: SimulationParams,
+    config: SimulationConfig,
+    registered_variables: RegisteredVariables,
+    *,
+    axis: int,
+):
+    """Pallas implementation of the isothermal hydrodynamic WENO flux.
+
+    Public entry point: dispatches the supported-predicate check and the
+    multi-GPU ``shard_map`` + halo wrap.  Kernel arithmetic in
+    ``_weno_flux_hydro_iso_pallas_local``.
+    """
+    if not _hydro_iso_pallas_flux_supported(conserved_state, config):
+        # Lazy import to break the circular dependency with _weno.py.
+        from astronomix._finite_difference._interface_fluxes._weno import (
+            _weno_flux_x_native, _weno_flux_y_native, _weno_flux_z_native,
+        )
+        if axis == 0:
+            return _weno_flux_x_native(conserved_state, params, config, registered_variables)
+        if axis == 1:
+            return _weno_flux_y_native(conserved_state, params, config, registered_variables)
+        return _weno_flux_z_native(conserved_state, params, config, registered_variables)
+
+    def _local(state_local):
+        return _weno_flux_hydro_iso_pallas_local(
+            state_local, params, config, registered_variables, axis=axis
+        )
+    return _weno5_shard_wrap(_local, conserved_state, config, axis)
+
+
+def _weno_flux_hydro_iso_pallas_local(
+    conserved_state,
+    params: SimulationParams,
+    config: SimulationConfig,
+    registered_variables: RegisteredVariables,
+    *,
+    axis: int,
+):
+    """Single-shard isothermal-hydro WENO build.  Mirrors
+    ``_weno_flux_hydro_pallas_local`` but with ``ncomp = num_modes = ndim+1``
+    (no energy), a fixed sound speed ``params.isothermal_sound_speed``, and the
+    isothermal eigenstructure of ``_eigen_hydro_iso``: acoustic- (u−cs), the
+    ndim−1 shear waves (u), and acoustic+ (u+cs).  No entropy mode."""
+    ndim = int(config.dimensionality)
+    nvars = int(conserved_state.shape[0])
+    spatial_shape = tuple(int(x) for x in conserved_state.shape[1:])
+    nx = spatial_shape[0]
+    ny = spatial_shape[1] if ndim >= 2 else 1
+    nz = spatial_shape[2] if ndim == 3 else 1
+    bx, by, bz = _as_3tuple_block_shape(config.pallas_block_shape, ndim)
+    grid = (nx // bx, ny // by, nz // bz)
+
+    local_indices = _hydro_iso_indices_for_axis(config, registered_variables, axis)
+    ncomp = len(local_indices)
+    num_modes = ndim + 1
+    epsilon = 1e-7
+    tiny = 1e-14
+    enforce_positivity = bool(config.enforce_positivity)
+
+    if ndim == 1:
+        block_shape = (nvars, bx)
+        out_spec = pl.BlockSpec(block_shape, lambda bi, bj, bk: (0, bi))
+        in_state_spec = pl.BlockSpec(conserved_state.shape, lambda bi, bj, bk: (0, 0))
+    elif ndim == 2:
+        block_shape = (nvars, bx, by)
+        out_spec = pl.BlockSpec(block_shape, lambda bi, bj, bk: (0, bi, bj))
+        in_state_spec = pl.BlockSpec(conserved_state.shape, lambda bi, bj, bk: (0, 0, 0))
+    else:
+        block_shape = (nvars, bx, by, bz)
+        out_spec = pl.BlockSpec(block_shape, lambda bi, bj, bk: (0, bi, bj, bk))
+        in_state_spec = pl.BlockSpec(conserved_state.shape, lambda bi, bj, bk: (0, 0, 0, 0))
+
+    scalar_spec = pl.BlockSpec((), lambda bi, bj, bk: ())
+
+    def kernel(q_ref, cs_ref, rhomin_ref, flux_out_ref):
+        bi = pl.program_id(0)
+        bj = pl.program_id(1)
+        bk = pl.program_id(2)
+
+        if ndim == 1:
+            ii = (bi * bx + jnp.arange(bx)) % nx
+        elif ndim == 2:
+            ii = (bi * bx + jnp.arange(bx)[:, None]) % nx
+            jj = (bj * by + jnp.arange(by)[None, :]) % ny
+        else:
+            ii = (bi * bx + jnp.arange(bx)[:, None, None]) % nx
+            jj = (bj * by + jnp.arange(by)[None, :, None]) % ny
+            kk = (bk * bz + jnp.arange(bz)[None, None, :]) % nz
+
+        cs = cs_ref[()]
+        cs2 = cs * cs
+        cs2_inv = jnp.where(cs2 > 0.0, 1.0 / cs2, 0.0)
+        rhomin = rhomin_ref[()]
+
+        def q_at(var_index: int, offset: int):
+            if ndim == 1:
+                return q_ref[var_index, (ii + offset) % nx]
+            if ndim == 2:
+                if axis == 0:
+                    return q_ref[var_index, (ii + offset) % nx, jj]
+                return q_ref[var_index, ii, (jj + offset) % ny]
+            if axis == 0:
+                return q_ref[var_index, (ii + offset) % nx, jj, kk]
+            if axis == 1:
+                return q_ref[var_index, ii, (jj + offset) % ny, kk]
+            return q_ref[var_index, ii, jj, (kk + offset) % nz]
+
+        def q_local(offset: int):
+            return tuple(q_at(idx, offset) for idx in local_indices)
+
+        def flux_from_q(q):
+            """Isothermal Euler normal flux in local order, mirroring
+            ``_euler_flux_isothermal_x``: density flux ``mn``, normal-momentum
+            flux ``mn^2/rho + cs^2 rho``, transverse ``mn * (mt/rho)``.  The
+            density floor is applied only when ``config.enforce_positivity``,
+            exactly as in the native flux."""
+            rho = q[0]
+            mn = q[1]
+            rho_flux = jnp.maximum(rho, rhomin) if enforce_positivity else rho
+            p = cs2 * rho_flux
+            if ncomp == 2:
+                return (mn, mn * mn / rho_flux + p)
+            if ncomp == 3:
+                mt1 = q[2]
+                return (mn, mn * mn / rho_flux + p, mn * (mt1 / rho_flux))
+            mt1 = q[2]
+            mt2 = q[3]
+            return (mn, mn * mn / rho_flux + p, mn * (mt1 / rho_flux), mn * (mt2 / rho_flux))
+
+        q_stencil = tuple(q_local(off) for off in range(-2, 4))  # offsets -2..3
+        f_stencil = tuple(flux_from_q(q) for q in q_stencil)
+
+        # Cell-centred normal velocities for the local Lax-Friedrichs alpha,
+        # mirroring ``_eigenvalue_building_blocks`` (density floored to rhomin).
+        vn_cells = tuple(qc[1] / jnp.maximum(qc[0], rhomin) for qc in q_stencil)
+
+        # Interface (face at i+1/2) eigenstructure, mirroring
+        # ``_eigenvector_building_blocks``: floor each cell density, average,
+        # re-floor; the face velocity is avg(momentum) / face density.
+        cell_l = q_stencil[2]  # offset 0  (cell i)
+        cell_r = q_stencil[3]  # offset 1  (cell i+1)
+        rho_face = jnp.maximum(
+            0.5 * (jnp.maximum(cell_l[0], rhomin) + jnp.maximum(cell_r[0], rhomin)),
+            rhomin,
+        )
+        vn_face = 0.5 * (cell_l[1] + cell_r[1]) / rho_face
+        vt1_face = 0.5 * (cell_l[2] + cell_r[2]) / rho_face if ncomp >= 3 else None
+        vt2_face = 0.5 * (cell_l[3] + cell_r[3]) / rho_face if ncomp >= 4 else None
+
+        def lambda_at(vn_cell, mode: int):
+            if mode == 0:
+                return vn_cell - cs
+            if mode == num_modes - 1:
+                return vn_cell + cs
+            return vn_cell
+
+        def alpha_for_mode(mode: int):
+            amx = jnp.abs(lambda_at(vn_cells[0], mode))
+            for k in range(1, 6):
+                amx = jnp.maximum(amx, jnp.abs(lambda_at(vn_cells[k], mode)))
+            return amx
+
+        def left_project(mode: int, values):
+            """L_row[mode] · values, mirroring ``_eigen_L_row_hydro_iso``.
+            ``values`` is a local vector (rho, mn, [mt1], [mt2])."""
+            if mode == 0:  # acoustic minus (u - cs)
+                acc = (cs2 + vn_face * cs) * values[0] - cs * values[1]
+                return 0.5 * cs2_inv * acc
+            if mode == num_modes - 1:  # acoustic plus (u + cs)
+                acc = (cs2 - vn_face * cs) * values[0] + cs * values[1]
+                return 0.5 * cs2_inv * acc
+            if mode == 1:  # shear (first transverse)
+                return -vt1_face * values[0] + values[2]
+            # mode == 2 — shear (second transverse, 3-D only)
+            return -vt2_face * values[0] + values[3]
+
+        def add_right_correction(flux_acc, mode: int, Fs):
+            """flux_acc += Fs * R_col[:, mode], mirroring ``_eigen_R_col_hydro_iso``."""
+            if mode == 0:  # acoustic minus
+                if ncomp == 2:
+                    R = (1.0, vn_face - cs)
+                elif ncomp == 3:
+                    R = (1.0, vn_face - cs, vt1_face)
+                else:
+                    R = (1.0, vn_face - cs, vt1_face, vt2_face)
+            elif mode == num_modes - 1:  # acoustic plus
+                if ncomp == 2:
+                    R = (1.0, vn_face + cs)
+                elif ncomp == 3:
+                    R = (1.0, vn_face + cs, vt1_face)
+                else:
+                    R = (1.0, vn_face + cs, vt1_face, vt2_face)
+            elif mode == 1:  # shear (first transverse)
+                if ncomp == 3:
+                    R = (0.0, 0.0, 1.0)
+                else:
+                    R = (0.0, 0.0, 1.0, 0.0)
+            else:  # mode == 2 — shear (second transverse, 3-D)
+                R = (0.0, 0.0, 0.0, 1.0)
+            return [flux_acc[slot] + R[slot] * Fs for slot in range(ncomp)]
+
+        flux_acc = [
+            (-f_stencil[1][slot] + 7.0 * f_stencil[2][slot]
+             + 7.0 * f_stencil[3][slot] - f_stencil[4][slot]) / 12.0
+            for slot in range(ncomp)
+        ]
+
+        for mode in range(num_modes):
+            s = tuple(left_project(mode, f_stencil[k]) for k in range(6))
+            qproj = tuple(left_project(mode, q_stencil[k]) for k in range(6))
+
+            d0 = s[1] - s[0]
+            d1 = s[2] - s[1]
+            d2 = s[3] - s[2]
+            d3 = s[4] - s[3]
+            d4 = s[5] - s[4]
+
+            dq0 = qproj[1] - qproj[0]
+            dq1 = qproj[2] - qproj[1]
+            dq2 = qproj[3] - qproj[2]
+            dq3 = qproj[4] - qproj[3]
+            dq4 = qproj[5] - qproj[4]
+
+            amx = alpha_for_mode(mode)
+
+            aterm_p = 0.5 * (d0 + amx * dq0)
+            bterm_p = 0.5 * (d1 + amx * dq1)
+            cterm_p = 0.5 * (d2 + amx * dq2)
+            dterm_p = 0.5 * (d3 + amx * dq3)
+            IS0_p = 13.0 * (aterm_p - bterm_p) ** 2 + 3.0 * (aterm_p - 3.0 * bterm_p) ** 2
+            IS1_p = 13.0 * (bterm_p - cterm_p) ** 2 + 3.0 * (bterm_p + cterm_p) ** 2
+            IS2_p = 13.0 * (cterm_p - dterm_p) ** 2 + 3.0 * (3.0 * cterm_p - dterm_p) ** 2
+            alpha0_p = 1.0 / (epsilon + IS0_p) ** 2
+            alpha1_p = 6.0 / (epsilon + IS1_p) ** 2
+            alpha2_p = 3.0 / (epsilon + IS2_p) ** 2
+            alpha_sum_p = jnp.maximum(alpha0_p + alpha1_p + alpha2_p, tiny)
+            omega0_p = alpha0_p / alpha_sum_p
+            omega2_p = alpha2_p / alpha_sum_p
+            second = (omega0_p * (aterm_p - 2.0 * bterm_p + cterm_p) / 3.0
+                      + (omega2_p - 0.5) * (bterm_p - 2.0 * cterm_p + dterm_p) / 6.0)
+
+            aterm_m = 0.5 * (d4 - amx * dq4)
+            bterm_m = 0.5 * (d3 - amx * dq3)
+            cterm_m = 0.5 * (d2 - amx * dq2)
+            dterm_m = 0.5 * (d1 - amx * dq1)
+            IS0_m = 13.0 * (aterm_m - bterm_m) ** 2 + 3.0 * (aterm_m - 3.0 * bterm_m) ** 2
+            IS1_m = 13.0 * (bterm_m - cterm_m) ** 2 + 3.0 * (bterm_m + cterm_m) ** 2
+            IS2_m = 13.0 * (cterm_m - dterm_m) ** 2 + 3.0 * (3.0 * cterm_m - dterm_m) ** 2
+            alpha0_m = 1.0 / (epsilon + IS0_m) ** 2
+            alpha1_m = 6.0 / (epsilon + IS1_m) ** 2
+            alpha2_m = 3.0 / (epsilon + IS2_m) ** 2
+            alpha_sum_m = jnp.maximum(alpha0_m + alpha1_m + alpha2_m, tiny)
+            omega0_m = alpha0_m / alpha_sum_m
+            omega2_m = alpha2_m / alpha_sum_m
+            third = (omega0_m * (aterm_m - 2.0 * bterm_m + cterm_m) / 3.0
+                     + (omega2_m - 0.5) * (bterm_m - 2.0 * cterm_m + dterm_m) / 6.0)
+
+            Fs = -second + third
+            flux_acc = add_right_correction(flux_acc, mode, Fs)
+
+        zero = flux_acc[0] * 0.0
+        for var in range(nvars):
+            flux_out_ref[var, ...] = zero
+        for slot, var in enumerate(local_indices):
+            flux_out_ref[var, ...] = flux_acc[slot]
+
+    kwargs = {}
+    compiler_params = _pallas_compiler_params(config)
+    if compiler_params is not None:
+        kwargs["compiler_params"] = compiler_params
+
+    return pl.pallas_call(
+        kernel,
+        out_shape=jax.ShapeDtypeStruct(conserved_state.shape, conserved_state.dtype),
+        grid=grid,
+        in_specs=[in_state_spec, scalar_spec, scalar_spec],
+        out_specs=out_spec,
+        interpret=config.pallas_interpret,
+        name=f"hydro_iso_weno_flux_axis_{axis}",
+        **kwargs,
+    )(
+        conserved_state,
+        jnp.asarray(params.isothermal_sound_speed, dtype=conserved_state.dtype),
+        jnp.asarray(params.minimum_density, dtype=conserved_state.dtype),
+    )
+
+
 def _weno_flux_hydro_pallas_rhs(
     conserved_state,
     dt_over_dx,

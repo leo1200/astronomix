@@ -482,9 +482,11 @@ def _weno_flux_z_native(
 # only touches native JAX never needs to look at the Pallas module.
 # -----------------------------------------------------------------------------
 from astronomix._finite_difference._interface_fluxes._weno_pallas import (  # noqa: E402
+    _hydro_iso_pallas_flux_supported,
     _hydro_pallas_flux_supported,
     _mhd_iso_pallas_flux_supported,
     _mhd_pallas_flux_supported,
+    _weno_flux_hydro_iso_pallas,
     _weno_flux_hydro_pallas,
     _weno_flux_hydro_pallas_rhs,
     _weno_flux_mhd_iso_pallas,
@@ -544,6 +546,17 @@ def _weno_flux_axis_dispatch(
         return diffable_pallas_call(
             conserved_state, params, pallas_branch=pallas, native_branch=native,
         )
+    if _hydro_iso_pallas_flux_supported(conserved_state, config):
+        if axis == 0 or (axis == 1 and int(config.dimensionality) >= 2) or (axis == 2 and int(config.dimensionality) == 3):
+            pallas = lambda s, p: _weno_flux_hydro_iso_pallas(  # noqa: E731
+                s, p, config, registered_variables, axis=axis
+            )
+            native = lambda s, p: _weno_flux_native_for_axis(axis)(  # noqa: E731
+                s, p, config, registered_variables
+            )
+            return diffable_pallas_call(
+                conserved_state, params, pallas_branch=pallas, native_branch=native,
+            )
     return _weno_flux_native_for_axis(axis)(
         conserved_state, params, config, registered_variables
     )

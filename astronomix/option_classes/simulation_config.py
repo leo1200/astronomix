@@ -338,6 +338,29 @@ class SimulationConfig(NamedTuple):
     #: Viscosity type - either kinematic or dynamic viscosity.
     viscosity_type: int = DYNAMIC_VISCOSITY
 
+    #: Explicit thermal conduction term div(kappa grad T) in the energy
+    #: equation (constant conductivity params.thermal_conductivity,
+    #: explicit integration). Currently only for finite difference mode.
+    thermal_conduction: bool = False
+
+    #: Spatial axis (0-based among the spatial dimensions) along which
+    #: isothermal conductive plates sit (e.g. 1 -> the y / vertical axis
+    #: for a 2D Rayleigh-Benard setup). The perpendicular axes are treated
+    #: as adiabatic (zero conductive flux), which the reflective hydro
+    #: boundary already provides via the mirrored (even) temperature.
+    conduction_wall_axis: int = 1
+
+    #: Whether the two ends of conduction_wall_axis are isothermal
+    #: (Dirichlet T = params.wall_temperature_low / _high). When False all
+    #: conduction boundaries are adiabatic (zero flux).
+    conduction_isothermal_walls: bool = False
+
+    #: Rotating reference frame: add the Coriolis momentum source
+    #: -2 Omega zhat x (rho u) about the z-axis (params.rotation_rate).
+    #: Does no work (momentum only), so it is valid for both the ideal-gas
+    #: and isothermal equations of state. Currently for finite difference mode.
+    rotation: bool = False
+
     #: The size of the simulation box.
     box_size: Union[float, StaticFloatVector] = 1.0
 
@@ -625,7 +648,7 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
         if config.boundary_handling == PERIODIC_ROLL:
             config = config._replace(num_ghost_cells=0)
 
-        if config.boundary_handling == GHOST_CELLS and config.diffusion:
+        if config.boundary_handling == GHOST_CELLS and (config.diffusion or config.thermal_conduction):
             config = config._replace(num_ghost_cells=max(config.num_ghost_cells, 6))
 
     # set boundary conditions if not set

@@ -1,0 +1,12 @@
+2026-06-03 17:31:29.367794: E external/xla/xla/service/slow_operation_alarm.cc:73] 
+********************************
+[Compiling module jit_lbfgs_step] Very slow compile? If you want to file a bug, run with envvar XLA_FLAGS=--xla_dump_to=/tmp/foo and attach the results.
+********************************
+2026-06-03 17:32:08.776817: E external/xla/xla/service/slow_operation_alarm.cc:140] The operation took 2m39.409228148s
+
+********************************
+[Compiling module jit_lbfgs_step] Very slow compile? If you want to file a bug, run with envvar XLA_FLAGS=--xla_dump_to=/tmp/foo and attach the results.
+********************************
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+Setting time integrator to RK4_SSP for finite difference solver mode.
+[done] T=2.0 m=1 seed=1 opt=lbfgs: final_err=0.770 best=0.770 iters=21 data=1.74e-03 1502s -> /export/home/lstorcks/agent-home/astronomix/tests/taylor_green/inverse/data/ensemble/money_T2.0_m1_s1_lbfgs.npz

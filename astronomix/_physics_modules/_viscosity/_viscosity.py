@@ -86,7 +86,7 @@ import jax
 import jax.numpy as jnp   
 from astronomix._fluid_equations._equations import conserved_state_from_primitive, primitive_state_from_conserved
 from astronomix._stencil_operations._stencil_operations import _shift, _stencil_add
-from astronomix.option_classes.simulation_config import DYNAMIC_VISCOSITY, KINEMATIC_VISCOSITY
+from astronomix.option_classes.simulation_config import DYNAMIC_VISCOSITY, ISOTHERMAL, KINEMATIC_VISCOSITY
 
 # the fv one is preliminary, in the future I want an all source
 # term scheme
@@ -206,6 +206,9 @@ def fd_viscosity_source(primitive_state, params, config, registered_variables):
 
     S_visc = jnp.zeros_like(primitive_state)
     S_visc = S_visc.at[1:ndim + 1].set(div_tau)
-    S_visc = S_visc.at[registered_variables.energy_index].set(energy_src)
+    # The isothermal EOS has no energy equation (energy_index points outside the
+    # momentum block), so only the momentum source applies there.
+    if config.equation_of_state != ISOTHERMAL:
+        S_visc = S_visc.at[registered_variables.energy_index].set(energy_src)
 
     return S_visc

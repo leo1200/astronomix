@@ -24,7 +24,7 @@ from astronomix._finite_volume._magnetic_update._vector_maths import divergence3
 from astronomix._geometry.boundaries import _boundary_handler
 from astronomix._pallas_helpers import pallas_mesh_context
 from astronomix._physics_modules._frame_tracking._frame_tracking import _frame_tracking
-from astronomix._physics_modules._turbulent_forcing._turbulent_forcing import _apply_forcing
+from astronomix._physics_modules._turbulent_forcing._turbulent_forcing import _apply_forcing, _apply_ou_forcing, _init_ou_forcing_state
 from astronomix.analysis_helpers.energy_spectrum import _wavenumber_bins, get_kinetic_energy_spectrum, get_magnetic_energy_spectrum, get_magnetic_helicity_spectrum
 from astronomix.data_classes.simulation_state_struct import StateStruct
 from astronomix.option_classes.simulation_config import BACKWARDS, FINITE_DIFFERENCE, FINITE_VOLUME, FORWARDS, GHOST_CELLS, IDEAL_GAS, PERIODIC_ROLL, STATE_TYPE
@@ -920,14 +920,25 @@ def _time_integration(
         # FOR THE CASE WITHOUT SNAPSHOT DATA AND NOT PRESENT
         # IN THE CARRY OTHERWISE. TODO: IMPROVE THIS.
         if config.turbulent_forcing_config.turbulent_forcing:
-            key, primitive_state = _apply_forcing(
-                key,
-                primitive_state,
-                dt,
-                params.turbulent_forcing_params,
-                config,
-                registered_variables,
-            )
+            if config.turbulent_forcing_config.ou_forcing:
+                # the carry's "key" slot holds the OU forcing state (key, field)
+                key, primitive_state = _apply_ou_forcing(
+                    key,
+                    primitive_state,
+                    dt,
+                    params.turbulent_forcing_params,
+                    config,
+                    registered_variables,
+                )
+            else:
+                key, primitive_state = _apply_forcing(
+                    key,
+                    primitive_state,
+                    dt,
+                    params.turbulent_forcing_params,
+                    config,
+                    registered_variables,
+                )
 
         # PRELIMINARY
         # Frame tracking, currently very specialized
@@ -1029,10 +1040,22 @@ def _time_integration(
             t, _, _ = carry
         return t < params.t_end
 
-    if config.return_snapshots or config.activate_snapshot_callback:
-        carry = (0.0, jax.random.key(config.random_seed), primitive_state, snapshot_data)
+    # The carry's second slot threads the forcing RNG state. For OU forcing it
+    # also holds the persistent forcing field, bundled as (key, field); it is
+    # opaque everywhere except the forcing application.
+    _rng_key = jax.random.key(config.random_seed)
+    if (config.turbulent_forcing_config.turbulent_forcing
+            and config.turbulent_forcing_config.ou_forcing):
+        forcing_state = _init_ou_forcing_state(
+            _rng_key, config, params.turbulent_forcing_params
+        )
     else:
-        carry = (0.0, jax.random.key(config.random_seed), primitive_state)
+        forcing_state = _rng_key
+
+    if config.return_snapshots or config.activate_snapshot_callback:
+        carry = (0.0, forcing_state, primitive_state, snapshot_data)
+    else:
+        carry = (0.0, forcing_state, primitive_state)
 
     if not config.fixed_timestep:
         if config.differentiation_mode == BACKWARDS:
@@ -1044,7 +1067,22 @@ def _time_integration(
         else:
             raise ValueError("Unknown differentiation mode.")
     else:
-        carry = jax.lax.fori_loop(0, config.num_timesteps, update_step_for, carry)
+        if config.differentiation_mode == BACKWARDS:
+            # Checkpointed fixed-timestep loop: bounded-memory reverse mode (a
+            # plain fori_loop stores every step and OOMs through reverse mode).
+            # The timestep is fixed, so a time-based stop is exact to
+            # ``num_timesteps`` steps (compare against t_end - dt/2).
+            _dt_fixed = params.t_end / config.num_timesteps
+
+            def _fixed_condition(carry):
+                return carry[0] < params.t_end - 0.5 * _dt_fixed
+
+            carry = checkpointed_while_loop(
+                _fixed_condition, update_step, carry,
+                checkpoints=config.num_checkpoints,
+            )
+        else:
+            carry = jax.lax.fori_loop(0, config.num_timesteps, update_step_for, carry)
 
     # -------------------------------------------------------------
     # =================== ↑ loop-level logic ↑ ====================

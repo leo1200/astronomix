@@ -70,8 +70,108 @@ def _create_forcing_field(
     wx_real = jnp.real(jnp.fft.ifftn(cwx))
     wy_real = jnp.real(jnp.fft.ifftn(cwy))
     wz_real = jnp.real(jnp.fft.ifftn(cwz))
-    
+
     return key, wx_real, wy_real, wz_real
+
+
+# ---------------------------------------------------------------------------
+# Ornstein-Uhlenbeck (temporally correlated) forcing
+# ---------------------------------------------------------------------------
+
+@partial(jax.jit, static_argnames=["config"])
+def _create_solenoidal_field(key, config, k_f):
+    """A fresh solenoidal (divergence-free) random velocity field peaked at
+    wavenumber ``k_f`` and normalised to unit rms (mean(|w|^2) = 1)."""
+    nx = config.num_cells.x + 2 * config.num_ghost_cells
+    ny = config.num_cells.y + 2 * config.num_ghost_cells
+    nz = config.num_cells.z + 2 * config.num_ghost_cells
+
+    kx = 2.0 * jnp.pi * jnp.fft.fftfreq(nx, d=config.box_size.x / nx)
+    ky = 2.0 * jnp.pi * jnp.fft.fftfreq(ny, d=config.box_size.y / ny)
+    kz = 2.0 * jnp.pi * jnp.fft.fftfreq(nz, d=config.box_size.z / nz)
+    kx_3d = kx.reshape(nx, 1, 1)
+    ky_3d = ky.reshape(1, ny, 1)
+    kz_3d = kz.reshape(1, 1, nz)
+    k_squared = kx_3d ** 2 + ky_3d ** 2 + kz_3d ** 2
+    kk = jnp.sqrt(k_squared)
+
+    # spectrum k^6 exp(-8 k / kpk) peaks at k = 0.75 kpk -> kpk = k_f / 0.75
+    kpk = k_f / 0.75
+    Pk = kk ** 6 * jnp.exp(-8.0 * kk / kpk)
+
+    key, sk1, sk2 = jax.random.split(key, 3)
+    raw = jax.random.normal(sk1, shape=(3, nx, ny, nz)) + \
+        1j * jax.random.normal(sk2, shape=(3, nx, ny, nz))
+    cwx = jnp.sqrt(Pk) * raw[0]
+    cwy = jnp.sqrt(Pk) * raw[1]
+    cwz = jnp.sqrt(Pk) * raw[2]
+    cwx = cwx.at[0, 0, 0].set(0.0 + 0.0j)
+    cwy = cwy.at[0, 0, 0].set(0.0 + 0.0j)
+    cwz = cwz.at[0, 0, 0].set(0.0 + 0.0j)
+
+    # project out the compressible (curl-free) component -> solenoidal
+    k_squared_safe = jnp.where(k_squared == 0.0, 1.0, k_squared)
+    div_k = (kx_3d * cwx + ky_3d * cwy + kz_3d * cwz) / k_squared_safe
+    div_k = div_k.at[0, 0, 0].set(0.0 + 0.0j)
+    cwx = cwx - kx_3d * div_k
+    cwy = cwy - ky_3d * div_k
+    cwz = cwz - kz_3d * div_k
+
+    wx = jnp.real(jnp.fft.ifftn(cwx))
+    wy = jnp.real(jnp.fft.ifftn(cwy))
+    wz = jnp.real(jnp.fft.ifftn(cwz))
+
+    # normalise to unit rms
+    norm = jnp.sqrt(jnp.mean(wx ** 2 + wy ** 2 + wz ** 2) + 1e-30)
+    field = jnp.stack([wx, wy, wz]) / norm
+    return key, field
+
+
+@partial(jax.jit, static_argnames=["config"])
+def _init_ou_forcing_state(key, config, turbulent_forcing_params):
+    """Initial OU forcing state ``(key, f0)`` with f0 a stationary draw."""
+    key, field = _create_solenoidal_field(
+        key, config, turbulent_forcing_params.forcing_wavenumber
+    )
+    return (key, field)
+
+
+@partial(jax.jit, static_argnames=["config", "registered_variables"])
+def _apply_ou_forcing(
+    forcing_state,
+    primitive_state,
+    dt,
+    turbulent_forcing_params,
+    config,
+    registered_variables,
+):
+    """Apply Ornstein-Uhlenbeck forcing.
+
+    The persistent forcing field ``f`` (carried in ``forcing_state``) is evolved
+    with the exact OU discretisation ``f <- a f + sqrt(1 - a^2) xi``,
+    ``a = exp(-dt / tau_f)``, keeping it at unit rms, then applied as a
+    constant-amplitude acceleration ``velocity += F0 f dt`` (state-independent,
+    so the adjoint is clean and the realisation is reproducible for a fixed
+    timestep sequence).
+    """
+    key, f = forcing_state
+    tau_f = turbulent_forcing_params.correlation_time
+    a = jnp.exp(-dt / tau_f)
+    key, xi = _create_solenoidal_field(
+        key, config, turbulent_forcing_params.forcing_wavenumber
+    )
+    f = a * f + jnp.sqrt(jnp.maximum(1.0 - a ** 2, 0.0)) * xi
+
+    F0 = turbulent_forcing_params.forcing_amplitude
+    vx_i = registered_variables.velocity_index.x
+    vy_i = registered_variables.velocity_index.y
+    vz_i = registered_variables.velocity_index.z
+    primitive_state = primitive_state.at[vx_i].add(F0 * f[0] * dt)
+    primitive_state = primitive_state.at[vy_i].add(F0 * f[1] * dt)
+    primitive_state = primitive_state.at[vz_i].add(F0 * f[2] * dt)
+
+    return (key, f), primitive_state
+
 
 # experimental, taken from the HOW-MHD Fortran code, this kind of
 # protection was not mentioned in the paper, otherwise 

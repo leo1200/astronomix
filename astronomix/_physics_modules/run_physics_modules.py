@@ -23,6 +23,7 @@ from astronomix._physics_modules._neural_net_force._neural_net_force import (
 )
 from astronomix._physics_modules._gravity._gravity import _compute_total_potential
 from astronomix._physics_modules._viscosity._viscosity import fd_viscosity_source, fv_viscosity_update
+from astronomix._physics_modules._conduction._conduction import fd_conduction_source
 from astronomix._stencil_operations._stencil_operations import _shift, _stencil_add
 from astronomix.data_classes.simulation_helper_data import HelperData
 from astronomix._geometry.boundaries import _boundary_handler
@@ -477,5 +478,21 @@ def _physics_sources(
 
     if config.diffusion:
         S += fd_viscosity_source(primitive_state, params, config, registered_variables) * dt
-    
+
+    if config.thermal_conduction:
+        S += fd_conduction_source(primitive_state, params, config, registered_variables) * dt
+
+    if config.rotation:
+        # Coriolis momentum source -2 Omega zhat x (rho u) about the z-axis.
+        # zhat x (rho u) = (-rho u_y, rho u_x, 0), so the force is
+        # (2 Omega rho u_y, -2 Omega rho u_x, 0). We read the conserved
+        # momentum directly (rho u_i = conserved_state[momentum_index.i]) so
+        # this is valid for the isothermal EOS too; Coriolis does no work, so
+        # there is no energy contribution.
+        omega = params.rotation_rate
+        mom_x = registered_variables.momentum_index.x
+        mom_y = registered_variables.momentum_index.y
+        S = S.at[mom_x].add(2.0 * omega * conserved_state[mom_y] * dt)
+        S = S.at[mom_y].add(-2.0 * omega * conserved_state[mom_x] * dt)
+
     return S
