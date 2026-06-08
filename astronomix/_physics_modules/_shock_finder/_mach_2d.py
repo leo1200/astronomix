@@ -44,9 +44,6 @@ def _calculate_mach_at_surface(
     M = jnp.sqrt((p_ratio * (gamma_gas + 1) + (gamma_gas - 1)) / (2 * gamma_gas))
 
     # write Mach only at surface cells, zero elsewhere
-    mach_array = jnp.zeros_like(pressure)
-    mach_array = mach_array.at[1:-1].set(
-        jnp.where(shock_surface[1:-1], M, 0.0)
-    )
+    mach_array = jnp.where(shock_surface, M, 0.0)
 
     return mach_array

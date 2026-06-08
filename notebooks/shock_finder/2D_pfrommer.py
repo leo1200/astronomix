@@ -185,8 +185,8 @@ axes[1, 2].set_xlabel("x"); axes[1, 2].set_ylabel("P")
 axes[1, 2].legend(fontsize=8)
 
 plt.tight_layout()
-plt.savefig("figures/shock_finder_2D_test.svg")
+# plt.savefig("figures/shock_finder_2D_test.svg")
 plt.show()
 
-print("\nFigure saved to figures/shock_finder_2D_test.svg")
+# print("\nFigure saved to figures/shock_finder_2D_test.svg")
 # %%
