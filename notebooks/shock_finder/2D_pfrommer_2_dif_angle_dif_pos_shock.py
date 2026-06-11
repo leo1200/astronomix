@@ -1,20 +1,24 @@
 # ============================================================================
-# 2D Shock Finder Test — Two Parallel Rotated Shocks (blast wave in 1D)
+# 2D Shock Finder Test — Two Shocks at Different Angles
 # ============================================================================
-# High pressure in the middle region, low pressure on both sides.
-# This drives two shocks propagating outward in opposite directions
-# along the shock normal — like a 1D blast wave, rotated by SHOCK_ANGLE.
+# Two independent Sod-like discontinuities, each at a different angle and
+# passing through a different point in the domain. They form a V shape and
+# may intersect as the simulation evolves.
 #
-# Initial conditions (three regions along the normal direction):
-#   left region  (d < -1/6): rho=0.125, p=0.1   (low pressure)
-#   mid  region  (-1/6<d<1/6): rho=1.0, p=1.0   (high pressure — the driver)
-#   right region (d >  1/6): rho=0.125, p=0.1   (low pressure)
+# Shock 1: normal at +30°, discontinuity passing through (0.3, 0.5)
+#   high pressure on the left side of its front
+# Shock 2: normal at -30°, discontinuity passing through (0.7, 0.5)
+#   high pressure on the left side of its front
+#
+# A point is on the "high" side of a shock if its signed distance from the
+# discontinuity line is negative (same convention as rotated Sod test).
 #
 # Ground truth:
-#   - two distinct shock surfaces, each a diagonal line at SHOCK_ANGLE
-#   - shocks propagate in opposite directions → d_s points outward on each
-#   - ds_x mean ≈ 0 (left shock cancels right shock), but per-shock ≈ ±cos θ
-#   - Mach numbers should be roughly symmetric (same jump ratio on both sides)
+#   - two distinct shock surfaces at different angles
+#   - shock_direction at shock 1 ≈ (cos30°,  sin30°) = ( 0.866,  0.500)
+#   - shock_direction at shock 2 ≈ (cos30°, -sin30°) = ( 0.866, -0.500)
+#   - Mach numbers roughly similar on both fronts (same jump ratio)
+#   - intersection region (if reached) is ambiguous — expect noisy d_s there
 # ============================================================================
 
 #%%
@@ -34,8 +38,10 @@ from astronomix._physics_modules._shock_finder.shock_finder_2d import find_shock
 # CONFIGURATION
 # ============================================================================
 
-SHOCK_ANGLE = 30.0        # degrees — angle of shock normal from x-axis
-                          # both shocks share the same angle
+ANGLE_1 =  30.0    # degrees — normal direction of shock 1
+ANGLE_2 = -30.0    # degrees — normal direction of shock 2
+CENTER_1 = (0.3, 0.5)   # point the shock 1 front passes through
+CENTER_2 = (0.7, 0.5)   # point the shock 2 front passes through
 
 num_cells = 128
 box_size  = 1.0
@@ -48,7 +54,7 @@ config = SimulationConfig(
     box_size=box_size,
     num_cells=num_cells,
 )
-params = SimulationParams(t_end=0.15)   # slightly shorter — keeps shocks separated
+params = SimulationParams(t_end=0.15)
 
 helper_data          = get_helper_data(config)
 registered_variables = get_registered_variables(config)
@@ -58,26 +64,33 @@ y = helper_data.geometric_centers[..., 1]   # (nx, ny)
 
 
 # ============================================================================
-# INITIAL CONDITIONS — two discontinuities along the normal
+# INITIAL CONDITIONS
 # ============================================================================
-# signed distance from center along shock normal
-# disc 1 at d = -1/6  (left third boundary)
-# disc 2 at d = +1/6  (right third boundary)
+# For each shock, compute signed distance from its front.
+# A cell is on the "high pressure" side if signed_dist < 0.
+# The two high-pressure regions are combined with jnp.maximum (union).
 
-theta_rad = jnp.deg2rad(SHOCK_ANGLE)
-nx_hat    = jnp.cos(theta_rad)
-ny_hat    = jnp.sin(theta_rad)
+theta1 = jnp.deg2rad(ANGLE_1)
+theta2 = jnp.deg2rad(ANGLE_2)
 
-signed_dist = (x - 0.5) * nx_hat + (y - 0.5) * ny_hat
+nx1, ny1 = jnp.cos(theta1), jnp.sin(theta1)
+nx2, ny2 = jnp.cos(theta2), jnp.sin(theta2)
 
-# three regions
-in_left  = signed_dist < -1/6
-in_right = signed_dist >  1/6
-in_mid   = ~in_left & ~in_right
+# signed distance from each front
+dist1 = (x - CENTER_1[0]) * nx1 + (y - CENTER_1[1]) * ny1
+dist2 = (x - CENTER_2[0]) * nx2 + (y - CENTER_2[1]) * ny2
 
-# high pressure driver in the middle → two shocks propagate outward
-rho = jnp.where(in_mid, 1.0,   0.125)
-p   = jnp.where(in_mid, 1.0,   0.1  )
+high1 = dist1 < 0   # high pressure side of shock 1
+high2 = dist2 < 0   # high pressure side of shock 2
+
+# each shock independently: high side p=1.0, low side p=0.1
+# where both overlap, take the higher pressure
+p = jnp.where(high1, 1.0, 0.1)
+p = jnp.where(high2, jnp.maximum(p, 1.0), p)
+
+rho = jnp.where(high1, 1.0, 0.125)
+rho = jnp.where(high2, jnp.maximum(rho, 1.0), rho)
+
 u_x = jnp.zeros_like(x)
 u_y = jnp.zeros_like(x)
 
@@ -115,35 +128,48 @@ result = find_shocks_pfrommer(
     helper_data,
 )
 
-ds_x = result.shock_direction[0]   # (nx, ny)
-ds_y = result.shock_direction[1]   # (nx, ny)
+ds_x = result.shock_direction[0]
+ds_y = result.shock_direction[1]
 
 
 # ============================================================================
 # DIAGNOSTICS
 # ============================================================================
 
-print(f"=== Two Parallel Shocks ({SHOCK_ANGLE}°) ===")
-print(f"Shock normal              : ({float(nx_hat):.3f}, {float(ny_hat):.3f})")
+#%%
+print(f"=== Two Shocks at Different Angles ({ANGLE_1}° and {ANGLE_2}°) ===")
+print(f"Shock 1 normal: ({float(nx1):.3f}, {float(ny1):.3f})  through {CENTER_1}")
+print(f"Shock 2 normal: ({float(nx2):.3f}, {float(ny2):.3f})  through {CENTER_2}")
 print(f"num_shocks (surface cells): {result.num_shocks}")
-print(f"Expected                  : ~{num_cells} surface cells per shock × 2 shocks")
 
 surface_mask = result.shock_surface_cells
-surface_mach = result.mach_numbers[surface_mask]
 
 if result.num_shocks == 0:
-    print("WARNING: no shock surface cells found — shock may have left domain or is too weak")
+    print("WARNING: no shock surface cells found")
 else:
-    print(f"Mach at surface           : min={surface_mach.min():.3f}  max={surface_mach.max():.3f}  mean={surface_mach.mean():.3f}")
-    print(f"ds_x at surface           : mean={float(ds_x[surface_mask].mean()):.3f}  (expect ≈ 0 — left/right shocks cancel)")
-    print(f"ds_y at surface           : mean={float(ds_y[surface_mask].mean()):.3f}  (expect ≈ 0 — left/right shocks cancel)")
-    print(f"  (each shock individually should have |ds_x|≈{float(nx_hat):.3f}, |ds_y|≈{float(ny_hat):.3f})")
+    surface_mach = result.mach_numbers[surface_mask]
+    print(f"Mach at surface: min={surface_mach.min():.3f}  max={surface_mach.max():.3f}  mean={surface_mach.mean():.3f}")
 
-    # check two distinct clusters along normal
-    surface_dist = signed_dist[surface_mask]
-    print(f"\nSurface cell positions along normal:")
-    print(f"  min={float(surface_dist.min()):.3f}  max={float(surface_dist.max()):.3f}")
-    print(f"  expect two clusters: one negative (left shock), one positive (right shock)")
+    # split surface cells by x position to diagnose each shock separately
+    surface_x = x[surface_mask]
+    surface_y = y[surface_mask]
+    left_shock  = surface_x < 0.5
+    right_shock = surface_x >= 0.5
+
+    ds_x_surf = ds_x[surface_mask]
+    ds_y_surf = ds_y[surface_mask]
+
+    print(f"\nShock 1 (left,  expect ds≈({float(nx1):.3f}, {float(ny1):.3f})):")
+    if left_shock.sum() > 0:
+        print(f"  cells={int(left_shock.sum())}  ds_x={float(ds_x_surf[left_shock].mean()):.3f}  ds_y={float(ds_y_surf[left_shock].mean()):.3f}")
+    else:
+        print("  no surface cells found on left side")
+
+    print(f"Shock 2 (right, expect ds≈({float(nx2):.3f}, {float(ny2):.3f})):")
+    if right_shock.sum() > 0:
+        print(f"  cells={int(right_shock.sum())}  ds_x={float(ds_x_surf[right_shock].mean()):.3f}  ds_y={float(ds_y_surf[right_shock].mean()):.3f}")
+    else:
+        print("  no surface cells found on right side")
 
 
 # ============================================================================
@@ -152,7 +178,7 @@ else:
 
 #%%
 fig, axes = plt.subplots(2, 3, figsize=(16, 9))
-fig.suptitle(f"Two Parallel Rotated Shocks ({SHOCK_ANGLE}°) — Shock Finder Validation", fontsize=13)
+fig.suptitle(f"Two Shocks at Different Angles ({ANGLE_1}° and {ANGLE_2}°)", fontsize=13)
 
 x_np = np.array(x)
 y_np = np.array(y)
@@ -184,7 +210,7 @@ axes[1, 0].set_title("Mach number (surface cells only)")
 axes[1, 0].set_xlabel("x"); axes[1, 0].set_ylabel("y")
 plt.colorbar(im3, ax=axes[1, 0])
 
-# 5. shock_direction quiver
+# 5. shock_direction quiver — key visual: two different arrow directions
 step = 8
 axes[1, 1].pcolormesh(x_np, y_np, np.array(p_final), cmap="viridis", alpha=0.5)
 axes[1, 1].quiver(
@@ -194,30 +220,16 @@ axes[1, 1].quiver(
 )
 axes[1, 1].contour(x_np, y_np, np.array(result.shock_surface_cells).astype(float),
                    levels=[0.5], colors="red", linewidths=1.5)
-axes[1, 1].set_title(f"shock_direction (quiver)\nexpect outward arrows on each shock front")
+axes[1, 1].set_title("shock_direction (quiver)\nleft arrows ↗, right arrows ↘")
 axes[1, 1].set_xlabel("x"); axes[1, 1].set_ylabel("y")
 
-# 6. Slice along shock normal through center
-t_vals   = np.linspace(-0.5, 0.5, 300)
-x_sample = np.clip(0.5 + t_vals * float(nx_hat), 0.01, 0.99)
-y_sample = np.clip(0.5 + t_vals * float(ny_hat), 0.01, 0.99)
-
-cell_size = box_size / num_cells
-xi = np.clip((x_sample / cell_size).astype(int), 0, num_cells - 1)
-yi = np.clip((y_sample / cell_size).astype(int), 0, num_cells - 1)
-
-p_along    = np.array(p_final)[xi, yi]
-surf_along = np.array(result.shock_surface_cells)[xi, yi]
-zone_along = np.array(result.shock_zones)[xi, yi]
-
-axes[1, 2].plot(t_vals, p_along, label="pressure")
-axes[1, 2].fill_between(t_vals, 0, 1, where=zone_along,
-                         alpha=0.2, color="green", label="shock zone")
-for ti in t_vals[surf_along]:
-    axes[1, 2].axvline(ti, color="red", linestyle="--", linewidth=1.5)
-axes[1, 2].set_title(f"Slice along normal (θ={SHOCK_ANGLE}°)\nexpect 2 red lines + 2 green zones")
-axes[1, 2].set_xlabel("distance along normal"); axes[1, 2].set_ylabel("P")
-axes[1, 2].legend(fontsize=8)
+# 6. ds_y component — signed: left shock positive, right shock negative
+im5 = axes[1, 2].pcolormesh(x_np, y_np, np.array(ds_y), cmap="RdBu", vmin=-1, vmax=1)
+axes[1, 2].contour(x_np, y_np, np.array(result.shock_surface_cells).astype(float),
+                   levels=[0.5], colors="black", linewidths=1.0)
+axes[1, 2].set_title(f"ds_y component\nexpect +{float(ny1):.2f} left, {float(ny2):.2f} right")
+axes[1, 2].set_xlabel("x"); axes[1, 2].set_ylabel("y")
+plt.colorbar(im5, ax=axes[1, 2])
 
 plt.tight_layout()
 plt.show()
