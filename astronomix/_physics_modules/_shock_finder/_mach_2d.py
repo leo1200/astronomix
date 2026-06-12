@@ -12,12 +12,13 @@ from astronomix.option_classes.simulation_config import (
 )
 from astronomix._physics_modules._shock_finder._shock_zones_2d import get_post_pre_shock_values
 
-# ============================================================================
-# PHASE 4: MACH CALCULATION & STRUCTURED OUTPUT
-# ============================================================================
-# Calculate Mach numbers at shock surfaces and return structured result.
-
-
+"""
+Calculate Mach number for all cells, 
+but only keep it at the shock surface (where shock_surface is True) via filter
+* To do this to shoot follow shock direction through all cells -> get post/pre values at all cells
+* Then apply some equation to get Mach number for all cells from p_post/p_pre
+* then filter to keep only Mach for surface cells
+"""
 @partial(jax.jit, static_argnames=["registered_variables", "config"])
 def _calculate_mach_at_surface(
     primitive_state: STATE_TYPE,

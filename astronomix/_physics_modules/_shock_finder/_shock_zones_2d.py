@@ -1,10 +1,6 @@
 # ============================================================================
 # PHASE 2: SHOCK ZONE IDENTIFICATION
 # ============================================================================
-# A cell is in a shock zone if ALL three criteria are met:
-# 1. Converging flow: ∇·v < 0
-# 2. Aligned gradients: ∇T·∇ρ > 0
-# 3. Minimum Mach number: M > M_min = 1.3
 
 from functools import partial
 import jax.numpy as jnp
@@ -25,10 +21,9 @@ from astronomix._physics_modules._shock_finder._gradients import (
 )
 
 
-# ============================================================================
-# CRITERION 1: CONVERGING FLOW
-# ============================================================================
-
+"""
+Criterion 1: Converging flow (∇·v < 0).
+"""
 @partial(jax.jit, static_argnames=["config", "registered_variables"])
 def _shock_zone_criterion_converging_flow(
     primitive_state: STATE_TYPE,
@@ -36,30 +31,13 @@ def _shock_zone_criterion_converging_flow(
     registered_variables: RegisteredVariables,
     r: FIELD_TYPE = None,
 ) -> BOOL_FIELD_TYPE:
-    """
-    Criterion 1: Converging flow (∇·v < 0).
-
-    In 1D: ∂vx/∂x < 0
-    In 2D: ∂vx/∂x + ∂vy/∂y < 0
-    In 3D: ∂vx/∂x + ∂vy/∂y + ∂vz/∂z < 0
-
-    Args:
-        primitive_state:      (num_vars, *spatial_shape)
-        config:               simulation configuration
-        registered_variables: registry of variable indices
-        r:                    radial coordinates for spherical geometry
-
-    Returns:
-        Boolean field, shape (*spatial_shape), True where flow is converging.
-    """
     div_v = _calculate_velocity_divergence(primitive_state, config, registered_variables, r)
     return div_v < 0
 
 
-# ============================================================================
-# CRITERION 2: ALIGNED GRADIENTS
-# ============================================================================
-
+"""
+Criterion 2: Aligned gradients (∇T · ∇ρ > 0).
+"""
 @partial(jax.jit, static_argnames=["config"])
 def _shock_zone_criterion_aligned_gradients(
     pressure: FIELD_TYPE,
@@ -67,21 +45,6 @@ def _shock_zone_criterion_aligned_gradients(
     config: SimulationConfig,
     r: FIELD_TYPE = None,
 ) -> BOOL_FIELD_TYPE:
-    """
-    Criterion 2: Aligned gradients (∇T · ∇ρ > 0).
-
-    Both ∇T and ∇ρ are vector fields of shape (ndim, *spatial_shape).
-    The dot product sums over the ndim axis.
-
-    Args:
-        pressure: shape (*spatial_shape)
-        density:  shape (*spatial_shape)
-        config:   simulation configuration
-        r:        radial coordinates for spherical geometry
-
-    Returns:
-        Boolean field, shape (*spatial_shape), True where ∇T·∇ρ > 0.
-    """
     grad_T   = _calculate_temperature_gradient(pressure, density, config, r)
     grad_rho = _calculate_density_gradient(density, config, r)
 
@@ -90,39 +53,18 @@ def _shock_zone_criterion_aligned_gradients(
     return dot_product > 0
 
 
-# ============================================================================
-# CRITERION 3: MINIMUM MACH (RANKINE-HUGONIOT)
-# ============================================================================
+"""
+Criterion 3: Minimum Mach number
+* pick minimum Mach number
+* For each cell, 
+    look at the two neighbors along the shock direction (one on each side), 
+    compute the pressure and temperature jumps across them, 
+    -> get_post_pre_shock_values
 
+    and check if those jumps are large enough to correspond to a shock of at least Mach mach_min
+"""
 def get_post_pre_shock_values(shock_direction, pressure, temperature):
-    """
-    Direction-aware neighbor selection for Rankine-Hugoniot jump conditions.
-
-    Identifies which neighbor cell is post-shock (upstream, higher P/T)
-    and which is pre-shock (downstream, lower P/T) using shock_direction.
-
-    shock_direction shape: (ndim, *spatial_shape)
-        1D: (1, nx)
-        2D: (2, nx, ny)
-        3D: (3, nx, ny, nz)
-
-    Strategy:
-        - dominant axis = argmax(|d_s|, axis=0)  → shape (*spatial_shape)
-        - step = sign of d_s along dominant axis  → +1 or -1
-        - post-shock neighbor: shift by -step along dominant axis
-        - pre-shock  neighbor: shift by +step along dominant axis
-        - use jnp.roll for periodic-safe neighbor lookup;
-          boundary cells get zeroed out by the caller via [1:-1] masking.
-
-    Args:
-        shock_direction: (ndim, *spatial_shape)
-        pressure:        (*spatial_shape)
-        temperature:     (*spatial_shape)
-
-    Returns:
-        p_post, p_pre, T_post, T_pre — each shape (*spatial_shape)
-        (interior values valid; boundary cells are masked out in the caller)
-    """
+    
     # dominant axis per cell
     dominant_axis = jnp.argmax(jnp.abs(shock_direction), axis=0)  # (*spatial_shape)
 
@@ -211,25 +153,6 @@ def _shock_zone_criterion_minimum_mach(
     shock_direction: FIELD_TYPE,
     mach_min: float = 1.3,
 ) -> BOOL_FIELD_TYPE:
-    """
-    Criterion 3: Minimum Mach number via Rankine-Hugoniot jump conditions
-    (Pfrommer et al. 2017).
-
-    Δlog P >= log(P2/P1)|_Mmin  AND  Δlog T >= log(T2/T1)|_Mmin
-
-    Works for 1D, 2D, 3D via get_post_pre_shock_values.
-
-    Args:
-        primitive_state:      (num_vars, *spatial_shape)
-        config:               simulation configuration
-        registered_variables: registry of variable indices
-        helper_data:          helper data (geometric centers etc.)
-        shock_direction:      (ndim, *spatial_shape)
-        mach_min:             minimum Mach threshold
-
-    Returns:
-        Boolean field, shape (*spatial_shape)
-    """
     gamma_gas = 5 / 3
     pressure    = primitive_state[registered_variables.pressure_index]
     density     = primitive_state[registered_variables.density_index]
