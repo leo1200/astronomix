@@ -63,58 +63,46 @@ Criterion 3: Minimum Mach number
 
     and check if those jumps are large enough to correspond to a shock of at least Mach mach_min
 """
-def get_post_pre_shock_values(shock_direction, pressure, temperature):
-    
-    # dominant axis per cell
-    dominant_axis = jnp.argmax(jnp.abs(shock_direction), axis=0)  # (*spatial_shape)
-
-    # gather the d_s component along the dominant axis
-    # shapes: shock_direction (ndim, *spatial), dominant_axis (*spatial)
-    # use jnp.take_along_axis with an extra leading dim
+def get_post_pre_shock_values(
+    shock_direction, pressure, temperature,
+    max_steps=1
+):
+    dominant_axis = jnp.argmax(jnp.abs(shock_direction), axis=0)
     ds_dominant = jnp.take_along_axis(
         shock_direction,
-        dominant_axis[jnp.newaxis],   # (1, *spatial)
+        dominant_axis[jnp.newaxis],
         axis=0,
-    )[0]   # (*spatial_shape)
-
-    step = jnp.sign(ds_dominant).astype(jnp.int32)  # (*spatial_shape), +1 or -1
-
+    )[0]
+    step = jnp.sign(ds_dominant).astype(jnp.int32)
     ndim = pressure.ndim
 
-    def shift(field, s, axis):
-        """Roll field by -s along axis (post-shock) or +s (pre-shock)."""
-        return jnp.roll(field, shift=-s, axis=axis)
+    def roll_to_plateau(field, direction, ax):
+        # FIXED: always walk exactly max_steps, no zone tracking
+        # zone tracking was buggy — periodic wrapping caused early freeze
+        result = field
+        for _ in range(max_steps):
+            result = jnp.roll(result, shift=direction, axis=ax)
+        return result
 
-    # build post/pre for each possible dominant axis and select
-    # using jnp.where broadcast over spatial dims
     p_post = pressure
     p_pre  = pressure
     T_post = temperature
     T_pre  = temperature
 
     for ax in range(ndim):
-        is_dominant = (dominant_axis == ax)  # (*spatial_shape)
+        is_dominant = (dominant_axis == ax)
+        is_fwd = is_dominant & (step > 0)
+        is_bwd = is_dominant & (step < 0)
 
-        # shift by -step along ax → post-shock (upstream, hot side)
-        # shift by +step along ax → pre-shock  (downstream, cold side)
-        # step varies per cell; we handle +1 and -1 cases separately
-        # since jnp.roll requires a scalar shift
+        p_post_ax_fwd = roll_to_plateau(pressure,    +1, ax)
+        p_post_ax_bwd = roll_to_plateau(pressure,    -1, ax)
+        p_pre_ax_fwd  = roll_to_plateau(pressure,    -1, ax)
+        p_pre_ax_bwd  = roll_to_plateau(pressure,    +1, ax)
 
-        # post-shock: cell in the direction shock came FROM → shift by -step
-        # step=+1 means post is at i-1 → roll by +1
-        # step=-1 means post is at i+1 → roll by -1
-        p_post_ax_fwd = jnp.roll(pressure,     shift= 1, axis=ax)  # step=+1 case
-        p_post_ax_bwd = jnp.roll(pressure,     shift=-1, axis=ax)  # step=-1 case
-        p_pre_ax_fwd  = jnp.roll(pressure,     shift=-1, axis=ax)
-        p_pre_ax_bwd  = jnp.roll(pressure,     shift= 1, axis=ax)
-
-        T_post_ax_fwd = jnp.roll(temperature,  shift= 1, axis=ax)
-        T_post_ax_bwd = jnp.roll(temperature,  shift=-1, axis=ax)
-        T_pre_ax_fwd  = jnp.roll(temperature,  shift=-1, axis=ax)
-        T_pre_ax_bwd  = jnp.roll(temperature,  shift= 1, axis=ax)
-
-        is_fwd = is_dominant & (step > 0)   # dominant axis AND step=+1
-        is_bwd = is_dominant & (step < 0)   # dominant axis AND step=-1
+        T_post_ax_fwd = roll_to_plateau(temperature, +1, ax)
+        T_post_ax_bwd = roll_to_plateau(temperature, -1, ax)
+        T_pre_ax_fwd  = roll_to_plateau(temperature, -1, ax)
+        T_pre_ax_bwd  = roll_to_plateau(temperature, +1, ax)
 
         p_post = jnp.where(is_fwd, p_post_ax_fwd,
                  jnp.where(is_bwd, p_post_ax_bwd, p_post))

@@ -54,6 +54,18 @@ y = helper_data.geometric_centers[..., 1]   # (nx, ny)
 # INITIAL CONDITIONS — 2D Sod tube (discontinuity in x only)
 # ============================================================================
 
+# INITIAL STATE
+#         Left side: high pressure, high density        Right side: low pressure, low density
+#         pL = 1,  ρL = 1                               pR = 0.1,  ρR = 0.125
+#         ┌──────────────────────────────┬──────────────────────────────┐
+#         │                              │                              │
+#         │   High-pressure gas          │       Low-pressure gas       │
+#         │   High-density gas           │       Low-density gas        │   ----> Sod tube
+#         │                              │                              │
+#         └──────────────────────────────┴──────────────────────────────┘
+#                                       diaphragm
+#                                       x = 0  
+                               
 rho = jnp.where(x < shock_pos, 1.0,   0.125)
 u_x = jnp.zeros_like(x)
 u_y = jnp.zeros_like(x)
@@ -107,11 +119,6 @@ result = find_shocks_pfrommer(
 # ============================================================================
 
 print("=== Shock Finder 2D Diagnostics ===")
-print(f"shock_surface_cells shape : {result.shock_surface_cells.shape}")
-print(f"shock_direction shape     : {result.shock_direction.shape}")
-print(f"mach_numbers shape        : {result.mach_numbers.shape}")
-print(f"shock_zones shape         : {result.shock_zones.shape}")
-print(f"num_shocks (surface cells): {result.num_shocks}")
 
 # x-positions of surface cells — should all cluster near x ≈ 0.87
 surface_mask = result.shock_surface_cells              # (nx, ny)
@@ -144,49 +151,60 @@ axes[0, 0].set_title("Pressure")
 axes[0, 0].set_xlabel("x"); axes[0, 0].set_ylabel("y")
 plt.colorbar(im0, ax=axes[0, 0])
 
-# 2. Density 2D map
-im1 = axes[0, 1].pcolormesh(x, y, rho_final, cmap="plasma")
-axes[0, 1].set_title("Density")
+# 2. Velocity x map
+im1 = axes[0, 1].pcolormesh(x, y, vx_final, cmap="RdBu")
+axes[0, 1].set_title("Velocity x (expect uniform in y)")
 axes[0, 1].set_xlabel("x"); axes[0, 1].set_ylabel("y")
 plt.colorbar(im1, ax=axes[0, 1])
 
-# 3. Shock surface overlay on pressure
+# 3. Shock surface + zone overlay on pressure
 axes[0, 2].pcolormesh(x, y, p_final, cmap="viridis", alpha=0.8)
-axes[0, 2].contour(x, y, result.shock_surface_cells.astype(float), levels=[0.5], colors="red", linewidths=1.5)
-axes[0, 2].contourf(x, y, result.shock_zones.astype(float), levels=[0.5, 1.5], colors=["green"], alpha=0.25)
+axes[0, 2].contour(x, y, result.shock_surface_cells.astype(float),
+                   levels=[0.5], colors="red", linewidths=1.5)
+axes[0, 2].contourf(x, y, result.shock_zones.astype(float),
+                    levels=[0.5, 1.5], colors=["green"], alpha=0.25)
 axes[0, 2].set_title("Shock surface (red) & zone (green)")
 axes[0, 2].set_xlabel("x"); axes[0, 2].set_ylabel("y")
 
 # 4. Mach number map
-im3 = axes[1, 0].pcolormesh(x, y, result.mach_numbers, cmap="hot")
+im3 = axes[1, 0].pcolormesh(x, y, result.mach_numbers, cmap="hot", vmin=0, vmax=2.0)
 axes[1, 0].set_title("Mach number (surface cells only)")
 axes[1, 0].set_xlabel("x"); axes[1, 0].set_ylabel("y")
 plt.colorbar(im3, ax=axes[1, 0])
 
-# 5. shock_direction x-component
-im4 = axes[1, 1].pcolormesh(x, y, ds_x, cmap="RdBu", vmin=-1, vmax=1)
-axes[1, 1].set_title("shock_direction x-component (expect ≈ ±1)")
+# 5. shock_direction y-component (expect ≈ 0 for axis-aligned shock)
+im4 = axes[1, 1].pcolormesh(x, y, ds_y, cmap="RdBu", vmin=-1, vmax=1)
+axes[1, 1].set_title("shock_direction y-component (expect ≈ 0)")
 axes[1, 1].set_xlabel("x"); axes[1, 1].set_ylabel("y")
 plt.colorbar(im4, ax=axes[1, 1])
 
-# 6. 1D slice through the middle (y = ny//2) — pressure + shock markers
+# 6. 1D slice at mid-row — pressure + Mach + shock markers
 mid = num_cells // 2
-x_slice   = x[:, mid]
-p_slice   = p_final[:, mid]
+x_slice    = x[:, mid]
+p_slice    = p_final[:, mid]
 surf_slice = result.shock_surface_cells[:, mid]
 zone_slice = result.shock_zones[:, mid]
+mach_slice = result.mach_numbers[:, mid]
 
 axes[1, 2].plot(x_slice, p_slice, label="pressure")
-axes[1, 2].fill_between(x_slice, 0, 1, where=zone_slice, alpha=0.2, color="green", label="shock zone")
+axes[1, 2].fill_between(x_slice, 0, 1, where=zone_slice,
+                         alpha=0.2, color="green", label="shock zone")
 for xi in x_slice[surf_slice]:
-    axes[1, 2].axvline(xi, color="red", linestyle="--", linewidth=1.5, label="shock surface")
+    axes[1, 2].axvline(xi, color="red", linestyle="--",
+                        linewidth=1.5, label="shock surface")
 axes[1, 2].set_title(f"1D slice at y={mid} (mid row)")
 axes[1, 2].set_xlabel("x"); axes[1, 2].set_ylabel("P")
-axes[1, 2].legend(fontsize=8)
+
+ax2 = axes[1, 2].twinx()
+ax2.plot(x_slice, mach_slice, color="orange", label="Mach")
+ax2.set_ylabel("M")
+ax2.set_ylim(0, 2.5)
+
+# combined legend from both axes
+lines1, labels1 = axes[1, 2].get_legend_handles_labels()
+lines2, labels2 = ax2.get_legend_handles_labels()
+ax2.legend(lines1 + lines2, labels1 + labels2, fontsize=8)
 
 plt.tight_layout()
-# plt.savefig("figures/shock_finder_2D_test.svg")
 plt.show()
-
-# print("\nFigure saved to figures/shock_finder_2D_test.svg")
 # %%

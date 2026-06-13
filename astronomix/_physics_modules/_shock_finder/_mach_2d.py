@@ -35,9 +35,10 @@ def _calculate_mach_at_surface(
 
     # direction-aware post/pre selection — same helper as criterion 3
     p_post, p_pre, _, _ = get_post_pre_shock_values(
-        shock_direction, pressure, temperature
+        shock_direction, pressure, temperature,
+        max_steps=8
     )
-
+    
     # calculate Mach number for all cells
     # p₂/p₁ = p_post/p_pre, but clamp to 1 to avoid numerical issues with very weak shocks
     p_ratio = jnp.maximum(p_post / jnp.maximum(p_pre, 1e-30), 1.0)
