@@ -24,6 +24,22 @@ from astronomix._physics_modules._turbulent_forcing._turbulent_forcing_options i
 NATIVE_JAX = 0
 PALLAS = 1
 
+# Pallas AD modes (how autodiff routes through the Pallas kernels; see
+# pallas_backend_implementation_guide.md and astronomix/_pallas_helpers.py)
+#: custom_jvp whose tangent is the native-JAX branch.  Supports both
+#: forward- and reverse-mode AD, but under reverse mode the forward
+#: sweep computes BOTH the Pallas primal and the native residuals.
+PALLAS_AD_JVP_NATIVE = 0
+#: custom_vjp that saves only the kernel inputs and recomputes the
+#: native branch inside the backward sweep (remat at kernel granularity).
+#: The forward sweep under jax.grad is pure Pallas; forward-mode AD
+#: (jax.jvp / jax.jacfwd) is NOT supported in this mode.
+PALLAS_AD_VJP_REMAT = 1
+#: like VJP_REMAT, but kernels that ship a Pallas adjoint kernel use it
+#: for the backward sweep instead of recomputing the native branch.
+#: Kernels without an adjoint fall back to the native recompute.
+PALLAS_AD_VJP_PALLAS = 2
+
 # solver modes
 FINITE_VOLUME = 0
 FINITE_DIFFERENCE = 1
@@ -233,6 +249,19 @@ class SimulationConfig(NamedTuple):
     pallas_use_triton: bool = True
     pallas_interpret: bool = False
     pallas_num_warps: int = 4
+    #: How autodiff routes through Pallas kernels.
+    #: ``PALLAS_AD_JVP_NATIVE`` (default): custom_jvp with a native-JAX
+    #: tangent — supports forward AND reverse AD, but the reverse-mode
+    #: forward sweep pays for both the Pallas primal and the native
+    #: residual computation (so ``jax.grad`` with PALLAS is no cheaper
+    #: than NATIVE_JAX).
+    #: ``PALLAS_AD_VJP_REMAT``: custom_vjp that saves only kernel inputs
+    #: and recomputes the native branch in the backward sweep — the
+    #: forward sweep under ``jax.grad`` is pure Pallas (fast, low
+    #: memory).  Reverse-mode only.
+    #: ``PALLAS_AD_VJP_PALLAS``: as VJP_REMAT, but kernels with a Pallas
+    #: adjoint kernel run their backward sweep on Pallas too.
+    pallas_ad_mode: int = PALLAS_AD_JVP_NATIVE
     #: Toggle for the Pallas constrained-transport helpers
     #: (``update_cell_center_fields``, ``constrained_transport_rhs``).
     #: Disabled by default: the staged Pallas-CT pipeline gives a clear

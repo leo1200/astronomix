@@ -145,6 +145,7 @@ def _hydro_flux_div_axis_pallas(
         return diffable_pallas_call(
             dF, dt_over_dx,
             pallas_branch=_pallas_branch, native_branch=_native_branch,
+            ad_mode=config.pallas_ad_mode,
         )
 
     def _pallas_branch_acc(dF_in, dt_over_dx_in, rhs_in, scale_in_arr):
@@ -171,6 +172,7 @@ def _hydro_flux_div_axis_pallas(
         (dF, dt_over_dx, rhs_accumulator, scale_in_arr),
         pallas_branch=_pallas_branch_acc,
         native_branch=_native_branch_acc,
+        ad_mode=config.pallas_ad_mode,
     )
 
 

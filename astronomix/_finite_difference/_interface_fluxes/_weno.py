@@ -494,6 +494,9 @@ from astronomix._finite_difference._interface_fluxes._weno_pallas import (  # no
 )
 
 
+from astronomix._finite_difference._interface_fluxes._weno_pallas_adjoint import (  # noqa: E402
+    _weno_flux_hydro_pallas_adjoint_branch,
+)
 from astronomix._pallas_helpers import diffable_pallas_call  # noqa: E402
 
 
@@ -523,8 +526,12 @@ def _weno_flux_axis_dispatch(
             native = lambda s, p: _weno_flux_native_for_axis(axis)(  # noqa: E731
                 s, p, config, registered_variables
             )
+            adjoint = _weno_flux_hydro_pallas_adjoint_branch(
+                config, registered_variables, axis
+            )
             return diffable_pallas_call(
                 conserved_state, params, pallas_branch=pallas, native_branch=native,
+                ad_mode=config.pallas_ad_mode, adjoint_branch=adjoint,
             )
     if _mhd_pallas_flux_supported(conserved_state, config):
         pallas = lambda s, p: _weno_flux_mhd_pallas(  # noqa: E731
@@ -535,6 +542,7 @@ def _weno_flux_axis_dispatch(
         )
         return diffable_pallas_call(
             conserved_state, params, pallas_branch=pallas, native_branch=native,
+            ad_mode=config.pallas_ad_mode,
         )
     if _mhd_iso_pallas_flux_supported(conserved_state, config):
         pallas = lambda s, p: _weno_flux_mhd_iso_pallas(  # noqa: E731
@@ -545,6 +553,7 @@ def _weno_flux_axis_dispatch(
         )
         return diffable_pallas_call(
             conserved_state, params, pallas_branch=pallas, native_branch=native,
+            ad_mode=config.pallas_ad_mode,
         )
     if _hydro_iso_pallas_flux_supported(conserved_state, config):
         if axis == 0 or (axis == 1 and int(config.dimensionality) >= 2) or (axis == 2 and int(config.dimensionality) == 3):
@@ -556,6 +565,7 @@ def _weno_flux_axis_dispatch(
             )
             return diffable_pallas_call(
                 conserved_state, params, pallas_branch=pallas, native_branch=native,
+                ad_mode=config.pallas_ad_mode,
             )
     return _weno_flux_native_for_axis(axis)(
         conserved_state, params, config, registered_variables

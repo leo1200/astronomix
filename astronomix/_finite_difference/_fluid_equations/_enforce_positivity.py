@@ -57,6 +57,7 @@ def _enforce_positivity(
         return diffable_pallas_call_n(
             (conserved_state, gamma, minimum_density, minimum_pressure),
             pallas_branch=pallas, native_branch=native,
+            ad_mode=config.pallas_ad_mode,
         )
     return _enforce_positivity_native(
         conserved_state, gamma, minimum_density, minimum_pressure,

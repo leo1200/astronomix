@@ -415,6 +415,7 @@ def _evolve_gas_state_unsplit_inner(
                 (primitive_state, dt_over_dx, conservative_states),
                 pallas_branch=_pallas_branch,
                 native_branch=_native_branch,
+                ad_mode=config.pallas_ad_mode,
             )
             # Re-derive primitives so the next-axis reconstruction uses an
             # up-to-date state (the native pipeline does the same via the

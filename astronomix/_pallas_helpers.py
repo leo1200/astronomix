@@ -20,7 +20,13 @@ import jax
 import jax.numpy as jnp
 from jax.sharding import NamedSharding, PartitionSpec
 
-from astronomix.option_classes.simulation_config import PALLAS, SimulationConfig
+from astronomix.option_classes.simulation_config import (
+    PALLAS,
+    PALLAS_AD_JVP_NATIVE,
+    PALLAS_AD_VJP_PALLAS,
+    PALLAS_AD_VJP_REMAT,
+    SimulationConfig,
+)
 
 try:
     from jax.experimental import pallas as pl
@@ -329,59 +335,92 @@ def _pallas_call_sharded(
 
 
 # -----------------------------------------------------------------------------
-# Differentiability: pair every Pallas entry with a native-JAX backward.
+# Differentiability: pair every Pallas entry with an AD boundary.
 # -----------------------------------------------------------------------------
 #
 # Pallas kernels in this codebase use ``input_output_aliases`` for memory
 # efficiency. JAX cannot transpose an aliased ``pl.pallas_call`` (``JVP with
 # aliasing not supported``), so any path that hits a Pallas kernel is
-# non-differentiable by default. We bridge that gap with a ``jax.custom_jvp``
-# whose primal still calls the (aliased, fast) Pallas branch and whose
-# tangent rule delegates to the equivalent native-JAX branch — which is
-# already JVP-differentiable. Reverse-mode (``jax.grad``) is then derived by
-# JAX via transposition.
+# non-differentiable by default. We bridge that gap with a custom AD rule
+# whose primal still calls the (aliased, fast) Pallas branch. How the
+# derivative is computed is selected by ``config.pallas_ad_mode``:
 #
-# Forward simulation perf is unaffected: outside of AD the custom_jvp
-# rule isn't invoked and the call collapses to the bare Pallas branch.
+# - ``PALLAS_AD_JVP_NATIVE`` (default): a ``jax.custom_jvp`` whose tangent
+#   rule delegates to the equivalent native-JAX branch. Supports forward-
+#   and reverse-mode AD (reverse is derived by transposing the native
+#   tangent). Caveat: under ``jax.grad`` the linearized forward sweep
+#   computes the Pallas primal AND the native-branch residuals, so the
+#   Pallas runtime/memory advantage is lost under reverse AD.
+# - ``PALLAS_AD_VJP_REMAT``: a ``jax.custom_vjp`` whose forward saves only
+#   the kernel *inputs* and whose backward recomputes ``jax.vjp`` of the
+#   native branch at those inputs. The forward sweep under ``jax.grad`` is
+#   then pure Pallas (full speed, no native residuals); the backward sweep
+#   pays one native forward recompute + native transpose per kernel call.
+#   Forward-mode AD is NOT available through a custom_vjp.
+# - ``PALLAS_AD_VJP_PALLAS``: as VJP_REMAT, but when the call site supplies
+#   an ``adjoint_branch`` the backward sweep runs that (Pallas adjoint
+#   kernel) instead of the native recompute. Kernels without an adjoint
+#   silently use the native recompute.
+#
+# Forward simulation perf is unaffected in every mode: outside of AD the
+# custom rule isn't invoked and the call collapses to the bare Pallas branch.
 #
 # Both branches must produce the same pytree-structured output. The Pallas
 # guide promises bit-identical primal outputs for the existing kernels, so
-# the gradient computed by transposing the native JVP at the Pallas-evaluated
+# the gradient computed from the native branch at the Pallas-evaluated
 # inputs is the correct gradient of the Pallas operation.
-#
-# Hand-rolled Pallas adjoint kernels can later replace the native tangent
-# branch on a per-kernel basis without changing call sites.
 
-def diffable_pallas_call(state, params, *, pallas_branch, native_branch):
-    """Run ``pallas_branch(state, params)`` with a custom_jvp boundary that
-    routes tangent computation through ``native_branch``.
+def diffable_pallas_call(state, params, *, pallas_branch, native_branch,
+                         ad_mode: int = PALLAS_AD_JVP_NATIVE,
+                         adjoint_branch=None):
+    """Run ``pallas_branch(state, params)`` behind an AD boundary.
 
     Both branches must accept the same positional ``(state, params)`` pair
     and produce the same pytree structure. Anything static (config,
     registered_variables, axis index, ...) should be closed over.
 
-    Outside of AD the call collapses to ``pallas_branch(state, params)``
-    directly — no overhead. Under ``jax.jvp`` / ``jax.jacfwd`` /
-    ``jax.grad`` / ``jax.vjp`` / ``jax.jacrev`` the custom rule fires and
-    the tangent goes through ``native_branch``.
+    ``ad_mode`` selects the derivative route (see module comment); pass
+    ``config.pallas_ad_mode`` from the dispatch site. ``adjoint_branch``
+    (optional, only used under ``PALLAS_AD_VJP_PALLAS``) is
+    ``adjoint_branch(primals_tuple, cotangent) -> cotangents_tuple``.
     """
-    @jax.custom_jvp
-    def _f(s, p):
-        return pallas_branch(s, p)
-
-    @_f.defjvp
-    def _f_jvp(primals, tangents):
-        primal_out = pallas_branch(*primals)
-        _, tangent_out = jax.jvp(native_branch, primals, tangents)
-        return primal_out, tangent_out
-
-    return _f(state, params)
+    return diffable_pallas_call_n(
+        (state, params),
+        pallas_branch=pallas_branch,
+        native_branch=native_branch,
+        ad_mode=ad_mode,
+        adjoint_branch=adjoint_branch,
+    )
 
 
-def diffable_pallas_call_n(primals, *, pallas_branch, native_branch):
+def diffable_pallas_call_n(primals, *, pallas_branch, native_branch,
+                           ad_mode: int = PALLAS_AD_JVP_NATIVE,
+                           adjoint_branch=None):
     """Same as :func:`diffable_pallas_call` but takes a tuple of arbitrary
     differentiable primals (so callers with more than two diff args, e.g.
-    extra rhs/accumulator buffers, can still get a custom_jvp boundary)."""
+    extra rhs/accumulator buffers, can still get a custom AD boundary)."""
+    if ad_mode in (PALLAS_AD_VJP_REMAT, PALLAS_AD_VJP_PALLAS):
+        use_adjoint = ad_mode == PALLAS_AD_VJP_PALLAS and adjoint_branch is not None
+
+        @jax.custom_vjp
+        def _f(*args):
+            return pallas_branch(*args)
+
+        def _f_fwd(*args):
+            # Residuals are just the inputs — the backward sweep recomputes
+            # whatever it needs (native vjp or Pallas adjoint kernel), so no
+            # forward-sweep intermediates are stored.
+            return pallas_branch(*args), args
+
+        def _f_bwd(residual_args, cotangent):
+            if use_adjoint:
+                return tuple(adjoint_branch(residual_args, cotangent))
+            _, vjp_fn = jax.vjp(native_branch, *residual_args)
+            return vjp_fn(cotangent)
+
+        _f.defvjp(_f_fwd, _f_bwd)
+        return _f(*primals)
+
     @jax.custom_jvp
     def _f(*args):
         return pallas_branch(*args)
