@@ -10,8 +10,10 @@
 #   - shock front: a line perpendicular to the shock normal, at signed distance
 #     ≈ 0.37 from the center along the normal direction
 #   - Mach number: M ≈ 1.75
-#   - shock_direction should point along the normal: (cos θ, sin θ) or (-cos θ, -sin θ)
-#   - ds_x / ds_y ratio should match tan(θ)
+#   - shock_direction should align with the normal:
+#       n = (cos θ, sin θ), up to an overall sign
+#   - direction ratio should satisfy:
+#       ds_y / ds_x ≈ tan(θ)
 # ============================================================================
 
 #%%
@@ -111,14 +113,14 @@ result = find_shocks_pfrommer(
     helper_data,
 )
 
-
+# %%
 # ============================================================================
 # DIAGNOSTICS
 # ============================================================================
 
 print(f"=== Shock Finder 2D Diagnostics — Rotated Sod ({SHOCK_ANGLE}°) ===")
-print(f"Shock normal direction    : ({float(nx_hat):.3f}, {float(ny_hat):.3f})")
-print(f"Expected ds_x / ds_y     : {float(nx_hat):.3f} / {float(ny_hat):.3f}")
+print(f"Shock normal direction : ({float(nx_hat):.3f}, {float(ny_hat):.3f})")
+print(f"Expected ds_y / ds_x     : {float(jnp.tan(theta_rad)):.3f}")
 
 surface_mask = result.shock_surface_cells
 surface_mach = result.mach_numbers[surface_mask]
@@ -127,9 +129,33 @@ ds_y = result.shock_direction[1]
 
 print(f"num_shocks (surface cells): {result.num_shocks}")
 print(f"Mach at surface           : min={surface_mach.min():.3f}  max={surface_mach.max():.3f}  mean={surface_mach.mean():.3f}")
+
+strong_surface_mach = surface_mach[surface_mach > 1.1]
+print(
+    f"Mach at strong surface    : "
+    f"min={strong_surface_mach.min():.3f}  "
+    f"max={strong_surface_mach.max():.3f}  "
+    f"mean={strong_surface_mach.mean():.3f}"
+)
 print(f"Expected Mach             : M ≈ 1.75")
 print(f"ds_x at surface           : mean={float(ds_x[surface_mask].mean()):.3f}  (expect ≈ ±{float(nx_hat):.3f})")
 print(f"ds_y at surface           : mean={float(ds_y[surface_mask].mean()):.3f}  (expect ≈ ±{float(ny_hat):.3f})")
+
+# Direction alignment with expected normal.
+# Use absolute value because n and -n are both valid normal directions.
+dot_normal = ds_x[surface_mask] * nx_hat + ds_y[surface_mask] * ny_hat
+alignment = jnp.abs(dot_normal)
+
+mean_angle = jnp.rad2deg(
+    jnp.arctan2(
+        ds_y[surface_mask].mean(),
+        ds_x[surface_mask].mean()
+    )
+)
+
+print(f"Mean detected angle       : {float(mean_angle):.2f}°")
+print(f"Expected angle            : {SHOCK_ANGLE:.2f}°")
+print(f"Mean |dot with normal|    : {float(alignment.mean()):.3f}  (expect ≈ 1)")
 
 # check dominant axis — at 30°, cos(30°)≈0.866 > sin(30°)=0.5, so x should dominate
 dominant = jnp.argmax(jnp.abs(result.shock_direction), axis=0)
@@ -145,8 +171,16 @@ print(f"Expected (30°)            : x should dominate (cos30°>sin30°)")
 # ============================================================================
 
 #%%
-fig, axes = plt.subplots(2, 3, figsize=(16, 9))
-fig.suptitle(f"2D Rotated Sod Shock Tube ({SHOCK_ANGLE}°) — Shock Finder Validation", fontsize=13)
+fig, axes = plt.subplots(
+    2, 3,
+    figsize=(15, 10),
+    constrained_layout=True
+)
+
+fig.suptitle(
+    f"2D Rotated Sod Shock Tube ({SHOCK_ANGLE}°) — Shock Finder Validation",
+    fontsize=13
+)
 
 x_np = np.array(x)
 y_np = np.array(y)
@@ -165,35 +199,141 @@ plt.colorbar(im1, ax=axes[0, 1])
 
 # 3. Shock surface + zone overlaid on pressure
 axes[0, 2].pcolormesh(x_np, y_np, np.array(p_final), cmap="viridis", alpha=0.8)
-axes[0, 2].contour(x_np, y_np, np.array(result.shock_surface_cells).astype(float),
-                   levels=[0.5], colors="red", linewidths=1.5)
-axes[0, 2].contourf(x_np, y_np, np.array(result.shock_zones).astype(float),
-                    levels=[0.5, 1.5], colors=["green"], alpha=0.25)
-# overlay expected shock normal direction as an arrow from center
-axes[0, 2].annotate("", xy=(0.5 + 0.15*float(nx_hat), 0.5 + 0.15*float(ny_hat)),
-                    xytext=(0.5, 0.5),
-                    arrowprops=dict(arrowstyle="->", color="white", lw=2))
-axes[0, 2].set_title("Shock surface (red) & zone (green)\nwhite arrow = expected normal")
-axes[0, 2].set_xlabel("x"); axes[0, 2].set_ylabel("y")
+
+# draw zone first
+axes[0, 2].contourf(
+    x_np, y_np,
+    np.array(result.shock_zones).astype(float),
+    levels=[0.5, 1.5],
+    colors=["green"],
+    alpha=0.25
+)
+
+# draw surface on top
+axes[0, 2].contour(
+    x_np, y_np,
+    np.array(result.shock_surface_cells).astype(float),
+    levels=[0.5],
+    colors="red",
+    linewidths=0.5
+)
+
+axes[0, 2].set_title("Shock surface and shock zone")
+axes[0, 2].set_xlabel("x")
+axes[0, 2].set_ylabel("y")
 
 # 4. Mach number at surface cells
-im3 = axes[1, 0].pcolormesh(x_np, y_np, np.array(result.mach_numbers), cmap="hot")
-axes[1, 0].set_title("Mach number (surface cells only)")
-axes[1, 0].set_xlabel("x"); axes[1, 0].set_ylabel("y")
-plt.colorbar(im3, ax=axes[1, 0])
-
-# 5. shock_direction as quiver on a subsampled grid
-step = 8
-axes[1, 1].pcolormesh(x_np, y_np, np.array(p_final), cmap="viridis", alpha=0.5)
-axes[1, 1].quiver(
-    x_np[::step, ::step], y_np[::step, ::step],
-    np.array(ds_x)[::step, ::step], np.array(ds_y)[::step, ::step],
-    scale=20, color="white", alpha=0.8,
+mach_surface_only = np.where(
+    np.array(result.shock_surface_cells),
+    np.array(result.mach_numbers),
+    np.nan
 )
-axes[1, 1].contour(x_np, y_np, np.array(result.shock_surface_cells).astype(float),
-                   levels=[0.5], colors="red", linewidths=1.5)
-axes[1, 1].set_title(f"shock_direction (quiver)\nexpect arrows along ({nx_hat:.2f}, {ny_hat:.2f})")
-axes[1, 1].set_xlabel("x"); axes[1, 1].set_ylabel("y")
+
+im3 = axes[1, 0].pcolormesh(
+    x_np, y_np,
+    mach_surface_only,
+    cmap="hot",
+    vmin=1.0,
+    vmax=2.0,
+    shading="auto"
+)
+
+axes[1, 0].set_title("Shock Mach number at surface cells")
+axes[1, 0].set_xlabel("x")
+axes[1, 0].set_ylabel("y")
+plt.colorbar(im3, ax=axes[1, 0], label="Shock Mach number")
+
+# --------------------------------------------------------------------------
+# 5. Shock direction at surface cells
+# --------------------------------------------------------------------------
+
+axes[1, 1].pcolormesh(
+    x_np, y_np,
+    np.array(p_final),
+    cmap="viridis",
+    shading="auto",
+    alpha=0.55
+)
+
+# Shock surface mask
+surface = np.array(result.shock_surface_cells)
+
+# Surface-cell coordinates and directions
+xs = x_np[surface]
+ys = y_np[surface]
+ux = np.array(ds_x)[surface]
+uy = np.array(ds_y)[surface]
+
+# Normalize arrows to unit length
+mag = np.sqrt(ux**2 + uy**2)
+valid = mag > 0
+
+xs = xs[valid]
+ys = ys[valid]
+ux = ux[valid] / mag[valid]
+uy = uy[valid] / mag[valid]
+
+# For visualization only: orient all arrows toward the expected normal.
+# The raw shock finder direction may be n or -n; both represent the same normal line.
+dot = ux * float(nx_hat) + uy * float(ny_hat)
+flip = dot < 0
+ux[flip] *= -1
+uy[flip] *= -1
+
+# Keep only a few arrows, evenly spaced along the shock surface
+n_arrows = 10
+if len(xs) > n_arrows:
+    idx = np.linspace(0, len(xs) - 1, n_arrows).astype(int)
+    xs_plot = xs[idx]
+    ys_plot = ys[idx]
+    ux_plot = ux[idx]
+    uy_plot = uy[idx]
+else:
+    xs_plot = xs
+    ys_plot = ys
+    ux_plot = ux
+    uy_plot = uy
+
+# Draw shock surface
+axes[1, 1].contour(
+    x_np, y_np,
+    surface.astype(float),
+    levels=[0.5],
+    colors="red",
+    linewidths=1.8
+)
+
+# Draw fewer, cleaner direction arrows
+axes[1, 1].quiver(
+    xs_plot,
+    ys_plot,
+    ux_plot,
+    uy_plot,
+    angles="xy",
+    scale_units="xy",
+    scale=25,
+    color="white",
+    width=0.004,
+    headwidth=4,
+    headlength=5,
+    pivot="middle",
+    zorder=20
+)
+
+# Optional: add one expected-normal arrow from the center
+axes[1, 1].annotate(
+    "",
+    xy=(0.5 + 0.15 * float(nx_hat), 0.5 + 0.15 * float(ny_hat)),
+    xytext=(0.5, 0.5),
+    arrowprops=dict(arrowstyle="->", color="black", lw=2)
+)
+
+axes[1, 1].set_title(
+    f"Shock direction at surface cells\nexpected normal ≈ ({float(nx_hat):.2f}, {float(ny_hat):.2f})"
+)
+axes[1, 1].set_xlabel("x")
+axes[1, 1].set_ylabel("y")
+axes[1, 1].set_aspect("equal")
 
 # 6. Diagonal slice along shock normal through the center
 # sample pressure along the normal direction
@@ -215,14 +355,55 @@ surf_along = surf_arr[xi, yi]
 zone_along = zone_arr[xi, yi]
 
 axes[1, 2].plot(t_vals, p_along, label="pressure")
-axes[1, 2].fill_between(t_vals, 0, 1, where=zone_along,
-                         alpha=0.2, color="green", label="shock zone")
+
+axes[1, 2].fill_between(
+    t_vals, 0, 1,
+    where=zone_along,
+    alpha=0.20,
+    color="green",
+    linewidth=5,
+    label="shock zone"
+)
+
+first = True
 for ti in t_vals[surf_along]:
-    axes[1, 2].axvline(ti, color="red", linestyle="--", linewidth=1.5)
-axes[1, 2].set_title(f"Slice along shock normal (θ={SHOCK_ANGLE}°)\nred = shock surface")
-axes[1, 2].set_xlabel("distance along normal"); axes[1, 2].set_ylabel("P")
+    axes[1, 2].axvline(
+        ti,
+        color="red",
+        linestyle="--",
+        linewidth=0.5,
+        label="shock surface" if first else None
+    )
+    first = False
+
+axes[1, 2].axvline(
+    0.37,
+    color="gray",
+    linestyle=":",
+    linewidth=1.2,
+    label="expected shock distance ≈ 0.37"
+)
+
+axes[1, 2].set_title(f"Pressure slice along shock normal, θ={SHOCK_ANGLE}°")
+axes[1, 2].set_xlabel("Signed distance along normal")
+axes[1, 2].set_ylabel("P")
 axes[1, 2].legend(fontsize=8)
 
-plt.tight_layout()
+for ax in axes.flat:
+    ax.set_box_aspect(1)
+
+spatial_axes = [
+    axes[0, 0],
+    axes[0, 1],
+    axes[0, 2],
+    axes[1, 0],
+    axes[1, 1],
+]
+
+for ax in spatial_axes:
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+
 plt.show()
 # %%

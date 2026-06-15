@@ -141,9 +141,13 @@ print(f"shock_direction[y] at surface: mean={ds_y[surface_mask].mean():.3f}  (ex
 # ============================================================================
 # PLOTS
 # ============================================================================
-fig, axes = plt.subplots(2, 3, figsize=(16, 9))
-fig.suptitle("2D Sod Shock Tube — Shock Finder Validation", fontsize=13)
+fig, axes = plt.subplots(
+    2, 3,
+    figsize=(15, 10),
+    constrained_layout=True
+)
 
+fig.suptitle("2D Sod Shock Tube — Shock Finder Validation", fontsize=13)
 # --------------------------------------------------------------------------
 # Precompute shock-surface / shock-zone x locations
 # --------------------------------------------------------------------------
@@ -316,6 +320,27 @@ lines1, labels1 = axes[1, 2].get_legend_handles_labels()
 lines2, labels2 = ax2.get_legend_handles_labels()
 ax2.legend(lines1 + lines2, labels1 + labels2, fontsize=8, loc="upper right")
 
-plt.tight_layout()
+# ============================================================================
+# MAKE PANELS SQUARE
+# ============================================================================
+
+for ax in axes.flat:
+    ax.set_box_aspect(1)
+
+ax2.set_box_aspect(1)
+
+spatial_axes = [
+    axes[0, 0],
+    axes[0, 1],
+    axes[0, 2],
+    axes[1, 0],
+    axes[1, 1],
+]
+
+for ax in spatial_axes:
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+
 plt.show()
 # %%
