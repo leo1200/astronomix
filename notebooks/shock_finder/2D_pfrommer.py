@@ -137,73 +137,184 @@ ds_y = result.shock_direction[1]   # (nx, ny)
 print(f"\nshock_direction[x] at surface: mean={ds_x[surface_mask].mean():.3f}  (expect ≈ ±1)")
 print(f"shock_direction[y] at surface: mean={ds_y[surface_mask].mean():.3f}  (expect ≈  0)")
 
-
+# %%
 # ============================================================================
 # PLOTS
 # ============================================================================
-
 fig, axes = plt.subplots(2, 3, figsize=(16, 9))
 fig.suptitle("2D Sod Shock Tube — Shock Finder Validation", fontsize=13)
 
-# 1. Pressure 2D map
-im0 = axes[0, 0].pcolormesh(x, y, p_final, cmap="viridis")
+# --------------------------------------------------------------------------
+# Precompute shock-surface / shock-zone x locations
+# --------------------------------------------------------------------------
+surface_cols = jnp.any(result.shock_surface_cells, axis=1)   # (nx,)
+zone_cols    = jnp.any(result.shock_zones, axis=1)           # (nx,)
+
+surface_x_cols = x[:, 0][surface_cols]
+zone_x_cols    = x[:, 0][zone_cols]
+
+dx = float(x[1, 0] - x[0, 0])
+
+# shock-zone band limits
+if zone_x_cols.size > 0:
+    zone_x0 = float(zone_x_cols.min()) - 0.5 * dx
+    zone_x1 = float(zone_x_cols.max()) + 0.5 * dx
+else:
+    zone_x0, zone_x1 = None, None
+
+# --------------------------------------------------------------------------
+# 1. Pressure
+# --------------------------------------------------------------------------
+im0 = axes[0, 0].pcolormesh(x, y, p_final, cmap="viridis", shading="auto")
 axes[0, 0].set_title("Pressure")
-axes[0, 0].set_xlabel("x"); axes[0, 0].set_ylabel("y")
+axes[0, 0].set_xlabel("x")
+axes[0, 0].set_ylabel("y")
 plt.colorbar(im0, ax=axes[0, 0])
 
-# 2. Velocity x map
-im1 = axes[0, 1].pcolormesh(x, y, vx_final, cmap="RdBu")
-axes[0, 1].set_title("Velocity x (expect uniform in y)")
-axes[0, 1].set_xlabel("x"); axes[0, 1].set_ylabel("y")
+# --------------------------------------------------------------------------
+# 2. Velocity x
+# --------------------------------------------------------------------------
+im1 = axes[0, 1].pcolormesh(x, y, vx_final, cmap="plasma", shading="auto")
+axes[0, 1].set_title("Velocity x (uniform in y)")
+axes[0, 1].set_xlabel("x")
+axes[0, 1].set_ylabel("y")
 plt.colorbar(im1, ax=axes[0, 1])
 
-# 3. Shock surface + zone overlay on pressure
-axes[0, 2].pcolormesh(x, y, p_final, cmap="viridis", alpha=0.8)
-axes[0, 2].contour(x, y, result.shock_surface_cells.astype(float),
-                   levels=[0.5], colors="red", linewidths=1.5)
-axes[0, 2].contourf(x, y, result.shock_zones.astype(float),
-                    levels=[0.5, 1.5], colors=["green"], alpha=0.25)
-axes[0, 2].set_title("Shock surface (red) & zone (green)")
-axes[0, 2].set_xlabel("x"); axes[0, 2].set_ylabel("y")
+# --------------------------------------------------------------------------
+# 3. Shock zone only
+# --------------------------------------------------------------------------
+axes[0, 2].pcolormesh(
+    x, y, p_final,
+    cmap="viridis",
+    shading="auto",
+    alpha=0.70
+)
 
-# 4. Mach number map
-im3 = axes[1, 0].pcolormesh(x, y, result.mach_numbers, cmap="hot", vmin=0, vmax=2.0)
-axes[1, 0].set_title("Mach number (surface cells only)")
-axes[1, 0].set_xlabel("x"); axes[1, 0].set_ylabel("y")
-plt.colorbar(im3, ax=axes[1, 0])
+if zone_x0 is not None:
+    axes[0, 2].axvspan(
+        zone_x0, zone_x1,
+        color="lime",
+        alpha=0.28,
+        zorder=10
+    )
 
-# 5. shock_direction y-component (expect ≈ 0 for axis-aligned shock)
-im4 = axes[1, 1].pcolormesh(x, y, ds_y, cmap="RdBu", vmin=-1, vmax=1)
-axes[1, 1].set_title("shock_direction y-component (expect ≈ 0)")
-axes[1, 1].set_xlabel("x"); axes[1, 1].set_ylabel("y")
-plt.colorbar(im4, ax=axes[1, 1])
+axes[0, 2].set_title("Shock zone only")
+axes[0, 2].set_xlabel("x")
+axes[0, 2].set_ylabel("y")
 
-# 6. 1D slice at mid-row — pressure + Mach + shock markers
+# --------------------------------------------------------------------------
+# 4. Shock surface
+# --------------------------------------------------------------------------
+axes[1, 0].pcolormesh(
+    x, y, p_final,
+    cmap="viridis",
+    shading="auto",
+    alpha=0.70
+)
+
+for i, xi in enumerate(surface_x_cols):
+    axes[1, 0].axvline(
+        float(xi),
+        color="red",
+        linewidth=2.5,
+        zorder=12
+    )
+
+axes[1, 0].set_title("Shock surface only")
+axes[1, 0].set_xlabel("x")
+axes[1, 0].set_ylabel("y")
+
+# --------------------------------------------------------------------------
+# 5. Shock Mach number at surface cells
+# --------------------------------------------------------------------------
+
+# Mask Mach number outside shock-surface cells
+mach_surface_only = jnp.where(
+    result.shock_surface_cells,
+    result.mach_numbers,
+    jnp.nan
+)
+
+# Optional pressure background for context
+axes[1, 1].pcolormesh(
+    x, y, p_final,
+    cmap="viridis",
+    shading="auto",
+    alpha=0.35
+)
+
+# Plot only the Mach number at detected shock-surface cells
+im_mach = axes[1, 1].pcolormesh(
+    x, y, mach_surface_only,
+    cmap="hot",
+    vmin=1.0,
+    vmax=2.0,
+    shading="auto"
+)
+
+axes[1, 1].set_title("Shock Mach number at surface cells")
+axes[1, 1].set_xlabel("x")
+axes[1, 1].set_ylabel("y")
+
+cbar = plt.colorbar(im_mach, ax=axes[1, 1])
+cbar.set_label("Shock Mach number")
+
+# --------------------------------------------------------------------------
+# 6. 1D slice at mid-row
+# --------------------------------------------------------------------------
 mid = num_cells // 2
+
 x_slice    = x[:, mid]
 p_slice    = p_final[:, mid]
 surf_slice = result.shock_surface_cells[:, mid]
 zone_slice = result.shock_zones[:, mid]
 mach_slice = result.mach_numbers[:, mid]
 
+# pressure
 axes[1, 2].plot(x_slice, p_slice, label="pressure")
-axes[1, 2].fill_between(x_slice, 0, 1, where=zone_slice,
-                         alpha=0.2, color="green", label="shock zone")
-for xi in x_slice[surf_slice]:
-    axes[1, 2].axvline(xi, color="red", linestyle="--",
-                        linewidth=1.5, label="shock surface")
+
+# shock zone as vertical band on 1D slice
+if zone_x0 is not None:
+    axes[1, 2].axvspan(
+        zone_x0, zone_x1,
+        color="green",
+        alpha=0.20,
+        label="shock zone"
+    )
+
+# shock surface as dashed red line(s)
+for i, xi in enumerate(x_slice[surf_slice]):
+    axes[1, 2].axvline(
+        float(xi),
+        color="red",
+        linestyle="--",
+        linewidth=1.5,
+        label="shock surface" if i == 0 else None
+    )
+
 axes[1, 2].set_title(f"1D slice at y={mid} (mid row)")
-axes[1, 2].set_xlabel("x"); axes[1, 2].set_ylabel("P")
+axes[1, 2].set_xlabel("x")
+axes[1, 2].set_ylabel("P")
 
+# Mach on secondary y-axis
 ax2 = axes[1, 2].twinx()
-ax2.plot(x_slice, mach_slice, color="orange", label="Mach")
-ax2.set_ylabel("M")
-ax2.set_ylim(0, 2.5)
 
-# combined legend from both axes
+ax2.scatter(
+    x_slice[surf_slice],
+    mach_slice[surf_slice],
+    color="orange",
+    s=35,
+    label="shock Mach",
+    zorder=20
+)
+
+ax2.set_ylabel("Shock Mach number")
+ax2.set_ylim(1.0, 2.5)
+
+# combined legend
 lines1, labels1 = axes[1, 2].get_legend_handles_labels()
 lines2, labels2 = ax2.get_legend_handles_labels()
-ax2.legend(lines1 + lines2, labels1 + labels2, fontsize=8)
+ax2.legend(lines1 + lines2, labels1 + labels2, fontsize=8, loc="upper right")
 
 plt.tight_layout()
 plt.show()
