@@ -134,6 +134,7 @@ shock_dir = result.shock_direction
 shock_dir_x = shock_dir[0]
 shock_dir_y = shock_dir[1]
 
+print(f"overall shock direction calculated via mean of shock_dir at surface cells, ONLY correct for 1 shock or symmetric shocks:")
 overall_dir_x = shock_dir_x[surface_mask].mean()
 overall_dir_y = shock_dir_y[surface_mask].mean()
 overall_angle = jnp.rad2deg(
@@ -397,4 +398,5 @@ for ax in spatial_axes:
     ax.set_ylim(0, 1)
 
 plt.show()
+
 # %%
