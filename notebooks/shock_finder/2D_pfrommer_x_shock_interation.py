@@ -2,7 +2,7 @@
 # 2D Shock Finder Test — Two Intersecting Shocks (X shape)
 # ============================================================================
 # Two Sod-like pressure discontinuities pass through (0.5, 0.5) at
-# FRONT_NORMAL_ANGLE_1 = +30° and FRONT_NORMAL_ANGLE_2 = -30°, forming an X.
+# FRONT_NORMAL_ANGLE_1 = 60° and FRONT_NORMAL_ANGLE_2 = -20°, forming an X.
 #
 # Initial conditions:
 #   Two signed distances (dist1, dist2) divide the domain into four wedges.
@@ -60,7 +60,7 @@ geometry_y = geometric_centers[..., 1] # (nx, ny)
 # ============================================================================
 # INITIAL CONDITIONS — double Sod (two outward-propagating shocks)
 #
-# Two planar fronts pass through center (0.5, 0.5) at +30° and -30°, forming an X shape
+# Two planar fronts pass through center (0.5, 0.5) at +60° and -20°, forming an X shape
 # Each front divides the domain into two half-planes via signed distance (dist1, dist2)
 # XOR: a cell is high-pressure only if it's on opposite sides of the two fronts — this creates two alternating high/low pressure wedges
 # High pressure: p=1.0, ρ=1.0 — Low pressure: p=0.1, ρ=0.125 (standard Sod values)
@@ -68,8 +68,8 @@ geometry_y = geometric_centers[..., 1] # (nx, ny)
 # The intersection region at the center is interensted
 # ============================================================================
 
-FRONT_NORMAL_ANGLE_1 =  30.0    # degrees — normal 
-FRONT_NORMAL_ANGLE_2 = -30.0    # degrees — normal of shock 2
+FRONT_NORMAL_ANGLE_1 =  60.0    # degrees — normal 
+FRONT_NORMAL_ANGLE_2 = -20.0    # degrees — normal of shock 2
 # both pass through the center
 TARGET_CENTER = (0.5, 0.5)
 target_theta1 = jnp.deg2rad(FRONT_NORMAL_ANGLE_1)
@@ -176,8 +176,10 @@ else:
 # PLOTS
 # expectation of ploting is that it must be environment independent
 # means it must visualize the results withou put into consideration of what the shock should look like
-#
+# 1 -5 are standard plots with no environment assumptions, just showing the results
+# 
 # there are some points we put details relating to the expected results, but they are just for reference and not for validating the results
+# 
 
 fig, axes = plt.subplots(
     2, 3,
@@ -288,7 +290,7 @@ u_shock_dir_y_surface_np = shock_dir_y_surface_np[valid] / mag_shock_dir_surface
 
 
 # Subsample arrows
-n_arrows = 16
+n_arrows = 30
 if len(geometry_x_surface_np) > n_arrows:
     idx = np.linspace(0, len(geometry_x_surface_np) - 1, n_arrows).astype(int)
     xs_plot = geometry_x_surface_np[idx]
@@ -323,18 +325,6 @@ axes[1, 1].set_title("Shock direction at surface cells\nexpect outward direction
 axes[1, 1].set_xlabel("x")
 axes[1, 1].set_ylabel("y")
 
-# 6. ds_y component — shows the two arms cleanly
-ds_y_surface_only = np.where(np.array(result.shock_surface_cells), np.array(shock_dir_y), np.nan)
-im5 = axes[1, 2].pcolormesh(geometry_x_np, geometry_y_np, ds_y_surface_only, cmap="RdBu", vmin=-1, vmax=1)
-axes[1, 2].contour(geometry_x_np, geometry_y_np, np.array(result.shock_surface_cells).astype(float),
-                   levels=[0.5], colors="black", linewidths=1.0)
-circle3 = plt.Circle((0.5, 0.5), 0.1, color="black", fill=False,
-                      linestyle="--", linewidth=1.5)
-axes[1, 2].add_patch(circle3)
-axes[1, 2].set_title(f"ds_y component\nexpect +{float(target_ny_hat_1):.2f} (shock 1 arm), {float(target_ny_hat_2):.2f} (shock 2 arm)")
-axes[1, 2].set_xlabel("x"); axes[1, 2].set_ylabel("y")
-plt.colorbar(im5, ax=axes[1, 2])
-
 for ax in axes.flat:
     ax.set_box_aspect(1)
 
@@ -343,7 +333,7 @@ spatial_axes = [
     axes[0, 1],
     axes[0, 2],
     axes[1, 0],
-    axes[1, 1],
+    axes[1, 1]
 ]
 
 for ax in spatial_axes:
@@ -352,4 +342,6 @@ for ax in spatial_axes:
     ax.set_ylim(0, 1)
 
 plt.show()
+
+
 # %%
