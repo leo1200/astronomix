@@ -163,6 +163,12 @@ INT_FIELD_TYPE = Union[
     Int[Array, "num_cells_x num_cells_y num_cells_z"],
 ]
 
+GEOMETRY_TYPE = Union[
+    Float[Array, "num_cells_x 2"],
+    Float[Array, "num_cells_x num_cells_y 2"],
+    Float[Array, "num_cells_x num_cells_y num_cells_z 2"],
+]
+
 class SnapshotSettings(NamedTuple):
     """Settings for the snapshot output of the simulation."""
 
