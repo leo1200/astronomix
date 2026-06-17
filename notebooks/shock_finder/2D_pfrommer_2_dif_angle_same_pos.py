@@ -38,9 +38,8 @@ from astronomix.option_classes.simulation_config import HLLC, MINMOD
 from astronomix._physics_modules._shock_finder.shock_finder_2d import find_shocks_pfrommer
 
 
-# ============================================================================
+#%%
 # CONFIGURATION
-# ============================================================================
 
 ANGLE_1 =  30.0    # degrees — normal of shock 1
 ANGLE_2 = -30.0    # degrees — normal of shock 2
@@ -86,7 +85,7 @@ high1 = dist1 < 0
 high2 = dist2 < 0
 
 # high pressure if on the high side of either shock
-in_high = high1 | high2
+in_high = jnp.logical_xor(high1, high2)
 
 p   = jnp.where(in_high, 1.0, 0.1  )
 rho = jnp.where(in_high, 1.0, 0.125)
@@ -159,17 +158,20 @@ else:
     ds_x_surf = ds_x[surface_mask]
     ds_y_surf = ds_y[surface_mask]
 
-    print(f"\nAway from intersection ({int(far_from_intersection.sum())} cells):")
-    if far_from_intersection.sum() > 0:
-        print(f"  ds_x mean={float(ds_x_surf[far_from_intersection].mean()):.3f}  std={float(ds_x_surf[far_from_intersection].std()):.3f}")
-        print(f"  ds_y mean={float(ds_y_surf[far_from_intersection].mean()):.3f}  std={float(ds_y_surf[far_from_intersection].std()):.3f}")
-        print(f"  (low std = consistent direction along each arm)")
+    dot1 = ds_x_surf * float(nx1) + ds_y_surf * float(ny1)
+    dot2 = ds_x_surf * float(nx2) + ds_y_surf * float(ny2)
 
-    print(f"\nNear intersection ({int(near_intersection.sum())} cells):")
-    if near_intersection.sum() > 0:
-        print(f"  ds_x mean={float(ds_x_surf[near_intersection].mean()):.3f}  std={float(ds_x_surf[near_intersection].std()):.3f}")
-        print(f"  ds_y mean={float(ds_y_surf[near_intersection].mean()):.3f}  std={float(ds_y_surf[near_intersection].std()):.3f}")
-        print(f"  (high std expected — ambiguous region)")
+    align1 = jnp.abs(dot1)
+    align2 = jnp.abs(dot2)
+
+    shock1_like = far_from_intersection & (align1 >= align2)
+    shock2_like = far_from_intersection & (align2 > align1)
+
+    print("\nDirection alignment away from intersection:")
+    if shock1_like.sum() > 0:
+        print(f"  shock-1-like cells: count={int(shock1_like.sum())}, mean |dot(ds,n1)|={float(align1[shock1_like].mean()):.3f}")
+    if shock2_like.sum() > 0:
+        print(f"  shock-2-like cells: count={int(shock2_like.sum())}, mean |dot(ds,n2)|={float(align2[shock2_like].mean()):.3f}")
 
 
 # ============================================================================
@@ -197,10 +199,11 @@ plt.colorbar(im1, ax=axes[0, 1])
 
 # 3. Shock surface + zone on pressure
 axes[0, 2].pcolormesh(x_np, y_np, np.array(p_final), cmap="viridis", alpha=0.8)
-axes[0, 2].contour(x_np, y_np, np.array(result.shock_surface_cells).astype(float),
-                   levels=[0.5], colors="red", linewidths=1.5)
 axes[0, 2].contourf(x_np, y_np, np.array(result.shock_zones).astype(float),
                     levels=[0.5, 1.5], colors=["green"], alpha=0.25)
+axes[0, 2].contour(x_np, y_np, np.array(result.shock_surface_cells).astype(float),
+                   levels=[0.5], colors="red", linewidths=1.5)
+
 # mark intersection region
 circle = plt.Circle((0.5, 0.5), 0.1, color="white", fill=False,
                      linestyle="--", linewidth=1.5, label="intersection zone")
@@ -209,7 +212,8 @@ axes[0, 2].set_title("Shock surface (red) & zone (green)\ndashed circle = inters
 axes[0, 2].set_xlabel("x"); axes[0, 2].set_ylabel("y")
 
 # 4. Mach number
-im3 = axes[1, 0].pcolormesh(x_np, y_np, np.array(result.mach_numbers), cmap="hot")
+mach_surface_only = np.array(result.mach_numbers)
+im3 = axes[1, 0].pcolormesh(x_np, y_np, mach_surface_only, cmap="hot", vmin=1.0, vmax=2.0)
 axes[1, 0].set_title("Mach number (surface cells only)")
 axes[1, 0].set_xlabel("x"); axes[1, 0].set_ylabel("y")
 plt.colorbar(im3, ax=axes[1, 0])
@@ -231,7 +235,8 @@ axes[1, 1].set_title("shock_direction (quiver)\nexpect X pattern, noisy inside c
 axes[1, 1].set_xlabel("x"); axes[1, 1].set_ylabel("y")
 
 # 6. ds_y component — shows the two arms cleanly
-im5 = axes[1, 2].pcolormesh(x_np, y_np, np.array(ds_y), cmap="RdBu", vmin=-1, vmax=1)
+ds_y_surface_only = np.where(np.array(result.shock_surface_cells), np.array(ds_y), np.nan)
+im5 = axes[1, 2].pcolormesh(x_np, y_np, ds_y_surface_only, cmap="RdBu", vmin=-1, vmax=1)
 axes[1, 2].contour(x_np, y_np, np.array(result.shock_surface_cells).astype(float),
                    levels=[0.5], colors="black", linewidths=1.0)
 circle3 = plt.Circle((0.5, 0.5), 0.1, color="black", fill=False,
