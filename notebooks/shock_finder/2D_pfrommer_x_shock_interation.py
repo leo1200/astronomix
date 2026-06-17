@@ -1,22 +1,21 @@
 # ============================================================================
-# 2D Shock Finder Test — Two Parallel Rotated Shocks (blast wave in 1D)
+# 2D Shock Finder Test — Two Intersecting Shocks (X shape)
 # ============================================================================
-# High pressure in the middle region, low pressure on both sides.
-# This drives two shocks propagating outward in opposite directions
-# along the shock normal — like a 1D blast wave, rotated by SHOCK_ANGLE.
+# Two Sod-like pressure discontinuities pass through (0.5, 0.5) at
+# FRONT_NORMAL_ANGLE_1 = +30° and FRONT_NORMAL_ANGLE_2 = -30°, forming an X.
 #
-# Initial conditions (three regions along the normal direction):
-#   left region  (d < -1/6): rho=0.125, p=0.1   (low pressure)
-#   mid  region  (-1/6<d<1/6): rho=1.0, p=1.0   (high pressure — the driver)
-#   right region (d >  1/6): rho=0.125, p=0.1   (low pressure)
+# Initial conditions:
+#   Two signed distances (dist1, dist2) divide the domain into four wedges.
+#   XOR: high pressure only where a cell is on opposite sides of the two fronts.
+#   → two alternating high-pressure wedges, two low-pressure wedges.
+#   High: p=1.0, ρ=1.0 — Low: p=0.1, ρ=0.125 — no initial velocity.
 #
-# Ground truth:
-#   - two distinct shock surfaces, each perpendicular to the shock normal
-#   - the shock normal has angle SHOCK_ANGLE from the x-axis
-#   - shocks propagate in opposite directions → d_s points outward on each
-#   - ds_x mean ≈ 0 (left shock cancels right shock), but per-shock ≈ ±cos θ
-#   - Mach numbers should be roughly symmetric (same jump ratio on both sides)
-# ============================================================================
+# Stress test goals (NOT a clean Sod validation):
+#   1. Both shock arms detected away from the intersection
+#   2. Shock finder does not crash or produce garbage everywhere
+#   3. Detected d_s aligns with the expected normal along each arm
+#   4. Intersection region (~r < 0.1) is ambiguous — noisy d_s expected there
+# ==================================================================
 
 #%%
 import jax.numpy as jnp
@@ -29,14 +28,10 @@ from astronomix import get_registered_variables, construct_primitive_state
 from astronomix import time_integration
 from astronomix.option_classes.simulation_config import HLLC, MINMOD
 from astronomix._physics_modules._shock_finder.shock_finder_2d import find_shocks_pfrommer
-from astronomix.option_classes.simulation_config import (
-    GEOMETRY_TYPE,
-    FIELD_TYPE,
-)
 
-# ============================================================================
+
+#%%
 # CONFIGURATION
-# ============================================================================
 
 num_cells = 128
 box_size  = 1.0
@@ -49,7 +44,7 @@ config = SimulationConfig(
     box_size=box_size,
     num_cells=num_cells,
 )
-params = SimulationParams(t_end=0.15)   # slightly shorter — keeps shocks separated
+params = SimulationParams(t_end=0.15)
 
 helper_data          = get_helper_data(config)
 registered_variables = get_registered_variables(config)
@@ -61,35 +56,40 @@ geometric_centers = helper_data.geometric_centers
 geometry_x = geometric_centers[..., 0] # (nx, ny)
 geometry_y = geometric_centers[..., 1] # (nx, ny)
 
+
 # ============================================================================
 # INITIAL CONDITIONS — double Sod (two outward-propagating shocks)
 #
-# A high-pressure driver region occupies the middle third of the domain
-# along n̂ = (cos θ, sin θ) at θ = FRONT_NORMAL_ANGLE degrees:
-#
-#   left region  (d < -1/6): p=0.1, ρ=0.125  (ambient)
-#   middle region(|d| < 1/6): p=1.0, ρ=1.0   (driver)
-#   right region (d > +1/6): p=0.1, ρ=0.125  (ambient)
-#
-# The driver launches two shocks propagating in opposite directions along n̂.
-# Both shocks should have the same Mach number and |normal| = FRONT_NORMAL_ANGLE.
-# No initial velocity anywhere.
+# Two planar fronts pass through center (0.5, 0.5) at +30° and -30°, forming an X shape
+# Each front divides the domain into two half-planes via signed distance (dist1, dist2)
+# XOR: a cell is high-pressure only if it's on opposite sides of the two fronts — this creates two alternating high/low pressure wedges
+# High pressure: p=1.0, ρ=1.0 — Low pressure: p=0.1, ρ=0.125 (standard Sod values)
+# No initial velocity anywhere
+# The intersection region at the center is interensted
 # ============================================================================
-FRONT_NORMAL_ANGLE = 30.0        # angle of the vector perpendicular to the pressure discontinuity line
-target_theta_rad = jnp.deg2rad(FRONT_NORMAL_ANGLE)
-target_nx_hat    = jnp.cos(target_theta_rad)   # x-component of shock normal
-target_ny_hat    = jnp.sin(target_theta_rad)   # y-component of shock normal
 
-target_signed_dist = (geometry_x - 0.5) * target_nx_hat + (geometry_y - 0.5) * target_ny_hat
+FRONT_NORMAL_ANGLE_1 =  30.0    # degrees — normal 
+FRONT_NORMAL_ANGLE_2 = -30.0    # degrees — normal of shock 2
+# both pass through the center
+TARGET_CENTER = (0.5, 0.5)
+target_theta1 = jnp.deg2rad(FRONT_NORMAL_ANGLE_1)
+target_theta2 = jnp.deg2rad(FRONT_NORMAL_ANGLE_2)
 
-# three regions
-in_left  = target_signed_dist < -1/6
-in_right = target_signed_dist >  1/6
-in_mid   = ~in_left & ~in_right
+target_nx_hat_1, target_ny_hat_1 = jnp.cos(target_theta1), jnp.sin(target_theta1)
+target_nx_hat_2, target_ny_hat_2 = jnp.cos(target_theta2), jnp.sin(target_theta2)
 
-# high pressure driver in the middle → two shocks propagate outward
-rho = jnp.where(in_mid, 1.0,   0.125)
-p   = jnp.where(in_mid, 1.0,   0.1  )
+# signed distance from each front
+dist1 = (geometry_x - TARGET_CENTER[0]) * target_nx_hat_1 + (geometry_y - TARGET_CENTER[1]) * target_ny_hat_1   # signed dist from shock 1
+dist2 = (geometry_x - TARGET_CENTER[0]) * target_nx_hat_2 + (geometry_y - TARGET_CENTER[1]) * target_ny_hat_2   # signed dist from shock 2
+
+high1 = dist1 < 0
+high2 = dist2 < 0
+
+# XOR: high pressure in alternating wedges → pressure jump along both diagonals
+in_high = jnp.logical_xor(high1, high2)
+
+p   = jnp.where(in_high, 1.0, 0.1  )
+rho = jnp.where(in_high, 1.0, 0.125)
 u_x = jnp.zeros_like(geometry_x)
 u_y = jnp.zeros_like(geometry_y)
 
@@ -103,9 +103,14 @@ initial_state = construct_primitive_state(
 )
 config = finalize_config(config, initial_state.shape)
 
-#%%
+
+# ============================================================================
 # RUN SIMULATION
+# ============================================================================
+
+#%%
 final_state = time_integration(initial_state, config, params, registered_variables)
+
 rho_final = final_state[registered_variables.density_index]
 p_final   = final_state[registered_variables.pressure_index]
 
@@ -124,29 +129,62 @@ shock_dir_x = result.shock_direction[0]   # (nx, ny)
 shock_dir_y = result.shock_direction[1]   # (nx, ny)
 
 
-# ============================================================================
+#%%
 # DIAGNOSTICS
-# ============================================================================
-
-print(f"=== Two Parallel Shocks ({FRONT_NORMAL_ANGLE}°) ===")
-print(f"Expected shock normal direction : ({float(target_nx_hat):.3f}, {float(target_ny_hat):.3f})")
-print(f"Expected shock_dir_y / shock_dir_x     : {float(jnp.tan(target_theta_rad)):.3f}")
+# notice one thing that all diagnostics below having some calculation 
+# based on our assumptions
+# or based on visualize results
+# as ofcourse we cannot counter all scenarios that can happen
+print(f"=== Two Intersecting Shocks at Center ({FRONT_NORMAL_ANGLE_1}° and {FRONT_NORMAL_ANGLE_2}°) ===")
+print(f"num_shocks (surface cells): {result.num_shocks}")
 
 surface_mask = result.shock_surface_cells
-surface_mach = result.mach_numbers[surface_mask]
 
 if result.num_shocks == 0:
-    print("WARNING: no shock surface cells found — shock may have left domain or is too weak")
+    print("WARNING: no shock surface cells found")
+else:
+    surface_mach = result.mach_numbers[surface_mask]
+    print(f"Mach at surface: min={surface_mach.min():.3f}  max={surface_mach.max():.3f}  mean={surface_mach.mean():.3f}")
+
+    # classify surface cells as near/far from intersection
+    geometry_surface_x = geometry_x[surface_mask]
+    geometry_surface_y = geometry_y[surface_mask]
+    dist_from_center = jnp.sqrt((geometry_surface_x - TARGET_CENTER[0])**2 + (geometry_surface_y - TARGET_CENTER[1])**2)
+    near_intersection = dist_from_center < 0.1
+    far_from_intersection = ~near_intersection
+
+    shock_dir_surface_x = shock_dir_x[surface_mask]
+    shock_dir_surface_y = shock_dir_y[surface_mask]
+
+    # compare each surface cell shock direction to the two expected normals via absolute dot product
+    dot1 = shock_dir_surface_x * float(target_nx_hat_1) + shock_dir_surface_y * float(target_ny_hat_1)
+    dot2 = shock_dir_surface_x * float(target_nx_hat_2) + shock_dir_surface_y * float(target_ny_hat_2)
+    align1 = jnp.abs(dot1)
+    align2 = jnp.abs(dot2)
+
+    shock1_like = far_from_intersection & (align1 >= align2)
+    shock2_like = far_from_intersection & (align2 > align1)
+
+    print("\nDirection alignment away from intersection:")
+    if shock1_like.sum() > 0:
+        print(f"  shock-1-like cells: count={int(shock1_like.sum())}, mean |dot(ds,n1)|={float(align1[shock1_like].mean()):.3f}")
+    if shock2_like.sum() > 0:
+        print(f"  shock-2-like cells: count={int(shock2_like.sum())}, mean |dot(ds,n2)|={float(align2[shock2_like].mean()):.3f}")
+
 
 #%%
 # PLOTS
+# expectation of ploting is that it must be environment independent
+# means it must visualize the results withou put into consideration of what the shock should look like
+#
+# there are some points we put details relating to the expected results, but they are just for reference and not for validating the results
 
 fig, axes = plt.subplots(
     2, 3,
     figsize=(15, 10),
     constrained_layout=True
 )
-fig.suptitle(f"Two Parallel Rotated Shocks ({FRONT_NORMAL_ANGLE}°) — Shock Finder Validation", fontsize=13)
+fig.suptitle(f"Two Intersecting Shocks at Center ({FRONT_NORMAL_ANGLE_1}° and {FRONT_NORMAL_ANGLE_2}°) — X shape", fontsize=13)
 
 geometry_x_np = np.array(geometry_x)
 geometry_y_np = np.array(geometry_y)
@@ -285,42 +323,17 @@ axes[1, 1].set_title("Shock direction at surface cells\nexpect outward direction
 axes[1, 1].set_xlabel("x")
 axes[1, 1].set_ylabel("y")
 
-# 6. Slice along shock normal through center
-t_vals   = np.linspace(-0.5, 0.5, 300)
-x_sample = np.clip(0.5 + t_vals * float(target_nx_hat), geometry_x_np.min(), geometry_x_np.max())
-y_sample = np.clip(0.5 + t_vals * float(target_ny_hat), geometry_y_np.min(), geometry_y_np.max())
-
-# nearest-cell lookup using geometry
-geometry_x_nearest_np = np.argmin(np.abs(geometry_x_np[:, 0:1] - x_sample[np.newaxis, :]), axis=0)
-geometry_y_nearest_np = np.argmin(np.abs(geometry_y_np[0:1, :] - y_sample[:, np.newaxis]), axis=1)
-
-p_arr      = np.array(p_final)
-surf_arr   = np.array(result.shock_surface_cells)
-zone_arr   = np.array(result.shock_zones)
-
-p_nearest    = p_arr[geometry_x_nearest_np, geometry_y_nearest_np]
-surf_nearest = surf_arr[geometry_x_nearest_np, geometry_y_nearest_np]
-zone_nearest = zone_arr[geometry_x_nearest_np, geometry_y_nearest_np]
-
-axes[1, 2].plot(t_vals, p_nearest, label="pressure")
-axes[1, 2].fill_between(t_vals, 0, 1, where=zone_nearest,
-                         alpha=0.2, color="green", label="shock zone")
-
-## label
-first = True
-for ti in t_vals[surf_nearest]:
-    axes[1, 2].axvline(
-        ti,
-        color="red",
-        linestyle="--",
-        linewidth=1.5,
-        label="shock surface" if first else None
-    )
-    first = False
-    
-axes[1, 2].set_title(f"Slice along normal (θ={FRONT_NORMAL_ANGLE}°)\nexpect 2 red lines + 2 green zones")
-axes[1, 2].set_xlabel("distance along normal"); axes[1, 2].set_ylabel("P")
-axes[1, 2].legend(fontsize=8)
+# 6. ds_y component — shows the two arms cleanly
+ds_y_surface_only = np.where(np.array(result.shock_surface_cells), np.array(shock_dir_y), np.nan)
+im5 = axes[1, 2].pcolormesh(geometry_x_np, geometry_y_np, ds_y_surface_only, cmap="RdBu", vmin=-1, vmax=1)
+axes[1, 2].contour(geometry_x_np, geometry_y_np, np.array(result.shock_surface_cells).astype(float),
+                   levels=[0.5], colors="black", linewidths=1.0)
+circle3 = plt.Circle((0.5, 0.5), 0.1, color="black", fill=False,
+                      linestyle="--", linewidth=1.5)
+axes[1, 2].add_patch(circle3)
+axes[1, 2].set_title(f"ds_y component\nexpect +{float(target_ny_hat_1):.2f} (shock 1 arm), {float(target_ny_hat_2):.2f} (shock 2 arm)")
+axes[1, 2].set_xlabel("x"); axes[1, 2].set_ylabel("y")
+plt.colorbar(im5, ax=axes[1, 2])
 
 for ax in axes.flat:
     ax.set_box_aspect(1)

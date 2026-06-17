@@ -60,17 +60,23 @@ geometry_y = geometric_centers[..., 1] # (nx, ny)
 
 
 # ============================================================================
-# INITIAL CONDITIONS — rotated discontinuity
-# Set up to reach TARGET shock angle of TARGET_SHOCK_ANGLE degrees
-# The shock normal direction: n = (cos θ, sin θ)
-# A point (x, y) is on the "left" (high pressure) side if:
-#     (x - 0.5) * cos θ + (y - 0.5) * sin θ < 0
-# This places the discontinuity as a line through the center of the domain,
+# INITIAL CONDITIONS — rotated Sod discontinuity
+#
+# A straight pressure discontinuity passes through (0.5, 0.5) with normal
+# n̂ = (cos θ, sin θ) at θ = FRONT_NORMAL_ANGLE degrees.
+#
+# High pressure (p=1.0, ρ=1.0) where signed distance < 0 (left of front).
+# Low  pressure (p=0.1, ρ=0.125) where signed distance > 0 (right of front).
+# No initial velocity anywhere.
+#
+# For a symmetric Sod IC, the shock propagates along n̂ — so FRONT_NORMAL_ANGLE
+# is also the expected shock normal angle after time evolution.
+# ============================================================================
 
-TARGET_SHOCK_ANGLE = 30.0        # EXPECTED angle of shock NORMAL from x-axis - degrees
+FRONT_NORMAL_ANGLE = 30.0        # EXPECTED angle of shock NORMAL from x-axis - degrees
 
 # n̂ = (cos θ, sin θ) is the shock normal, pointing outward from the high-pressure region
-target_theta_rad = jnp.deg2rad(TARGET_SHOCK_ANGLE)
+target_theta_rad = jnp.deg2rad(FRONT_NORMAL_ANGLE)
 target_nx_hat    = jnp.cos(target_theta_rad)   # x-component of shock normal
 target_ny_hat    = jnp.sin(target_theta_rad)   # y-component of shock normal
 
@@ -113,7 +119,7 @@ result = find_shocks_pfrommer(
 # %%
 # DIAGNOSTICS
 
-print(f"=== Shock Finder 2D Diagnostics — Rotated Sod ({TARGET_SHOCK_ANGLE}°) ===")
+print(f"=== Shock Finder 2D Diagnostics — Rotated Sod ({FRONT_NORMAL_ANGLE}°) ===")
 print(f"Expected shock normal direction : ({float(target_nx_hat):.3f}, {float(target_ny_hat):.3f})")
 print(f"Expected shock_dir_y / shock_dir_x     : {float(jnp.tan(target_theta_rad)):.3f}")
 
@@ -147,7 +153,7 @@ overall_angle = jnp.rad2deg(
 print(f"overall shock direction x at surface    : overall_dir_x={float(overall_dir_x):.3f}  (expect ≈ ±{float(target_nx_hat):.3f})")
 print(f"overall shock direction y at surface    : overall_dir_y={float(overall_dir_y):.3f}  (expect ≈ ±{float(target_ny_hat):.3f})")
 print(f"overall shock angle at surface          : {float(overall_angle):.2f}°")
-print(f"Expected angle            : {float(TARGET_SHOCK_ANGLE):.2f}°")
+print(f"Expected angle            : {float(FRONT_NORMAL_ANGLE):.2f}°")
 
 # Direction alignment with expected normal.
 # Use absolute value because n and -n are both valid normal directions.
@@ -164,7 +170,7 @@ fig, axes = plt.subplots(
     constrained_layout=True
 )
 fig.suptitle(
-    f"2D Rotated Sod Shock Tube ({float(TARGET_SHOCK_ANGLE):.2f}°) — Shock Finder Validation",
+    f"2D Rotated Sod Shock Tube ({float(FRONT_NORMAL_ANGLE):.2f}°) — Shock Finder Validation",
     fontsize=13
 )
 
@@ -376,7 +382,7 @@ axes[1, 2].axvline(
     label="expected shock distance ≈ 0.37"
 )
 
-axes[1, 2].set_title(f"Pressure slice along shock normal, θ={float(TARGET_SHOCK_ANGLE):.2f}°")
+axes[1, 2].set_title(f"Pressure slice along shock normal, θ={float(FRONT_NORMAL_ANGLE):.2f}°")
 axes[1, 2].set_xlabel("Signed distance along normal")
 axes[1, 2].set_ylabel("P")
 axes[1, 2].legend(fontsize=8)
