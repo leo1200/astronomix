@@ -2,21 +2,21 @@
 # 2D Shock Finder Test — Rotated Sod Tube
 # ============================================================================
 # The initial discontinuity is a straight line rotated by SHOCK_ANGLE degrees
-# from the x-axis. The shock normal therefore has components in both x and y,
-# which exercises the dominant-axis selection and directional raycasting in a
-# way that an axis-aligned test cannot.
+# from the x-axis. 
 #
-# Ground truth (same as 1D Sod at t=0.2, just rotated):
+# EXPECTED ground truth (same as 1D Sod at t=0.2, just rotated):
 #   - shock front: a line perpendicular to the shock normal, at signed distance
 #     ≈ 0.37 from the center along the normal direction
 #   - Mach number: M ≈ 1.75
 #   - shock_direction should align with the normal:
 #       n = (cos θ, sin θ), up to an overall sign
 #   - direction ratio should satisfy:
-#       ds_y / ds_x ≈ tan(θ)
+#       shock_dir_x / shock_dir_y ≈ tan(θ)
 # ============================================================================
 
 #%%
+from ctypes import cast
+
 import jax.numpy as jnp
 import numpy as np
 import matplotlib.pyplot as plt
@@ -27,14 +27,13 @@ from astronomix import get_registered_variables, construct_primitive_state
 from astronomix import time_integration
 from astronomix.option_classes.simulation_config import HLLC, MINMOD
 from astronomix._physics_modules._shock_finder.shock_finder_2d import find_shocks_pfrommer
+from astronomix.option_classes.simulation_config import (
+    GEOMETRY_TYPE,
+    FIELD_TYPE,
+)
 
-
-# ============================================================================
+#%%
 # CONFIGURATION
-# ============================================================================
-
-SHOCK_ANGLE = 30.0        # degrees — angle of shock NORMAL from x-axis
-                          # change this to test other angles (e.g. 45, 67, ...)
 
 num_cells = 128
 box_size  = 1.0
@@ -52,29 +51,38 @@ params = SimulationParams(t_end=0.2)
 helper_data          = get_helper_data(config)
 registered_variables = get_registered_variables(config)
 
-x = helper_data.geometric_centers[..., 0]   # (nx, ny)
-y = helper_data.geometric_centers[..., 1]   # (nx, ny)
+# geometric_centers shape: (nx, ny, 2)  — last axis is (x, y)
+geometric_centers = cast(
+    GEOMETRY_TYPE, # type: ignore
+    helper_data.geometric_centers,
+)
+# helper_data.geometric_centers is a grid of nx × ny cells, where each cell contains its (x, y) coordinates.
+geometry_x: FIELD_TYPE = geometric_centers[..., 0] # (nx, ny)
+geometry_y: FIELD_TYPE = geometric_centers[..., 1] # (nx, ny)
 
 
 # ============================================================================
 # INITIAL CONDITIONS — rotated discontinuity
-# ============================================================================
+# Set up to reach EXPECTED shock angle of SHOCK_ANGLE degrees
 # The shock normal direction: n = (cos θ, sin θ)
 # A point (x, y) is on the "left" (high pressure) side if:
 #     (x - 0.5) * cos θ + (y - 0.5) * sin θ < 0
 # This places the discontinuity as a line through the center of the domain,
 # perpendicular to the normal.
 
+SHOCK_ANGLE = 30.0        # EXPECTED angle of shock NORMAL from x-axis - degrees
+
+# n̂ = (cos θ, sin θ) is the shock normal, pointing outward from the high-pressure region
 theta_rad = jnp.deg2rad(SHOCK_ANGLE)
 nx_hat    = jnp.cos(theta_rad)   # x-component of shock normal
 ny_hat    = jnp.sin(theta_rad)   # y-component of shock normal
 
-# signed distance from the center along the normal
-signed_dist = (x - 0.5) * nx_hat + (y - 0.5) * ny_hat
+# (nx, ny) — signed distance from cell center to line through (0.5, 0.5) with normal n̂
+signed_dist = (geometry_x - 0.5) * nx_hat + (geometry_y - 0.5) * ny_hat
 
 rho = jnp.where(signed_dist < 0, 1.0,   0.125)
-u_x = jnp.zeros_like(x)
-u_y = jnp.zeros_like(x)
+u_x = jnp.zeros_like(geometry_x)
+u_y = jnp.zeros_like(geometry_y)
 p   = jnp.where(signed_dist < 0, 1.0,   0.1)
 
 initial_state = construct_primitive_state(
@@ -87,12 +95,9 @@ initial_state = construct_primitive_state(
 )
 config = finalize_config(config, initial_state.shape)
 
-
-# ============================================================================
-# RUN SIMULATION
-# ============================================================================
-
 #%%
+# RUN SIMULATION
+
 final_state = time_integration(initial_state, config, params, registered_variables)
 
 rho_final = final_state[registered_variables.density_index]
@@ -100,12 +105,8 @@ vx_final  = final_state[registered_variables.velocity_index.x]
 vy_final  = final_state[registered_variables.velocity_index.y]
 p_final   = final_state[registered_variables.pressure_index]
 
-
-# ============================================================================
-# RUN SHOCK FINDER
-# ============================================================================
-
 #%%
+# RUN SHOCK FINDER
 result = find_shocks_pfrommer(
     final_state,
     config,
@@ -114,63 +115,60 @@ result = find_shocks_pfrommer(
 )
 
 # %%
-# ============================================================================
 # DIAGNOSTICS
-# ============================================================================
 
 print(f"=== Shock Finder 2D Diagnostics — Rotated Sod ({SHOCK_ANGLE}°) ===")
-print(f"Shock normal direction : ({float(nx_hat):.3f}, {float(ny_hat):.3f})")
-print(f"Expected ds_y / ds_x     : {float(jnp.tan(theta_rad)):.3f}")
+print(f"EXPECTED shock normal direction : ({float(nx_hat):.3f}, {float(ny_hat):.3f})")
+print(f"EXPECTED shock_dir_y / shock_dir_x     : {float(jnp.tan(theta_rad)):.3f}")
 
-surface_mask = result.shock_surface_cells
-surface_mach = result.mach_numbers[surface_mask]
-ds_x = result.shock_direction[0]
-ds_y = result.shock_direction[1]
+surface_mask = result.shock_surface_cells # boolean, (nx, ny)
+
+
+#### Mach number diagnostics
+surface_mach = result.mach_numbers[surface_mask] # value, (nx, ny) flattened to 1D
 
 print(f"num_shocks (surface cells): {result.num_shocks}")
 print(f"Mach at surface           : min={surface_mach.min():.3f}  max={surface_mach.max():.3f}  mean={surface_mach.mean():.3f}")
 
 strong_surface_mach = surface_mach[surface_mach > 1.1]
 print(
-    f"Mach at strong surface    : "
+    f"Mach at strong surface where mach > 1.1   : "
     f"min={strong_surface_mach.min():.3f}  "
     f"max={strong_surface_mach.max():.3f}  "
     f"mean={strong_surface_mach.mean():.3f}"
 )
-print(f"Expected Mach             : M ≈ 1.75")
-print(f"ds_x at surface           : mean={float(ds_x[surface_mask].mean()):.3f}  (expect ≈ ±{float(nx_hat):.3f})")
-print(f"ds_y at surface           : mean={float(ds_y[surface_mask].mean()):.3f}  (expect ≈ ±{float(ny_hat):.3f})")
 
-# Direction alignment with expected normal.
-# Use absolute value because n and -n are both valid normal directions.
-dot_normal = ds_x[surface_mask] * nx_hat + ds_y[surface_mask] * ny_hat
-alignment = jnp.abs(dot_normal)
+#### Direction diagnostics
+# Shock_dir give us local shock at each cell
+# NEED to calculate is the overall shock orientation -> do this via mean
 
+shock_dir = result.shock_direction
+shock_dir_x = shock_dir[0]
+shock_dir_y = shock_dir[1]
+
+mean_dir_at_surface_x = shock_dir_x[surface_mask].mean()
+mean_dir_at_surface_y = shock_dir_y[surface_mask].mean()
 mean_angle = jnp.rad2deg(
     jnp.arctan2(
-        ds_y[surface_mask].mean(),
-        ds_x[surface_mask].mean()
+        mean_dir_at_surface_y,
+        mean_dir_at_surface_x
     )
 )
 
-print(f"Mean detected angle       : {float(mean_angle):.2f}°")
+print(f"overall shock direction x at surface    : mean={float(mean_dir_at_surface_x):.3f}  (expect ≈ ±{float(nx_hat):.3f})")
+print(f"overall shock direction y at surface    : mean={float(mean_dir_at_surface_y):.3f}  (expect ≈ ±{float(ny_hat):.3f})")
+print(f"overall shock angle at surface          : {float(mean_angle):.2f}°")
 print(f"Expected angle            : {SHOCK_ANGLE:.2f}°")
-print(f"Mean |dot with normal|    : {float(alignment.mean()):.3f}  (expect ≈ 1)")
 
-# check dominant axis — at 30°, cos(30°)≈0.866 > sin(30°)=0.5, so x should dominate
-dominant = jnp.argmax(jnp.abs(result.shock_direction), axis=0)
-dominant_at_surface = dominant[surface_mask]
-frac_x_dominant = jnp.mean(dominant_at_surface == 0)
-frac_y_dominant = jnp.mean(dominant_at_surface == 1)
-print(f"Dominant axis at surface  : x={float(frac_x_dominant):.2%}  y={float(frac_y_dominant):.2%}")
-print(f"Expected (30°)            : x should dominate (cos30°>sin30°)")
+# Direction alignment with expected normal.
+# Use absolute value because n and -n are both valid normal directions.
+dot_normal = mean_dir_at_surface_x * nx_hat + mean_dir_at_surface_y * ny_hat
+alignment = jnp.abs(dot_normal)
+print(f"Alignment check for overall shock direction |via dot with normal|    : {float(alignment):.3f}  (expect ≈ 1)")
 
-
-# ============================================================================
-# PLOTS
-# ============================================================================
 
 #%%
+# PLOTS
 fig, axes = plt.subplots(
     2, 3,
     figsize=(15, 10),
@@ -182,27 +180,27 @@ fig.suptitle(
     fontsize=13
 )
 
-x_np = np.array(x)
-y_np = np.array(y)
+geometry_x_np = np.array(geometry_x)
+geometry_y_np = np.array(geometry_y)
 
 # 1. Pressure
-im0 = axes[0, 0].pcolormesh(x_np, y_np, np.array(p_final), cmap="viridis")
+im0 = axes[0, 0].pcolormesh(geometry_x_np, geometry_y_np, np.array(p_final), cmap="viridis")
 axes[0, 0].set_title("Pressure")
 axes[0, 0].set_xlabel("x"); axes[0, 0].set_ylabel("y")
 plt.colorbar(im0, ax=axes[0, 0])
 
 # 2. Density
-im1 = axes[0, 1].pcolormesh(x_np, y_np, np.array(rho_final), cmap="plasma")
+im1 = axes[0, 1].pcolormesh(geometry_x_np, geometry_y_np, np.array(rho_final), cmap="plasma")
 axes[0, 1].set_title("Density")
 axes[0, 1].set_xlabel("x"); axes[0, 1].set_ylabel("y")
 plt.colorbar(im1, ax=axes[0, 1])
 
 # 3. Shock surface + zone overlaid on pressure
-axes[0, 2].pcolormesh(x_np, y_np, np.array(p_final), cmap="viridis", alpha=0.8)
+axes[0, 2].pcolormesh(geometry_x_np, geometry_y_np, np.array(p_final), cmap="viridis", alpha=0.8)
 
-# draw zone first
+# draw zone
 axes[0, 2].contourf(
-    x_np, y_np,
+    geometry_x_np, geometry_y_np,
     np.array(result.shock_zones).astype(float),
     levels=[0.5, 1.5],
     colors=["green"],
@@ -211,7 +209,7 @@ axes[0, 2].contourf(
 
 # draw surface on top
 axes[0, 2].contour(
-    x_np, y_np,
+    geometry_x_np, geometry_y_np,
     np.array(result.shock_surface_cells).astype(float),
     levels=[0.5],
     colors="red",
@@ -223,14 +221,10 @@ axes[0, 2].set_xlabel("x")
 axes[0, 2].set_ylabel("y")
 
 # 4. Mach number at surface cells
-mach_surface_only = np.where(
-    np.array(result.shock_surface_cells),
-    np.array(result.mach_numbers),
-    np.nan
-)
+mach_surface_only = np.array(result.mach_numbers)
 
 im3 = axes[1, 0].pcolormesh(
-    x_np, y_np,
+    geometry_x_np, geometry_y_np,
     mach_surface_only,
     cmap="hot",
     vmin=1.0,
@@ -248,7 +242,7 @@ plt.colorbar(im3, ax=axes[1, 0], label="Shock Mach number")
 # --------------------------------------------------------------------------
 
 axes[1, 1].pcolormesh(
-    x_np, y_np,
+    geometry_x_np, geometry_y_np,
     np.array(p_final),
     cmap="viridis",
     shading="auto",
@@ -259,10 +253,10 @@ axes[1, 1].pcolormesh(
 surface = np.array(result.shock_surface_cells)
 
 # Surface-cell coordinates and directions
-xs = x_np[surface]
-ys = y_np[surface]
-ux = np.array(ds_x)[surface]
-uy = np.array(ds_y)[surface]
+xs = geometry_x_np[surface]
+ys = geometry_y_np[surface]
+ux = np.array(shock_dir_x)[surface]
+uy = np.array(shock_dir_y)[surface]
 
 # Normalize arrows to unit length
 mag = np.sqrt(ux**2 + uy**2)
@@ -296,7 +290,7 @@ else:
 
 # Draw shock surface
 axes[1, 1].contour(
-    x_np, y_np,
+    geometry_x_np, geometry_y_np,
     surface.astype(float),
     levels=[0.5],
     colors="red",

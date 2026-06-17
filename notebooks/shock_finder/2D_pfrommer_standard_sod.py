@@ -13,6 +13,7 @@
 
 #%%
 import jax.numpy as jnp
+import numpy as np
 import matplotlib.pyplot as plt
 from typing import cast
 
@@ -148,24 +149,6 @@ print(f"\nshock_direction[x] at surface: mean={shock_dir_x[surface_mask].mean():
 shock_dir_y = shock_dir[1]   # (nx, ny)
 print(f"shock_direction[y] at surface: mean={shock_dir_y[surface_mask].mean():.3f}  (expect ≈  0)")
 
-# --------------------------------------------------------------------------
-# Precompute shock-surface / shock-zone x locations
-# --------------------------------------------------------------------------
-surface_mask_cols = jnp.any(surface_mask, axis=1)        # (nx,) with bool value -> if this col has any surface cell, mark it True
-zone_mask_cols    = jnp.any(result.shock_zones, axis=1)  # (nx,) with bool value -> if this col has any shock zone cell, mark it True
-
-# from surface_mask_cols we get which columns (indices) have shock surface cells, 
-# need to propagate back x geometry positions of those columns from geometry_x
-# geometry_x shape = (nx, ny, 2)
-# geometry_x[:, 0] get all x row at 0 column (because y will always same, no need take y) -> (nx, 2)
-# geometry_x[:, 0][surface_mask_cols] -> keep only entry where surface cells
-surface_x_cols = geometry_x[:, 0][surface_mask_cols]
-zone_x_cols    = geometry_x[:, 0][zone_mask_cols]
-
-print("\n number shock surface columns:", surface_x_cols.size)
-indices = jnp.where(surface_mask_cols)[0]
-print(" shock surface columns indices:", indices)
-
 
 # %%
 # PLOTS
@@ -184,16 +167,8 @@ fig.suptitle("2D Sod Shock Tube - Shock Finder Validation", fontsize=13)
 
 dx = float(geometry_x[1, 0] - geometry_x[0, 0])
 
-# shock-zone band limits
-# this only correct when the shock zone is a contiguous band of columns, 
-# which is the case here, but may not be in general
-# [------ shock region ------]
-# x0                        x1
-if zone_x_cols.size > 0:
-    zone_x0 = float(zone_x_cols.min()) - 0.5 * dx
-    zone_x1 = float(zone_x_cols.max()) + 0.5 * dx
-else:
-    zone_x0, zone_x1 = None, None
+geometry_x_np = np.array(geometry_x)
+geometry_y_np = np.array(geometry_y)
 
 
 # --------------------------------------------------------------------------
@@ -214,87 +189,123 @@ axes[0, 1].set_xlabel("x")
 axes[0, 1].set_ylabel("y")
 plt.colorbar(im1, ax=axes[0, 1])
 
-# --------------------------------------------------------------------------
-# 3. Shock zone only
-# --------------------------------------------------------------------------
-# sketch pressure
-axes[0, 2].pcolormesh(
-    geometry_x, geometry_y, p_final,
-    cmap="viridis",
-    shading="auto",
-    alpha=0.70
-)
-# sketch shock zone as vertical band from zone_x0 to zone_x1
-if zone_x0 is not None:
-    axes[0, 2].axvspan(
-        zone_x0, zone_x1,
-        color="lime",
-        alpha=0.28,
-        zorder=10
-    )
+# 3. Shock surface + zone overlaid on pressure
+axes[0, 2].pcolormesh(geometry_x_np, geometry_y_np, np.array(p_final), cmap="viridis", alpha=0.8)
 
-axes[0, 2].set_title("Shock zone + we have margin 0.5 on each side + position from geometry and col have shock cell")
+# draw zone
+axes[0, 2].contourf(
+    geometry_x_np, geometry_y_np,
+    np.array(result.shock_zones).astype(float),
+    levels=[0.5, 1.5],
+    colors=["green"],
+    alpha=0.25
+)
+
+# draw surface on top
+axes[0, 2].contour(
+    geometry_x_np, geometry_y_np,
+    np.array(result.shock_surface_cells).astype(float),
+    levels=[0.5],
+    colors="red",
+    linewidths=0.5
+)
+
+axes[0, 2].set_title("Shock surface and shock zone")
 axes[0, 2].set_xlabel("x")
 axes[0, 2].set_ylabel("y")
 
-# --------------------------------------------------------------------------
-# 4. Shock surface
-# --------------------------------------------------------------------------
-# sketch pressure
-axes[1, 0].pcolormesh(
-    geometry_x, geometry_y, p_final,
-    cmap="viridis",
-    shading="auto",
-    alpha=0.70
-)
-# sketch shock surface as vertical red line(s) at x positions of surface cells
-for i, xi in enumerate(surface_x_cols):
-    axes[1, 0].axvline(
-        float(xi),
-        color="red",
-        linewidth=2.5,
-        zorder=12
-    )
+# 4. Mach number at surface cells
+mach_surface_only = np.array(result.mach_numbers)
 
-axes[1, 0].set_title("Shock surface + position from geometry and " \
-" have shock cell + no margin")
-axes[1, 0].set_xlabel("x")
-axes[1, 0].set_ylabel("y")
-
-# --------------------------------------------------------------------------
-# 5. Shock Mach number at surface cells
-# --------------------------------------------------------------------------
-
-# Mask Mach number outside shock-surface cells
-mach_surface_only = jnp.where(
-    result.shock_surface_cells,
-    result.mach_numbers,
-    jnp.nan
-)
-
-# Optional pressure background for context
-axes[1, 1].pcolormesh(
-    geometry_x, geometry_y, p_final,
-    cmap="viridis",
-    shading="auto",
-    alpha=0.35
-)
-
-# Plot only the Mach number at detected shock-surface cells
-im_mach = axes[1, 1].pcolormesh(
-    geometry_x, geometry_y, mach_surface_only,
+im3 = axes[1, 0].pcolormesh(
+    geometry_x_np, geometry_y_np,
+    mach_surface_only,
     cmap="hot",
     vmin=1.0,
     vmax=2.0,
     shading="auto"
 )
 
-axes[1, 1].set_title("Shock Mach number at surface cells")
+axes[1, 0].set_title("Shock Mach number at surface cells")
+axes[1, 0].set_xlabel("x")
+axes[1, 0].set_ylabel("y")
+plt.colorbar(im3, ax=axes[1, 0], label="Shock Mach number")
+
+# --------------------------------------------------------------------------
+# 5. Shock direction at surface cells
+# --------------------------------------------------------------------------
+
+axes[1, 1].pcolormesh(
+    geometry_x_np, geometry_y_np,
+    np.array(p_final),
+    cmap="viridis",
+    shading="auto",
+    alpha=0.55
+)
+
+# Shock surface mask
+surface = np.array(result.shock_surface_cells)
+
+# Surface-cell coordinates and directions
+xs = geometry_x_np[surface]
+ys = geometry_y_np[surface]
+ux = np.array(shock_dir_x)[surface]
+uy = np.array(shock_dir_y)[surface]
+
+# Normalize arrows to unit length
+mag = np.sqrt(ux**2 + uy**2)
+valid = mag > 0
+
+xs = xs[valid]
+ys = ys[valid]
+ux = ux[valid] / mag[valid]
+uy = uy[valid] / mag[valid]
+
+
+# Keep only a few arrows, evenly spaced along the shock surface
+n_arrows = 10
+if len(xs) > n_arrows:
+    idx = np.linspace(0, len(xs) - 1, n_arrows).astype(int)
+    xs_plot = xs[idx]
+    ys_plot = ys[idx]
+    ux_plot = ux[idx]
+    uy_plot = uy[idx]
+else:
+    xs_plot = xs
+    ys_plot = ys
+    ux_plot = ux
+    uy_plot = uy
+
+# Draw shock surface
+axes[1, 1].contour(
+    geometry_x_np, geometry_y_np,
+    surface.astype(float),
+    levels=[0.5],
+    colors="red",
+    linewidths=1.8
+)
+
+# Draw fewer, cleaner direction arrows
+axes[1, 1].quiver(
+    xs_plot,
+    ys_plot,
+    ux_plot,
+    uy_plot,
+    angles="xy",
+    scale_units="xy",
+    scale=25,
+    color="white",
+    width=0.004,
+    headwidth=4,
+    headlength=5,
+    pivot="middle",
+    zorder=20
+)
+
+
 axes[1, 1].set_xlabel("x")
 axes[1, 1].set_ylabel("y")
-
-cbar = plt.colorbar(im_mach, ax=axes[1, 1])
-cbar.set_label("Shock Mach number")
+axes[1, 1].set_aspect("equal")
 
 # --------------------------------------------------------------------------
 # 6. visulize all characteristics for 1D slice at mid-row (y = mid, x run)
@@ -307,51 +318,54 @@ surf_slice = result.shock_surface_cells[:, mid]
 zone_slice = result.shock_zones[:, mid]
 mach_slice = result.mach_numbers[:, mid]
 
-# pressure
+p_arr_slice      = np.array(p_slice)
+surf_arr_slice   = np.array(surf_slice)
+zone_arr_slice   = np.array(zone_slice)
+
 axes[1, 2].plot(x_slice, p_slice, label="pressure")
 
-# shock zone as vertical band on 1D slice
-if zone_x0 is not None:
-    axes[1, 2].axvspan(
-        zone_x0, zone_x1,
-        color="green",
-        alpha=0.20,
-        label="shock zone"
-    )
+axes[1, 2].fill_between(
+    x_slice, 0, 1,
+    where=zone_arr_slice,
+    alpha=0.20,
+    color="green",
+    linewidth=5,
+    label="shock zone"
+)
 
-# shock surface as dashed red line(s)
-for i, xi in enumerate(x_slice[surf_slice]):
+first = True
+for ti in x_slice[surf_slice]:
     axes[1, 2].axvline(
-        float(xi),
+        ti,
         color="red",
         linestyle="--",
-        linewidth=1.5,
-        label="shock surface" if i == 0 else None
+        linewidth=0.5,
+        label="shock surface" if first else None
     )
+    first = False
 
 axes[1, 2].set_title(f"1D slice at y={mid} (mid row)")
 axes[1, 2].set_xlabel("x")
 axes[1, 2].set_ylabel("P")
+axes[1, 2].legend(fontsize=8)
 
+for ax in axes.flat:
+    ax.set_box_aspect(1)
 
-# Mach display
-# it will be a point -> check by look at secondary y-axis
-ax2 = axes[1, 2].twinx()
-ax2.scatter(
-    x_slice[surf_slice],
-    mach_slice[surf_slice],
-    color="orange",
-    s=35,
-    label="shock Mach",
-    zorder=20
-)
-ax2.set_ylabel("Shock Mach number")
-ax2.set_ylim(1.0, 2.5)
+spatial_axes = [
+    axes[0, 0],
+    axes[0, 1],
+    axes[0, 2],
+    axes[1, 0],
+    axes[1, 1],
+]
 
-# combined legend
-lines1, labels1 = axes[1, 2].get_legend_handles_labels()
-lines2, labels2 = ax2.get_legend_handles_labels()
-ax2.legend(lines1 + lines2, labels1 + labels2, fontsize=8, loc="upper right")
+for ax in spatial_axes:
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+
+plt.show()
 
 # ============================================================================
 # MAKE PANELS SQUARE
@@ -359,8 +373,6 @@ ax2.legend(lines1 + lines2, labels1 + labels2, fontsize=8, loc="upper right")
 
 for ax in axes.flat:
     ax.set_box_aspect(1)
-
-ax2.set_box_aspect(1)
 
 spatial_axes = [
     axes[0, 0],
