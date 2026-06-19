@@ -234,7 +234,6 @@ plt.colorbar(im3, ax=axes[1, 0], label="Shock Mach number")
 # --------------------------------------------------------------------------
 # 5. Shock direction at surface cells
 # --------------------------------------------------------------------------
-
 axes[1, 1].pcolormesh(
     geometry_x_np, geometry_y_np,
     np.array(p_final),
@@ -306,6 +305,7 @@ axes[1, 1].quiver(
 axes[1, 1].set_xlabel("x")
 axes[1, 1].set_ylabel("y")
 axes[1, 1].set_aspect("equal")
+axes[1, 1].set_title("Shock direction at surface cells")
 
 # --------------------------------------------------------------------------
 # 6. visulize all characteristics for 1D slice at mid-row (y = mid, x run)
