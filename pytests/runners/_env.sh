@@ -10,7 +10,10 @@ module purge
 module load devel/cuda/12.4
 
 source ~/.bashrc
-micromamba activate astrocu12
+# jax 0.9 env (astrojax09) is the campaign default: jax 0.10 breaks the sharded
+# Pallas path. Override with ASTRO_ENV=astrocu12 if needed.
+ASTRO_ENV="${ASTRO_ENV:-astrojax09}"
+micromamba activate "$ASTRO_ENV"
 
 # Make the env's bundled NVIDIA libs discoverable (jax[cuda12] pip wheels).
 NV="$CONDA_PREFIX/lib/python3.12/site-packages/nvidia"

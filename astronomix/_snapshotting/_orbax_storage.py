@@ -39,7 +39,11 @@ from jax.sharding import NamedSharding, PartitionSpec
 # functions that actually need it raise a clear error via ``_require_orbax()``.
 try:
     import orbax.checkpoint as ocp
-except ModuleNotFoundError:  # pragma: no cover - exercised only without orbax
+except Exception:  # pragma: no cover - missing OR jax-version-incompatible orbax
+    # Broad except on purpose: some orbax versions raise AttributeError (not
+    # ModuleNotFoundError) against an older/newer jax. orbax is only needed for
+    # on-disk checkpointing, so degrade gracefully and let _require_orbax()
+    # raise a clear error if a disk-checkpoint function is actually called.
     ocp = None
 
 
