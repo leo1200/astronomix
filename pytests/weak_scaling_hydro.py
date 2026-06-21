@@ -41,9 +41,23 @@ parser.add_argument("--dt", type=float, default=0.4, help="fixed timestep (stabl
 parser.add_argument("--block-shape", type=str, default="8,8,8")
 parser.add_argument("--cfl", type=float, default=1.5)
 parser.add_argument("--tag", type=str, default="h200")
+parser.add_argument("--gpus", type=int, default=0,
+                    help="SINGLE-process mode: grab this many local GPUs via "
+                         "autocvd (no jax.distributed). Ignored under srun "
+                         "multi-process (SLURM_NTASKS>1).")
 args = parser.parse_args()
 
 _BLOCK = tuple(int(x) for x in args.block_shape.split(","))
+
+_multi = "SLURM_PROCID" in os.environ and int(os.environ.get("SLURM_NTASKS", "1")) > 1
+
+# Single-process multi-GPU: select GPUs via autocvd BEFORE importing jax.  This
+# path runs weak scaling on one node across --gpus devices in a single process
+# (no jax.distributed rendezvous needed -- works around the multi-process init
+# timeout, ideal for up to 8 GPUs on a Teal H200 node).
+if not _multi and args.gpus > 0:
+    from autocvd import autocvd
+    autocvd(num_gpus=args.gpus)
 
 # Bootstrap distributed mode first (raw jax, no astronomix import yet).
 import jax  # noqa: E402
@@ -52,7 +66,6 @@ import jax  # noqa: E402
 # computation / distributed init.
 jax.config.update("jax_use_shardy_partitioner", False)
 
-_multi = "SLURM_PROCID" in os.environ and int(os.environ.get("SLURM_NTASKS", "1")) > 1
 if _multi:
     jax.distributed.initialize()  # Slurm auto-detect, one GPU per process
 

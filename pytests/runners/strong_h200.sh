@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=astx_strong
 #SBATCH --account=hk-project-pai00101
-#SBATCH --partition=accelerated-h200
+#SBATCH --partition=accelerated-h200-8
 #SBATCH --time=02:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -12,7 +12,8 @@
 # Phase 3: strong scaling, 1 GPU vs 4 H200 (single node), all setups x all
 # solver modes.  Uses the best pallas_block_shape from the Phase 2 sweep.
 
-source "$(dirname "$0")/_env.sh"
+REPO="/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix"
+source "$REPO/pytests/runners/_env.sh"
 start_gpu_logger
 trap stop_gpu_logger EXIT
 cd "$REPO"
