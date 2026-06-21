@@ -33,7 +33,23 @@ from typing import Any, NamedTuple, Optional
 import jax
 from jax.sharding import NamedSharding, PartitionSpec
 
-import orbax.checkpoint as ocp
+# orbax is an OPTIONAL dependency: it is only needed for the disk-checkpointing
+# path (``snapshot_storage_mode == TO_DISK``).  Keep it out of the import path so
+# ``import astronomix`` works in environments without orbax installed; the
+# functions that actually need it raise a clear error via ``_require_orbax()``.
+try:
+    import orbax.checkpoint as ocp
+except ModuleNotFoundError:  # pragma: no cover - exercised only without orbax
+    ocp = None
+
+
+def _require_orbax():
+    if ocp is None:
+        raise ModuleNotFoundError(
+            "orbax-checkpoint is required for on-disk checkpointing "
+            "(snapshot_storage_mode=TO_DISK). Install it with "
+            "`pip install orbax-checkpoint`."
+        )
 
 
 class LoopCheckpoint(NamedTuple):
@@ -82,6 +98,7 @@ def loop_checkpointer(directory):
         with loop_checkpointer(path) as writer:
             save_loop_checkpoint(writer, step, time=t, primitive_state=ps, ...)
     """
+    _require_orbax()
     checkpointer = ocp.Checkpointer(ocp.StandardCheckpointHandler())
     try:
         yield _LoopCheckpointWriter(checkpointer, directory)
@@ -178,6 +195,7 @@ def load_loop_checkpoint(
     Returns:
         A :class:`LoopCheckpoint`.
     """
+    _require_orbax()
     if step is None:
         step = latest_step(directory)
         if step is None:
