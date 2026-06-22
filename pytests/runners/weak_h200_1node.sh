@@ -11,13 +11,14 @@
 
 # Phase 4 (weak scaling), low rungs on one node: G = 1, 2, 4.
 # Per-GPU block (BX x BY x BZ) and step/dt/block tuned from Phase-1 bytes/cell.
-source "$(dirname "$0")/_env.sh"
+REPO="/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix"
+source "$REPO/pytests/runners/_env.sh"
 start_gpu_logger
 trap stop_gpu_logger EXIT
 cd "$REPO"
 
-BX=${BX:-128}; BY=${BY:-1280}; BZ=${BZ:-1280}
-STEPS=${STEPS:-10}; DT=${DT:-0.4}; BLK=${BLK:-8,8,8}
+BX=${BX:-128}; BY=${BY:-2048}; BZ=${BZ:-2048}
+STEPS=${STEPS:-10}; DT=${DT:-0.4}; BLK=${BLK:-4,4,8}
 
 for G in 1 2 4; do
   echo "==== weak rung G=$G (per-GPU ${BX}x${BY}x${BZ}) ===="

@@ -19,7 +19,7 @@ trap stop_gpu_logger EXIT
 cd "$REPO"
 
 python pytests/scaling_campaign.py --phase strong --setup all --gpus 4 --steps 10 --tag h200 \
-  --block-shape ${BEST_BLOCK:-8,8,8}
+  --block-shape ${BEST_BLOCK:-4,4,8}
 
 stop_gpu_logger
 echo "DONE strong_h200"

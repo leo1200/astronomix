@@ -10,13 +10,14 @@
 #SBATCH --error=%x_%j.err
 
 # Phase 4 (weak scaling), G = 8 across 2 nodes.
-source "$(dirname "$0")/_env.sh"
+REPO="/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix"
+source "$REPO/pytests/runners/_env.sh"
 start_gpu_logger
 trap stop_gpu_logger EXIT
 cd "$REPO"
 
-BX=${BX:-128}; BY=${BY:-1280}; BZ=${BZ:-1280}
-STEPS=${STEPS:-10}; DT=${DT:-0.4}; BLK=${BLK:-8,8,8}
+BX=${BX:-128}; BY=${BY:-2048}; BZ=${BZ:-2048}
+STEPS=${STEPS:-10}; DT=${DT:-0.4}; BLK=${BLK:-4,4,8}
 
 echo "==== weak rung G=8 (per-GPU ${BX}x${BY}x${BZ}) ===="
 srun --ntasks=8 --ntasks-per-node=4 --gpus-per-task=1 \

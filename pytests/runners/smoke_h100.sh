@@ -14,7 +14,8 @@
 #  2) small single-GPU campaign for all setups (validates FV/Pallas/self-gravity)
 #  3) 2-process srun of the weak driver (validates jax.distributed + sharded IC)
 
-source "$(dirname "$0")/_env.sh"
+REPO="/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix"
+source "$REPO/pytests/runners/_env.sh"
 start_gpu_logger
 trap stop_gpu_logger EXIT
 
