@@ -69,7 +69,12 @@ def _run(sharding):
     state, cfg, params = build_sound_wave_state_sharded(
         cfg, SimulationParams(C_cfl=1.5), sharding
     )
-    params = params._replace(t_end=0.4 * args.steps)
+    # STABLE fixed dt: box=(3,1.5,1.5), grid (2N,N,N) -> dx = 1.5/N, c_s=1.
+    # dt = 0.4*dx keeps CFL ~ 0.4 (the default probe previously used dt=0.4,
+    # i.e. CFL ~ 25, which blew up to NaN for BOTH ref and sharded).
+    dx = 1.5 / N
+    dt = 0.4 * dx
+    params = params._replace(t_end=dt * args.steps)
     rv = get_registered_variables(cfg)
     out = time_integration(state, cfg, params, rv, sharding=sharding)
     final = out.final_state if hasattr(out, "final_state") else out
@@ -89,12 +94,19 @@ def main():
 
     ref_h = jax.device_get(ref)
     shr_h = jax.device_get(shr)
+    ref_finite = bool(jnp.all(jnp.isfinite(ref_h)))
+    shr_finite = bool(jnp.all(jnp.isfinite(shr_h)))
+    print(f"reference finite={ref_finite}  sharded finite={shr_finite}", flush=True)
+    if not ref_finite:
+        print("FAIL (reference itself is non-finite -- unstable dt, not a "
+              "sharding issue)", flush=True)
+        return 2
     max_abs = float(jnp.max(jnp.abs(ref_h - shr_h)))
     ref_scale = float(jnp.max(jnp.abs(ref_h)))
     rel = max_abs / (ref_scale + 1e-30)
     print(f"max|ref - sharded| = {max_abs:.3e}  (rel {rel:.3e})", flush=True)
     # fp32 + different reduction order across shards -> allow a loose tolerance.
-    ok = rel < 1e-3
+    ok = shr_finite and rel < 1e-3
     print("PASS" if ok else "FAIL", "multi-GPU Pallas sharding", flush=True)
     return 0 if ok else 1
 
