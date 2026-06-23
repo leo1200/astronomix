@@ -332,16 +332,33 @@ def run_strong_scaling(
             print(f"[{name}] {spec.label} N={N} on {num_gpus} GPU(s) FAILED: {exc!r}")
             return (np.nan, 0, 0, 0)
 
-    out = {}
-    for spec in benchmarks:
-        rec = dict(
-            N=list(N_values),
+    out = {
+        spec.label: dict(
             runtime_1=[], runtime_N=[],
             temp_1=[], temp_N=[],
             arg_1=[], arg_N=[],
             total_1=[], total_N=[],
         )
-        for N in N_values:
+        for spec in benchmarks
+    }
+
+    npz_path = os.path.join(data_dir, f"{name}_strong_scaling.npz")
+
+    def _checkpoint(n_done):
+        """Persist whatever N rungs have completed so far (timeout-safe)."""
+        flat = {"N_values": np.array(N_values[:n_done]), "num_gpus": num_gpus}
+        for label, rec in out.items():
+            slug = _slug(label)
+            for k, v in rec.items():
+                flat[f"{slug}__{k}"] = np.array(v)
+        np.savez(npz_path, **flat)
+
+    # N-outer / solver-inner: every rung is fully populated across all solvers
+    # before moving on, so each per-rung checkpoint is rectangular and a wall
+    # clock timeout still leaves a complete, plottable prefix on disk.
+    for i, N in enumerate(N_values):
+        for spec in benchmarks:
+            rec = out[spec.label]
             t1, tmp1, arg1, tot1 = _measure(spec, N, num_gpus=1)
             tN, tmpN, argN, totN = _measure(spec, N, num_gpus=num_gpus)
             rec["runtime_1"].append(t1)
@@ -360,9 +377,10 @@ def run_strong_scaling(
                 f"[{name}] {spec.label} N={N}: "
                 f"1 GPU={t1:.2f}s, "
                 f"{num_gpus} GPUs={tN:.2f}s, "
-                f"speedup={speedup_str}"
+                f"speedup={speedup_str}",
+                flush=True,
             )
-        out[spec.label] = rec
+        _checkpoint(i + 1)
 
     MB = 1024 ** 2
     fig, axes = plt.subplots(2, 2, figsize=(14, 11))

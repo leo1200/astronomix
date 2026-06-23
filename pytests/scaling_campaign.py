@@ -46,6 +46,10 @@ parser.add_argument("--steps", type=int, default=10,
                     help="fixed number of timesteps per run (bounds walltime)")
 parser.add_argument("--nmax", type=int, default=None,
                     help="cap the N sweep at this value (for cheap smoke runs)")
+parser.add_argument("--solver", type=str, default=None,
+                    help="substring filter on benchmark label (e.g. 'Pallas') so "
+                         "large-N strong sweeps can run only the lean headline "
+                         "solver and skip the memory-heavy/slow-to-compile baselines")
 parser.add_argument("--tag", type=str, default="h200",
                     help="filename tag, e.g. the GPU family (h100/h200)")
 args = parser.parse_args()
@@ -221,9 +225,16 @@ def run_strong():
     for key in _setups():
         info = REGISTRY[key]
         name = f"{key}_{args.tag}"
-        print(f"\n========== STRONG SCALING [{key}] 1 vs {args.gpus} GPUs ==========")
+        specs = info["specs"]()
+        if args.solver:
+            specs = [s for s in specs if args.solver.lower() in s.label.lower()]
+            if not specs:
+                raise SystemExit(f"--solver '{args.solver}' matched no benchmark "
+                                 f"for setup '{key}'")
+        print(f"\n========== STRONG SCALING [{key}] 1 vs {args.gpus} GPUs "
+              f"({len(specs)} solver(s)) ==========")
         run_strong_scaling(
-            info["specs"](), _cap(info["strong_N"]), info["setup_fn"],
+            specs, _cap(info["strong_N"]), info["setup_fn"],
             num_gpus=args.gpus, name=name, title=f"{key} strong scaling",
             data_dir=STRONG_DIR, figure_dir=FIG_DIR, num_timesteps=args.steps,
         )
