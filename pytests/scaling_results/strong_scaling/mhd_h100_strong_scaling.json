@@ -1,0 +1,25 @@
+{
+  "gpu_model": "NVIDIA H100",
+  "num_gpus": 4,
+  "num_processes": 1,
+  "num_nodes": 1,
+  "partition": "dev_accelerated-h100",
+  "nodelist": "hkn0909",
+  "slurm_job_id": "4103457",
+  "x64": false,
+  "setup": "mhd",
+  "phase": "strong_scaling",
+  "block_shape": [
+    4,
+    4,
+    8
+  ],
+  "num_timesteps": 8,
+  "strong_N": [
+    96,
+    128,
+    192,
+    256,
+    384
+  ]
+}
