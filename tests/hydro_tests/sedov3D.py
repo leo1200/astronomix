@@ -1,8 +1,14 @@
-# ==== GPU selection ====
-from autocvd import autocvd
-autocvd(num_gpus = 1)
-# =======================
 
+# %%
+# ==== GPU selection ====
+# from autocvd import autocvd
+# autocvd(num_gpus = 1)
+# =======================
+import os
+os.environ["JAX_PLATFORMS"] = "cpu"
+
+import jax
+print(jax.devices())
 import jax.random as jr
 
 import jax.numpy as jnp
@@ -37,7 +43,7 @@ from scipy.stats import binned_statistic
 # For the exact Sedov-Taylor solution
 from exactpack.solvers.sedov.sedov import Sedov
 
-
+# %%
 config = SimulationConfig(
 
     
@@ -240,3 +246,4 @@ fig.legend(handles, labels, loc='lower center', ncol=3, bbox_to_anchor=(0.5, 0.0
 plt.tight_layout(rect=[0, 0.1, 1, 0.96])
 plt.savefig('figures/sedovAM_HLLC.png', dpi=300)
 print("Plot with binned profiles and JAX-sampled scatter saved as 'sedovAM_HLLC.png'.")
+# %%
