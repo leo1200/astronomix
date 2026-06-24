@@ -423,7 +423,7 @@ im3 = axes[1, 0].pcolormesh(
     mach_surface_only,
     cmap="hot",
     vmin=1.0,
-    vmax=2.0,
+    vmax=100.0,
     shading="auto"
 )
 
