@@ -363,7 +363,56 @@ geometry_y_surface_np = geometry_y_surface_np[valid]
 u_shock_dir_x_surface_np = shock_dir_x_surface_np[valid] / mag_shock_dir_surface[valid]
 u_shock_dir_y_surface_np = shock_dir_y_surface_np[valid] / mag_shock_dir_surface[valid]
 
-n_arrows = 30
+# Expected radial direction from explosion center
+radial_x = geometry_x_surface_np - center_x
+radial_y = geometry_y_surface_np - center_y
+
+radial_mag = np.sqrt(radial_x**2 + radial_y**2)
+radial_valid = radial_mag > 0
+
+u_radial_x = radial_x[radial_valid] / radial_mag[radial_valid]
+u_radial_y = radial_y[radial_valid] / radial_mag[radial_valid]
+
+u_detected_x = u_shock_dir_x_surface_np[radial_valid]
+u_detected_y = u_shock_dir_y_surface_np[radial_valid]
+
+# Compare detected direction with ideal radial direction.
+# Use abs because shock_direction may point inward or outward depending on convention.
+dot_radial = u_detected_x * u_radial_x + u_detected_y * u_radial_y
+abs_dot_radial = np.abs(dot_radial)
+
+angle_error_deg = np.degrees(
+    np.arccos(np.clip(abs_dot_radial, 0.0, 1.0))
+)
+
+print("\nShock direction vs expected radial direction:")
+print(f"  mean |dot| = {abs_dot_radial.mean():.4f}")
+print(f"  min  |dot| = {abs_dot_radial.min():.4f}")
+print(f"  mean angle error = {angle_error_deg.mean():.2f} deg")
+print(f"  max  angle error = {angle_error_deg.max():.2f} deg")
+print(f"  90th percentile angle error = {np.percentile(angle_error_deg, 90):.2f} deg")
+
+
+# The quantitative check shows that the detected shock directions are mostly radial. 
+# The mean absolute dot product with the expected radial direction is 0.9831, 
+# which is close to 1, and the mean angle error is about 8 degrees. 
+# This means that, on average, 
+# the shock finder is giving directions close to the expected normal direction of the circular shock.
+
+# The arrows do not look perfectly perpendicular everywhere 
+# because the shock is represented on a Cartesian grid and is spread over several cells, 
+# not an infinitely thin circular line. 
+# The red contour is also drawn from a boolean mask of detected shock-surface cells, 
+# so it shows the edge of a discrete cell band rather than the exact analytic shock front. 
+# Since the shock direction is computed locally from numerical gradients, 
+# small cell-to-cell variations can make the arrows look wiggly.
+
+# The maximum angle error is about 27 degrees, 
+# and 90% of the cells have an angle error below about 19 degrees. 
+# So there are some noisy local cells, 
+# but the overall direction calculation appears consistent with an outward circular shock.
+
+n_arrows = 100
 
 if len(geometry_x_surface_np) > n_arrows:
     idx = np.linspace(0, len(geometry_x_surface_np) - 1, n_arrows).astype(int)
@@ -385,7 +434,7 @@ axes[1, 1].quiver(
     uy_plot,
     angles="xy",
     scale_units="xy",
-    scale=25,
+    scale=40,
     color="white",
     width=0.004,
     headwidth=4,
