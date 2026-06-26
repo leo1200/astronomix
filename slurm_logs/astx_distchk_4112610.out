@@ -1,0 +1,45 @@
+=== job 4112610 on hkn[0915,0919] ===
+partition: accelerated-h100  nodes: 2  gpus(visible): 0,1,2,3
+GPU 0: NVIDIA H100 (UUID: GPU-34caee3f-e9da-4278-4887-ae420e196e19)
+GPU 1: NVIDIA H100 (UUID: GPU-3f0b9360-e603-811d-1825-be1417fff39a)
+GPU 2: NVIDIA H100 (UUID: GPU-35f9beae-7902-27ad-2b0a-359ff6b6dbbe)
+GPU 3: NVIDIA H100 (UUID: GPU-33e465bc-f5be-d3b7-cfc1-5ab1e6074e44)
+[pre-init procid=0 localid=0] CUDA_VISIBLE_DEVICES=0
+[pre-init procid=1 localid=1] CUDA_VISIBLE_DEVICES=0
+[pre-init procid=2 localid=2] CUDA_VISIBLE_DEVICES=0
+[pre-init procid=3 localid=3] CUDA_VISIBLE_DEVICES=0
+[pre-init procid=4 localid=0] CUDA_VISIBLE_DEVICES=0
+[pre-init procid=5 localid=1] CUDA_VISIBLE_DEVICES=0
+[pre-init procid=6 localid=2] CUDA_VISIBLE_DEVICES=0
+[pre-init procid=7 localid=3] CUDA_VISIBLE_DEVICES=0
+[rank 2/8] host=hkn0915 local_devices=1 global_devices=8 CUDA_VISIBLE_DEVICES=0
+[rank 0/8] host=hkn0915 local_devices=1 global_devices=8 CUDA_VISIBLE_DEVICES=0
+[rank 3/8] host=hkn0915 local_devices=1 global_devices=8 CUDA_VISIBLE_DEVICES=0
+[rank 5/8] host=hkn0919 local_devices=1 global_devices=8 CUDA_VISIBLE_DEVICES=0
+[rank 7/8] host=hkn0919 local_devices=1 global_devices=8 CUDA_VISIBLE_DEVICES=0
+[rank 4/8] host=hkn0919 local_devices=1 global_devices=8 CUDA_VISIBLE_DEVICES=0
+[rank 1/8] host=hkn0915 local_devices=1 global_devices=8 CUDA_VISIBLE_DEVICES=0
+[rank 6/8] host=hkn0919 local_devices=1 global_devices=8 CUDA_VISIBLE_DEVICES=0
+DONE dist_sanity rc=1
+
+============================= JOB FEEDBACK =============================
+
+Job ID: 4112610
+Cluster: hk
+User/Group: hd_bn306/hk-project-pai00101
+Account: hk-project-pai00101
+State: FAILED (exit code 1)
+Partition: accelerated-h100
+Nodes: 2
+Cores per node: 64
+Nodelist: hkn[0915,0919]
+CPU Utilized: 00:00:01
+CPU Efficiency: 0.02% of 01:38:08 core-walltime
+Job Wall-clock time: 00:00:46
+Starttime: Fri Jun 26 11:25:15 2026
+Endtime: Fri Jun 26 11:26:01 2026
+Memory Utilized: 1.22 GB
+Memory Efficiency: 0.08% of 1.46 TB (750.00 GB/node)
+The task which had the largest memory consumption differs by 125.81% from the average task max memory consumption
+Energy Consumed: 72905 Joule / 20.2513888888889 Watthours
+Average node power draw: 1584.89130434783 Watt

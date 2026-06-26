@@ -1,0 +1,304 @@
+GpuFreq=control_disabled
+GpuFreq=control_disabled
+E0626 11:25:59.324398   74511 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0626 11:25:59.324520   74512 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0626 11:25:59.324623   74513 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0626 11:25:59.358541   74520 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0626 11:25:59.358658   74521 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0626 11:25:59.358719   74522 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0626 11:25:59.368446   74523 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0626 11:25:59.368494   74524 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0626 11:25:59.368561   74525 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+W0626 11:25:59.626085   73726 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0626 11:25:59.630318   73728 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0626 11:25:59.631414   73729 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0626 11:25:59.632427   73727 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0626 11:25:59.647972   32128 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0626 11:25:59.648102   32129 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0626 11:25:59.648137   32131 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0626 11:25:59.648188   32130 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/_dist_sanity.py", line 43, in <module>
+    gathered = mh.process_allgather(jnp.array([float(pi)]))
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/experimental/multihost_utils.py", line 159, in process_allgather
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/_dist_sanity.py", line 43, in <module>
+    gathered = mh.process_allgather(jnp.array([float(pi)]))
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/experimental/multihost_utils.py", line 159, in process_allgather
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/_dist_sanity.py", line 43, in <module>
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/_dist_sanity.py", line 43, in <module>
+    return jax.tree.map(_pjit, in_tree)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree.py", line 156, in map
+    gathered = mh.process_allgather(jnp.array([float(pi)]))
+    gathered = mh.process_allgather(jnp.array([float(pi)]))
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/experimental/multihost_utils.py", line 159, in process_allgather
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/experimental/multihost_utils.py", line 159, in process_allgather
+    return jax.tree.map(_pjit, in_tree)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree.py", line 156, in map
+    return jax.tree.map(_pjit, in_tree)
+    return jax.tree.map(_pjit, in_tree)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree.py", line 156, in map
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree.py", line 156, in map
+    return tree_util.tree_map(f, tree, *rest, is_leaf=is_leaf)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree_util.py", line 373, in tree_map
+    return tree_util.tree_map(f, tree, *rest, is_leaf=is_leaf)
+    return tree_util.tree_map(f, tree, *rest, is_leaf=is_leaf)
+    return tree_util.tree_map(f, tree, *rest, is_leaf=is_leaf)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree_util.py", line 373, in tree_map
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree_util.py", line 373, in tree_map
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree_util.py", line 373, in tree_map
+    return treedef.unflatten(f(*xs) for xs in zip(*all_leaves))
+    return treedef.unflatten(f(*xs) for xs in zip(*all_leaves))
+    return treedef.unflatten(f(*xs) for xs in zip(*all_leaves))
+    return treedef.unflatten(f(*xs) for xs in zip(*all_leaves))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree_util.py", line 373, in <genexpr>
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree_util.py", line 373, in <genexpr>
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree_util.py", line 373, in <genexpr>
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree_util.py", line 373, in <genexpr>
+    return treedef.unflatten(f(*xs) for xs in zip(*all_leaves))
+    return treedef.unflatten(f(*xs) for xs in zip(*all_leaves))
+    return treedef.unflatten(f(*xs) for xs in zip(*all_leaves))
+                             ^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/experimental/multihost_utils.py", line 158, in _pjit
+                             ^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/experimental/multihost_utils.py", line 158, in _pjit
+                             ^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/experimental/multihost_utils.py", line 158, in _pjit
+    return treedef.unflatten(f(*xs) for xs in zip(*all_leaves))
+                             ^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/experimental/multihost_utils.py", line 158, in _pjit
+    return _handle_array_process_allgather(inp, tiled)
+    return _handle_array_process_allgather(inp, tiled)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/experimental/multihost_utils.py", line 135, in _handle_array_process_allgather
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/experimental/multihost_utils.py", line 135, in _handle_array_process_allgather
+    return _handle_array_process_allgather(inp, tiled)
+    return _handle_array_process_allgather(inp, tiled)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/experimental/multihost_utils.py", line 135, in _handle_array_process_allgather
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/experimental/multihost_utils.py", line 135, in _handle_array_process_allgather
+    return np.asarray(out.addressable_data(0))
+    return np.asarray(out.addressable_data(0))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/array.py", line 441, in __array__
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/array.py", line 441, in __array__
+    return np.asarray(out.addressable_data(0))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/array.py", line 441, in __array__
+    return np.asarray(out.addressable_data(0))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/array.py", line 441, in __array__
+    return np.asarray(self._value, dtype=dtype, **kwds)  # pyrefly: ignore[no-matching-overload]
+                      ^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/profiler.py", line 384, in wrapper
+    return np.asarray(self._value, dtype=dtype, **kwds)  # pyrefly: ignore[no-matching-overload]
+    return np.asarray(self._value, dtype=dtype, **kwds)  # pyrefly: ignore[no-matching-overload]
+                      ^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/profiler.py", line 384, in wrapper
+                      ^^^^^^^^^^^
+    return np.asarray(self._value, dtype=dtype, **kwds)  # pyrefly: ignore[no-matching-overload]
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/profiler.py", line 384, in wrapper
+                      ^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/profiler.py", line 384, in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/array.py", line 641, in _value
+    return func(*args, **kwargs)
+    return func(*args, **kwargs)
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/array.py", line 641, in _value
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/array.py", line 641, in _value
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/array.py", line 641, in _value
+    npy_value, did_copy = self._single_device_array_to_np_array_did_copy()
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+jax.errors.JaxRuntimeError: INTERNAL: NCCL operation ncclGroupEnd() failed: unhandled cuda error (run with NCCL_DEBUG=INFO for details). Last NCCL warning(error) log entry (may be unrelated) 'Cuda failure 101 'invalid device ordinal''.
+    npy_value, did_copy = self._single_device_array_to_np_array_did_copy()
+    npy_value, did_copy = self._single_device_array_to_np_array_did_copy()
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+jax.errors.JaxRuntimeError: INTERNAL: NCCL operation ncclGroupEnd() failed: unhandled cuda error (run with NCCL_DEBUG=INFO for details). Last NCCL warning(error) log entry (may be unrelated) 'Cuda failure 101 'invalid device ordinal''.
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+jax.errors.JaxRuntimeError: INTERNAL: NCCL operation ncclGroupEnd() failed: unhandled cuda error (run with NCCL_DEBUG=INFO for details). Last NCCL warning(error) log entry (may be unrelated) 'Cuda failure 101 'invalid device ordinal''.
+    npy_value, did_copy = self._single_device_array_to_np_array_did_copy()
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+jax.errors.JaxRuntimeError: INTERNAL: NCCL operation ncclGroupEnd() failed: unhandled cuda error (run with NCCL_DEBUG=INFO for details). Last NCCL warning(error) log entry (may be unrelated) 'Cuda failure 101 'invalid device ordinal''.
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/_dist_sanity.py", line 43, in <module>
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/_dist_sanity.py", line 43, in <module>
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/_dist_sanity.py", line 43, in <module>
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/_dist_sanity.py", line 43, in <module>
+    gathered = mh.process_allgather(jnp.array([float(pi)]))
+    gathered = mh.process_allgather(jnp.array([float(pi)]))
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/experimental/multihost_utils.py", line 159, in process_allgather
+    gathered = mh.process_allgather(jnp.array([float(pi)]))
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/experimental/multihost_utils.py", line 159, in process_allgather
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/experimental/multihost_utils.py", line 159, in process_allgather
+    gathered = mh.process_allgather(jnp.array([float(pi)]))
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/experimental/multihost_utils.py", line 159, in process_allgather
+    return jax.tree.map(_pjit, in_tree)
+    return jax.tree.map(_pjit, in_tree)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree.py", line 156, in map
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree.py", line 156, in map
+    return jax.tree.map(_pjit, in_tree)
+    return jax.tree.map(_pjit, in_tree)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree.py", line 156, in map
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree.py", line 156, in map
+    return tree_util.tree_map(f, tree, *rest, is_leaf=is_leaf)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree_util.py", line 373, in tree_map
+    return tree_util.tree_map(f, tree, *rest, is_leaf=is_leaf)
+    return tree_util.tree_map(f, tree, *rest, is_leaf=is_leaf)
+    return tree_util.tree_map(f, tree, *rest, is_leaf=is_leaf)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree_util.py", line 373, in tree_map
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree_util.py", line 373, in tree_map
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree_util.py", line 373, in tree_map
+    return treedef.unflatten(f(*xs) for xs in zip(*all_leaves))
+    return treedef.unflatten(f(*xs) for xs in zip(*all_leaves))
+    return treedef.unflatten(f(*xs) for xs in zip(*all_leaves))
+    return treedef.unflatten(f(*xs) for xs in zip(*all_leaves))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree_util.py", line 373, in <genexpr>
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree_util.py", line 373, in <genexpr>
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree_util.py", line 373, in <genexpr>
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree_util.py", line 373, in <genexpr>
+    return treedef.unflatten(f(*xs) for xs in zip(*all_leaves))
+                             ^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/experimental/multihost_utils.py", line 158, in _pjit
+    return treedef.unflatten(f(*xs) for xs in zip(*all_leaves))
+    return treedef.unflatten(f(*xs) for xs in zip(*all_leaves))
+                             ^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/experimental/multihost_utils.py", line 158, in _pjit
+    return treedef.unflatten(f(*xs) for xs in zip(*all_leaves))
+                             ^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/experimental/multihost_utils.py", line 158, in _pjit
+                             ^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/experimental/multihost_utils.py", line 158, in _pjit
+    return _handle_array_process_allgather(inp, tiled)
+    return _handle_array_process_allgather(inp, tiled)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/experimental/multihost_utils.py", line 135, in _handle_array_process_allgather
+    return _handle_array_process_allgather(inp, tiled)
+    return _handle_array_process_allgather(inp, tiled)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/experimental/multihost_utils.py", line 135, in _handle_array_process_allgather
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/experimental/multihost_utils.py", line 135, in _handle_array_process_allgather
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/experimental/multihost_utils.py", line 135, in _handle_array_process_allgather
+    return np.asarray(out.addressable_data(0))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/array.py", line 441, in __array__
+    return np.asarray(out.addressable_data(0))
+    return np.asarray(out.addressable_data(0))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/array.py", line 441, in __array__
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/array.py", line 441, in __array__
+    return np.asarray(out.addressable_data(0))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/array.py", line 441, in __array__
+    return np.asarray(self._value, dtype=dtype, **kwds)  # pyrefly: ignore[no-matching-overload]
+                      ^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/profiler.py", line 384, in wrapper
+    return np.asarray(self._value, dtype=dtype, **kwds)  # pyrefly: ignore[no-matching-overload]
+    return np.asarray(self._value, dtype=dtype, **kwds)  # pyrefly: ignore[no-matching-overload]
+                      ^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/profiler.py", line 384, in wrapper
+    return np.asarray(self._value, dtype=dtype, **kwds)  # pyrefly: ignore[no-matching-overload]
+                      ^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/profiler.py", line 384, in wrapper
+                      ^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/profiler.py", line 384, in wrapper
+    return func(*args, **kwargs)
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/array.py", line 641, in _value
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/array.py", line 641, in _value
+    return func(*args, **kwargs)
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/array.py", line 641, in _value
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/array.py", line 641, in _value
+    npy_value, did_copy = self._single_device_array_to_np_array_did_copy()
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    npy_value, did_copy = self._single_device_array_to_np_array_did_copy()
+jax.errors.JaxRuntimeError: INTERNAL: NCCL operation ncclGroupEnd() failed: unhandled cuda error (run with NCCL_DEBUG=INFO for details). Last NCCL warning(error) log entry (may be unrelated) 'Cuda failure 101 'invalid device ordinal''.
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    npy_value, did_copy = self._single_device_array_to_np_array_did_copy()
+    npy_value, did_copy = self._single_device_array_to_np_array_did_copy()
+jax.errors.JaxRuntimeError: INTERNAL: NCCL operation ncclGroupEnd() failed: unhandled cuda error (run with NCCL_DEBUG=INFO for details). Last NCCL warning(error) log entry (may be unrelated) 'Cuda failure 101 'invalid device ordinal''.
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+jax.errors.JaxRuntimeError: INTERNAL: NCCL operation ncclGroupEnd() failed: unhandled cuda error (run with NCCL_DEBUG=INFO for details). Last NCCL warning(error) log entry (may be unrelated) 'Cuda failure 101 'invalid device ordinal''.
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+jax.errors.JaxRuntimeError: INTERNAL: NCCL operation ncclGroupEnd() failed: unhandled cuda error (run with NCCL_DEBUG=INFO for details). Last NCCL warning(error) log entry (may be unrelated) 'Cuda failure 101 'invalid device ordinal''.
+W0626 11:26:00.287253   74848 pjrt_client.cc:1604] WatchJobStateAsync failed for task 1: CANCELLED: CANCELLED
+Additional GRPC error information from remote target coordination_service while calling /tensorflow.CoordinationService/WatchJobState:
+:UNKNOWN:Error received from peer  {grpc_status:1, grpc_message:"CANCELLED"} [type.googleapis.com/tensorflow.DerivedStatus='']
+W0626 11:26:00.287267   74846 pjrt_client.cc:1604] WatchJobStateAsync failed for task 0: CANCELLED: CANCELLED
+Additional GRPC error information from remote target coordination_service while calling /tensorflow.CoordinationService/WatchJobState:
+:UNKNOWN:Error received from peer  {grpc_message:"CANCELLED", grpc_status:1} [type.googleapis.com/tensorflow.DerivedStatus='']
+W0626 11:26:00.287345   74849 pjrt_client.cc:1604] WatchJobStateAsync failed for task 3: CANCELLED: CANCELLED
+Additional GRPC error information from remote target coordination_service while calling /tensorflow.CoordinationService/WatchJobState:
+:UNKNOWN:Error received from peer  {grpc_status:1, grpc_message:"CANCELLED"} [type.googleapis.com/tensorflow.DerivedStatus='']
+W0626 11:26:00.287502   74847 pjrt_client.cc:1604] WatchJobStateAsync failed for task 2: UNAVAILABLE: failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.114:61666: Failed to connect to remote host: Connection refused
+Additional GRPC error information from remote target coordination_service while calling /tensorflow.CoordinationService/WatchJobState:
+:UNKNOWN:Error received from peer  {grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.114:61666: Failed to connect to remote host: Connection refused", grpc_status:14}
+W0626 11:26:00.287579   33075 pjrt_client.cc:1604] WatchJobStateAsync failed for task 6: UNAVAILABLE: failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.114:61666: Failed to connect to remote host: Connection refused
+Additional GRPC error information from remote target coordination_service while calling /tensorflow.CoordinationService/WatchJobState:
+:UNKNOWN:Error received from peer  {grpc_status:14, grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.114:61666: Failed to connect to remote host: Connection refused"}
+W0626 11:26:00.287611   33073 pjrt_client.cc:1604] WatchJobStateAsync failed for task 5: UNAVAILABLE: failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.114:61666: Failed to connect to remote host: Connection refused
+Additional GRPC error information from remote target coordination_service while calling /tensorflow.CoordinationService/WatchJobState:
+:UNKNOWN:Error received from peer  {grpc_status:14, grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.114:61666: Failed to connect to remote host: Connection refused"}
+W0626 11:26:00.287619   33074 pjrt_client.cc:1604] WatchJobStateAsync failed for task 4: UNAVAILABLE: failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.114:61666: Failed to connect to remote host: Connection refused
+Additional GRPC error information from remote target coordination_service while calling /tensorflow.CoordinationService/WatchJobState:
+:UNKNOWN:Error received from peer  {grpc_status:14, grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.114:61666: Failed to connect to remote host: Connection refused"}
+W0626 11:26:00.287642   33076 pjrt_client.cc:1604] WatchJobStateAsync failed for task 7: UNAVAILABLE: failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.114:61666: Failed to connect to remote host: Connection refused
+Additional GRPC error information from remote target coordination_service while calling /tensorflow.CoordinationService/WatchJobState:
+:UNKNOWN:Error received from peer  {grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.114:61666: Failed to connect to remote host: Connection refused", grpc_status:14}
+srun: error: hkn0915: task 3: Exited with exit code 1
+srun: error: hkn0919: task 4: Exited with exit code 1
+srun: error: hkn0919: tasks 5,7: Exited with exit code 1
+srun: error: hkn0919: task 6: Exited with exit code 1
+srun: error: hkn0915: tasks 0-2: Exited with exit code 1

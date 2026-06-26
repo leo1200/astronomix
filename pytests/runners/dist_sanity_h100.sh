@@ -15,7 +15,9 @@
 REPO="/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix"
 source "$REPO/pytests/runners/_env.sh"
 cd "$REPO"
-srun --ntasks=8 --ntasks-per-node=4 --gpus-per-task=1 python pytests/_dist_sanity.py
+# --gpu-bind=none: expose all node GPUs to every task so intra-node NCCL P2P
+# works; each process selects its own GPU via local_device_ids=[SLURM_LOCALID].
+srun --ntasks=8 --ntasks-per-node=4 --gpu-bind=none python pytests/_dist_sanity.py
 rc=$?
 echo "DONE dist_sanity rc=$rc"
 exit $rc

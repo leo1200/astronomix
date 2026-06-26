@@ -20,12 +20,22 @@ print(
     flush=True,
 )
 
+def _local_device_ids():
+    """Pick this rank's local device id robustly for either Slurm GPU binding.
+
+    - Cgroup-bound (--gpus-per-task=1): each task sees ONE GPU as ordinal 0 ->
+      use [0].  (But intra-node NCCL P2P then fails -- prefer --gpu-bind=none.)
+    - All-visible (--gpu-bind=none): each task sees ALL node GPUs -> select the
+      one matching this task's node-local rank, [SLURM_LOCALID].
+    """
+    cvd = os.environ.get("CUDA_VISIBLE_DEVICES", "")
+    visible = [x for x in cvd.split(",") if x != ""]
+    localid = int(os.environ.get("SLURM_LOCALID", "0"))
+    return [localid] if len(visible) > 1 else [0]
+
+
 if "SLURM_PROCID" in os.environ and int(os.environ.get("SLURM_NTASKS", "1")) > 1:
-    # HoreKa binds ONE GPU per task (--gpus-per-task=1), remapped so each
-    # process sees its unique physical GPU as local ordinal 0.  So every rank
-    # must use local_device_ids=[0]; passing SLURM_LOCALID instead points
-    # ranks 1..n at ordinals that don't exist -> "invalid device ordinal".
-    jax.distributed.initialize(local_device_ids=[0])
+    jax.distributed.initialize(local_device_ids=_local_device_ids())
 
 import jax.numpy as jnp  # noqa: E402
 from jax.experimental import multihost_utils as mh  # noqa: E402
