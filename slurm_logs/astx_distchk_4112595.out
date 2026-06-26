@@ -1,0 +1,29 @@
+=== job 4112595 on hkn[0915,0919] ===
+partition: accelerated-h100  nodes: 2  gpus(visible): 0,1,2,3
+GPU 0: NVIDIA H100 (UUID: GPU-34caee3f-e9da-4278-4887-ae420e196e19)
+GPU 1: NVIDIA H100 (UUID: GPU-3f0b9360-e603-811d-1825-be1417fff39a)
+GPU 2: NVIDIA H100 (UUID: GPU-35f9beae-7902-27ad-2b0a-359ff6b6dbbe)
+GPU 3: NVIDIA H100 (UUID: GPU-33e465bc-f5be-d3b7-cfc1-5ab1e6074e44)
+DONE dist_sanity rc=1
+
+============================= JOB FEEDBACK =============================
+
+Job ID: 4112595
+Cluster: hk
+User/Group: hd_bn306/hk-project-pai00101
+Account: hk-project-pai00101
+State: FAILED (exit code 1)
+Partition: accelerated-h100
+Nodes: 2
+Cores per node: 64
+Nodelist: hkn[0915,0919]
+CPU Utilized: 00:00:01
+CPU Efficiency: 0.00% of 12:11:44 core-walltime
+Job Wall-clock time: 00:05:43
+Starttime: Fri Jun 26 11:12:44 2026
+Endtime: Fri Jun 26 11:18:27 2026
+Memory Utilized: 2.10 GB
+Memory Efficiency: 0.14% of 1.46 TB (750.00 GB/node)
+The task which had the largest memory consumption differs by 112.71% from the average task max memory consumption
+Energy Consumed: 2775848 Joule / 771.068888888889 Watthours
+Average node power draw: 8092.85131195335 Watt

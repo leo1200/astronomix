@@ -1,0 +1,347 @@
+GpuFreq=control_disabled
+GpuFreq=control_disabled
+E0626 11:19:43.359112   26178 platform_util.cc:270] Failed to create stream executor for device CUDA:2: CUDA error: Failed call to cuDeviceGet: CUDA_ERROR_INVALID_DEVICE: invalid device ordinal
+E0626 11:19:43.359581   67483 platform_util.cc:270] Failed to create stream executor for device CUDA:2: CUDA error: Failed call to cuDeviceGet: CUDA_ERROR_INVALID_DEVICE: invalid device ordinal
+E0626 11:19:43.360068   26179 platform_util.cc:270] Failed to create stream executor for device CUDA:3: CUDA error: Failed call to cuDeviceGet: CUDA_ERROR_INVALID_DEVICE: invalid device ordinal
+E0626 11:19:43.360494   67482 platform_util.cc:270] Failed to create stream executor for device CUDA:1: CUDA error: Failed call to cuDeviceGet: CUDA_ERROR_INVALID_DEVICE: invalid device ordinal
+E0626 11:19:43.360529   26177 platform_util.cc:270] Failed to create stream executor for device CUDA:1: CUDA error: Failed call to cuDeviceGet: CUDA_ERROR_INVALID_DEVICE: invalid device ordinal
+E0626 11:19:43.360591   67484 platform_util.cc:270] Failed to create stream executor for device CUDA:3: CUDA error: Failed call to cuDeviceGet: CUDA_ERROR_INVALID_DEVICE: invalid device ordinal
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 812, in backends
+    backend = _init_backend(platform)
+              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 896, in _init_backend
+    backend = registration.factory()
+              ^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 561, in make_pjrt_c_api_client
+    return xla_client.make_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jaxlib/xla_client.py", line 162, in make_c_api_client
+    return _xla.get_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^
+jax.errors.JaxRuntimeError: INTERNAL: no supported devices found for platform CUDA
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/weak_scaling_hydro.py", line 86, in <module>
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 812, in backends
+    from astronomix.parallel.distributed import init_distributed  # noqa: E402
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/__init__.py", line 2, in <module>
+    from astronomix.option_classes.simulation_config import SimulationConfig
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/option_classes/__init__.py", line 2, in <module>
+    from astronomix.option_classes.simulation_config import SimulationConfig
+    backend = _init_backend(platform)
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/option_classes/simulation_config.py", line 10, in <module>
+              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 896, in _init_backend
+    from astronomix._modules._cooling.cooling_options import CoolingConfig
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/_modules/_cooling/cooling_options.py", line 22, in <module>
+    class PiecewisePowerLawParams(NamedTuple):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/_modules/_cooling/cooling_options.py", line 23, in PiecewisePowerLawParams
+    backend = registration.factory()
+    log10_T_table: jnp.ndarray = jnp.array([])
+              ^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 561, in make_pjrt_c_api_client
+                                 ^^^^^^^^^^^^^
+    return xla_client.make_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/numpy/array_constructors.py", line 312, in array
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jaxlib/xla_client.py", line 162, in make_c_api_client
+    out_array: Array = lax._convert_element_type(
+    return _xla.get_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+jax.errors.JaxRuntimeError: INTERNAL: no supported devices found for platform CUDA
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/lax/lax.py", line 1695, in _convert_element_type
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+    return convert_element_type_p.bind(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/weak_scaling_hydro.py", line 86, in <module>
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/core.py", line 648, in bind
+    from astronomix.parallel.distributed import init_distributed  # noqa: E402
+    return self.bind_with_trace(prev_trace, args, avals, params)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/__init__.py", line 2, in <module>
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/lax/lax.py", line 4989, in _convert_element_type_bind_with_trace
+    from astronomix.option_classes.simulation_config import SimulationConfig
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/option_classes/__init__.py", line 2, in <module>
+    from astronomix.option_classes.simulation_config import SimulationConfig
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/option_classes/simulation_config.py", line 10, in <module>
+    from astronomix._modules._cooling.cooling_options import CoolingConfig
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/_modules/_cooling/cooling_options.py", line 22, in <module>
+    class PiecewisePowerLawParams(NamedTuple):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/_modules/_cooling/cooling_options.py", line 23, in PiecewisePowerLawParams
+Traceback (most recent call last):
+    log10_T_table: jnp.ndarray = jnp.array([])
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 812, in backends
+                                 ^^^^^^^^^^^^^
+    operand = core.Primitive.bind_with_trace(convert_element_type_p, trace, args,
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/numpy/array_constructors.py", line 312, in array
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    out_array: Array = lax._convert_element_type(
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/core.py", line 656, in bind_with_trace
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    backend = _init_backend(platform)
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/lax/lax.py", line 1695, in _convert_element_type
+              ^^^^^^^^^^^^^^^^^^^^^^^
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 896, in _init_backend
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 812, in backends
+    return trace.process_primitive(self, args, params)
+    return convert_element_type_p.bind(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/core.py", line 1217, in process_primitive
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/core.py", line 648, in bind
+Traceback (most recent call last):
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 812, in backends
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 812, in backends
+    backend = _init_backend(platform)
+              ^^^^^^^^^^^^^^^^^^^^^^^
+    return self.bind_with_trace(prev_trace, args, avals, params)
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 896, in _init_backend
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/lax/lax.py", line 4989, in _convert_element_type_bind_with_trace
+    backend = registration.factory()
+    return primitive.impl(*args, **params)
+    backend = _init_backend(platform)
+              ^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 561, in make_pjrt_c_api_client
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/dispatch.py", line 91, in apply_primitive
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 896, in _init_backend
+    outs = fun(*args)
+    backend = registration.factory()
+           ^^^^^^^^^^
+              ^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 561, in make_pjrt_c_api_client
+RuntimeError: Unable to initialize backend 'cuda': INTERNAL: no supported devices found for platform CUDA (you may need to uninstall the failing plugin package, or set JAX_PLATFORMS=cpu to skip this backend.)
+--------------------
+For simplicity, JAX has removed its internal frames from the traceback of the following exception. Set JAX_TRACEBACK_FILTERING=off to include these.
+    backend = _init_backend(platform)
+    return xla_client.make_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jaxlib/xla_client.py", line 162, in make_c_api_client
+              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 896, in _init_backend
+    return _xla.get_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^
+jax.errors.JaxRuntimeError: INTERNAL: no supported devices found for platform CUDA
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/weak_scaling_hydro.py", line 86, in <module>
+    return xla_client.make_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jaxlib/xla_client.py", line 162, in make_c_api_client
+    backend = registration.factory()
+              ^^^^^^^^^^^^^^^^^^^^^^
+    backend = registration.factory()
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 561, in make_pjrt_c_api_client
+    from astronomix.parallel.distributed import init_distributed  # noqa: E402
+              ^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 561, in make_pjrt_c_api_client
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/__init__.py", line 2, in <module>
+    return _xla.get_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^
+jax.errors.JaxRuntimeError: INTERNAL: no supported devices found for platform CUDA
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+    from astronomix.option_classes.simulation_config import SimulationConfig
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/weak_scaling_hydro.py", line 86, in <module>
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/option_classes/__init__.py", line 2, in <module>
+    return xla_client.make_c_api_client(
+    operand = core.Primitive.bind_with_trace(convert_element_type_p, trace, args,
+    return xla_client.make_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    from astronomix.parallel.distributed import init_distributed  # noqa: E402
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jaxlib/xla_client.py", line 162, in make_c_api_client
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/core.py", line 656, in bind_with_trace
+    from astronomix.option_classes.simulation_config import SimulationConfig
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jaxlib/xla_client.py", line 162, in make_c_api_client
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/option_classes/simulation_config.py", line 10, in <module>
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/__init__.py", line 2, in <module>
+    return _xla.get_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^
+    from astronomix.option_classes.simulation_config import SimulationConfig
+    return _xla.get_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^
+jax.errors.JaxRuntimeError: INTERNAL: no supported devices found for platform CUDA
+jax.errors.JaxRuntimeError: INTERNAL: no supported devices found for platform CUDA
+
+
+During handling of the above exception, another exception occurred:
+
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/option_classes/__init__.py", line 2, in <module>
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/weak_scaling_hydro.py", line 86, in <module>
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/weak_scaling_hydro.py", line 86, in <module>
+    from astronomix._modules._cooling.cooling_options import CoolingConfig
+    return trace.process_primitive(self, args, params)
+    from astronomix.parallel.distributed import init_distributed  # noqa: E402
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/_modules/_cooling/cooling_options.py", line 22, in <module>
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/core.py", line 1217, in process_primitive
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/__init__.py", line 2, in <module>
+    from astronomix.option_classes.simulation_config import SimulationConfig
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/option_classes/simulation_config.py", line 10, in <module>
+    from astronomix.parallel.distributed import init_distributed  # noqa: E402
+    class PiecewisePowerLawParams(NamedTuple):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/_modules/_cooling/cooling_options.py", line 23, in PiecewisePowerLawParams
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/__init__.py", line 2, in <module>
+    from astronomix.option_classes.simulation_config import SimulationConfig
+    from astronomix._modules._cooling.cooling_options import CoolingConfig
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/option_classes/__init__.py", line 2, in <module>
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/_modules/_cooling/cooling_options.py", line 22, in <module>
+    from astronomix.option_classes.simulation_config import SimulationConfig
+    log10_T_table: jnp.ndarray = jnp.array([])
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/option_classes/__init__.py", line 2, in <module>
+    from astronomix.option_classes.simulation_config import SimulationConfig
+    return primitive.impl(*args, **params)
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/option_classes/simulation_config.py", line 10, in <module>
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/dispatch.py", line 91, in apply_primitive
+                                 ^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/numpy/array_constructors.py", line 312, in array
+    class PiecewisePowerLawParams(NamedTuple):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/_modules/_cooling/cooling_options.py", line 23, in PiecewisePowerLawParams
+    from astronomix.option_classes.simulation_config import SimulationConfig
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/option_classes/simulation_config.py", line 10, in <module>
+    from astronomix._modules._cooling.cooling_options import CoolingConfig
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/_modules/_cooling/cooling_options.py", line 22, in <module>
+    log10_T_table: jnp.ndarray = jnp.array([])
+    outs = fun(*args)
+    out_array: Array = lax._convert_element_type(
+           ^^^^^^^^^^
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/lax/lax.py", line 1695, in _convert_element_type
+RuntimeError: Unable to initialize backend 'cuda': INTERNAL: no supported devices found for platform CUDA (you may need to uninstall the failing plugin package, or set JAX_PLATFORMS=cpu to skip this backend.)
+--------------------
+For simplicity, JAX has removed its internal frames from the traceback of the following exception. Set JAX_TRACEBACK_FILTERING=off to include these.
+                                 ^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/numpy/array_constructors.py", line 312, in array
+    class PiecewisePowerLawParams(NamedTuple):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/_modules/_cooling/cooling_options.py", line 23, in PiecewisePowerLawParams
+    from astronomix._modules._cooling.cooling_options import CoolingConfig
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/_modules/_cooling/cooling_options.py", line 22, in <module>
+    out_array: Array = lax._convert_element_type(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    log10_T_table: jnp.ndarray = jnp.array([])
+    class PiecewisePowerLawParams(NamedTuple):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/_modules/_cooling/cooling_options.py", line 23, in PiecewisePowerLawParams
+                                 ^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/lax/lax.py", line 1695, in _convert_element_type
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/numpy/array_constructors.py", line 312, in array
+    log10_T_table: jnp.ndarray = jnp.array([])
+    return convert_element_type_p.bind(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                                 ^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/numpy/array_constructors.py", line 312, in array
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/core.py", line 648, in bind
+    out_array: Array = lax._convert_element_type(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/lax/lax.py", line 1695, in _convert_element_type
+    return self.bind_with_trace(prev_trace, args, avals, params)
+    out_array: Array = lax._convert_element_type(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    return convert_element_type_p.bind(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/core.py", line 648, in bind
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/lax/lax.py", line 1695, in _convert_element_type
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/lax/lax.py", line 4989, in _convert_element_type_bind_with_trace
+    return convert_element_type_p.bind(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/core.py", line 648, in bind
+    return self.bind_with_trace(prev_trace, args, avals, params)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/lax/lax.py", line 4989, in _convert_element_type_bind_with_trace
+    return self.bind_with_trace(prev_trace, args, avals, params)
+    return convert_element_type_p.bind(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/core.py", line 648, in bind
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/lax/lax.py", line 4989, in _convert_element_type_bind_with_trace
+    return self.bind_with_trace(prev_trace, args, avals, params)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/lax/lax.py", line 4989, in _convert_element_type_bind_with_trace
+    operand = core.Primitive.bind_with_trace(convert_element_type_p, trace, args,
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/core.py", line 656, in bind_with_trace
+    return trace.process_primitive(self, args, params)
+    operand = core.Primitive.bind_with_trace(convert_element_type_p, trace, args,
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/core.py", line 656, in bind_with_trace
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/core.py", line 1217, in process_primitive
+    operand = core.Primitive.bind_with_trace(convert_element_type_p, trace, args,
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/core.py", line 656, in bind_with_trace
+    return trace.process_primitive(self, args, params)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/core.py", line 1217, in process_primitive
+    return primitive.impl(*args, **params)
+    return trace.process_primitive(self, args, params)
+    operand = core.Primitive.bind_with_trace(convert_element_type_p, trace, args,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/core.py", line 656, in bind_with_trace
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/dispatch.py", line 91, in apply_primitive
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/core.py", line 1217, in process_primitive
+    outs = fun(*args)
+    return primitive.impl(*args, **params)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/dispatch.py", line 91, in apply_primitive
+           ^^^^^^^^^^
+RuntimeError: Unable to initialize backend 'cuda': INTERNAL: no supported devices found for platform CUDA (you may need to uninstall the failing plugin package, or set JAX_PLATFORMS=cpu to skip this backend.)
+--------------------
+For simplicity, JAX has removed its internal frames from the traceback of the following exception. Set JAX_TRACEBACK_FILTERING=off to include these.
+    return primitive.impl(*args, **params)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/dispatch.py", line 91, in apply_primitive
+    return trace.process_primitive(self, args, params)
+    outs = fun(*args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/core.py", line 1217, in process_primitive
+           ^^^^^^^^^^
+RuntimeError: Unable to initialize backend 'cuda': INTERNAL: no supported devices found for platform CUDA (you may need to uninstall the failing plugin package, or set JAX_PLATFORMS=cpu to skip this backend.)
+--------------------
+For simplicity, JAX has removed its internal frames from the traceback of the following exception. Set JAX_TRACEBACK_FILTERING=off to include these.
+    outs = fun(*args)
+           ^^^^^^^^^^
+RuntimeError: Unable to initialize backend 'cuda': INTERNAL: no supported devices found for platform CUDA (you may need to uninstall the failing plugin package, or set JAX_PLATFORMS=cpu to skip this backend.)
+--------------------
+For simplicity, JAX has removed its internal frames from the traceback of the following exception. Set JAX_TRACEBACK_FILTERING=off to include these.
+    return primitive.impl(*args, **params)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/dispatch.py", line 91, in apply_primitive
+    outs = fun(*args)
+           ^^^^^^^^^^
+RuntimeError: Unable to initialize backend 'cuda': INTERNAL: no supported devices found for platform CUDA (you may need to uninstall the failing plugin package, or set JAX_PLATFORMS=cpu to skip this backend.)
+--------------------
+For simplicity, JAX has removed its internal frames from the traceback of the following exception. Set JAX_TRACEBACK_FILTERING=off to include these.
+E0626 11:19:43.562701   68219 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0626 11:19:43.562781   68220 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0626 11:19:43.562850   68221 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]

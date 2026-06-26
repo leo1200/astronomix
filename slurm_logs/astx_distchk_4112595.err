@@ -1,0 +1,323 @@
+GpuFreq=control_disabled
+GpuFreq=control_disabled
+E0626 11:13:27.199698   20308 platform_util.cc:270] Failed to create stream executor for device CUDA:2: CUDA error: Failed call to cuDeviceGet: CUDA_ERROR_INVALID_DEVICE: invalid device ordinal
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 812, in backends
+    backend = _init_backend(platform)
+              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 896, in _init_backend
+    backend = registration.factory()
+              ^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 561, in make_pjrt_c_api_client
+    return xla_client.make_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jaxlib/xla_client.py", line 162, in make_c_api_client
+E0626 11:13:27.200567   20309 platform_util.cc:270] Failed to create stream executor for device CUDA:3: CUDA error: Failed call to cuDeviceGet: CUDA_ERROR_INVALID_DEVICE: invalid device ordinal
+    return _xla.get_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^
+jax.errors.JaxRuntimeError: INTERNAL: no supported devices found for platform CUDA
+E0626 11:13:27.200646   20307 platform_util.cc:270] Failed to create stream executor for device CUDA:1: CUDA error: Failed call to cuDeviceGet: CUDA_ERROR_INVALID_DEVICE: invalid device ordinal
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/_dist_sanity.py", line 25, in <module>
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 812, in backends
+    pc = jax.process_count()
+         ^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 1116, in process_count
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 812, in backends
+    gen = (d.process_index for d in devices(backend))
+                                    ^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 1010, in devices
+    backend = _init_backend(platform)
+              ^^^^^^^^^^^^^^^^^^^^^^^
+    return get_backend(backend).devices()
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 896, in _init_backend
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 944, in get_backend
+    backend = _init_backend(platform)
+              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 896, in _init_backend
+    return _get_backend_uncached(platform)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 923, in _get_backend_uncached
+    backend = registration.factory()
+              ^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 561, in make_pjrt_c_api_client
+E0626 11:13:27.201693   60889 platform_util.cc:270] Failed to create stream executor for device CUDA:2: CUDA error: Failed call to cuDeviceGet: CUDA_ERROR_INVALID_DEVICE: invalid device ordinal
+    backend = registration.factory()
+Traceback (most recent call last):
+              ^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 561, in make_pjrt_c_api_client
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 812, in backends
+    bs = backends()
+         ^^^^^^^^^^
+    backend = _init_backend(platform)
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 828, in backends
+              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 896, in _init_backend
+    return xla_client.make_c_api_client(
+    backend = registration.factory()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jaxlib/xla_client.py", line 162, in make_c_api_client
+              ^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 561, in make_pjrt_c_api_client
+    return _xla.get_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^
+E0626 11:13:27.202524   60888 platform_util.cc:270] Failed to create stream executor for device CUDA:1: CUDA error: Failed call to cuDeviceGet: CUDA_ERROR_INVALID_DEVICE: invalid device ordinal
+    return xla_client.make_c_api_client(
+    return xla_client.make_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jaxlib/xla_client.py", line 162, in make_c_api_client
+jax.errors.JaxRuntimeError: INTERNAL: no supported devices found for platform CUDA
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+E0626 11:13:27.202596   60890 platform_util.cc:270] Failed to create stream executor for device CUDA:3: CUDA error: Failed call to cuDeviceGet: CUDA_ERROR_INVALID_DEVICE: invalid device ordinal
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jaxlib/xla_client.py", line 162, in make_c_api_client
+    return _xla.get_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/_dist_sanity.py", line 25, in <module>
+jax.errors.JaxRuntimeError: INTERNAL: no supported devices found for platform CUDA
+
+During handling of the above exception, another exception occurred:
+    raise RuntimeError(err_msg)
+
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/_dist_sanity.py", line 25, in <module>
+RuntimeError: Unable to initialize backend 'cuda': INTERNAL: no supported devices found for platform CUDA (you may need to uninstall the failing plugin package, or set JAX_PLATFORMS=cpu to skip this backend.)
+    pc = jax.process_count()
+    pc = jax.process_count()
+Traceback (most recent call last):
+         ^^^^^^^^^^^^^^^^^^^
+         ^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 1116, in process_count
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 812, in backends
+    return _xla.get_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 1116, in process_count
+jax.errors.JaxRuntimeError: INTERNAL: no supported devices found for platform CUDA
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/_dist_sanity.py", line 25, in <module>
+Traceback (most recent call last):
+    pc = jax.process_count()
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 812, in backends
+         ^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 1116, in process_count
+    gen = (d.process_index for d in devices(backend))
+    gen = (d.process_index for d in devices(backend))
+                                    ^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 1010, in devices
+                                    ^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 1010, in devices
+    gen = (d.process_index for d in devices(backend))
+                                    ^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 1010, in devices
+    return get_backend(backend).devices()
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 944, in get_backend
+    return get_backend(backend).devices()
+    backend = _init_backend(platform)
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 944, in get_backend
+    return _get_backend_uncached(platform)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 896, in _init_backend
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 923, in _get_backend_uncached
+    return _get_backend_uncached(platform)
+    return get_backend(backend).devices()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 944, in get_backend
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 923, in _get_backend_uncached
+    bs = backends()
+         ^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 828, in backends
+    bs = backends()
+         ^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 828, in backends
+    raise RuntimeError(err_msg)
+RuntimeError: Unable to initialize backend 'cuda': INTERNAL: no supported devices found for platform CUDA (you may need to uninstall the failing plugin package, or set JAX_PLATFORMS=cpu to skip this backend.)
+    raise RuntimeError(err_msg)
+RuntimeError: Unable to initialize backend 'cuda': INTERNAL: no supported devices found for platform CUDA (you may need to uninstall the failing plugin package, or set JAX_PLATFORMS=cpu to skip this backend.)
+    backend = _init_backend(platform)
+    backend = registration.factory()
+    return _get_backend_uncached(platform)
+              ^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 561, in make_pjrt_c_api_client
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 923, in _get_backend_uncached
+              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 896, in _init_backend
+    return xla_client.make_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jaxlib/xla_client.py", line 162, in make_c_api_client
+    bs = backends()
+         ^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 828, in backends
+    backend = registration.factory()
+    return _xla.get_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^
+              ^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 561, in make_pjrt_c_api_client
+jax.errors.JaxRuntimeError: INTERNAL: no supported devices found for platform CUDA
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/_dist_sanity.py", line 25, in <module>
+    pc = jax.process_count()
+         ^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 1116, in process_count
+    raise RuntimeError(err_msg)
+RuntimeError: Unable to initialize backend 'cuda': INTERNAL: no supported devices found for platform CUDA (you may need to uninstall the failing plugin package, or set JAX_PLATFORMS=cpu to skip this backend.)
+    return xla_client.make_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jaxlib/xla_client.py", line 162, in make_c_api_client
+    return _xla.get_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^
+    gen = (d.process_index for d in devices(backend))
+jax.errors.JaxRuntimeError: INTERNAL: no supported devices found for platform CUDA
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+                                    ^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 1010, in devices
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/_dist_sanity.py", line 25, in <module>
+    pc = jax.process_count()
+         ^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 1116, in process_count
+    return get_backend(backend).devices()
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 944, in get_backend
+    gen = (d.process_index for d in devices(backend))
+                                    ^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 1010, in devices
+    return _get_backend_uncached(platform)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 923, in _get_backend_uncached
+    return get_backend(backend).devices()
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 944, in get_backend
+    bs = backends()
+         ^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 828, in backends
+    return _get_backend_uncached(platform)
+    raise RuntimeError(err_msg)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 923, in _get_backend_uncached
+RuntimeError: Unable to initialize backend 'cuda': INTERNAL: no supported devices found for platform CUDA (you may need to uninstall the failing plugin package, or set JAX_PLATFORMS=cpu to skip this backend.)
+    bs = backends()
+         ^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 828, in backends
+    raise RuntimeError(err_msg)
+RuntimeError: Unable to initialize backend 'cuda': INTERNAL: no supported devices found for platform CUDA (you may need to uninstall the failing plugin package, or set JAX_PLATFORMS=cpu to skip this backend.)
+E0626 11:13:27.431349   61625 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0626 11:13:27.431433   61626 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0626 11:13:27.431468   61627 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 812, in backends
+    backend = _init_backend(platform)
+              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 896, in _init_backend
+    backend = registration.factory()
+              ^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 561, in make_pjrt_c_api_client
+    return xla_client.make_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jaxlib/xla_client.py", line 162, in make_c_api_client
+    return _xla.get_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^
+jax.errors.JaxRuntimeError: INTERNAL: Getting local topologies failed: Error 1: GetKeyValue() timed out with key: cuda:local_topology/cuda/1 and duration: 2m
+
+Error 2: GetKeyValue() timed out with key: cuda:local_topology/cuda/2 and duration: 2m
+
+Error 3: GetKeyValue() timed out with key: cuda:local_topology/cuda/3 and duration: 2m
+
+Error 4: GetKeyValue() timed out with key: cuda:local_topology/cuda/5 and duration: 2m
+
+Error 5: GetKeyValue() timed out with key: cuda:local_topology/cuda/6 and duration: 2m
+
+Error 6: GetKeyValue() timed out with key: cuda:local_topology/cuda/7 and duration: 2m
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/_dist_sanity.py", line 25, in <module>
+    pc = jax.process_count()
+         ^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 1116, in process_count
+    gen = (d.process_index for d in devices(backend))
+                                    ^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 1010, in devices
+    return get_backend(backend).devices()
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 944, in get_backend
+    return _get_backend_uncached(platform)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 923, in _get_backend_uncached
+    bs = backends()
+         ^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 828, in backends
+    raise RuntimeError(err_msg)
+RuntimeError: Unable to initialize backend 'cuda': INTERNAL: Getting local topologies failed: Error 1: GetKeyValue() timed out with key: cuda:local_topology/cuda/1 and duration: 2m
+
+Error 2: GetKeyValue() timed out with key: cuda:local_topology/cuda/2 and duration: 2m
+
+Error 3: GetKeyValue() timed out with key: cuda:local_topology/cuda/3 and duration: 2m
+
+Error 4: GetKeyValue() timed out with key: cuda:local_topology/cuda/5 and duration: 2m
+
+Error 5: GetKeyValue() timed out with key: cuda:local_topology/cuda/6 and duration: 2m
+
+Error 6: GetKeyValue() timed out with key: cuda:local_topology/cuda/7 and duration: 2m (you may need to uninstall the failing plugin package, or set JAX_PLATFORMS=cpu to skip this backend.)
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 812, in backends
+    backend = _init_backend(platform)
+              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 896, in _init_backend
+    backend = registration.factory()
+              ^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 561, in make_pjrt_c_api_client
+    return xla_client.make_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jaxlib/xla_client.py", line 162, in make_c_api_client
+    return _xla.get_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^
+jax.errors.JaxRuntimeError: DEADLINE_EXCEEDED: GetKeyValue() timed out with key: cuda:global_topology/cuda and duration: 5m
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/_dist_sanity.py", line 25, in <module>
+    pc = jax.process_count()
+         ^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 1116, in process_count
+    gen = (d.process_index for d in devices(backend))
+                                    ^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 1010, in devices
+    return get_backend(backend).devices()
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 944, in get_backend
+    return _get_backend_uncached(platform)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 923, in _get_backend_uncached
+    bs = backends()
+         ^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 828, in backends
+    raise RuntimeError(err_msg)
+RuntimeError: Unable to initialize backend 'cuda': DEADLINE_EXCEEDED: GetKeyValue() timed out with key: cuda:global_topology/cuda and duration: 5m (you may need to uninstall the failing plugin package, or set JAX_PLATFORMS=cpu to skip this backend.)
+srun: error: hkn0915: task 2: Exited with exit code 1
+srun: error: hkn0919: tasks 5-7: Exited with exit code 1
+srun: error: hkn0919: task 4: Exited with exit code 1
+srun: error: hkn0915: tasks 0-1,3: Exited with exit code 1

@@ -1,0 +1,7 @@
+=== job 4112596 on hkn[0915,0919] ===
+partition: accelerated-h100  nodes: 2  gpus(visible): 0,1,2,3
+GPU 0: NVIDIA H100 (UUID: GPU-34caee3f-e9da-4278-4887-ae420e196e19)
+GPU 1: NVIDIA H100 (UUID: GPU-3f0b9360-e603-811d-1825-be1417fff39a)
+GPU 2: NVIDIA H100 (UUID: GPU-35f9beae-7902-27ad-2b0a-359ff6b6dbbe)
+GPU 3: NVIDIA H100 (UUID: GPU-33e465bc-f5be-d3b7-cfc1-5ab1e6074e44)
+==== weak rung G=8 on 2 H100 nodes (per-GPU 128x2048x2048, global 1024x2048x2048) ====

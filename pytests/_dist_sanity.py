@@ -12,12 +12,20 @@ import os
 
 import jax
 
+# Diagnostic: each rank's view of the GPUs, BEFORE touching the backend.
+print(
+    f"[pre-init procid={os.environ.get('SLURM_PROCID','?')} "
+    f"localid={os.environ.get('SLURM_LOCALID','?')}] "
+    f"CUDA_VISIBLE_DEVICES={os.environ.get('CUDA_VISIBLE_DEVICES','<unset>')}",
+    flush=True,
+)
+
 if "SLURM_PROCID" in os.environ and int(os.environ.get("SLURM_NTASKS", "1")) > 1:
-    # HoreKa does not constrain CUDA_VISIBLE_DEVICES per task, so every rank
-    # sees all 4 node GPUs.  Pin each process to the GPU matching its node-local
-    # rank, else bare initialize() claims all 4 -> "invalid device ordinal".
-    _local_id = int(os.environ.get("SLURM_LOCALID", "0"))
-    jax.distributed.initialize(local_device_ids=[_local_id])
+    # HoreKa binds ONE GPU per task (--gpus-per-task=1), remapped so each
+    # process sees its unique physical GPU as local ordinal 0.  So every rank
+    # must use local_device_ids=[0]; passing SLURM_LOCALID instead points
+    # ranks 1..n at ordinals that don't exist -> "invalid device ordinal".
+    jax.distributed.initialize(local_device_ids=[0])
 
 import jax.numpy as jnp  # noqa: E402
 from jax.experimental import multihost_utils as mh  # noqa: E402

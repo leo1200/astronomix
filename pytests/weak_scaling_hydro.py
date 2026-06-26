@@ -69,13 +69,13 @@ import jax  # noqa: E402
 # (The GSPMD/Shardy choice is already set via JAX_USE_SHARDY_PARTITIONER in
 # _env.sh, so no pre-init config.update is needed here.)
 #
-# HoreKa does NOT constrain CUDA_VISIBLE_DEVICES per task (--gpus-per-task=1 is
-# not enforced via cgroup), so every rank sees all 4 node GPUs.  Bare
-# initialize() then makes each rank claim all 4 -> "invalid device ordinal".
-# Pin each process to exactly the GPU matching its node-local rank.
+# HoreKa binds ONE GPU per task (--gpus-per-task=1), remapped so each process
+# sees its unique physical GPU as local ordinal 0.  Every rank must therefore
+# use local_device_ids=[0]; bare initialize() (or passing SLURM_LOCALID) makes
+# ranks point at ordinals that don't exist -> "invalid device ordinal" and a
+# topology-gather deadlock.
 if _multi:
-    _local_id = int(os.environ.get("SLURM_LOCALID", "0"))
-    jax.distributed.initialize(local_device_ids=[_local_id])
+    jax.distributed.initialize(local_device_ids=[0])
 
 # JAX 0.10: GSPMD partitioner (redundant with the env var, but explicit). Safe
 # to set now that the backend has been initialized distributed-aware.
