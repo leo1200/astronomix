@@ -1,0 +1,33 @@
+############ (1) multi-GPU Pallas probe ############
+---- probe G=1 ----
+PROBE G=1 returned nonzero
+---- probe G=2 ----
+PROBE G=2 returned nonzero
+---- probe G=4 ----
+PROBE G=4 returned nonzero
+############ (2) single-GPU campaign smoke (all setups, tiny N) ############
+single smoke nonzero
+############ (3) 2-process distributed weak-driver smoke ############
+weak smoke nonzero
+DONE smoke
+
+============================= JOB FEEDBACK =============================
+
+Job ID: 4101962
+Cluster: hk
+User/Group: hd_bn306/hk-project-pai00101
+Account: hk-project-pai00101
+State: COMPLETED (exit code 0)
+Partition: dev_accelerated-h100
+Nodes: 1
+Cores per node: 64
+Nodelist: hkn0909
+CPU Utilized: 00:00:00
+CPU Efficiency: 0.00% of 00:39:28 core-walltime
+Job Wall-clock time: 00:00:37
+Starttime: Sun Jun 21 20:41:35 2026
+Endtime: Sun Jun 21 20:42:12 2026
+Memory Utilized: 5.12 MB
+Memory Efficiency: 0.00% of 750.00 GB (750.00 GB/node)
+Energy Consumed: 8150 Joule / 2.26388888888889 Watthours
+Average node power draw: 220.27027027027 Watt

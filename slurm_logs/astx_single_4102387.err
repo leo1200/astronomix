@@ -1,0 +1,15 @@
+E0624 16:54:32.783254 3809002 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0624 16:54:32.783980 3809004 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0624 16:54:32.783977 3809003 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0624 16:54:33.029172 3808912 ptx_compiler_helpers.cc:157] *** WARNING *** Invoking ptxas with version 12.4.131, which corresponds to a CUDA version <=12.6.2. CUDA versions 12.x.y up to and including 12.6.2 miscompile certain edge cases around clamping.
+Please upgrade to CUDA 12.6.3 or newer.
+E0624 16:58:29.479013 3809017 slow_operation_alarm.cc:73] 
+********************************
+[Compiling module jit__time_integration for GPU] Very slow compile? If you want to file a bug, run with envvar XLA_FLAGS=--xla_dump_to=/tmp/foo and attach the results.
+********************************
+E0624 16:59:47.439104 3808912 slow_operation_alarm.cc:140] The operation took 3m17.960143488s
+
+********************************
+[Compiling module jit__time_integration for GPU] Very slow compile? If you want to file a bug, run with envvar XLA_FLAGS=--xla_dump_to=/tmp/foo and attach the results.
+********************************
+[2026-06-24T17:34:12.044] error: *** JOB 4102387 ON hkn1970 CANCELLED AT 2026-06-24T17:34:12 DUE TO TIME LIMIT ***

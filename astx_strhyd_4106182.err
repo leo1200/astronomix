@@ -1,0 +1,40 @@
+E0623 12:22:00.509860  804369 ptx_compiler_helpers.cc:157] *** WARNING *** Invoking ptxas with version 12.4.131, which corresponds to a CUDA version <=12.6.2. CUDA versions 12.x.y up to and including 12.6.2 miscompile certain edge cases around clamping.
+Please upgrade to CUDA 12.6.3 or newer.
+W0623 12:22:19.910399  804369 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0623 12:22:43.755754  804369 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0623 12:23:02.272557  804369 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0623 12:23:23.383617  804369 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0623 12:23:43.541700  804369 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0623 12:24:05.041061  804369 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0623 12:24:09.430783  804369 hlo_rematerialization.cc:3233] Can't reduce memory use below 81.61GiB (87626228169 bytes) by rematerialization; only reduced to 83.90GiB (90085828872 bytes), down from 86.96GiB (93370362912 bytes) originally
+W0623 12:24:32.193134  804369 bfc_allocator.cc:502] Allocator (GPU_0_bfc) ran out of memory trying to allocate 77.88GiB (rounded to 83622289152)requested by op 
+If the cause is memory fragmentation maybe the environment variable 'TF_GPU_ALLOCATOR=cuda_malloc_async' will improve the situation. 
+Current allocation summary follows.
+Current allocation summary follows.
+W0623 12:24:32.193512  804369 bfc_allocator.cc:513] ******_________________________________________________________________________*******_____________*
+W0623 12:24:33.825768  804369 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0623 12:24:55.993306  804369 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0623 12:25:00.422958  804369 hlo_rematerialization.cc:3233] Can't reduce memory use below 81.85GiB (87882080713 bytes) by rematerialization; only reduced to 159.18GiB (170920533928 bytes), down from 169.07GiB (181537879072 bytes) originally
+W0623 12:25:28.740349  804369 bfc_allocator.cc:502] Allocator (GPU_0_bfc) ran out of memory trying to allocate 157.32GiB (rounded to 168922054144)requested by op 
+If the cause is memory fragmentation maybe the environment variable 'TF_GPU_ALLOCATOR=cuda_malloc_async' will improve the situation. 
+Current allocation summary follows.
+Current allocation summary follows.
+W0623 12:25:28.740660  804369 bfc_allocator.cc:513] _____________*************________________________________________________________********____***x_*
+W0623 12:25:30.233329  804369 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+E0623 12:26:01.284268  804544 rendezvous.cc:116] [id=0] This thread has been waiting for `[0] [rank=0] [run_id=638195219] Acquire clique: devices=4:[0,1,2,3]; is_p2p=false; local_participants=4; incarnations=[]` for 10 seconds and may be stuck. Expected 4 threads to join the rendezvous, but not all of them arrived on time.
+W0623 12:26:01.285290  804547 bfc_allocator.cc:502] Allocator (GPU_1_bfc) ran out of memory trying to allocate 39.45GiB (rounded to 42354970112)requested by op 
+If the cause is memory fragmentation maybe the environment variable 'TF_GPU_ALLOCATOR=cuda_malloc_async' will improve the situation. 
+Current allocation summary follows.
+Current allocation summary follows.
+W0623 12:26:01.285467  804547 bfc_allocator.cc:513] ___________________________________________________________________________________________*****___*
+W0623 12:26:01.286334  804553 bfc_allocator.cc:502] Allocator (GPU_3_bfc) ran out of memory trying to allocate 39.45GiB (rounded to 42354970112)requested by op 
+If the cause is memory fragmentation maybe the environment variable 'TF_GPU_ALLOCATOR=cuda_malloc_async' will improve the situation. 
+Current allocation summary follows.
+Current allocation summary follows.
+W0623 12:26:01.286525  804553 bfc_allocator.cc:513] ___________________________________________________________________________________________*****___*
+W0623 12:26:01.287325  804550 bfc_allocator.cc:502] Allocator (GPU_2_bfc) ran out of memory trying to allocate 39.45GiB (rounded to 42354970112)requested by op 
+If the cause is memory fragmentation maybe the environment variable 'TF_GPU_ALLOCATOR=cuda_malloc_async' will improve the situation. 
+Current allocation summary follows.
+Current allocation summary follows.
+W0623 12:26:01.287509  804550 bfc_allocator.cc:513] ___________________________________________________________________________________________*****___*
+[2026-06-23T13:21:37.024] error: *** JOB 4106182 ON hkn0909 CANCELLED AT 2026-06-23T13:21:37 DUE TO TIME LIMIT ***

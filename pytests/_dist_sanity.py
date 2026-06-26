@@ -13,7 +13,11 @@ import os
 import jax
 
 if "SLURM_PROCID" in os.environ and int(os.environ.get("SLURM_NTASKS", "1")) > 1:
-    jax.distributed.initialize()
+    # HoreKa does not constrain CUDA_VISIBLE_DEVICES per task, so every rank
+    # sees all 4 node GPUs.  Pin each process to the GPU matching its node-local
+    # rank, else bare initialize() claims all 4 -> "invalid device ordinal".
+    _local_id = int(os.environ.get("SLURM_LOCALID", "0"))
+    jax.distributed.initialize(local_device_ids=[_local_id])
 
 import jax.numpy as jnp  # noqa: E402
 from jax.experimental import multihost_utils as mh  # noqa: E402

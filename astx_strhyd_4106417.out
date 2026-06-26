@@ -1,0 +1,295 @@
+=== job 4106417 on hkn0909 ===
+partition: dev_accelerated-h100  nodes: 1  gpus(visible): 0,1,2,3
+GPU 0: NVIDIA H100 (UUID: GPU-84eb54e7-70d4-11eb-0b8a-afaa19cd4aa2)
+GPU 1: NVIDIA H100 (UUID: GPU-1de7caf2-ca30-4d72-bcc6-e0a2c0dd33b6)
+GPU 2: NVIDIA H100 (UUID: GPU-42f3be1d-531f-d806-e2dd-665a79eb66ec)
+GPU 3: NVIDIA H100 (UUID: GPU-65a6bd4f-1777-299c-cc2d-b508ef66cdd9)
+############ STRONG scaling 1-vs-4 (H100, hydro, all solvers, full ladder) ############
+
+========== STRONG SCALING [hydro] 1 vs 4 GPUs (3 solver(s)) ==========
+=== Compiled memory usage PER DEVICE ===
+Temp size: 1167.19 MB
+Argument size: 80.00 MB
+Total size: 1247.19 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.10 seconds
+🔄 Number of iterations: 8
+⏱️ / 🔄 time per iteration: 0.01218942366540432 seconds
+=== Compiled memory usage PER DEVICE ===
+Temp size: 292.41 MB
+Argument size: 20.00 MB
+Total size: 312.41 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 1.37 seconds
+🔄 Number of iterations: 8
+⏱️ / 🔄 time per iteration: 0.1718626320362091 seconds
+[hydro_h100] FV (JAX) N=128: 1 GPU=0.10s, 4 GPUs=1.37s, speedup=0.07x
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 720.02 MB
+Argument size: 80.00 MB
+Total size: 800.02 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.89 seconds
+🔄 Number of iterations: 8
+⏱️ / 🔄 time per iteration: 0.11071331053972244 seconds
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 268.41 MB
+Argument size: 20.00 MB
+Total size: 288.41 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.67 seconds
+🔄 Number of iterations: 8
+⏱️ / 🔄 time per iteration: 0.08417711406946182 seconds
+[hydro_h100] FD (JAX) N=128: 1 GPU=0.89s, 4 GPUs=0.67s, speedup=1.32x
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 160.00 MB
+Argument size: 80.00 MB
+Total size: 240.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.08 seconds
+🔄 Number of iterations: 8
+⏱️ / 🔄 time per iteration: 0.009866503067314625 seconds
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 130.00 MB
+Argument size: 20.00 MB
+Total size: 150.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.04 seconds
+🔄 Number of iterations: 8
+⏱️ / 🔄 time per iteration: 0.004946709144860506 seconds
+[hydro_h100] FD (Pallas) N=128: 1 GPU=0.08s, 4 GPUs=0.04s, speedup=1.99x
+=== Compiled memory usage PER DEVICE ===
+Temp size: 9951.73 MB
+Argument size: 640.00 MB
+Total size: 10591.73 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.74 seconds
+🔄 Number of iterations: 8
+⏱️ / 🔄 time per iteration: 0.09247776120901108 seconds
+=== Compiled memory usage PER DEVICE ===
+Temp size: 2439.49 MB
+Argument size: 160.00 MB
+Total size: 2599.49 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.24 seconds
+🔄 Number of iterations: 8
+⏱️ / 🔄 time per iteration: 0.03026653826236725 seconds
+[hydro_h100] FV (JAX) N=256: 1 GPU=0.74s, 4 GPUs=0.24s, speedup=3.06x
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 5760.02 MB
+Argument size: 640.00 MB
+Total size: 6400.02 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 7.90 seconds
+🔄 Number of iterations: 8
+⏱️ / 🔄 time per iteration: 0.9879884123802185 seconds
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 2136.78 MB
+Argument size: 160.00 MB
+Total size: 2296.78 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 2.10 seconds
+🔄 Number of iterations: 8
+⏱️ / 🔄 time per iteration: 0.2619794011116028 seconds
+[hydro_h100] FD (JAX) N=256: 1 GPU=7.90s, 4 GPUs=2.10s, speedup=3.77x
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 1280.00 MB
+Argument size: 640.00 MB
+Total size: 1920.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.96 seconds
+🔄 Number of iterations: 8
+⏱️ / 🔄 time per iteration: 0.11973027139902115 seconds
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 845.00 MB
+Argument size: 160.00 MB
+Total size: 1005.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.23 seconds
+🔄 Number of iterations: 8
+⏱️ / 🔄 time per iteration: 0.028291460126638412 seconds
+[hydro_h100] FD (Pallas) N=256: 1 GPU=0.96s, 4 GPUs=0.23s, speedup=4.23x
+=== Compiled memory usage PER DEVICE ===
+Temp size: 33485.29 MB
+Argument size: 2160.00 MB
+Total size: 35645.29 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 2.42 seconds
+🔄 Number of iterations: 8
+⏱️ / 🔄 time per iteration: 0.3025352358818054 seconds
+=== Compiled memory usage PER DEVICE ===
+Temp size: 8854.92 MB
+Argument size: 540.00 MB
+Total size: 9394.92 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.78 seconds
+🔄 Number of iterations: 8
+⏱️ / 🔄 time per iteration: 0.09730245918035507 seconds
+[hydro_h100] FV (JAX) N=384: 1 GPU=2.42s, 4 GPUs=0.78s, speedup=3.11x
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 22032.02 MB
+Argument size: 2160.00 MB
+Total size: 24192.02 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 37.96 seconds
+🔄 Number of iterations: 8
+⏱️ / 🔄 time per iteration: 4.744806289672852 seconds
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 7418.28 MB
+Argument size: 540.00 MB
+Total size: 7958.28 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 8.09 seconds
+🔄 Number of iterations: 8
+⏱️ / 🔄 time per iteration: 1.011831521987915 seconds
+[hydro_h100] FD (JAX) N=384: 1 GPU=37.96s, 4 GPUs=8.09s, speedup=4.69x
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 4320.00 MB
+Argument size: 2160.00 MB
+Total size: 6480.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 3.27 seconds
+🔄 Number of iterations: 8
+⏱️ / 🔄 time per iteration: 0.40920719504356384 seconds
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 3330.00 MB
+Argument size: 540.00 MB
+Total size: 3870.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.93 seconds
+🔄 Number of iterations: 8
+⏱️ / 🔄 time per iteration: 0.11616929620504379 seconds
+[hydro_h100] FD (Pallas) N=384: 1 GPU=3.27s, 4 GPUs=0.93s, speedup=3.52x
+=== Compiled memory usage PER DEVICE ===
+Temp size: 79748.43 MB
+Argument size: 5120.00 MB
+Total size: 84868.43 MB
+========================================
+🚀 Starting simulation...
+[hydro_h100] FV (JAX) N=512 on 1 GPU(s) FAILED: JaxRuntimeError('RESOURCE_EXHAUSTED: Out of memory while trying to allocate 77.88GiB.')
+=== Compiled memory usage PER DEVICE ===
+Temp size: 20796.41 MB
+Argument size: 1280.00 MB
+Total size: 22076.41 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 1.77 seconds
+🔄 Number of iterations: 8
+⏱️ / 🔄 time per iteration: 0.22121651470661163 seconds
+[hydro_h100] FV (JAX) N=512: 1 GPU=nans, 4 GPUs=1.77s, speedup=n/a
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 46080.02 MB
+Argument size: 5120.00 MB
+Total size: 51200.02 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 106.97 seconds
+🔄 Number of iterations: 8
+⏱️ / 🔄 time per iteration: 13.370893478393555 seconds
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 17269.04 MB
+Argument size: 1280.00 MB
+Total size: 18549.04 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 23.52 seconds
+🔄 Number of iterations: 8
+⏱️ / 🔄 time per iteration: 2.9393959045410156 seconds
+[hydro_h100] FD (JAX) N=512: 1 GPU=106.97s, 4 GPUs=23.52s, speedup=4.55x
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 10240.00 MB
+Argument size: 5120.00 MB
+Total size: 15360.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 7.79 seconds
+🔄 Number of iterations: 8
+⏱️ / 🔄 time per iteration: 0.9738878607749939 seconds
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 7840.00 MB
+Argument size: 1280.00 MB
+Total size: 9120.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 2.23 seconds
+🔄 Number of iterations: 8
+⏱️ / 🔄 time per iteration: 0.2788262367248535 seconds
+[hydro_h100] FD (Pallas) N=512: 1 GPU=7.79s, 4 GPUs=2.23s, speedup=3.49x
+
+============================= JOB FEEDBACK =============================
+
+Job ID: 4106417
+Cluster: hk
+User/Group: hd_bn306/hk-project-pai00101
+Account: hk-project-pai00101
+State: TIMEOUT (exit code 0)
+Partition: dev_accelerated-h100
+Nodes: 1
+Cores per node: 64
+Nodelist: hkn0909
+CPU Utilized: 00:13:03
+CPU Efficiency: 0.34% of 2-16:25:36 core-walltime
+Job Wall-clock time: 01:00:24
+Starttime: Tue Jun 23 14:24:18 2026
+Endtime: Tue Jun 23 15:24:42 2026
+Memory Utilized: 9.78 GB
+Memory Efficiency: 1.30% of 750.00 GB (750.00 GB/node)
+Energy Consumed: 3680524 Joule / 1022.36777777778 Watthours
+Average node power draw: 1015.59713024283 Watt

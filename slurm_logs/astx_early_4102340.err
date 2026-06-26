@@ -1,0 +1,37 @@
+E0622 07:24:22.727075  151259 ptx_compiler_helpers.cc:157] *** WARNING *** Invoking ptxas with version 12.4.131, which corresponds to a CUDA version <=12.6.2. CUDA versions 12.x.y up to and including 12.6.2 miscompile certain edge cases around clamping.
+Please upgrade to CUDA 12.6.3 or newer.
+E0622 07:28:20.594499  151333 slow_operation_alarm.cc:73] 
+********************************
+[Compiling module jit__time_integration for GPU] Very slow compile? If you want to file a bug, run with envvar XLA_FLAGS=--xla_dump_to=/tmp/foo and attach the results.
+********************************
+E0622 07:28:54.970686  151259 slow_operation_alarm.cc:140] The operation took 2m34.376312711s
+
+********************************
+[Compiling module jit__time_integration for GPU] Very slow compile? If you want to file a bug, run with envvar XLA_FLAGS=--xla_dump_to=/tmp/foo and attach the results.
+********************************
+E0622 07:55:36.585396  165169 ptx_compiler_helpers.cc:157] *** WARNING *** Invoking ptxas with version 12.4.131, which corresponds to a CUDA version <=12.6.2. CUDA versions 12.x.y up to and including 12.6.2 miscompile certain edge cases around clamping.
+Please upgrade to CUDA 12.6.3 or newer.
+W0622 07:56:49.501024  165169 hlo_rematerialization.cc:3233] Can't reduce memory use below 81.61GiB (87626228169 bytes) by rematerialization; only reduced to 83.90GiB (90085828872 bytes), down from 86.96GiB (93370362912 bytes) originally
+W0622 07:57:12.134815  165169 bfc_allocator.cc:502] Allocator (GPU_0_bfc) ran out of memory trying to allocate 77.88GiB (rounded to 83622289152)requested by op 
+If the cause is memory fragmentation maybe the environment variable 'TF_GPU_ALLOCATOR=cuda_malloc_async' will improve the situation. 
+Current allocation summary follows.
+Current allocation summary follows.
+W0622 07:57:12.137472  165169 bfc_allocator.cc:513] ********___________________________________________________________________*********____________****
+W0622 07:58:52.907093  165169 hlo_rematerialization.cc:3233] Can't reduce memory use below 81.61GiB (87626228169 bytes) by rematerialization; only reduced to 110.00GiB (118111601176 bytes), down from 112.00GiB (120259084852 bytes) originally
+W0622 08:05:37.398772  165169 hlo_rematerialization.cc:3233] Can't reduce memory use below 81.76GiB (87787289339 bytes) by rematerialization; only reduced to 103.23GiB (110845786208 bytes), down from 108.31GiB (116298792480 bytes) originally
+W0622 08:06:17.136297  165169 bfc_allocator.cc:502] Allocator (GPU_0_bfc) ran out of memory trying to allocate 81.98GiB (rounded to 88022902272)requested by op 
+If the cause is memory fragmentation maybe the environment variable 'TF_GPU_ALLOCATOR=cuda_malloc_async' will improve the situation. 
+Current allocation summary follows.
+Current allocation summary follows.
+W0622 08:06:17.136630  165169 bfc_allocator.cc:513] __________________***********______________________________________________*****_______*****___*****
+W0622 08:11:04.425002  165169 hlo_rematerialization.cc:3233] Can't reduce memory use below 81.91GiB (87948350717 bytes) by rematerialization; only reduced to 160.25GiB (172067128156 bytes), down from 171.25GiB (183878288340 bytes) originally
+W0622 08:11:23.338901  165169 bfc_allocator.cc:502] Allocator (GPU_0_bfc) ran out of memory trying to allocate 89.25GiB (rounded to 95831481600)requested by op 
+If the cause is memory fragmentation maybe the environment variable 'TF_GPU_ALLOCATOR=cuda_malloc_async' will improve the situation. 
+Current allocation summary follows.
+Current allocation summary follows.
+W0622 08:11:23.339159  165169 bfc_allocator.cc:513] *******___________________________**************___________________________*****________________****
+W0622 08:16:53.111565  165169 bfc_allocator.cc:502] Allocator (GPU_0_bfc) ran out of memory trying to allocate 51.00GiB (rounded to 54760835584)requested by op 
+If the cause is memory fragmentation maybe the environment variable 'TF_GPU_ALLOCATOR=cuda_malloc_async' will improve the situation. 
+Current allocation summary follows.
+Current allocation summary follows.
+W0622 08:16:53.113009  165169 bfc_allocator.cc:513] *******___________________________**************___________________________*****________________****

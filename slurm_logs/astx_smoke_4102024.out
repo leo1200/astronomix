@@ -1,0 +1,290 @@
+=== job 4102024 on hkn0909 ===
+partition: dev_accelerated-h100  nodes: 1  gpus(visible): 0,1,2,3
+GPU 0: NVIDIA H100 (UUID: GPU-84eb54e7-70d4-11eb-0b8a-afaa19cd4aa2)
+GPU 1: NVIDIA H100 (UUID: GPU-1de7caf2-ca30-4d72-bcc6-e0a2c0dd33b6)
+GPU 2: NVIDIA H100 (UUID: GPU-42f3be1d-531f-d806-e2dd-665a79eb66ec)
+GPU 3: NVIDIA H100 (UUID: GPU-65a6bd4f-1777-299c-cc2d-b508ef66cdd9)
+############ (1) multi-GPU Pallas probe ############
+---- probe G=1 ----
+devices: [CudaDevice(id=0)]
+--- 1-GPU reference (Pallas), grid 192x96x96 ---
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+reference ok
+--- 1-GPU sharded (Pallas) ---
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+sharded run ok
+max|ref - sharded| = nan  (rel nan)
+FAIL multi-GPU Pallas sharding
+PROBE G=1 returned nonzero
+---- probe G=2 ----
+devices: [CudaDevice(id=0), CudaDevice(id=1)]
+--- 1-GPU reference (Pallas), grid 192x96x96 ---
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+reference ok
+--- 2-GPU sharded (Pallas) ---
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+sharded run ok
+max|ref - sharded| = nan  (rel nan)
+FAIL multi-GPU Pallas sharding
+PROBE G=2 returned nonzero
+---- probe G=4 ----
+devices: [CudaDevice(id=0), CudaDevice(id=1), CudaDevice(id=2), CudaDevice(id=3)]
+--- 1-GPU reference (Pallas), grid 192x96x96 ---
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+reference ok
+--- 4-GPU sharded (Pallas) ---
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+sharded run ok
+max|ref - sharded| = nan  (rel nan)
+FAIL multi-GPU Pallas sharding
+PROBE G=4 returned nonzero
+############ (2) single-GPU campaign smoke (all setups, tiny N) ############
+
+========== SINGLE-GPU [hydro] (NVIDIA H100) ==========
+=== Compiled memory usage PER DEVICE ===
+Temp size: 156.01 MB
+Argument size: 10.00 MB
+Total size: 166.01 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.01 seconds
+🔄 Number of iterations: 3
+⏱️ / 🔄 time per iteration: 0.004736467730253935 seconds
+[hydro_h100smoke] FV (JAX) N=64 (128x64x64): runtime=0.014s iters=3 temp=156.0MB total=166.0MB
+[results] wrote /hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/scaling_results/single_gpu/hydro_h100smoke_fv_jax.{npz,json}
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 90.01 MB
+Argument size: 10.00 MB
+Total size: 100.01 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.06 seconds
+🔄 Number of iterations: 3
+⏱️ / 🔄 time per iteration: 0.02127424255013466 seconds
+[hydro_h100smoke] FD (JAX) N=64 (128x64x64): runtime=0.064s iters=3 temp=90.0MB total=100.0MB
+[results] wrote /hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/scaling_results/single_gpu/hydro_h100smoke_fd_jax.{npz,json}
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 20.00 MB
+Argument size: 10.00 MB
+Total size: 30.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.01 seconds
+🔄 Number of iterations: 3
+⏱️ / 🔄 time per iteration: 0.002587970346212387 seconds
+[hydro_h100smoke] FD (Pallas) N=64 (128x64x64): runtime=0.008s iters=3 temp=20.0MB total=30.0MB
+[results] wrote /hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/scaling_results/single_gpu/hydro_h100smoke_fd_pallas.{npz,json}
+
+========== SINGLE-GPU [mhd] (NVIDIA H100) ==========
+=== Compiled memory usage PER DEVICE ===
+Temp size: 66.01 MB
+Argument size: 6.75 MB
+Total size: 72.76 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.02 seconds
+🔄 Number of iterations: 3
+⏱️ / 🔄 time per iteration: 0.0053474074229598045 seconds
+[mhd_h100smoke] FV (JAX) N=48 (96x48x48): runtime=0.016s iters=3 temp=66.0MB total=72.8MB
+=== Compiled memory usage PER DEVICE ===
+Temp size: 165.33 MB
+Argument size: 16.00 MB
+Total size: 181.33 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.02 seconds
+🔄 Number of iterations: 3
+⏱️ / 🔄 time per iteration: 0.007049597334116697 seconds
+[mhd_h100smoke] FV (JAX) N=64 (128x64x64): runtime=0.021s iters=3 temp=165.3MB total=181.3MB
+[results] wrote /hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/scaling_results/single_gpu/mhd_h100smoke_fv_jax.{npz,json}
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 77.85 MB
+Argument size: 9.28 MB
+Total size: 87.14 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.06 seconds
+🔄 Number of iterations: 3
+⏱️ / 🔄 time per iteration: 0.018973160535097122 seconds
+[mhd_h100smoke] FD (JAX) N=48 (96x48x48): runtime=0.057s iters=3 temp=77.9MB total=87.1MB
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 184.52 MB
+Argument size: 22.00 MB
+Total size: 206.52 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.11 seconds
+🔄 Number of iterations: 3
+⏱️ / 🔄 time per iteration: 0.03824630752205849 seconds
+[mhd_h100smoke] FD (JAX) N=64 (128x64x64): runtime=0.115s iters=3 temp=184.5MB total=206.5MB
+[results] wrote /hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/scaling_results/single_gpu/mhd_h100smoke_fd_jax.{npz,json}
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 43.88 MB
+Argument size: 9.28 MB
+Total size: 53.16 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.01 seconds
+🔄 Number of iterations: 3
+⏱️ / 🔄 time per iteration: 0.0031051095575094223 seconds
+[mhd_h100smoke] FD (Pallas) N=48 (96x48x48): runtime=0.009s iters=3 temp=43.9MB total=53.2MB
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 104.00 MB
+Argument size: 22.00 MB
+Total size: 126.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.01 seconds
+🔄 Number of iterations: 3
+⏱️ / 🔄 time per iteration: 0.0046520777978003025 seconds
+[mhd_h100smoke] FD (Pallas) N=64 (128x64x64): runtime=0.014s iters=3 temp=104.0MB total=126.0MB
+[results] wrote /hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/scaling_results/single_gpu/mhd_h100smoke_fd_pallas.{npz,json}
+
+========== SINGLE-GPU [selfgrav] (NVIDIA H100) ==========
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 47.27 MB
+Argument size: 4.22 MB
+Total size: 51.48 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.51 seconds
+🔄 Number of iterations: 3
+⏱️ / 🔄 time per iteration: 0.1683729887008667 seconds
+[selfgrav_h100smoke] FD (JAX) N=48 (96x48x48): runtime=0.505s iters=3 temp=47.3MB total=51.5MB
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 104.02 MB
+Argument size: 10.00 MB
+Total size: 114.02 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.13 seconds
+🔄 Number of iterations: 3
+⏱️ / 🔄 time per iteration: 0.044590722769498825 seconds
+[selfgrav_h100smoke] FD (JAX) N=64 (128x64x64): runtime=0.134s iters=3 temp=104.0MB total=114.0MB
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 351.02 MB
+Argument size: 33.75 MB
+Total size: 384.77 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.23 seconds
+🔄 Number of iterations: 3
+⏱️ / 🔄 time per iteration: 0.07560683786869049 seconds
+[selfgrav_h100smoke] FD (JAX) N=96 (192x96x96): runtime=0.227s iters=3 temp=351.0MB total=384.8MB
+[results] wrote /hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/scaling_results/single_gpu/selfgrav_h100smoke_fd_jax.{npz,json}
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 26.16 MB
+Argument size: 4.22 MB
+Total size: 30.38 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.01 seconds
+🔄 Number of iterations: 3
+⏱️ / 🔄 time per iteration: 0.0030533410608768463 seconds
+[selfgrav_h100smoke] FD (Pallas) N=48 (96x48x48): runtime=0.009s iters=3 temp=26.2MB total=30.4MB
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 64.00 MB
+Argument size: 10.00 MB
+Total size: 74.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.01 seconds
+🔄 Number of iterations: 3
+⏱️ / 🔄 time per iteration: 0.003832377027720213 seconds
+[selfgrav_h100smoke] FD (Pallas) N=64 (128x64x64): runtime=0.011s iters=3 temp=64.0MB total=74.0MB
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 216.00 MB
+Argument size: 33.75 MB
+Total size: 249.75 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.02 seconds
+🔄 Number of iterations: 3
+⏱️ / 🔄 time per iteration: 0.0071802157908678055 seconds
+[selfgrav_h100smoke] FD (Pallas) N=96 (192x96x96): runtime=0.022s iters=3 temp=216.0MB total=249.8MB
+[results] wrote /hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/scaling_results/single_gpu/selfgrav_h100smoke_fd_pallas.{npz,json}
+=== Compiled memory usage PER DEVICE ===
+Temp size: 67.03 MB
+Argument size: 4.22 MB
+Total size: 71.25 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.01 seconds
+🔄 Number of iterations: 3
+⏱️ / 🔄 time per iteration: 0.003138687927275896 seconds
+[selfgrav_h100smoke] FV (JAX) N=48 (96x48x48): runtime=0.009s iters=3 temp=67.0MB total=71.3MB
+=== Compiled memory usage PER DEVICE ===
+Temp size: 156.01 MB
+Argument size: 10.00 MB
+Total size: 166.01 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.01 seconds
+🔄 Number of iterations: 3
+⏱️ / 🔄 time per iteration: 0.0037265631835907698 seconds
+[selfgrav_h100smoke] FV (JAX) N=64 (128x64x64): runtime=0.011s iters=3 temp=156.0MB total=166.0MB
+=== Compiled memory usage PER DEVICE ===
+Temp size: 486.07 MB
+Argument size: 33.75 MB
+Total size: 519.82 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.02 seconds
+🔄 Number of iterations: 3
+⏱️ / 🔄 time per iteration: 0.007618585601449013 seconds
+[selfgrav_h100smoke] FV (JAX) N=96 (192x96x96): runtime=0.023s iters=3 temp=486.1MB total=519.8MB
+[results] wrote /hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/scaling_results/single_gpu/selfgrav_h100smoke_fv_jax.{npz,json}
+############ (3) 2-process distributed weak-driver smoke ############
+weak smoke nonzero
+DONE smoke
+
+============================= JOB FEEDBACK =============================
+
+Job ID: 4102024
+Cluster: hk
+User/Group: hd_bn306/hk-project-pai00101
+Account: hk-project-pai00101
+State: COMPLETED (exit code 0)
+Partition: dev_accelerated-h100
+Nodes: 1
+Cores per node: 64
+Nodelist: hkn0909
+CPU Utilized: 00:08:38
+CPU Efficiency: 1.33% of 10:49:36 core-walltime
+Job Wall-clock time: 00:10:09
+Starttime: Sun Jun 21 22:05:38 2026
+Endtime: Sun Jun 21 22:15:47 2026
+Memory Utilized: 2.09 GB
+Memory Efficiency: 0.28% of 750.00 GB (750.00 GB/node)
+Energy Consumed: 509639 Joule / 141.566388888889 Watthours
+Average node power draw: 836.845648604269 Watt

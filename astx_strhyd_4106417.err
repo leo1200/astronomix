@@ -1,0 +1,57 @@
+E0623 14:25:01.072721  859977 ptx_compiler_helpers.cc:157] *** WARNING *** Invoking ptxas with version 12.4.131, which corresponds to a CUDA version <=12.6.2. CUDA versions 12.x.y up to and including 12.6.2 miscompile certain edge cases around clamping.
+Please upgrade to CUDA 12.6.3 or newer.
+W0623 14:25:19.119480  859977 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0623 14:25:43.017140  859977 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0623 14:26:13.630863  859977 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0623 14:26:20.113988  859977 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0623 14:26:31.391371  859977 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0623 14:26:38.890809  859977 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0623 14:26:57.360532  859977 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0623 14:27:17.850946  859977 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0623 14:27:35.216523  859977 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0623 14:27:42.285453  859977 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0623 14:27:54.077540  859977 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0623 14:28:01.702025  859977 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0623 14:28:21.456730  859977 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0623 14:28:42.567355  859977 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0623 14:29:27.901751  859977 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0623 14:29:40.878853  859977 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0623 14:29:55.272593  859977 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0623 14:30:03.645558  859977 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0623 14:30:07.664869  859977 hlo_rematerialization.cc:3233] Can't reduce memory use below 81.61GiB (87626228169 bytes) by rematerialization; only reduced to 83.90GiB (90085828872 bytes), down from 86.96GiB (93370362912 bytes) originally
+W0623 14:30:30.267079  859977 bfc_allocator.cc:502] Allocator (GPU_0_bfc) ran out of memory trying to allocate 77.88GiB (rounded to 83622289152)requested by op 
+If the cause is memory fragmentation maybe the environment variable 'TF_GPU_ALLOCATOR=cuda_malloc_async' will improve the situation. 
+Current allocation summary follows.
+Current allocation summary follows.
+W0623 14:30:30.267306  859977 bfc_allocator.cc:513] ******_________________________________________________________________________*******_____________*
+W0623 14:30:31.581311  859977 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0623 14:30:53.544415  859977 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0623 14:30:56.519884  859977 hlo_rematerialization.cc:3233] Can't reduce memory use below 81.61GiB (87626228169 bytes) by rematerialization; only reduced to 110.00GiB (118111601176 bytes), down from 112.00GiB (120259084852 bytes) originally
+W0623 14:32:48.624629  859977 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0623 14:33:17.070934  859977 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0623 14:33:36.007544  859977 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0623 14:33:45.667966  859977 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0623 14:33:50.034046  859977 hlo_rematerialization.cc:3233] Can't reduce memory use below 81.85GiB (87882080713 bytes) by rematerialization; only reduced to 159.18GiB (170920533928 bytes), down from 169.07GiB (181537879072 bytes) originally
+W0623 14:34:18.171926  859977 bfc_allocator.cc:502] Allocator (GPU_0_bfc) ran out of memory trying to allocate 157.32GiB (rounded to 168922054144)requested by op 
+If the cause is memory fragmentation maybe the environment variable 'TF_GPU_ALLOCATOR=cuda_malloc_async' will improve the situation. 
+Current allocation summary follows.
+Current allocation summary follows.
+W0623 14:34:18.172239  859977 bfc_allocator.cc:513] _____________*************________________________________________________________********____***x_*
+W0623 14:34:19.718694  859977 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0623 14:34:50.820438  860156 bfc_allocator.cc:502] Allocator (GPU_2_bfc) ran out of memory trying to allocate 39.45GiB (rounded to 42354970112)requested by op 
+If the cause is memory fragmentation maybe the environment variable 'TF_GPU_ALLOCATOR=cuda_malloc_async' will improve the situation. 
+Current allocation summary follows.
+Current allocation summary follows.
+W0623 14:34:50.820637  860156 bfc_allocator.cc:513] ___________________________________________________________________________________________*****___*
+W0623 14:34:50.821632  860159 bfc_allocator.cc:502] Allocator (GPU_3_bfc) ran out of memory trying to allocate 39.45GiB (rounded to 42354970112)requested by op 
+If the cause is memory fragmentation maybe the environment variable 'TF_GPU_ALLOCATOR=cuda_malloc_async' will improve the situation. 
+Current allocation summary follows.
+Current allocation summary follows.
+W0623 14:34:50.821838  860159 bfc_allocator.cc:513] ___________________________________________________________________________________________*****___*
+W0623 14:34:50.822941  860153 bfc_allocator.cc:502] Allocator (GPU_1_bfc) ran out of memory trying to allocate 39.45GiB (rounded to 42354970112)requested by op 
+If the cause is memory fragmentation maybe the environment variable 'TF_GPU_ALLOCATOR=cuda_malloc_async' will improve the situation. 
+Current allocation summary follows.
+Current allocation summary follows.
+W0623 14:34:50.823225  860153 bfc_allocator.cc:513] ___________________________________________________________________________________________*****___*
+E0623 14:34:50.824648  860150 rendezvous.cc:116] [id=0] This thread has been waiting for `[0] [rank=0] [run_id=638195219] Acquire clique: devices=4:[0,1,2,3]; is_p2p=false; local_participants=4; incarnations=[]` for 10 seconds and may be stuck. Expected 4 threads to join the rendezvous, but not all of them arrived on time.
+[2026-06-23T15:24:42.027] error: *** JOB 4106417 ON hkn0909 CANCELLED AT 2026-06-23T15:24:42 DUE TO TIME LIMIT ***

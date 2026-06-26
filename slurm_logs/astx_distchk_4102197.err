@@ -1,0 +1,495 @@
+GpuFreq=control_disabled
+GpuFreq=control_disabled
+E0626 10:14:37.060576     831 platform_util.cc:270] Failed to create stream executor for device CUDA:2: CUDA error: Failed call to cuDeviceGet: CUDA_ERROR_INVALID_DEVICE: invalid device ordinal
+E0626 10:14:37.060580     832 platform_util.cc:270] Failed to create stream executor for device CUDA:3: CUDA error: Failed call to cuDeviceGet: CUDA_ERROR_INVALID_DEVICE: invalid device ordinal
+E0626 10:14:37.060654     830 platform_util.cc:270] Failed to create stream executor for device CUDA:1: CUDA error: Failed call to cuDeviceGet: CUDA_ERROR_INVALID_DEVICE: invalid device ordinal
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 812, in backends
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 812, in backends
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 812, in backends
+    backend = _init_backend(platform)
+    backend = _init_backend(platform)
+    backend = _init_backend(platform)
+              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 896, in _init_backend
+              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 896, in _init_backend
+              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 896, in _init_backend
+    backend = registration.factory()
+              ^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 561, in make_pjrt_c_api_client
+    backend = registration.factory()
+    backend = registration.factory()
+              ^^^^^^^^^^^^^^^^^^^^^^
+              ^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 561, in make_pjrt_c_api_client
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 561, in make_pjrt_c_api_client
+    return xla_client.make_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jaxlib/xla_client.py", line 162, in make_c_api_client
+    return xla_client.make_c_api_client(
+    return xla_client.make_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jaxlib/xla_client.py", line 162, in make_c_api_client
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jaxlib/xla_client.py", line 162, in make_c_api_client
+E0626 10:14:37.063041 3731962 platform_util.cc:270] Failed to create stream executor for device CUDA:1: CUDA error: Failed call to cuDeviceGet: CUDA_ERROR_INVALID_DEVICE: invalid device ordinal
+E0626 10:14:37.063037 3731963 platform_util.cc:270] Failed to create stream executor for device CUDA:2: CUDA error: Failed call to cuDeviceGet: CUDA_ERROR_INVALID_DEVICE: invalid device ordinal
+E0626 10:14:37.063044 3731964 platform_util.cc:270] Failed to create stream executor for device CUDA:3: CUDA error: Failed call to cuDeviceGet: CUDA_ERROR_INVALID_DEVICE: invalid device ordinal
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 812, in backends
+    return _xla.get_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^
+jax.errors.JaxRuntimeError: INTERNAL: no supported devices found for platform CUDA
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+Traceback (most recent call last):
+    return _xla.get_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^
+jax.errors.JaxRuntimeError: INTERNAL: no supported devices found for platform CUDA
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/_dist_sanity.py", line 21, in <module>
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 812, in backends
+    return _xla.get_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^
+jax.errors.JaxRuntimeError: INTERNAL: no supported devices found for platform CUDA
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/_dist_sanity.py", line 21, in <module>
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/_dist_sanity.py", line 21, in <module>
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 812, in backends
+    pc = jax.process_count()
+         ^^^^^^^^^^^^^^^^^^^
+    pc = jax.process_count()
+         ^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 1116, in process_count
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 1116, in process_count
+    backend = _init_backend(platform)
+    pc = jax.process_count()
+         ^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 1116, in process_count
+              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 896, in _init_backend
+    gen = (d.process_index for d in devices(backend))
+                                    ^^^^^^^^^^^^^^^^
+    gen = (d.process_index for d in devices(backend))
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 1010, in devices
+                                    ^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 1010, in devices
+    backend = _init_backend(platform)
+    gen = (d.process_index for d in devices(backend))
+                                    ^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 1010, in devices
+    return get_backend(backend).devices()
+    backend = _init_backend(platform)
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 944, in get_backend
+    return get_backend(backend).devices()
+           ^^^^^^^^^^^^^^^^^^^^
+              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 944, in get_backend
+              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 896, in _init_backend
+    return get_backend(backend).devices()
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 896, in _init_backend
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 944, in get_backend
+    backend = registration.factory()
+    return _get_backend_uncached(platform)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 923, in _get_backend_uncached
+              ^^^^^^^^^^^^^^^^^^^^^^
+    return _get_backend_uncached(platform)
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 561, in make_pjrt_c_api_client
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 923, in _get_backend_uncached
+    return _get_backend_uncached(platform)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 923, in _get_backend_uncached
+    bs = backends()
+         ^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 828, in backends
+    bs = backends()
+    backend = registration.factory()
+         ^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 828, in backends
+    backend = registration.factory()
+    return xla_client.make_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jaxlib/xla_client.py", line 162, in make_c_api_client
+              ^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 561, in make_pjrt_c_api_client
+              ^^^^^^^^^^^^^^^^^^^^^^
+    bs = backends()
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 561, in make_pjrt_c_api_client
+         ^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 828, in backends
+    raise RuntimeError(err_msg)
+RuntimeError: Unable to initialize backend 'cuda': INTERNAL: no supported devices found for platform CUDA (you may need to uninstall the failing plugin package, or set JAX_PLATFORMS=cpu to skip this backend.)
+    return xla_client.make_c_api_client(
+    raise RuntimeError(err_msg)
+RuntimeError: Unable to initialize backend 'cuda': INTERNAL: no supported devices found for platform CUDA (you may need to uninstall the failing plugin package, or set JAX_PLATFORMS=cpu to skip this backend.)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jaxlib/xla_client.py", line 162, in make_c_api_client
+    return xla_client.make_c_api_client(
+    raise RuntimeError(err_msg)
+RuntimeError: Unable to initialize backend 'cuda': INTERNAL: no supported devices found for platform CUDA (you may need to uninstall the failing plugin package, or set JAX_PLATFORMS=cpu to skip this backend.)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jaxlib/xla_client.py", line 162, in make_c_api_client
+    return _xla.get_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^
+jax.errors.JaxRuntimeError: INTERNAL: no supported devices found for platform CUDA
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/_dist_sanity.py", line 21, in <module>
+    return _xla.get_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^
+jax.errors.JaxRuntimeError: INTERNAL: no supported devices found for platform CUDA
+
+    return _xla.get_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/_dist_sanity.py", line 21, in <module>
+jax.errors.JaxRuntimeError: INTERNAL: no supported devices found for platform CUDA
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/_dist_sanity.py", line 21, in <module>
+    pc = jax.process_count()
+         ^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 1116, in process_count
+    pc = jax.process_count()
+         ^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 1116, in process_count
+    pc = jax.process_count()
+         ^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 1116, in process_count
+    gen = (d.process_index for d in devices(backend))
+                                    ^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 1010, in devices
+    gen = (d.process_index for d in devices(backend))
+                                    ^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 1010, in devices
+    gen = (d.process_index for d in devices(backend))
+                                    ^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 1010, in devices
+    return get_backend(backend).devices()
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 944, in get_backend
+    return get_backend(backend).devices()
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 944, in get_backend
+    return get_backend(backend).devices()
+    return _get_backend_uncached(platform)
+           ^^^^^^^^^^^^^^^^^^^^
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 923, in _get_backend_uncached
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 944, in get_backend
+    return _get_backend_uncached(platform)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 923, in _get_backend_uncached
+    bs = backends()
+         ^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 828, in backends
+    return _get_backend_uncached(platform)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 923, in _get_backend_uncached
+    bs = backends()
+         ^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 828, in backends
+    raise RuntimeError(err_msg)
+RuntimeError: Unable to initialize backend 'cuda': INTERNAL: no supported devices found for platform CUDA (you may need to uninstall the failing plugin package, or set JAX_PLATFORMS=cpu to skip this backend.)
+    raise RuntimeError(err_msg)
+    bs = backends()
+RuntimeError: Unable to initialize backend 'cuda': INTERNAL: no supported devices found for platform CUDA (you may need to uninstall the failing plugin package, or set JAX_PLATFORMS=cpu to skip this backend.)
+         ^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 828, in backends
+    raise RuntimeError(err_msg)
+RuntimeError: Unable to initialize backend 'cuda': INTERNAL: no supported devices found for platform CUDA (you may need to uninstall the failing plugin package, or set JAX_PLATFORMS=cpu to skip this backend.)
+E0626 10:14:37.289860 3732653 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0626 10:14:37.289985 3732654 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0626 10:14:37.290130 3732655 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 812, in backends
+    backend = _init_backend(platform)
+              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 896, in _init_backend
+    backend = registration.factory()
+              ^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 561, in make_pjrt_c_api_client
+    return xla_client.make_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jaxlib/xla_client.py", line 162, in make_c_api_client
+    return _xla.get_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^
+jax.errors.JaxRuntimeError: INTERNAL: Getting local topologies failed: Error 1: GetKeyValue() timed out with key: cuda:local_topology/cuda/1 and duration: 2m
+
+Error 2: GetKeyValue() timed out with key: cuda:local_topology/cuda/2 and duration: 2m
+
+Error 3: GetKeyValue() timed out with key: cuda:local_topology/cuda/3 and duration: 2m
+
+Error 4: GetKeyValue() timed out with key: cuda:local_topology/cuda/5 and duration: 2m
+
+Error 5: GetKeyValue() timed out with key: cuda:local_topology/cuda/6 and duration: 2m
+
+Error 6: GetKeyValue() timed out with key: cuda:local_topology/cuda/7 and duration: 2m
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/_dist_sanity.py", line 21, in <module>
+    pc = jax.process_count()
+         ^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 1116, in process_count
+    gen = (d.process_index for d in devices(backend))
+                                    ^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 1010, in devices
+    return get_backend(backend).devices()
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 944, in get_backend
+    return _get_backend_uncached(platform)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 923, in _get_backend_uncached
+    bs = backends()
+         ^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 828, in backends
+    raise RuntimeError(err_msg)
+RuntimeError: Unable to initialize backend 'cuda': INTERNAL: Getting local topologies failed: Error 1: GetKeyValue() timed out with key: cuda:local_topology/cuda/1 and duration: 2m
+
+Error 2: GetKeyValue() timed out with key: cuda:local_topology/cuda/2 and duration: 2m
+
+Error 3: GetKeyValue() timed out with key: cuda:local_topology/cuda/3 and duration: 2m
+
+Error 4: GetKeyValue() timed out with key: cuda:local_topology/cuda/5 and duration: 2m
+
+Error 5: GetKeyValue() timed out with key: cuda:local_topology/cuda/6 and duration: 2m
+
+Error 6: GetKeyValue() timed out with key: cuda:local_topology/cuda/7 and duration: 2m (you may need to uninstall the failing plugin package, or set JAX_PLATFORMS=cpu to skip this backend.)
+E0626 10:19:37.161427     844 coordination_service.cc:1653] Shutdown barrier in coordination service has failed:
+DEADLINE_EXCEEDED: Barrier timed out. Id: Shutdown::6891806043096942160::0. This usually happens because a task triggered the barrier too early or too slowly. Please look at the task logs (both timed out and first task) to debug further.
+# of tasks that reached the barrier: 7/8.
+The first task at the barrier: 2. Some timed out task names:
+4
+ [type.googleapis.com/tensorflow.BarrierError='\n\x1dShutdown::6891806043096942160'] [type.googleapis.com/tensorflow.CoordinationServiceError='']
+This suggests that the workers are out of sync. Either at least one worker (a) crashed early due to program error or scheduler events (e.g. preemption, eviction), (b) was too fast in its execution, or (c) too slow / hanging. Check the logs (both the program and scheduler events) for an earlier error to identify the root cause.
+E0626 10:19:37.161454     844 coordination_service.cc:1681] Use error polling to propagate the following error to all tasks: INTERNAL: Shutdown barrier has failed.
+Barrier result: 'DEADLINE_EXCEEDED: Barrier timed out. Id: Shutdown::6891806043096942160::0. This usually happens because a task triggered the barrier too early or too slowly. Please look at the task logs (both timed out and first task) to debug further.
+# of tasks that reached the barrier: 7/8.
+The first task at the barrier: 2. Some timed out task names:
+4
+ [type.googleapis.com/tensorflow.BarrierError='\n\x1dShutdown::6891806043096942160'] [type.googleapis.com/tensorflow.CoordinationServiceError=''] [type.googleapis.com/tensorflow.CoordinationServiceError='']
+E0626 10:19:37.161687     933 coordination_service_agent.cc:281] Polled an error from coordination service (this can be an error from this or another task).
+E0626 10:19:37.161731     935 coordination_service_agent.cc:281] Polled an error from coordination service (this can be an error from this or another task).
+E0626 10:19:37.161819     932 coordination_service_agent.cc:281] Polled an error from coordination service (this can be an error from this or another task).
+E0626 10:19:37.161908     931 coordination_service_agent.cc:281] Polled an error from coordination service (this can be an error from this or another task).
+F0626 10:19:37.162003     935 client.h:80] Terminating process because the JAX distributed service detected fatal errors. This most likely indicates that another task died; see the other task logs for more details. Disable Python buffering, i.e. `python -u`, to be sure to see all the previous output. absl::Status: INTERNAL: Shutdown barrier has failed.
+Barrier result: 'DEADLINE_EXCEEDED: Barrier timed out. Id: Shutdown::6891806043096942160::0. This usually happens because a task triggered the barrier too early or too slowly. Please look at the task logs (both timed out and first task) to debug further.
+# of tasks that reached the barrier: 7/8.
+The first task at the barrier: 2. Some timed out task names:
+4
+ [type.googleapis.com/tensorflow.BarrierError='\n\x1dShutdown::6891806043096942160'] [type.googleapis.com/tensorflow.CoordinationServiceError='']
+
+RPC: /tensorflow.CoordinationService/PollForError [type.googleapis.com/tensorflow.CoordinationServiceError='']
+F0626 10:19:37.161994     933 client.h:80] Terminating process because the JAX distributed service detected fatal errors. This most likely indicates that another task died; see the other task logs for more details. Disable Python buffering, i.e. `python -u`, to be sure to see all the previous output. absl::Status: INTERNAL: Shutdown barrier has failed.
+Barrier result: 'DEADLINE_EXCEEDED: Barrier timed out. Id: Shutdown::6891806043096942160::0. This usually happens because a task triggered the barrier too early or too slowly. Please look at the task logs (both timed out and first task) to debug further.
+# of tasks that reached the barrier: 7/8.
+The first task at the barrier: 2. Some timed out task names:
+4
+ [type.googleapis.com/tensorflow.BarrierError='\n\x1dShutdown::6891806043096942160'] [type.googleapis.com/tensorflow.CoordinationServiceError='']
+
+RPC: /tensorflow.CoordinationService/PollForError [type.googleapis.com/tensorflow.CoordinationServiceError='']
+E0626 10:19:37.161997 3732065 coordination_service_agent.cc:281] Polled an error from coordination service (this can be an error from this or another task).
+F0626 10:19:37.161994     932 client.h:80] Terminating process because the JAX distributed service detected fatal errors. This most likely indicates that another task died; see the other task logs for more details. Disable Python buffering, i.e. `python -u`, to be sure to see all the previous output. absl::Status: INTERNAL: Shutdown barrier has failed.
+Barrier result: 'DEADLINE_EXCEEDED: Barrier timed out. Id: Shutdown::6891806043096942160::0. This usually happens because a task triggered the barrier too early or too slowly. Please look at the task logs (both timed out and first task) to debug further.
+# of tasks that reached the barrier: 7/8.
+The first task at the barrier: 2. Some timed out task names:
+4
+ [type.googleapis.com/tensorflow.BarrierError='\n\x1dShutdown::6891806043096942160'] [type.googleapis.com/tensorflow.CoordinationServiceError='']
+
+RPC: /tensorflow.CoordinationService/PollForError [type.googleapis.com/tensorflow.CoordinationServiceError='']
+E0626 10:19:37.162050 3732063 coordination_service_agent.cc:281] Polled an error from coordination service (this can be an error from this or another task).
+F0626 10:19:37.162024     931 client.h:80] Terminating process because the JAX distributed service detected fatal errors. This most likely indicates that another task died; see the other task logs for more details. Disable Python buffering, i.e. `python -u`, to be sure to see all the previous output. absl::Status: INTERNAL: Shutdown barrier has failed.
+Barrier result: 'DEADLINE_EXCEEDED: Barrier timed out. Id: Shutdown::6891806043096942160::0. This usually happens because a task triggered the barrier too early or too slowly. Please look at the task logs (both timed out and first task) to debug further.
+# of tasks that reached the barrier: 7/8.
+The first task at the barrier: 2. Some timed out task names:
+4
+ [type.googleapis.com/tensorflow.BarrierError='\n\x1dShutdown::6891806043096942160'] [type.googleapis.com/tensorflow.CoordinationServiceError='']
+
+RPC: /tensorflow.CoordinationService/PollForError [type.googleapis.com/tensorflow.CoordinationServiceError='']
+E0626 10:19:37.162057 3732064 coordination_service_agent.cc:281] Polled an error from coordination service (this can be an error from this or another task).
+E0626 10:19:37.162067 3732066 coordination_service_agent.cc:281] Polled an error from coordination service (this can be an error from this or another task).
+F0626 10:19:37.162380 3732063 client.h:80] Terminating process because the JAX distributed service detected fatal errors. This most likely indicates that another task died; see the other task logs for more details. Disable Python buffering, i.e. `python -u`, to be sure to see all the previous output. absl::Status: INTERNAL: Shutdown barrier has failed.
+Barrier result: 'DEADLINE_EXCEEDED: Barrier timed out. Id: Shutdown::6891806043096942160::0. This usually happens because a task triggered the barrier too early or too slowly. Please look at the task logs (both timed out and first task) to debug further.
+# of tasks that reached the barrier: 7/8.
+The first task at the barrier: 2. Some timed out task names:
+4
+ [type.googleapis.com/tensorflow.BarrierError='\n\x1dShutdown::6891806043096942160'] [type.googleapis.com/tensorflow.CoordinationServiceError='']
+
+RPC: /tensorflow.CoordinationService/PollForError [type.googleapis.com/tensorflow.CoordinationServiceError='']
+F0626 10:19:37.162373 3732065 client.h:80] Terminating process because the JAX distributed service detected fatal errors. This most likely indicates that another task died; see the other task logs for more details. Disable Python buffering, i.e. `python -u`, to be sure to see all the previous output. absl::Status: INTERNAL: Shutdown barrier has failed.
+Barrier result: 'DEADLINE_EXCEEDED: Barrier timed out. Id: Shutdown::6891806043096942160::0. This usually happens because a task triggered the barrier too early or too slowly. Please look at the task logs (both timed out and first task) to debug further.
+# of tasks that reached the barrier: 7/8.
+The first task at the barrier: 2. Some timed out task names:
+4
+ [type.googleapis.com/tensorflow.BarrierError='\n\x1dShutdown::6891806043096942160'] [type.googleapis.com/tensorflow.CoordinationServiceError='']
+
+RPC: /tensorflow.CoordinationService/PollForError [type.googleapis.com/tensorflow.CoordinationServiceError='']
+F0626 10:19:37.162376 3732066 client.h:80] Terminating process because the JAX distributed service detected fatal errors. This most likely indicates that another task died; see the other task logs for more details. Disable Python buffering, i.e. `python -u`, to be sure to see all the previous output. absl::Status: INTERNAL: Shutdown barrier has failed.
+Barrier result: 'DEADLINE_EXCEEDED: Barrier timed out. Id: Shutdown::6891806043096942160::0. This usually happens because a task triggered the barrier too early or too slowly. Please look at the task logs (both timed out and first task) to debug further.
+# of tasks that reached the barrier: 7/8.
+The first task at the barrier: 2. Some timed out task names:
+4
+ [type.googleapis.com/tensorflow.BarrierError='\n\x1dShutdown::6891806043096942160'] [type.googleapis.com/tensorflow.CoordinationServiceError='']
+
+RPC: /tensorflow.CoordinationService/PollForError [type.googleapis.com/tensorflow.CoordinationServiceError='']
+F0626 10:19:37.162385 3732064 client.h:80] Terminating process because the JAX distributed service detected fatal errors. This most likely indicates that another task died; see the other task logs for more details. Disable Python buffering, i.e. `python -u`, to be sure to see all the previous output. absl::Status: INTERNAL: Shutdown barrier has failed.
+Barrier result: 'DEADLINE_EXCEEDED: Barrier timed out. Id: Shutdown::6891806043096942160::0. This usually happens because a task triggered the barrier too early or too slowly. Please look at the task logs (both timed out and first task) to debug further.
+# of tasks that reached the barrier: 7/8.
+The first task at the barrier: 2. Some timed out task names:
+4
+ [type.googleapis.com/tensorflow.BarrierError='\n\x1dShutdown::6891806043096942160'] [type.googleapis.com/tensorflow.CoordinationServiceError='']
+
+RPC: /tensorflow.CoordinationService/PollForError [type.googleapis.com/tensorflow.CoordinationServiceError='']
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 812, in backends
+    backend = _init_backend(platform)
+              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 896, in _init_backend
+    backend = registration.factory()
+              ^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 561, in make_pjrt_c_api_client
+    return xla_client.make_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jaxlib/xla_client.py", line 162, in make_c_api_client
+    return _xla.get_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^
+jax.errors.JaxRuntimeError: DEADLINE_EXCEEDED: GetKeyValue() timed out with key: cuda:global_topology/cuda and duration: 5m
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/_dist_sanity.py", line 21, in <module>
+    pc = jax.process_count()
+         ^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 1116, in process_count
+    gen = (d.process_index for d in devices(backend))
+                                    ^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 1010, in devices
+    return get_backend(backend).devices()
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 944, in get_backend
+    return _get_backend_uncached(platform)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 923, in _get_backend_uncached
+    bs = backends()
+         ^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 828, in backends
+    raise RuntimeError(err_msg)
+RuntimeError: Unable to initialize backend 'cuda': DEADLINE_EXCEEDED: GetKeyValue() timed out with key: cuda:global_topology/cuda and duration: 5m (you may need to uninstall the failing plugin package, or set JAX_PLATFORMS=cpu to skip this backend.)
+*** Check failure stack trace: ***
+    @     0x14d785cd9464  absl::lts_20250814::log_internal::LogMessage::SendToLog()
+    @     0x14d785cd93e6  absl::lts_20250814::log_internal::LogMessage::Flush()
+    @     0x14d785d30a3e  std::_Function_handler<>::_M_invoke()
+    @     0x14d7825199d5  std::_Function_handler<>::_M_invoke()
+    @     0x14d782533e31  xla::CoordinationServiceAgent::SetError()
+    @     0x14d78253db8b  std::_Function_handler<>::_M_invoke()
+    @     0x14d78251ebe4  tsl::RPCState<>::OnCompleted()
+    @     0x14d78251cf29  absl::lts_20250814::internal_any_invocable::LocalInvoker<>()
+    @     0x14d785b549af  tsl::(anonymous namespace)::PThread::ThreadFn()
+    @     0x14d79aa89c0a  start_thread
+*** Check failure stack trace: ***
+    @     0x149484ed9464  absl::lts_20250814::log_internal::LogMessage::SendToLog()
+    @     0x149484ed93e6  absl::lts_20250814::log_internal::LogMessage::Flush()
+    @     0x149484f30a3e  std::_Function_handler<>::_M_invoke()
+    @     0x1494817199d5  std::_Function_handler<>::_M_invoke()
+    @     0x149481733e31  xla::CoordinationServiceAgent::SetError()
+    @     0x14948173db8b  std::_Function_handler<>::_M_invoke()
+    @     0x14948171ebe4  tsl::RPCState<>::OnCompleted()
+    @     0x14948171cf29  absl::lts_20250814::internal_any_invocable::LocalInvoker<>()
+    @     0x149484d549af  tsl::(anonymous namespace)::PThread::ThreadFn()
+    @     0x149499c89c0a  start_thread
+*** Check failure stack trace: ***
+    @     0x1512d39ac464  absl::lts_20250814::log_internal::LogMessage::SendToLog()
+    @     0x1512d39ac3e6  absl::lts_20250814::log_internal::LogMessage::Flush()
+    @     0x1512d3a03a3e  std::_Function_handler<>::_M_invoke()
+    @     0x1512d01ec9d5  std::_Function_handler<>::_M_invoke()
+    @     0x1512d0206e31  xla::CoordinationServiceAgent::SetError()
+    @     0x1512d0210b8b  std::_Function_handler<>::_M_invoke()
+    @     0x1512d01f1be4  tsl::RPCState<>::OnCompleted()
+    @     0x1512d01eff29  absl::lts_20250814::internal_any_invocable::LocalInvoker<>()
+    @     0x1512d38279af  tsl::(anonymous namespace)::PThread::ThreadFn()
+    @     0x1512e8889c0a  start_thread
+*** Check failure stack trace: ***
+    @     0x150e990d9464  absl::lts_20250814::log_internal::LogMessage::SendToLog()
+    @     0x150e990d93e6  absl::lts_20250814::log_internal::LogMessage::Flush()
+    @     0x150e99130a3e  std::_Function_handler<>::_M_invoke()
+    @     0x150e959199d5  std::_Function_handler<>::_M_invoke()
+    @     0x150e95933e31  xla::CoordinationServiceAgent::SetError()
+    @     0x150e9593db8b  std::_Function_handler<>::_M_invoke()
+    @     0x150e9591ebe4  tsl::RPCState<>::OnCompleted()
+    @     0x150e9591cf29  absl::lts_20250814::internal_any_invocable::LocalInvoker<>()
+    @     0x150e98f549af  tsl::(anonymous namespace)::PThread::ThreadFn()
+    @     0x150eade89c0a  start_thread
+*** Check failure stack trace: ***
+    @     0x14f494ed9464  absl::lts_20250814::log_internal::LogMessage::SendToLog()
+    @     0x14f494ed93e6  absl::lts_20250814::log_internal::LogMessage::Flush()
+    @     0x14f494f30a3e  std::_Function_handler<>::_M_invoke()
+    @     0x14f4917199d5  std::_Function_handler<>::_M_invoke()
+    @     0x14f491733e31  xla::CoordinationServiceAgent::SetError()
+    @     0x14f49173db8b  std::_Function_handler<>::_M_invoke()
+    @     0x14f49171ebe4  tsl::RPCState<>::OnCompleted()
+    @     0x14f49171cf29  absl::lts_20250814::internal_any_invocable::LocalInvoker<>()
+    @     0x14f494d549af  tsl::(anonymous namespace)::PThread::ThreadFn()
+    @     0x14f4a9c89c0a  start_thread
+*** Check failure stack trace: ***
+    @     0x1468400d9464  absl::lts_20250814::log_internal::LogMessage::SendToLog()
+    @     0x1468400d93e6  absl::lts_20250814::log_internal::LogMessage::Flush()
+    @     0x146840130a3e  std::_Function_handler<>::_M_invoke()
+    @     0x14683c9199d5  std::_Function_handler<>::_M_invoke()
+    @     0x14683c933e31  xla::CoordinationServiceAgent::SetError()
+    @     0x14683c93db8b  std::_Function_handler<>::_M_invoke()
+    @     0x14683c91ebe4  tsl::RPCState<>::OnCompleted()
+    @     0x14683c91cf29  absl::lts_20250814::internal_any_invocable::LocalInvoker<>()
+    @     0x14683ff549af  tsl::(anonymous namespace)::PThread::ThreadFn()
+    @     0x146854e89c0a  start_thread
+*** Check failure stack trace: ***
+    @     0x14d6f8ad9464  absl::lts_20250814::log_internal::LogMessage::SendToLog()
+    @     0x14d6f8ad93e6  absl::lts_20250814::log_internal::LogMessage::Flush()
+    @     0x14d6f8b30a3e  std::_Function_handler<>::_M_invoke()
+    @     0x14d6f53199d5  std::_Function_handler<>::_M_invoke()
+    @     0x14d6f5333e31  xla::CoordinationServiceAgent::SetError()
+    @     0x14d6f533db8b  std::_Function_handler<>::_M_invoke()
+    @     0x14d6f531ebe4  tsl::RPCState<>::OnCompleted()
+    @     0x14d6f531cf29  absl::lts_20250814::internal_any_invocable::LocalInvoker<>()
+    @     0x14d6f89549af  tsl::(anonymous namespace)::PThread::ThreadFn()
+    @     0x14d70d889c0a  start_thread
+*** Check failure stack trace: ***
+    @     0x14b291dd9464  absl::lts_20250814::log_internal::LogMessage::SendToLog()
+    @     0x14b291dd93e6  absl::lts_20250814::log_internal::LogMessage::Flush()
+    @     0x14b291e30a3e  std::_Function_handler<>::_M_invoke()
+    @     0x14b28e6199d5  std::_Function_handler<>::_M_invoke()
+    @     0x14b28e633e31  xla::CoordinationServiceAgent::SetError()
+    @     0x14b28e63db8b  std::_Function_handler<>::_M_invoke()
+    @     0x14b28e61ebe4  tsl::RPCState<>::OnCompleted()
+    @     0x14b28e61cf29  absl::lts_20250814::internal_any_invocable::LocalInvoker<>()
+    @     0x14b291c549af  tsl::(anonymous namespace)::PThread::ThreadFn()
+    @     0x14b2a6c89c0a  start_thread
+srun: error: hkn0922: tasks 5-7: Aborted (core dumped)
+srun: error: hkn0922: task 4: Aborted (core dumped)
+srun: error: hkn0919: tasks 0-3: Aborted (core dumped)

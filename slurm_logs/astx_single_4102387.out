@@ -1,0 +1,25 @@
+=== job 4102387 on hkn1970 ===
+partition: accelerated-h200-8  nodes: 1  gpus(visible): 0
+GPU 0: NVIDIA H200 (UUID: GPU-cab6d43f-b768-4d68-7c5d-f7f7ef345ae2)
+############ Phase 2: pallas_block_shape sweep (hydro, FD Pallas) ############
+
+============================= JOB FEEDBACK =============================
+
+Job ID: 4102387
+Cluster: hk
+User/Group: hd_bn306/hk-project-pai00101
+Account: hk-project-pai00101
+State: TIMEOUT (exit code 0)
+Partition: accelerated-h200-8
+Nodes: 1
+Cores per node: 12
+Nodelist: hkn1970
+CPU Utilized: 00:39:25
+CPU Efficiency: 8.16% of 08:03:00 core-walltime
+Job Wall-clock time: 00:40:15
+Starttime: Wed Jun 24 16:53:57 2026
+Endtime: Wed Jun 24 17:34:12 2026
+Memory Utilized: 5.10 GB
+Memory Efficiency: 2.03% of 251.46 GB (251.46 GB/node)
+Energy Consumed: 5982153 Joule / 1661.70916666667 Watthours
+Average node power draw: 2477.08198757764 Watt

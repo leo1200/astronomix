@@ -23,5 +23,7 @@ echo "==== weak rung G=8 on 2 H100 nodes (per-GPU ${BX}x${BY}x${BZ}, global $((B
 srun --ntasks=8 --ntasks-per-node=4 --gpus-per-task=1 \
   python pytests/weak_scaling_hydro.py --bx $BX --by $BY --bz $BZ \
     --steps $STEPS --dt $DT --block-shape $BLK --tag h100
+rc=$?
 stop_gpu_logger
-echo "DONE weak_h100_2node"
+echo "DONE weak_h100_2node rc=$rc"
+exit $rc

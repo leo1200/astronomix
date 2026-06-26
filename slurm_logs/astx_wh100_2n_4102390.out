@@ -1,0 +1,30 @@
+=== job 4102390 on hkn[0915,0919] ===
+partition: accelerated-h100  nodes: 2  gpus(visible): 0,1,2,3
+GPU 0: NVIDIA H100 (UUID: GPU-34caee3f-e9da-4278-4887-ae420e196e19)
+GPU 1: NVIDIA H100 (UUID: GPU-3f0b9360-e603-811d-1825-be1417fff39a)
+GPU 2: NVIDIA H100 (UUID: GPU-35f9beae-7902-27ad-2b0a-359ff6b6dbbe)
+GPU 3: NVIDIA H100 (UUID: GPU-33e465bc-f5be-d3b7-cfc1-5ab1e6074e44)
+==== weak rung G=8 on 2 H100 nodes (per-GPU 128x2048x2048, global 1024x2048x2048) ====
+DONE weak_h100_2node
+
+============================= JOB FEEDBACK =============================
+
+Job ID: 4102390
+Cluster: hk
+User/Group: hd_bn306/hk-project-pai00101
+Account: hk-project-pai00101
+State: COMPLETED (exit code 0)
+Partition: accelerated-h100
+Nodes: 2
+Cores per node: 64
+Nodelist: hkn[0915,0919]
+CPU Utilized: 00:00:01
+CPU Efficiency: 0.00% of 12:24:32 core-walltime
+Job Wall-clock time: 00:05:49
+Starttime: Fri Jun 26 10:20:21 2026
+Endtime: Fri Jun 26 10:26:10 2026
+Memory Utilized: 2.31 GB
+Memory Efficiency: 0.15% of 1.46 TB (750.00 GB/node)
+The task which had the largest memory consumption differs by 126.86% from the average task max memory consumption
+Energy Consumed: 834663 Joule / 231.850833333333 Watthours
+Average node power draw: 2391.58452722063 Watt

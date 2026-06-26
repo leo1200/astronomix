@@ -9,6 +9,8 @@ package-lock.json
 
 CLAUDE.md
 
+HOREKA.md
+
 arena/results/*/data
 
 tests/finite_difference/turb_frames

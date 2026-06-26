@@ -79,11 +79,25 @@ def init_distributed(verbose: bool = True) -> DistInfo:
 
     if _looks_distributed() and not _INITIALIZED:
         try:
-            # No arguments: Slurm / Open-MPI auto-detection (JAX >= 0.4).
-            jax.distributed.initialize()
+            # Slurm / Open-MPI auto-detection (JAX >= 0.4) for coordinator,
+            # process count and id.  HoreKa does NOT constrain
+            # CUDA_VISIBLE_DEVICES per task, so every rank sees all node GPUs;
+            # pin each process to the GPU matching its node-local rank, else
+            # each rank claims all of them -> "invalid device ordinal" and a
+            # topology-gather deadlock.
+            local_id_env = os.environ.get("SLURM_LOCALID") or os.environ.get(
+                "OMPI_COMM_WORLD_LOCAL_RANK"
+            )
+            if local_id_env is not None:
+                jax.distributed.initialize(local_device_ids=[int(local_id_env)])
+            else:
+                jax.distributed.initialize()
         except (RuntimeError, ValueError) as exc:
-            # Already initialised by the driver -> not an error.
-            if "already" not in str(exc).lower():
+            # Already initialised by the driver -> not an error.  JAX phrases
+            # this as "already initialized" or "must be called only once"
+            # depending on version, so match both.
+            msg = str(exc).lower()
+            if "already" not in msg and "once" not in msg:
                 raise
         _INITIALIZED = True
 

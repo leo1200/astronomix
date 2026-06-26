@@ -1,0 +1,61 @@
+=== job 4102196 on hkn0909 ===
+partition: dev_accelerated-h100  nodes: 1  gpus(visible): 0,1,2,3
+GPU 0: NVIDIA H100 (UUID: GPU-84eb54e7-70d4-11eb-0b8a-afaa19cd4aa2)
+GPU 1: NVIDIA H100 (UUID: GPU-1de7caf2-ca30-4d72-bcc6-e0a2c0dd33b6)
+GPU 2: NVIDIA H100 (UUID: GPU-42f3be1d-531f-d806-e2dd-665a79eb66ec)
+GPU 3: NVIDIA H100 (UUID: GPU-65a6bd4f-1777-299c-cc2d-b508ef66cdd9)
+############ probe G=1 (jax 0.9.2) ############
+devices: [CudaDevice(id=0)]
+--- 1-GPU reference (Pallas), grid 192x96x96 ---
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+reference ok
+--- 1-GPU sharded (Pallas) ---
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+sharded run ok
+max|ref - sharded| = nan  (rel nan)
+FAIL multi-GPU Pallas sharding
+PROBE G=1 nonzero
+############ probe G=2 (jax 0.9.2) ############
+devices: [CudaDevice(id=0), CudaDevice(id=1)]
+--- 1-GPU reference (Pallas), grid 192x96x96 ---
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+reference ok
+--- 2-GPU sharded (Pallas) ---
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+sharded run ok
+max|ref - sharded| = nan  (rel nan)
+FAIL multi-GPU Pallas sharding
+PROBE G=2 nonzero
+############ probe G=4 (jax 0.9.2) ############
+devices: [CudaDevice(id=0), CudaDevice(id=1), CudaDevice(id=2), CudaDevice(id=3)]
+--- 1-GPU reference (Pallas), grid 192x96x96 ---
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+reference ok
+--- 4-GPU sharded (Pallas) ---
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+sharded run ok
+max|ref - sharded| = nan  (rel nan)
+FAIL multi-GPU Pallas sharding
+PROBE G=4 nonzero
+DONE probe09
+
+============================= JOB FEEDBACK =============================
+
+Job ID: 4102196
+Cluster: hk
+User/Group: hd_bn306/hk-project-pai00101
+Account: hk-project-pai00101
+State: COMPLETED (exit code 0)
+Partition: dev_accelerated-h100
+Nodes: 1
+Cores per node: 64
+Nodelist: hkn0909
+CPU Utilized: 00:01:35
+CPU Efficiency: 1.14% of 02:18:40 core-walltime
+Job Wall-clock time: 00:02:10
+Starttime: Mon Jun 22 03:21:56 2026
+Endtime: Mon Jun 22 03:24:06 2026
+Memory Utilized: 1.25 GB
+Memory Efficiency: 0.17% of 750.00 GB (750.00 GB/node)
+Energy Consumed: 84328 Joule / 23.4244444444444 Watthours
+Average node power draw: 648.676923076923 Watt

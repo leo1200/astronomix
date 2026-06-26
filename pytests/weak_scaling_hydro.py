@@ -62,13 +62,24 @@ if not _multi and args.gpus > 0:
 # Bootstrap distributed mode first (raw jax, no astronomix import yet).
 import jax  # noqa: E402
 
-# JAX 0.10: GSPMD partitioner (see note in scaling_campaign.py).  Set before any
-# computation / distributed init.
-jax.config.update("jax_use_shardy_partitioner", False)
-
+# CRITICAL: jax.distributed.initialize() must run before ANYTHING touches the
+# backend, otherwise each process eagerly grabs all local GPUs (invalid device
+# ordinal -> 5-min topology-gather deadlock).  Even jax.config.update() can
+# trigger backend init, so do the rendezvous FIRST and configure afterwards.
+# (The GSPMD/Shardy choice is already set via JAX_USE_SHARDY_PARTITIONER in
+# _env.sh, so no pre-init config.update is needed here.)
+#
+# HoreKa does NOT constrain CUDA_VISIBLE_DEVICES per task (--gpus-per-task=1 is
+# not enforced via cgroup), so every rank sees all 4 node GPUs.  Bare
+# initialize() then makes each rank claim all 4 -> "invalid device ordinal".
+# Pin each process to exactly the GPU matching its node-local rank.
 if _multi:
-    jax.distributed.initialize()  # Slurm auto-detect, one GPU per process
+    _local_id = int(os.environ.get("SLURM_LOCALID", "0"))
+    jax.distributed.initialize(local_device_ids=[_local_id])
 
+# JAX 0.10: GSPMD partitioner (redundant with the env var, but explicit). Safe
+# to set now that the backend has been initialized distributed-aware.
+jax.config.update("jax_use_shardy_partitioner", False)
 jax.config.update("jax_enable_x64", False)  # fp32
 
 # Now safe to import astronomix.

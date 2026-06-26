@@ -16,4 +16,6 @@ REPO="/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix"
 source "$REPO/pytests/runners/_env.sh"
 cd "$REPO"
 srun --ntasks=8 --ntasks-per-node=4 --gpus-per-task=1 python pytests/_dist_sanity.py
-echo "DONE dist_sanity"
+rc=$?
+echo "DONE dist_sanity rc=$rc"
+exit $rc

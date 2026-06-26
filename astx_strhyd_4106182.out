@@ -1,0 +1,28 @@
+=== job 4106182 on hkn0909 ===
+partition: dev_accelerated-h100  nodes: 1  gpus(visible): 0,1,2,3
+GPU 0: NVIDIA H100 (UUID: GPU-84eb54e7-70d4-11eb-0b8a-afaa19cd4aa2)
+GPU 1: NVIDIA H100 (UUID: GPU-1de7caf2-ca30-4d72-bcc6-e0a2c0dd33b6)
+GPU 2: NVIDIA H100 (UUID: GPU-42f3be1d-531f-d806-e2dd-665a79eb66ec)
+GPU 3: NVIDIA H100 (UUID: GPU-65a6bd4f-1777-299c-cc2d-b508ef66cdd9)
+############ STRONG scaling 1-vs-4 (H100, hydro, full ladder) ############
+
+============================= JOB FEEDBACK =============================
+
+Job ID: 4106182
+Cluster: hk
+User/Group: hd_bn306/hk-project-pai00101
+Account: hk-project-pai00101
+State: TIMEOUT (exit code 0)
+Partition: dev_accelerated-h100
+Nodes: 1
+Cores per node: 64
+Nodelist: hkn0909
+CPU Utilized: 00:04:35
+CPU Efficiency: 0.12% of 2-16:23:28 core-walltime
+Job Wall-clock time: 01:00:22
+Starttime: Tue Jun 23 12:21:14 2026
+Endtime: Tue Jun 23 13:21:36 2026
+Memory Utilized: 9.93 GB
+Memory Efficiency: 1.32% of 750.00 GB (750.00 GB/node)
+Energy Consumed: 3579677 Joule / 994.354722222222 Watthours
+Average node power draw: 988.315019326339 Watt

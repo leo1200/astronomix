@@ -1,0 +1,130 @@
+E0621 22:06:27.718674 4163922 ptx_compiler_helpers.cc:157] *** WARNING *** Invoking ptxas with version 12.4.131, which corresponds to a CUDA version <=12.6.2. CUDA versions 12.x.y up to and including 12.6.2 miscompile certain edge cases around clamping.
+Please upgrade to CUDA 12.6.3 or newer.
+E0621 22:07:02.319141 4164377 ptx_compiler_helpers.cc:157] *** WARNING *** Invoking ptxas with version 12.4.131, which corresponds to a CUDA version <=12.6.2. CUDA versions 12.x.y up to and including 12.6.2 miscompile certain edge cases around clamping.
+Please upgrade to CUDA 12.6.3 or newer.
+W0621 22:07:14.831619 4164377 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0621 22:07:15.737623 4164377 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+E0621 22:07:33.521273 4164848 ptx_compiler_helpers.cc:157] *** WARNING *** Invoking ptxas with version 12.4.131, which corresponds to a CUDA version <=12.6.2. CUDA versions 12.x.y up to and including 12.6.2 miscompile certain edge cases around clamping.
+Please upgrade to CUDA 12.6.3 or newer.
+W0621 22:07:45.955685 4164848 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0621 22:07:46.865270 4164848 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+E0621 22:08:02.381680 4165392 ptx_compiler_helpers.cc:157] *** WARNING *** Invoking ptxas with version 12.4.131, which corresponds to a CUDA version <=12.6.2. CUDA versions 12.x.y up to and including 12.6.2 miscompile certain edge cases around clamping.
+Please upgrade to CUDA 12.6.3 or newer.
+/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/test_setups/self_gravity/jeans_waves.py:7: SyntaxWarning: invalid escape sequence '\e'
+  \rho = \rho_B + \rho_B \eps sin(kx - wt)
+GpuFreq=control_disabled
+E0621 22:13:46.149968 4168148 platform_util.cc:270] Failed to create stream executor for device CUDA:1: CUDA error: Failed call to cuDeviceGet: CUDA_ERROR_INVALID_DEVICE: invalid device ordinal
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrocu12/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 812, in backends
+    backend = _init_backend(platform)
+              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrocu12/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 896, in _init_backend
+    backend = registration.factory()
+              ^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrocu12/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 561, in make_pjrt_c_api_client
+    return xla_client.make_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrocu12/lib/python3.12/site-packages/jaxlib/xla_client.py", line 158, in make_c_api_client
+    return _xla.get_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^
+jax.errors.JaxRuntimeError: INTERNAL: no supported devices found for platform CUDA
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/weak_scaling_hydro.py", line 62, in <module>
+    from astronomix.parallel.distributed import init_distributed  # noqa: E402
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/__init__.py", line 2, in <module>
+    from astronomix.option_classes.simulation_config import SimulationConfig
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/option_classes/__init__.py", line 2, in <module>
+    from astronomix.option_classes.simulation_config import SimulationConfig
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/option_classes/simulation_config.py", line 10, in <module>
+    from astronomix._modules._cooling.cooling_options import CoolingConfig
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/_modules/_cooling/cooling_options.py", line 22, in <module>
+    class PiecewisePowerLawParams(NamedTuple):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/_modules/_cooling/cooling_options.py", line 23, in PiecewisePowerLawParams
+    log10_T_table: jnp.ndarray = jnp.array([])
+                                 ^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrocu12/lib/python3.12/site-packages/jax/_src/numpy/array_constructors.py", line 312, in array
+    out_array: Array = lax._convert_element_type(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrocu12/lib/python3.12/site-packages/jax/_src/lax/lax.py", line 1701, in _convert_element_type
+    return convert_element_type_p.bind(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrocu12/lib/python3.12/site-packages/jax/_src/core.py", line 660, in bind
+    return self.bind_with_trace(prev_trace, args, avals, params)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrocu12/lib/python3.12/site-packages/jax/_src/lax/lax.py", line 5126, in _convert_element_type_bind_with_trace
+    operand = core.Primitive.bind_with_trace(convert_element_type_p, trace, args,
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrocu12/lib/python3.12/site-packages/jax/_src/core.py", line 668, in bind_with_trace
+    return trace.process_primitive(self, args, params)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrocu12/lib/python3.12/site-packages/jax/_src/core.py", line 1220, in process_primitive
+    return primitive.impl(*args, **params)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrocu12/lib/python3.12/site-packages/jax/_src/dispatch.py", line 90, in apply_primitive
+    outs = fun(*args)
+           ^^^^^^^^^^
+RuntimeError: Unable to initialize backend 'cuda': INTERNAL: no supported devices found for platform CUDA (you may need to uninstall the failing plugin package, or set JAX_PLATFORMS=cpu to skip this backend.)
+--------------------
+For simplicity, JAX has removed its internal frames from the traceback of the following exception. Set JAX_TRACEBACK_FILTERING=off to include these.
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrocu12/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 812, in backends
+    backend = _init_backend(platform)
+              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrocu12/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 896, in _init_backend
+    backend = registration.factory()
+              ^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrocu12/lib/python3.12/site-packages/jax/_src/xla_bridge.py", line 561, in make_pjrt_c_api_client
+    return xla_client.make_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrocu12/lib/python3.12/site-packages/jaxlib/xla_client.py", line 158, in make_c_api_client
+    return _xla.get_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^
+jax.errors.JaxRuntimeError: INTERNAL: Getting local topologies failed: Error 1: GetKeyValue() timed out with key: cuda:local_topology/cuda/1 and duration: 2m
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/weak_scaling_hydro.py", line 62, in <module>
+    from astronomix.parallel.distributed import init_distributed  # noqa: E402
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/__init__.py", line 2, in <module>
+    from astronomix.option_classes.simulation_config import SimulationConfig
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/option_classes/__init__.py", line 2, in <module>
+    from astronomix.option_classes.simulation_config import SimulationConfig
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/option_classes/simulation_config.py", line 10, in <module>
+    from astronomix._modules._cooling.cooling_options import CoolingConfig
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/_modules/_cooling/cooling_options.py", line 22, in <module>
+    class PiecewisePowerLawParams(NamedTuple):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/_modules/_cooling/cooling_options.py", line 23, in PiecewisePowerLawParams
+    log10_T_table: jnp.ndarray = jnp.array([])
+                                 ^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrocu12/lib/python3.12/site-packages/jax/_src/numpy/array_constructors.py", line 312, in array
+    out_array: Array = lax._convert_element_type(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrocu12/lib/python3.12/site-packages/jax/_src/lax/lax.py", line 1701, in _convert_element_type
+    return convert_element_type_p.bind(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrocu12/lib/python3.12/site-packages/jax/_src/core.py", line 660, in bind
+    return self.bind_with_trace(prev_trace, args, avals, params)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrocu12/lib/python3.12/site-packages/jax/_src/lax/lax.py", line 5126, in _convert_element_type_bind_with_trace
+    operand = core.Primitive.bind_with_trace(convert_element_type_p, trace, args,
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrocu12/lib/python3.12/site-packages/jax/_src/core.py", line 668, in bind_with_trace
+    return trace.process_primitive(self, args, params)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrocu12/lib/python3.12/site-packages/jax/_src/core.py", line 1220, in process_primitive
+    return primitive.impl(*args, **params)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrocu12/lib/python3.12/site-packages/jax/_src/dispatch.py", line 90, in apply_primitive
+    outs = fun(*args)
+           ^^^^^^^^^^
+RuntimeError: Unable to initialize backend 'cuda': INTERNAL: Getting local topologies failed: Error 1: GetKeyValue() timed out with key: cuda:local_topology/cuda/1 and duration: 2m (you may need to uninstall the failing plugin package, or set JAX_PLATFORMS=cpu to skip this backend.)
+--------------------
+For simplicity, JAX has removed its internal frames from the traceback of the following exception. Set JAX_TRACEBACK_FILTERING=off to include these.
+srun: error: hkn0909: task 1: Exited with exit code 1
+srun: error: hkn0909: task 0: Exited with exit code 1
