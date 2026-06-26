@@ -1,0 +1,43 @@
+=== job 4112962 on hkn0909 ===
+partition: dev_accelerated-h100  nodes: 1  gpus(visible): 0,1,2,3
+GPU 0: NVIDIA H100 (UUID: GPU-84eb54e7-70d4-11eb-0b8a-afaa19cd4aa2)
+GPU 1: NVIDIA H100 (UUID: GPU-1de7caf2-ca30-4d72-bcc6-e0a2c0dd33b6)
+GPU 2: NVIDIA H100 (UUID: GPU-42f3be1d-531f-d806-e2dd-665a79eb66ec)
+GPU 3: NVIDIA H100 (UUID: GPU-65a6bd4f-1777-299c-cc2d-b508ef66cdd9)
+[pre-init procid=3 localid=3] CUDA_VISIBLE_DEVICES=0,1,2,3
+[pre-init procid=0 localid=0] CUDA_VISIBLE_DEVICES=0,1,2,3
+[pre-init procid=1 localid=1] CUDA_VISIBLE_DEVICES=0,1,2,3
+[pre-init procid=2 localid=2] CUDA_VISIBLE_DEVICES=0,1,2,3
+[rank 0/4] host=hkn0909 local_devices=1 global_devices=4 CUDA_VISIBLE_DEVICES=0,1,2,3
+[rank 1/4] host=hkn0909 local_devices=1 global_devices=4 CUDA_VISIBLE_DEVICES=0,1,2,3
+[rank 2/4] host=hkn0909 local_devices=1 global_devices=4 CUDA_VISIBLE_DEVICES=0,1,2,3
+[rank 3/4] host=hkn0909 local_devices=1 global_devices=4 CUDA_VISIBLE_DEVICES=0,1,2,3
+[rank 0] allgather = [0. 1. 2. 3.]  (expect 0..3)
+[rank 0] PASS distributed rendezvous: 4 processes, 4 devices
+[rank 0] done
+[rank 1] done
+[rank 2] done
+[rank 3] done
+DONE dist_sanity_dev1node rc=0
+
+============================= JOB FEEDBACK =============================
+
+Job ID: 4112962
+Cluster: hk
+User/Group: hd_bn306/hk-project-pai00101
+Account: hk-project-pai00101
+State: COMPLETED (exit code 0)
+Partition: dev_accelerated-h100
+Nodes: 1
+Cores per node: 64
+Nodelist: hkn0909
+CPU Utilized: 00:00:01
+CPU Efficiency: 0.03% of 00:54:24 core-walltime
+Job Wall-clock time: 00:00:51
+Starttime: Fri Jun 26 15:17:25 2026
+Endtime: Fri Jun 26 15:18:16 2026
+Memory Utilized: 1.44 GB
+Memory Efficiency: 0.19% of 750.00 GB (750.00 GB/node)
+The task which had the largest memory consumption differs by 100.96% from the average task max memory consumption
+Energy Consumed: 25554 Joule / 7.09833333333333 Watthours
+Average node power draw: 501.058823529412 Watt

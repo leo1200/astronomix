@@ -199,9 +199,45 @@ def plot_weak():
     fig.savefig(out, dpi=STYLE["dpi"]); plt.close(fig); print("wrote", out)
 
 
+def plot_weak_efficiency():
+    """Standalone headline figure: weak-scaling efficiency vs GPU count."""
+    runs = []
+    for f in sorted(glob.glob(os.path.join(HERE, "weak_scaling", "*.npz"))):
+        data, meta = _load(f)
+        runs.append((int(data["G"]), data, meta))
+    if not runs:
+        return
+    runs.sort(key=lambda t: t[0])
+    G = np.array([r[0] for r in runs], float)
+    rt = np.array([float(r[1]["runtime"]) for r in runs])
+    cells = np.array([float(r[1]["total_cells"]) for r in runs])
+    gpu = runs[0][2].get("gpu_model", "?")
+    eff = rt[0] / rt  # weak-scaling efficiency: T(1)/T(G), ideal = 1
+
+    fig, ax = plt.subplots(figsize=STYLE["figsize"])
+    ax.plot(G, eff * 100, marker="o", color="firebrick",
+            markersize=STYLE["marker_size"] + 2, linewidth=STYLE["linewidth"],
+            label="measured")
+    ax.axhline(100.0, color="k", ls="--", alpha=0.6, label="ideal (100%)")
+    for g, e in zip(G, eff):
+        ax.annotate(f"{e*100:.0f}%", (g, e * 100), textcoords="offset points",
+                    xytext=(0, 8), fontsize=9, ha="center")
+    ax.set_xscale("log", base=2)
+    ax.set_xticks(G); ax.set_xticklabels([int(x) for x in G])
+    ax.set_xlabel("number of GPUs")
+    ax.set_ylabel("weak-scaling efficiency  T(1)/T(G)  (%)")
+    ax.set_ylim(0, 110)
+    n_nodes = int(max(G) // 4) if max(G) >= 4 else 1
+    _finish(ax, fig, os.path.join(FIG, "weak_efficiency_hydro.png"),
+            f"Weak-scaling efficiency: hydro FD-Pallas ({gpu})\n"
+            f"per-GPU grid fixed, up to {int(max(G))} GPUs / {n_nodes} nodes, "
+            f"largest grid {cells.max():.2e} cells")
+
+
 if __name__ == "__main__":
     plot_single_gpu()
     plot_block_shape()
     plot_strong()
     plot_weak()
+    plot_weak_efficiency()
     print("All figures in", FIG)

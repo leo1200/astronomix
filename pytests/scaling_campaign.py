@@ -170,12 +170,15 @@ REGISTRY = {
     "hydro": dict(
         setup_fn=setup_sound_wave, specs=_hydro_specs,
         single_N=[64, 128, 256, 384, 512, 640, 768, 896, 1024],
-        strong_N=[128, 256, 384, 512, 640],
+        # Strong-scaling ladder up to N=1024 (grid 2N x N x N -> 2048x1024x1024
+        # = 2.1e9 cells at the top).  All values divisible by 4 so the X axis
+        # (2N) shards evenly across up to 8 GPUs.
+        strong_N=[128, 256, 384, 512, 640, 768, 896, 1024],
     ),
     "mhd": dict(
         setup_fn=setup_cp_alfven_wave, specs=_mhd_specs,
         single_N=[48, 64, 128, 192, 256, 384, 512],
-        strong_N=[96, 128, 192, 256, 384],
+        strong_N=[128, 192, 256, 384, 512, 768, 1024],
     ),
     "selfgrav": dict(
         setup_fn=setup_jeans_wave, specs=_selfgrav_specs,
