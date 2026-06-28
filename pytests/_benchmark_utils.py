@@ -288,6 +288,32 @@ def run_convergence_and_runtime(
     return results
 
 
+def _single_gpu_byte_budget() -> int:
+    """Usable HBM (bytes) on one device, for the strong-scaling baseline guard.
+
+    Uses the live XLA allocator limit (already scaled by
+    ``XLA_PYTHON_CLIENT_MEM_FRACTION``) when available; otherwise falls back to a
+    conservative 80 GiB so the guard still trips for clearly-too-big rungs.
+    """
+    try:
+        ms = jax.devices()[0].memory_stats() or {}
+        limit = ms.get("bytes_limit")
+        if limit:
+            return int(limit)
+    except Exception:  # noqa: BLE001  (CPU / older runtimes expose no stats)
+        pass
+    return 80 * 1024 ** 3
+
+
+# Observed peak/steady HBM ratio for the LSRK4 + FD-Pallas path: a successful
+# N=640 hydro baseline reported ~31 GB steady, while N=768 needed ~118 GiB peak
+# under rematerialization -> ~2.35x.  2.5 adds a little margin.  Skipping a
+# baseline that would OOM is cheap (we keep the sharded number); a wedged 1-GPU
+# OOM is not (it hangs the next collective in an NCCL clique rendezvous until the
+# SLURM timeout), so we err toward skipping.
+_PEAK_OVER_STEADY = 2.5
+
+
 def run_strong_scaling(
     benchmarks: Sequence[BenchmarkSpec],
     N_values: Sequence[int],
@@ -300,6 +326,8 @@ def run_strong_scaling(
     figure_dir: str,
     num_timesteps: Optional[int] = None,
     t_end: Optional[float] = None,
+    single_gpu_byte_budget: Optional[int] = None,
+    peak_over_steady: float = _PEAK_OVER_STEADY,
 ) -> dict:
     """Run a 1-GPU vs ``num_gpus``-GPU sweep for every benchmark.
 
@@ -353,13 +381,46 @@ def run_strong_scaling(
                 flat[f"{slug}__{k}"] = np.array(v)
         np.savez(npz_path, **flat)
 
+    budget = single_gpu_byte_budget or _single_gpu_byte_budget()
+    # Per-solver memory of the last *successful* 1-GPU baseline: (N, steady_bytes).
+    # Used to predict whether the next N's baseline will fit on one device.
+    last_ok_1 = {spec.label: None for spec in benchmarks}
+
+    def _baseline_fits(spec, N) -> bool:
+        """Predict (N^3 scaling x peak factor) whether the 1-GPU baseline fits.
+
+        Always runs the first rung (no prior data) and any rung at/below a
+        known-good N.  Skipping a doomed baseline avoids the OOM->NCCL-clique
+        hang that idles the whole job to the SLURM timeout.
+        """
+        prev = last_ok_1[spec.label]
+        if prev is None:
+            return True
+        n_prev, steady_prev = prev
+        if N <= n_prev:
+            return True
+        predicted_peak = steady_prev * (N / n_prev) ** 3 * peak_over_steady
+        return predicted_peak <= budget
+
     # N-outer / solver-inner: every rung is fully populated across all solvers
     # before moving on, so each per-rung checkpoint is rectangular and a wall
     # clock timeout still leaves a complete, plottable prefix on disk.
     for i, N in enumerate(N_values):
         for spec in benchmarks:
             rec = out[spec.label]
-            t1, tmp1, arg1, tot1 = _measure(spec, N, num_gpus=1)
+            if _baseline_fits(spec, N):
+                t1, tmp1, arg1, tot1 = _measure(spec, N, num_gpus=1)
+                if np.isfinite(t1) and tot1 > 0:
+                    last_ok_1[spec.label] = (N, tot1)
+            else:
+                gib = budget / 1024 ** 3
+                print(
+                    f"[{name}] {spec.label} N={N}: SKIP 1-GPU baseline "
+                    f"(predicted peak > {gib:.0f} GiB device budget); "
+                    f"running {num_gpus}-GPU only.",
+                    flush=True,
+                )
+                t1, tmp1, arg1, tot1 = (np.nan, 0, 0, 0)
             tN, tmpN, argN, totN = _measure(spec, N, num_gpus=num_gpus)
             rec["runtime_1"].append(t1)
             rec["runtime_N"].append(tN)
