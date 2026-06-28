@@ -23,5 +23,5 @@
     512,
     640
   ],
-  "note": "Pallas-only full-ladder run; completed N<=640 (524M cells) before 1h dev TIMEOUT during XLA compilation of N=768. Every rung checkpointed."
+  "note": "Pallas-only full-ladder run; completed N<=640 (524M cells). N=768 stopped on a MEMORY ceiling, not compilation: the 1-GPU baseline (905M cells, unsharded) needs ~118 GiB peak HBM > 94 GiB H100, so XLA OOMed. The OOM did not raise cleanly; the subsequent 4-GPU run hung in an NCCL 'Acquire clique' rendezvous (collective waits hang rather than fail fast), idling to the 1h SLURM timeout. Single-GPU baseline ceiling on H100 ~= N=700 (94 GB / ~60 B/cell). Every completed rung checkpointed."
 }
