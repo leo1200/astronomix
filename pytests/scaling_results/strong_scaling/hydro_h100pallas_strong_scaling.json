@@ -1,0 +1,27 @@
+{
+  "gpu_model": "NVIDIA H100",
+  "num_gpus": 4,
+  "num_processes": 1,
+  "num_nodes": 1,
+  "partition": "dev_accelerated-h100",
+  "nodelist": "hkn0909",
+  "slurm_job_id": "4170709",
+  "x64": false,
+  "setup": "hydro",
+  "phase": "strong_scaling",
+  "solver_filter": "fd_pallas",
+  "block_shape": [
+    4,
+    4,
+    8
+  ],
+  "num_timesteps": 8,
+  "strong_N": [
+    128,
+    256,
+    384,
+    512,
+    640
+  ],
+  "note": "Pallas-only full-ladder run; completed N<=640 (524M cells) before 1h dev TIMEOUT during XLA compilation of N=768. Every rung checkpointed."
+}
