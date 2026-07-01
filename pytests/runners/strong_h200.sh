@@ -30,12 +30,13 @@ trap stop_gpu_logger EXIT
 cd "$REPO"
 
 BLK=${BLK:-4,4,8}; STEPS=${STEPS:-10}
+GPUS=${GPUS:-8}; TAG=${TAG:-h200}   # override GPUS=4 TAG=h200g4 for the 4-GPU sweep
 
 for SETUP in hydro mhd; do
-  echo "############ STRONG scaling 1-vs-8 (H200, ${SETUP}, FD-Pallas, up to N=1024) ############"
-  python pytests/scaling_campaign.py --phase strong --setup "$SETUP" --gpus 8 \
-    --steps "$STEPS" --tag h200 --block-shape "$BLK" --solver pallas
+  echo "############ STRONG scaling 1-vs-${GPUS} (H200, ${SETUP}, FD-Pallas, up to N=1024) ############"
+  python pytests/scaling_campaign.py --phase strong --setup "$SETUP" --gpus "$GPUS" \
+    --steps "$STEPS" --tag "$TAG" --block-shape "$BLK" --solver pallas
 done
 
 stop_gpu_logger
-echo "DONE strong_h200_1v8"
+echo "DONE strong_h200_1v${GPUS}"
