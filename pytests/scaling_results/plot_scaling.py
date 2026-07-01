@@ -256,7 +256,7 @@ def plot_strong_speedup_combined():
     g_style = {g: st for g, st in zip(
         Gs, [dict(marker="^", ls="-."), dict(marker="o", ls="-"),
              dict(marker="s", ls="--"), dict(marker="D", ls=":")])}
-    fig, ax = plt.subplots(figsize=STYLE["figsize"])
+    fig, ax = plt.subplots(figsize=(6, 4.2))
     all_N = set()
     for _f, setup, gpu, Gi, N, series in runs:
         if setup == "mhd" and Gi == 4:
@@ -316,7 +316,7 @@ def plot_single_gpu_memory():
         a2.axhline(2.0, color="k", ls=":", alpha=0.5, label="ratio = 2")
         a2.set_xlabel("N  (grid 2N x N x N)")
         a2.set_ylabel("transient / argument memory")
-        a2.grid(True, alpha=STYLE["grid_alpha"]); a2.legend(fontsize=9)
+        a2.grid(True, alpha=STYLE["grid_alpha"]); a2.legend(fontsize=9, loc="upper right")
         _set_n_ticks(a1, seen_N); _set_n_ticks(a2, seen_N)
         fig.tight_layout()
         out = os.path.join(FIG, f"single_gpu_{setup}_memory_breakdown.png")
