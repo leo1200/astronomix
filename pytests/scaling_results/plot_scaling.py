@@ -45,14 +45,24 @@ def _style_for(label):
     return SOLVER_STYLE.get(label, dict(marker="o", linestyle="-"))
 
 
-def _finish(ax, fig, path, title):
+def _finish(ax, fig, path, title=""):
     ax.grid(True, which="both", ls="-", alpha=STYLE["grid_alpha"])
     ax.legend(fontsize=9)
-    ax.set_title(title, fontsize=13)
+    if title:
+        ax.set_title(title, fontsize=13)
     fig.tight_layout()
     fig.savefig(path, dpi=STYLE["dpi"])
     plt.close(fig)
     print("wrote", path)
+
+
+def _set_n_ticks(ax, N_values):
+    """Label the (log) x-axis with the actual N grid sizes, no minor ticks."""
+    Nu = sorted({int(n) for n in N_values})
+    ax.set_xscale("log")
+    ax.set_xticks(Nu)
+    ax.set_xticklabels([str(n) for n in Nu])
+    ax.xaxis.set_minor_locator(plt.NullLocator())
 
 
 # --------------------------------------------------------------------------
@@ -138,6 +148,15 @@ def plot_block_shape():
 # --------------------------------------------------------------------------
 _PRETTY = {"fd_pallas": "FD (Pallas)", "fd_jax": "FD (JAX)", "fv_jax": "FV (JAX)"}
 _SETUP_COLOR = {"hydro": "darkviolet", "mhd": "seagreen", "selfgrav": "tab:orange"}
+STRONG_NMAX = 512  # cap the strong-scaling sweeps at N=512
+
+
+def _gpu_short(meta):
+    m = str(meta.get("gpu_model", "")).upper()
+    for tag in ("H200", "H100", "A100", "V100"):
+        if tag in m:
+            return tag
+    return meta.get("gpu_model", "GPU")
 
 
 def _extrapolate_baseline(N, r1, rN):
@@ -159,105 +178,107 @@ def _extrapolate_baseline(N, r1, rN):
     return filled, extrap
 
 
-def _strong_runs():
-    """Yield (setup, gpu, G, N, slug->(r1,rN)) for every strong-scaling NPZ."""
+def _strong_runs(setups=None):
+    """Yield (f, setup, gpu_short, G, N, slug->(r1,rN)) per strong-scaling NPZ.
+
+    Data is capped at ``STRONG_NMAX``.  Multiple files for the same (setup, G)
+    are de-duplicated, keeping the one with the most measured points.  Pass
+    ``setups`` to restrict to a subset (e.g. ["hydro", "mhd"]).
+    """
+    best = {}  # (setup, G) -> tuple
     for f in sorted(glob.glob(os.path.join(HERE, "strong_scaling", "*_strong_scaling.npz"))):
-        if "h200" not in os.path.basename(f):
-            continue  # headline H200 runs only (skip older H100 dev files)
         data, _ = _load(f)
         meta_path = f.replace("_strong_scaling.npz", "_strong_scaling.json")
         meta = json.load(open(meta_path)) if os.path.exists(meta_path) else {}
         N = np.asarray(data["N_values"], float)
+        keep = N <= STRONG_NMAX
         G = int(data["num_gpus"]) if "num_gpus" in data else 0
         setup = meta.get("setup", os.path.basename(f).split("_")[0])
-        gpu = meta.get("gpu_model", "H200")
+        if setups is not None and setup not in setups:
+            continue
         slugs = sorted({k.split("__")[0] for k in data if "__" in k})
-        series = {s: (np.asarray(data[f"{s}__runtime_1"], float),
-                      np.asarray(data[f"{s}__runtime_N"], float)) for s in slugs}
-        yield f, setup, gpu, G, N, series
+        series = {s: (np.asarray(data[f"{s}__runtime_1"], float)[keep],
+                      np.asarray(data[f"{s}__runtime_N"], float)[keep]) for s in slugs}
+        rec = (f, setup, _gpu_short(meta), G, N[keep], series)
+        # de-dup: prefer the file with more finite fd_pallas 8/1-GPU points
+        r1, rN = series.get("fd_pallas", (np.array([]), np.array([])))
+        score = int(np.sum(np.isfinite(r1) & np.isfinite(rN)))
+        key = (setup, G)
+        if key not in best or score > best[key][0]:
+            best[key] = (score, rec)
+    for _score, rec in best.values():
+        yield rec
 
 
 def plot_strong():
-    """Per-setup 2-panel figure (runtime + speedup) with extrapolated baselines."""
-    for f, setup, gpu, G, N, series in _strong_runs():
+    """Per-setup 2-panel figure (runtime + speedup), 8-GPU H200 headline."""
+    for f, setup, gpu, G, N, series in _strong_runs(setups=["hydro", "mhd"]):
+        if G != 8:
+            continue  # per-setup headline figures show the 8-GPU H200 run
         fig, (a1, a2) = plt.subplots(1, 2, figsize=(14, 5))
         for slug, (r1, rN) in series.items():
             pretty = _PRETTY.get(slug, slug)
-            r1f, extr = _extrapolate_baseline(N, r1, rN)
+            r1f, _extr = _extrapolate_baseline(N, r1, rN)
             sp = r1f / rN
-            real = np.isfinite(r1) & (r1 > 0) & np.isfinite(rN) & (rN > 0)
-            # runtime panel
-            a1.loglog(N[real], r1[real], marker="o", color="cornflowerblue",
-                      label=f"{pretty} 1 GPU (measured)")
-            if extr.any():
-                a1.loglog(N[extr], r1f[extr], marker="o", mfc="none", ls=":",
-                          color="cornflowerblue", label=f"{pretty} 1 GPU (extrapolated)")
-            a1.loglog(N[np.isfinite(rN) & (rN > 0)], rN[np.isfinite(rN) & (rN > 0)],
-                      marker="s", ls="--", color="darkviolet", label=f"{pretty} {G} GPU")
-            # speedup panel
-            a2.plot(N[real], sp[real], marker="o", color="darkviolet",
-                    linewidth=STYLE["linewidth"], label=f"{pretty} (measured)")
-            if extr.any():
-                a2.plot(N[extr], sp[extr], marker="o", mfc="none", ls=":",
-                        color="darkviolet", label=f"{pretty} (extrapolated baseline)")
+            real1 = np.isfinite(r1) & (r1 > 0)
+            realN = np.isfinite(rN) & (rN > 0)
+            a1.loglog(N[real1], r1[real1], marker="o", color="cornflowerblue",
+                      label=f"{pretty} 1 GPU")
+            a1.loglog(N[realN], rN[realN], marker="s", ls="--", color="darkviolet",
+                      label=f"{pretty} {G} GPU")
+            ok = np.isfinite(sp) & realN
+            a2.plot(N[ok], sp[ok], marker="o", color="darkviolet",
+                    linewidth=STYLE["linewidth"], label=pretty)
         a2.axhline(G, color="k", ls="--", alpha=0.6, label=f"ideal ({G}x)")
         a1.set_xlabel("N  (grid 2N x N x N)"); a1.set_ylabel("runtime for 10 steps (s)")
-        a1.set_title("runtime"); a1.grid(True, which="both", alpha=STYLE["grid_alpha"])
+        _set_n_ticks(a1, N); a1.grid(True, which="both", alpha=STYLE["grid_alpha"])
         a1.legend(fontsize=8)
-        a2.set_xscale("log"); a2.set_xlabel("N  (grid 2N x N x N)")
-        a2.set_ylabel(f"speedup  T1 / T{G}"); a2.set_title("strong-scaling speedup")
+        a2.set_xlabel("N  (grid 2N x N x N)"); _set_n_ticks(a2, N)
+        a2.set_ylabel(f"speedup  T1 / T{G}")
         a2.set_ylim(0, G + 1); a2.grid(True, alpha=STYLE["grid_alpha"]); a2.legend(fontsize=8)
-        fig.suptitle(f"{setup}: strong scaling 1 vs {G} GPU ({gpu}, FD-Pallas)")
         fig.tight_layout()
         out = os.path.join(FIG, os.path.basename(f)[:-4] + ".png")
         fig.savefig(out, dpi=STYLE["dpi"]); plt.close(fig); print("wrote", out)
 
 
 def plot_strong_speedup_combined():
-    """Single headline speedup-vs-N figure: one line per (setup, GPU-count).
+    """Headline speedup-vs-N figure: one line per (setup, GPU-count).
 
-    Overlays every H200 FD-Pallas strong run, so the 4-GPU and 8-GPU sweeps
-    each get their own line (colour = setup, line/marker style = GPU count).
-    Extrapolated-baseline points are drawn hollow with a dotted connector.
+    Overlays the 4-GPU (H100) and 8-GPU (H200) FD-Pallas strong runs for hydro
+    and MHD.  Colour = setup, marker/linestyle = GPU count.  Where the 1-GPU
+    baseline OOMs at large N its runtime is power-law extrapolated so the
+    speedup point still appears (not visually distinguished -- noted in caption).
     """
-    runs = list(_strong_runs())
+    runs = list(_strong_runs(setups=["hydro", "mhd"]))
     if not runs:
         return
-    gpu = runs[0][2]
     Gs = sorted({r[3] for r in runs})
-    # marker/linestyle per GPU count so 4 vs 8 read clearly in monochrome too.
     g_style = {g: st for g, st in zip(
-        Gs, [dict(marker="o", ls="-"), dict(marker="^", ls="-."),
+        Gs, [dict(marker="^", ls="-."), dict(marker="o", ls="-"),
              dict(marker="s", ls="--"), dict(marker="D", ls=":")])}
     fig, ax = plt.subplots(figsize=STYLE["figsize"])
-    for _f, setup, _gpu, Gi, N, series in runs:
+    all_N = set()
+    for _f, setup, gpu, Gi, N, series in runs:
         r1, rN = series.get("fd_pallas", (None, None))
         if r1 is None:
             continue
         color = _SETUP_COLOR.get(setup, None)
         st = g_style.get(Gi, dict(marker="o", ls="-"))
-        r1f, extr = _extrapolate_baseline(N, r1, rN)
+        r1f, _extr = _extrapolate_baseline(N, r1, rN)
         sp = r1f / rN
-        real = np.isfinite(r1) & (r1 > 0) & np.isfinite(rN) & (rN > 0)
-        ax.plot(N[real], sp[real], color=color, linewidth=STYLE["linewidth"],
-                markersize=STYLE["marker_size"], label=f"{setup}, {Gi} GPU", **st)
-        if extr.any():
-            ax.plot(N[extr], sp[extr], color=color, mfc="none", linewidth=STYLE["linewidth"],
-                    markersize=STYLE["marker_size"] + 2, marker=st["marker"], ls=":",
-                    label=f"{setup}, {Gi} GPU (extrapolated baseline)")
+        ok = np.isfinite(sp) & np.isfinite(rN) & (rN > 0)
+        all_N.update(int(n) for n in N[ok])
+        ax.plot(N[ok], sp[ok], color=color, linewidth=STYLE["linewidth"],
+                markersize=STYLE["marker_size"], label=f"{setup}, {Gi} GPU ({gpu})", **st)
     for g in Gs:
         ax.axhline(g, color="k", ls="--", alpha=0.4)
-        ax.annotate(f"ideal {g}x", (ax.get_xlim()[0], g), fontsize=8, va="bottom", ha="left",
+        ax.annotate(f"ideal {g}x", (min(all_N), g), fontsize=8, va="bottom", ha="left",
                     color="k", alpha=0.6)
-    ax.set_xscale("log")
-    all_N = sorted({int(n) for r in runs for n in r[4]})
-    ax.set_xticks(all_N); ax.set_xticklabels([str(n) for n in all_N])
-    ax.xaxis.set_minor_locator(plt.NullLocator())
     ax.set_xlabel("N  (grid 2N x N x N)")
     ax.set_ylabel("strong-scaling speedup  T(1) / T(G)")
     ax.set_ylim(0, max(Gs) + 1)
-    _finish(ax, fig, os.path.join(FIG, "strong_speedup_hydro_mhd.png"),
-            f"Strong scaling ({gpu}, FD-Pallas): speedup vs resolution, 4 vs 8 GPU")
+    _set_n_ticks(ax, all_N)
+    _finish(ax, fig, os.path.join(FIG, "strong_speedup_hydro_mhd.png"))
 
 
 # --------------------------------------------------------------------------
@@ -272,8 +293,8 @@ def plot_single_gpu_memory():
             continue
         by_setup.setdefault(meta.get("setup", "?"), []).append((data, meta))
     for setup, runs in by_setup.items():
-        gpu = runs[0][1].get("gpu_model", "?")
         fig, (a1, a2) = plt.subplots(1, 2, figsize=(14, 5))
+        seen_N = set()
         for data, meta in runs:
             label = meta.get("solver_label", "?")
             N = np.asarray(data["N"], float)
@@ -281,22 +302,20 @@ def plot_single_gpu_memory():
             temp = np.asarray(data["temp_bytes"], float)
             arg = np.asarray(data["arg_bytes"], float)
             m = tot > 0
+            seen_N.update(int(n) for n in N[m])
             st = _style_for(label)
             a1.loglog(N[m], tot[m] / GB, label=label, markersize=STYLE["marker_size"],
                       linewidth=STYLE["linewidth"], **st)
             mr = m & (arg > 0)
-            a2.plot(N[mr], temp[mr] / arg[mr], label=label,
-                    markersize=STYLE["marker_size"], linewidth=STYLE["linewidth"], **st)
+            a2.semilogx(N[mr], temp[mr] / arg[mr], label=label,
+                        markersize=STYLE["marker_size"], linewidth=STYLE["linewidth"], **st)
         a1.set_xlabel("N  (grid 2N x N x N)"); a1.set_ylabel("total compiled memory (GiB)")
-        a1.set_title("total memory"); a1.grid(True, which="both", alpha=STYLE["grid_alpha"])
-        a1.legend(fontsize=9)
+        a1.grid(True, which="both", alpha=STYLE["grid_alpha"]); a1.legend(fontsize=9)
         a2.axhline(2.0, color="k", ls=":", alpha=0.5, label="ratio = 2")
-        a2.set_xscale("log")
         a2.set_xlabel("N  (grid 2N x N x N)")
         a2.set_ylabel("transient / argument memory")
-        a2.set_title("temp / arg memory ratio")
         a2.grid(True, alpha=STYLE["grid_alpha"]); a2.legend(fontsize=9)
-        fig.suptitle(f"{setup}: single-GPU memory vs resolution ({gpu})")
+        _set_n_ticks(a1, seen_N); _set_n_ticks(a2, seen_N)
         fig.tight_layout()
         out = os.path.join(FIG, f"single_gpu_{setup}_memory_breakdown.png")
         fig.savefig(out, dpi=STYLE["dpi"]); plt.close(fig); print("wrote", out)
