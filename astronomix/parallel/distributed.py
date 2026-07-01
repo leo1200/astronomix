@@ -99,11 +99,26 @@ def init_distributed(verbose: bool = True) -> DistInfo:
             local_ids = [localid] if len(cvd) > 1 else [0]
             jax.distributed.initialize(local_device_ids=local_ids)
         except (RuntimeError, ValueError) as exc:
-            # Already initialised by the driver -> not an error.  JAX phrases
-            # this as "already initialized" or "must be called only once"
-            # depending on version, so match both.
+            # A redundant re-init (the driver already bootstrapped the client
+            # before importing astronomix) is not a real error.  JAX phrases it
+            # differently across versions -- "already initialized", "must be
+            # called only once" (0.9), or "must be called before any JAX calls"
+            # (0.10, raised because the astronomix import already created the
+            # backend).  The robust test: if a multi-process client is in fact
+            # already up, the failure is benign; otherwise re-raise.
+            already_up = False
+            try:
+                already_up = jax.process_count() > 1
+            except Exception:
+                already_up = False
             msg = str(exc).lower()
-            if "already" not in msg and "once" not in msg:
+            benign = (
+                already_up
+                or "already" in msg
+                or "once" in msg
+                or "before any" in msg
+            )
+            if not benign:
                 raise
         _INITIALIZED = True
 
