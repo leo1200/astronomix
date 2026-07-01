@@ -164,8 +164,15 @@ def time_integration(
     # supplied mesh so pjit always sees a concrete sharding.
     if sharding is not None:
         replicated = jax.NamedSharding(sharding.mesh, PartitionSpec())
+        # Canonicalise each leaf to a concrete array *before* the cross-host
+        # device_put. Raw Python scalars (e.g. gamma = 5/3) are fp64, but the
+        # multi-process replicated device_put gathers each host's value as the
+        # canonical fp32 (x64 disabled) and then asserts it equals the raw
+        # fp64 input -- which fails purely on dtype ("not the same on each
+        # process"). jnp.asarray makes the value fp32 on every host, so the
+        # cross-host equality check passes.
         params = jax.tree.map(
-            lambda leaf: jax.device_put(leaf, replicated),
+            lambda leaf: jax.device_put(jnp.asarray(leaf), replicated),
             params,
         )
 
