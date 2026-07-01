@@ -259,6 +259,8 @@ def plot_strong_speedup_combined():
     fig, ax = plt.subplots(figsize=STYLE["figsize"])
     all_N = set()
     for _f, setup, gpu, Gi, N, series in runs:
+        if setup == "mhd" and Gi == 4:
+            continue  # MHD 4-GPU (H100) data only reaches N=256 -- omit
         r1, rN = series.get("fd_pallas", (None, None))
         if r1 is None:
             continue
