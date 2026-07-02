@@ -1,0 +1,111 @@
+% =====================================================================
+%  Forward-performance measurements and scaling test
+%
+%  Figures are SVG -- requires \usepackage{svg} in the preamble (calls
+%  Inkscape; compile with -shell-escape). Optionally set the search path
+%  with \svgpath{{figures/}} . The weak-scaling table uses booktabs
+%  (\usepackage{booktabs}).
+% =====================================================================
+\section{Forward-performance measurements and scaling test}
+
+All measurements below use the finite-difference WENO solver with the
+Pallas backend (``FD (Pallas)''), single precision (fp32), the low-storage
+RK4 integrator (LSRK4) with state donation, and a Pallas block shape of
+$(4,4,8)$ (selected by a block-shape sweep). Each timed run advances a
+fixed number of steps (10) so that wall-clock time is directly comparable
+across resolutions. Single-GPU and weak-scaling runs use NVIDIA~H100
+(94\,GB) GPUs; the 8-GPU strong-scaling runs use NVIDIA~H200 (140\,GB).
+Multi-node runs place one process per GPU (JAX distributed) with a 1D
+domain decomposition along $x$. Grid sizes are quoted as $2N\times N\times N$
+for the single-GPU and strong-scaling tests.
+
+\subsection{Single-GPU runtimes and memory usage}
+
+\begin{figure}
+    \centering
+    \includesvg[width=0.9\linewidth]{alfven_wave3D_dp_runtime}
+    \caption{Single-GPU performance on the 3D circularly polarised
+    Alfv\'en-wave test (double precision), comparing FV (JAX), FD (Pallas)
+    and AthenaPK. \emph{Top:} average $L_1$ error versus wall-clock
+    runtime; \emph{middle:} runtime versus resolution $N$ (grid
+    $2N\times N\times N$); \emph{bottom:} time per iteration versus $N$.
+    At fixed runtime FD (Pallas) reaches orders-of-magnitude lower error,
+    reflecting its higher convergence order.}
+    \label{fig:sg_runtime}
+\end{figure}
+
+\begin{figure}
+    \centering
+    \includesvg[width=\linewidth]{single_gpu_hydro_memory_breakdown}
+    \caption{Single-GPU memory for the 3D sound-wave (hydro) test versus
+    resolution $N$ (grid $2N\times N\times N$): total compiled memory
+    (left) and transient-to-argument memory ratio (right). FD (Pallas) is
+    leanest, with a transient/argument ratio close to~2.}
+    \label{fig:sg_mem_hydro}
+\end{figure}
+
+\begin{figure}
+    \centering
+    \includesvg[width=\linewidth]{single_gpu_mhd_memory_breakdown}
+    \caption{As Fig.~\ref{fig:sg_mem_hydro} but for the MHD (Alfv\'en-wave)
+    test. The richer variable set raises every solver's footprint; FD
+    (Pallas) still holds the lowest transient/argument ratio ($\sim\!4.7$).}
+    \label{fig:sg_mem_mhd}
+\end{figure}
+
+\subsection{Strong scaling}
+
+\begin{figure}
+    \centering
+    \includesvg[width=0.7\linewidth]{strong_speedup_hydro_mhd}
+    \caption{Strong-scaling speedup $T(1)/T(G)$ versus resolution for the
+    FD (Pallas) solver: hydro on 4~GPUs (H100) and hydro/MHD on 8~GPUs
+    (H200). Baselines exceeding single-GPU memory use a power-law
+    extrapolation.}
+    \label{fig:strong_speedup}
+\end{figure}
+
+Efficiency improves with problem size as the halo-exchange overhead is
+amortised: the 8$\times$H200 FD (Pallas) runs reach $\sim\!6.5$ (hydro) and
+$\sim\!6.3$ (MHD) at $N=512$, while the 4$\times$H100 runs plateau near
+$3.5$ (Fig.~\ref{fig:strong_speedup}). The smallest grids are dominated by
+kernel-launch and warm-up overhead and fall below linear speedup.
+
+\subsection{Weak scaling}
+
+For the weak-scaling test the per-GPU sub-domain is held fixed at
+$128\times2048\times2048$ ($5.37\times10^{8}$ cells) while the device count
+grows, so the global grid is $128\,G\times2048\times2048$ and ideal scaling
+is a flat wall-clock curve. The initial condition is built already
+globally sharded (each process materialises only its local shard), so the
+full grid never resides on a single host. The ladder culminates in a
+$2048^{3}$ cube on 16~GPUs across 4~nodes.
+
+\begin{table}
+    \centering
+    \caption{Weak-scaling results for the 3D sound-wave (hydro) test with
+    the FD (Pallas) solver on NVIDIA~H100 GPUs (fp32, LSRK4, Pallas block
+    shape $(4,4,8)$, 10 fixed steps, one process per GPU, 1D $x$
+    decomposition). The per-GPU sub-domain is fixed at
+    $128\times2048\times2048$. Efficiency is $T(1)/T(G)$ (ideal $=100\%$);
+    throughput is per-GPU cell updates per second.}
+    \label{tab:weak_scaling}
+    \begin{tabular}{rrlrrrr}
+        \toprule
+        GPUs & Nodes & Global grid & Cells & Runtime [s] & Eff.\ [\%] & Mcell/s/GPU \\
+        \midrule
+         1 & 1 & $128\times2048^2$  & $5.4\times10^{8}$ & 19.47 & 100.0 & 27.6 \\
+         2 & 1 & $256\times2048^2$  & $1.1\times10^{9}$ & 23.76 &  81.9 & 22.6 \\
+         4 & 1 & $512\times2048^2$  & $2.1\times10^{9}$ & 24.02 &  81.0 & 22.4 \\
+         8 & 2 & $1024\times2048^2$ & $4.3\times10^{9}$ & 25.37 &  76.7 & 21.2 \\
+        16 & 4 & $2048^{3}$         & $8.6\times10^{9}$ & 25.75 &  75.6 & 20.9 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+The one-time $\sim\!18\%$ drop from 1 to 2 GPUs marks the onset of
+halo exchange; beyond that the curve is nearly flat, losing only a few
+percent out to 16~GPUs and just $\sim\!1\%$ for the final inter-node
+doubling ($8\to16$). At the largest size the code sustains
+$\sim\!21$~Mcell/s/GPU on a $2048^{3}$ grid at $75.6\%$ weak-scaling
+efficiency (Table~\ref{tab:weak_scaling}).
