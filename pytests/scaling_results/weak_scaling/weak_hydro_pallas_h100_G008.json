@@ -1,0 +1,24 @@
+{
+  "gpu_model": "NVIDIA H100",
+  "num_gpus": 8,
+  "num_processes": 8,
+  "num_nodes": 2,
+  "partition": "accelerated-h100",
+  "nodelist": "hkn[0903,0915]",
+  "slurm_job_id": "4239899",
+  "x64": false,
+  "setup": "hydro_weak",
+  "solver_label": "FD (Pallas)",
+  "pallas_block_shape": [
+    4,
+    4,
+    8
+  ],
+  "time_integrator": 3,
+  "num_timesteps": 10,
+  "box_size": [
+    1024.0,
+    2048.0,
+    2048.0
+  ]
+}
