@@ -46,6 +46,8 @@ parser.add_argument("--steps", type=int, default=10,
                     help="fixed number of timesteps per run (bounds walltime)")
 parser.add_argument("--nmax", type=int, default=None,
                     help="cap the N sweep at this value (for cheap smoke runs)")
+parser.add_argument("--block-n", type=int, default=256,
+                    help="grid size N (grid 2N x N x N) for the block-shape sweep")
 parser.add_argument("--solver", type=str, default=None,
                     help="substring filter on benchmark label (e.g. 'Pallas') so "
                          "large-N strong sweeps can run only the lean headline "
@@ -212,13 +214,19 @@ def run_single():
 
 def run_block():
     cfg = _fd_pallas(**_HYDRO)
+    # Broadened candidate set: probes finely around the previous winner
+    # (4,4,8) plus smaller/asymmetric blocks, to confirm the optimum is
+    # robust (and resolution-robust when run at a larger --block-n).
     block_shapes = [
-        (2, 2, 4), (4, 4, 8), (8, 8, 8), (2, 4, 8),
-        (4, 8, 16), (8, 8, 16), (8, 16, 16), (16, 16, 16),
+        (2, 2, 4), (2, 2, 8), (4, 4, 4), (2, 4, 8),
+        (4, 4, 8), (4, 4, 16), (4, 8, 8), (8, 4, 8),
+        (2, 8, 8), (4, 8, 16), (8, 8, 8), (8, 8, 16),
+        (8, 16, 16), (16, 16, 16),
     ]
-    print(f"\n========== BLOCK-SHAPE SWEEP hydro FD(Pallas) ({_gpu_metadata(1)['gpu_model']}) ==========")
+    print(f"\n========== BLOCK-SHAPE SWEEP hydro FD(Pallas) N={args.block_n} "
+          f"({_gpu_metadata(1)['gpu_model']}) ==========")
     run_block_shape_sweep(
-        cfg, block_shapes, N=256, setup_fn=setup_sound_wave,
+        cfg, block_shapes, N=args.block_n, setup_fn=setup_sound_wave,
         name=f"hydro_block_shape_{args.tag}", setup_key="hydro",
         data_dir=BLOCK_DIR, cfl=1.5, num_timesteps=max(args.steps, 20),
     )
