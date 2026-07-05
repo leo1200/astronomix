@@ -1,9 +1,27 @@
+"""
+Vector calculus helpers on the staggered magnetic-field grid.
+
+Provides the cross product and the (central-difference) divergence and curl
+operators in 2D and 3D used by the finite-volume constrained-transport
+magnetic-field update.
+"""
+
+# jax
 import jax
 import jax.numpy as jnp
 
 
 @jax.jit
 def cross(a, b):
+    """Return the component-wise cross product ``a x b`` of two 3-vector fields.
+
+    Args:
+        a: The left vector field, shape ``(3, ...)``.
+        b: The right vector field, shape ``(3, ...)``.
+
+    Returns:
+        The cross product ``a x b`` with the same shape as ``a``.
+    """
     result = jnp.zeros_like(a)
     result = result.at[0, ...].set(a[1, ...] * b[2, ...] - a[2, ...] * b[1, ...])
     result = result.at[1, ...].set(a[2, ...] * b[0, ...] - a[0, ...] * b[2, ...])

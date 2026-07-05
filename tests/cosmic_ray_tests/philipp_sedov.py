@@ -9,8 +9,8 @@ from astropy.constants import m_p
 # astronomix data structures
 from astronomix import SimulationConfig
 from astronomix import SimulationParams
-from astronomix._physics_modules._cosmic_rays.cosmic_ray_options import CosmicRayConfig
-from astronomix._physics_modules._cosmic_rays.cosmic_ray_options import CosmicRayParams
+from astronomix._modules._cosmic_rays.cosmic_ray_options import CosmicRayConfig
+from astronomix._modules._cosmic_rays.cosmic_ray_options import CosmicRayParams
 
 # astronomix constants
 from astronomix.option_classes.simulation_config import CARTESIAN, SPHERICAL, HLL, MINMOD

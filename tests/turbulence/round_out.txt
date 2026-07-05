@@ -1,0 +1,4 @@
+cfl0.7 blend ns60 :: [ro_cfl07_ns60] stationary(last 1/3): M_turb=48.45 v_rms=1.211 (rho-rho0)rms=2.817 E_K=0.674 E_B=0.000 first_bad_snap=-1 (all finite)
+cfl1.0 blend f4 :: [ro_cfl10_f4] stationary(last 1/3): M_turb=45.73 v_rms=1.143 (rho-rho0)rms=2.843 E_K=0.601 E_B=0.000 first_bad_snap=-1 (all finite)
+cfl1.0 blend f16 :: [ro_cfl10_f16] stationary(last 1/3): M_turb=45.17 v_rms=1.129 (rho-rho0)rms=2.937 E_K=0.576 E_B=0.000 first_bad_snap=-1 (all finite)
+=== ROUND OUT DONE ===

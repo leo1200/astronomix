@@ -1,17 +1,32 @@
-import jax.numpy as jnp
-import jax
+"""
+Slope limiter functions for the finite-volume reconstruction.
 
-from astronomix._stencil_operations._stencil_operations import _stencil_add
-from astronomix.data_classes.simulation_helper_data import HelperData
+Collects the elementary limiter primitives (minmod, maxmod) and the composite
+limiters (double minmod, superbee, van Albada) used to limit the reconstructed
+gradients and avoid spurious oscillations at discontinuities.
+"""
+
+# jax
+import jax
+import jax.numpy as jnp
+
+# astronomix constants
 from astronomix.option_classes.simulation_config import (
     STATE_TYPE,
     STATE_TYPE_ALTERED,
-    SimulationConfig,
 )
+
+# astronomix containers
+from astronomix.data_classes.simulation_helper_data import HelperData
+from astronomix.option_classes.simulation_config import SimulationConfig
+
+# astronomix functions
+from astronomix._stencil_operations._stencil_operations import _stencil_add
 
 
 @jax.jit
 def _minmod(a, b):
+    """Return the two-argument minmod of ``a`` and ``b`` (zero on sign change)."""
     return 0.5 * (jnp.sign(a) + jnp.sign(b)) * jnp.minimum(jnp.abs(a), jnp.abs(b))
 
 
@@ -34,6 +49,7 @@ def _double_minmod(a, b):
 
 @jax.jit
 def _maxmod(a, b):
+    """Return the two-argument maxmod of ``a`` and ``b`` (zero on sign change)."""
     return 0.5 * (jnp.sign(a) + jnp.sign(b)) * jnp.maximum(jnp.abs(a), jnp.abs(b))
 
 

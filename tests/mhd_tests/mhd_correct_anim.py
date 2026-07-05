@@ -31,8 +31,8 @@ import equinox as eqx
 import optax
 
 # CNN stuff
-from astronomix._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector import CorrectorCNN
-from astronomix._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_options import CNNMHDParams, CNNMHDconfig
+from astronomix._modules._cnn_mhd_corrector._cnn_mhd_corrector import CorrectorCNN
+from astronomix._modules._cnn_mhd_corrector._cnn_mhd_corrector_options import CNNMHDParams, CNNMHDconfig
 
 # plotting
 import matplotlib.pyplot as plt

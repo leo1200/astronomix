@@ -1,20 +1,25 @@
-# general imports
-import jax
-import jax.numpy as jnp
+"""
+Interface reconstruction for the finite-volume scheme.
+
+Provides the MUSCL split reconstruction (with the predictor half-step) and the
+unsplit reconstructions (including the positivity-preserving van Albada-PP
+variant) that extrapolate the cell-centred primitive state to the left/right
+states at each interface.
+"""
+
+# general
 from functools import partial
 
-# typing imports
+# typing
 from typing import Union
 from beartype import beartype as typechecker
 from jaxtyping import Array, Float, jaxtyped
 
-# general astronomix imports
-from astronomix._physics_modules._cosmic_rays.cr_fluid_equations import speed_of_sound_crs
-from astronomix._physics_modules._self_gravity._poisson_solver import (
-    _compute_gravitational_potential,
-)
-from astronomix._finite_volume._state_evolution.limiters import _van_albada_limiter, _minmod
-from astronomix._stencil_operations._stencil_operations import _stencil_add
+# jax
+import jax
+import jax.numpy as jnp
+
+# astronomix constants
 from astronomix.option_classes.simulation_config import (
     CARTESIAN,
     MUSCL,
@@ -22,17 +27,23 @@ from astronomix.option_classes.simulation_config import (
     STATE_TYPE_ALTERED,
     VAN_ALBADA,
     VAN_ALBADA_PP,
-    SimulationConfig,
 )
+
+# astronomix containers
+from astronomix.option_classes.simulation_config import SimulationConfig
 from astronomix.data_classes.simulation_helper_data import HelperData
 from astronomix.variable_registry.registered_variables import RegisteredVariables
-
-# speed of sound calculation
-from astronomix._fluid_equations._equations import speed_of_sound
-
-# limited gradients
-from astronomix._finite_volume._state_evolution.limited_gradients import _calculate_limited_gradients
 from astronomix.option_classes.simulation_params import SimulationParams
+
+# astronomix functions
+from astronomix._modules._cosmic_rays.cr_fluid_equations import speed_of_sound_crs
+from astronomix._modules._gravity._poisson_solver import (
+    _compute_gravitational_potential,
+)
+from astronomix._finite_volume._state_evolution.limiters import _van_albada_limiter, _minmod
+from astronomix._stencil_operations._stencil_operations import _stencil_add
+from astronomix._fluid_equations._equations import speed_of_sound
+from astronomix._finite_volume._state_evolution.limited_gradients import _calculate_limited_gradients
 
 
 # @jaxtyped(typechecker=typechecker)
@@ -141,12 +152,15 @@ def _reconstruct_at_interface_unsplit(
     registered_variables: RegisteredVariables,
 ):
     """
-    Unsplit reconstruction.
+    Unsplit reconstruction (all axes at once).
+
+    Computes the limited gradients along every axis simultaneously, which is
+    needed for the multidimensional positivity-preserving van Albada-PP
+    limiting. NOTE: this materialises a full ``(dimensionality, *state_shape)``
+    gradient buffer and is therefore comparatively memory-hungry.
     """
 
-    # this is very memory inefficient!!!
-
-    # limited gradients: dimensionality x state_shape
+    # Limited gradients buffer, shape (dimensionality, *state_shape).
     limited_gradients = jnp.zeros((config.dimensionality,) + primitive_state.shape)
 
     for axis in range(1, config.dimensionality + 1):

@@ -30,6 +30,8 @@ Basic setup:
 
 Cooling function: TODO
 
+Viscosity can be used to stability simulations.
+
 """
 
 multi_gpu = False
@@ -38,7 +40,7 @@ if __name__ == "__main__":
     if multi_gpu:
         # ==== GPU selection ====
         from autocvd import autocvd
-        autocvd(num_gpus=2)
+        autocvd(num_gpus=4)
         # ruff: noqa: E402
         # =======================
     else:
@@ -81,6 +83,7 @@ from astronomix.option_classes.simulation_config import (
     MINMOD,
     MUSCL,
     OPEN_BOUNDARY,
+    PALLAS,
     SPLIT,
     UNSPLIT,
     VARAXIS,
@@ -96,24 +99,24 @@ from astronomix.option_classes.simulation_config import (
     BoundarySettings,
     BoundarySettings1D,
 )
-from astronomix._physics_modules._cooling.cooling_options import EXPLICIT_COOLING, IMPLICIT_COOLING, SIMPLE_MIXING_LAYER_COOLING, CoolingConfig, CoolingCurveConfig, CoolingParams, MixingCoolingParams
+from astronomix._modules._cooling.cooling_options import EXPLICIT_COOLING, IMPLICIT_COOLING, SIMPLE_MIXING_LAYER_COOLING, CoolingConfig, CoolingCurveConfig, CoolingParams, MixingCoolingParams
 
 from jax.sharding import PartitionSpec as P
 
 if multi_gpu:
 
     # mesh with variable axis
-    split = (1, 1, 1, 2)
+    split = (1, 1, 2, 2)
     sharding_mesh = jax.make_mesh(split, (VARAXIS, XAXIS, YAXIS, ZAXIS))
     named_sharding = jax.NamedSharding(sharding_mesh, P(VARAXIS, XAXIS, YAXIS, ZAXIS))
 
     # mesh no variable axis
-    split = (1, 1, 2)
+    split = (1, 2, 2)
     sharding_mesh_no_var = jax.make_mesh(split, (XAXIS, YAXIS, ZAXIS))
     named_sharding_no_var = jax.NamedSharding(sharding_mesh_no_var, P(XAXIS, YAXIS, ZAXIS))
 
 # Box setup
-num_cells_x = 64
+num_cells_x = 128
 num_cells_y = num_cells_x
 num_cells_z = int(1.5 * num_cells_x)
 box_size = 1.0
@@ -127,7 +130,7 @@ t_end_in_t_sh = 30.0
 
 # Mixing settings
 density_contrast = 100.0
-xi = 3.0
+xi = 100.0
 mach_number = 0.5
 gamma = 5 / 3
 P0 = 1.0
@@ -145,7 +148,12 @@ t_coolmin = t_sh / xi
 # Simulation config
 config = SimulationConfig(
     solver_mode = FINITE_DIFFERENCE,
+    backend = PALLAS,
+    pallas_block_shape = (4, 4, 8),
+    pallas_use_triton = True,
+    pallas_interpret = False,
     memory_analysis = True,
+    print_elapsed_time = True,
     progress_bar = True,
     dimensionality = 3,
     box_size = StaticFloatVector(L_x, L_y, L_z),
@@ -156,7 +164,6 @@ config = SimulationConfig(
         y = BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY),
         z = BoundarySettings1D(OPEN_BOUNDARY, FIXED_BOUNDARY_OPEN_MOMENTUM),
     ),
-    enforce_positivity = True,
 	cooling_config = CoolingConfig(
         cooling = True,
         cooling_method = IMPLICIT_COOLING,
@@ -165,7 +172,16 @@ config = SimulationConfig(
         )
     ),
 	frame_tracking = True,
-    return_snapshots = False
+    return_snapshots = True,
+    num_snapshots = 100,
+    snapshot_settings=SnapshotSettings(
+        return_final_state=True,
+        return_states=False,
+        return_temperature_pdf=True,
+        num_temperature_bins=100,
+        temperature_pdf_min=T_cold,
+        temperature_pdf_max=T_hot,
+    )
 )
 
 # tanh transition
@@ -175,69 +191,77 @@ def single_interface(f_l, f_u, Z, z_center, smoothing_length):
 		+ f_u * (1 + jnp.tanh((Z - z_center) / smoothing_length))
 	)
 
-# helper data
-helper_data = get_helper_data(config, sharding=named_sharding if multi_gpu else None)
 registered_variables = get_registered_variables(config)
 
-# construct the initial state
-cell_centers = helper_data.geometric_centers
-X = cell_centers[:, :, :, 0]
-Y = cell_centers[:, :, :, 1]
-Z = cell_centers[:, :, :, 2]
-z_center = L_z / 2
-smoothing_length = grid_spacing / 2
-density = single_interface(rho_cold, rho_hot, Z, z_center, smoothing_length)
-pressure = P0 * jnp.ones_like(density)
-velocity_x = single_interface(-v_rel / 2, v_rel / 2, Z, z_center, smoothing_length)
-velocity_y = jnp.zeros_like(density)
-velocity_z = jnp.zeros_like(density)
+setup_initial_state = True
+
+if setup_initial_state:
+    helper_data = get_helper_data(config, sharding=named_sharding if multi_gpu else None)
+    # construct the initial state
+    cell_centers = helper_data.geometric_centers
+    X = cell_centers[:, :, :, 0]
+    Y = cell_centers[:, :, :, 1]
+    Z = cell_centers[:, :, :, 2]
+    z_center = L_z / 2
+    smoothing_length = grid_spacing / 2
+    density = single_interface(rho_cold, rho_hot, Z, z_center, smoothing_length)
+    pressure = P0 * jnp.ones_like(density)
+    velocity_x = single_interface(-v_rel / 2, v_rel / 2, Z, z_center, smoothing_length)
+    velocity_y = jnp.zeros_like(density)
+    velocity_z = jnp.zeros_like(density)
 
 
-# --- Perturbation ----------------------------------------------------------
-# Envelope: peaks in the tanh tails (±2 * smoothing_length from z_center),
-# zero in the bulk phases and at the sharpest point of the interface itself
-# (where WENO's shock sensor would damp perturbations most aggressively).
-dz       = Z - z_center
-envelope = jnp.exp(-((jnp.abs(dz) - 2 * smoothing_length) / (3 * grid_spacing))**2)
+    # --- Perturbation ----------------------------------------------------------
+    # Envelope: peaks in the tanh tails (±2 * smoothing_length from z_center),
+    # zero in the bulk phases and at the sharpest point of the interface itself
+    # (where WENO's shock sensor would damp perturbations most aggressively).
+    dz       = Z - z_center
+    envelope = jnp.exp(-((jnp.abs(dz) - 2 * smoothing_length) / (3 * grid_spacing))**2)
 
-amp = 0.03 * v_rel  # 3% of shear velocity
+    amp = 0.03 * v_rel  # 3% of shear velocity
 
-# Deterministic KH modes: low-k, well-resolved at N_res = 64 (10-30 cells/wavelength)
-mode_numbers = jnp.array([2, 4, 6])
-kx = 2 * jnp.pi * mode_numbers / L_x
-ky = 2 * jnp.pi * mode_numbers / L_y
+    # Deterministic KH modes: low-k, well-resolved at N_res = 64 (10-30 cells/wavelength)
+    mode_numbers = jnp.array([2, 4, 6])
+    kx = 2 * jnp.pi * mode_numbers / L_x
+    ky = 2 * jnp.pi * mode_numbers / L_y
 
-key           = jax.random.PRNGKey(42)
-key_ph, key_n = jax.random.split(key, 2)
-phases        = jax.random.uniform(key_ph, (3, 3), minval=0.0, maxval=2 * jnp.pi)
+    key           = jax.random.PRNGKey(42)
+    key_ph, key_n = jax.random.split(key, 2)
+    phases        = jax.random.uniform(key_ph, (3, 3), minval=0.0, maxval=2 * jnp.pi)
 
-modes = jnp.zeros_like(density)
-for i in range(3):
-    for j in range(3):
-        modes = modes + jnp.sin(kx[i] * X + ky[j] * Y + phases[i, j])
-modes = modes / 9.0  # normalize to O(1)
+    modes = jnp.zeros_like(density)
+    for i in range(3):
+        for j in range(3):
+            modes = modes + jnp.sin(kx[i] * X + ky[j] * Y + phases[i, j])
+    modes = modes / 9.0  # normalize to O(1)
 
-# Broadband noise: low amplitude, fills the spectrum above the deterministic modes
-key_nx, key_ny, key_nz = jax.random.split(key_n, 3)
-noise_x = jax.random.normal(key_nx, density.shape)
-noise_y = jax.random.normal(key_ny, density.shape)
-noise_z = jax.random.normal(key_nz, density.shape)
+    # Broadband noise: low amplitude, fills the spectrum above the deterministic modes
+    key_nx, key_ny, key_nz = jax.random.split(key_n, 3)
+    noise_x = jax.random.normal(key_nx, density.shape)
+    noise_y = jax.random.normal(key_ny, density.shape)
+    noise_z = jax.random.normal(key_nz, density.shape)
 
-# v_z gets the full deterministic+noise treatment (this is the KH growth direction)
-# v_x and v_y get noise only (adding modes to v_x would fight the mean shear)
-velocity_x = velocity_x +       amp * envelope * 0.3 * noise_x
-velocity_y = velocity_y +       amp * envelope * 0.3 * noise_y
-velocity_z = velocity_z + amp * envelope * (modes + 0.3 * noise_z)
+    # v_z gets the full deterministic+noise treatment (this is the KH growth direction)
+    # v_x and v_y get noise only (adding modes to v_x would fight the mean shear)
+    velocity_x = velocity_x +       amp * envelope * 0.3 * noise_x
+    velocity_y = velocity_y +       amp * envelope * 0.3 * noise_y
+    velocity_z = velocity_z + amp * envelope * (modes + 0.3 * noise_z)
 
-initial_state = construct_primitive_state(
-    config               = config,
-    registered_variables = registered_variables,
-    density              = density,
-    velocity_x           = velocity_x,
-    velocity_y           = velocity_y,
-    velocity_z           = velocity_z,
-    gas_pressure         = pressure,
-)
+    initial_state = construct_primitive_state(
+        config               = config,
+        registered_variables = registered_variables,
+        density              = density,
+        velocity_x           = velocity_x,
+        velocity_y           = velocity_y,
+        velocity_z           = velocity_z,
+        gas_pressure         = pressure,
+    )
+
+    # save initial state
+    jnp.savez("data/trml_initial_state.npz", initial_state=initial_state)
+else:
+    # load initial state
+    initial_state = jnp.load("data/trml_initial_state.npz")["initial_state"]
 
 if multi_gpu:
     initial_state = jax.device_put(initial_state, named_sharding)
@@ -273,7 +297,7 @@ config = finalize_config(config, initial_state.shape)
 if __name__ == "__main__":
 
     # run the simulation
-    final_state = time_integration(
+    result = time_integration(
         initial_state,
         config,
         params,
@@ -282,14 +306,14 @@ if __name__ == "__main__":
     )
 
     # save the final state for later analysis
-    jnp.savez("data/trml_final_state.npz", final_state=final_state)
+    jnp.savez("data/trml_final_state.npz", final_state=result.final_state)
 
     # retrieve the initial and final temperature
     initial_temperature = (
         initial_state[registered_variables.pressure_index] / initial_state[registered_variables.density_index]
     )
     final_temperature = (
-        final_state[registered_variables.pressure_index] / final_state[registered_variables.density_index]
+        result.final_state[registered_variables.pressure_index] / result.final_state[registered_variables.density_index]
     )
 
     # plot the results
@@ -325,3 +349,25 @@ if __name__ == "__main__":
 
     fig_temp.tight_layout()
     fig_temp.savefig("figures/trml_temperature.png", dpi=500)
+
+    # plot the average of the temperature PDF for t >= 10 t_sh
+    time_points = result.time_points
+    temperature_pdf = result.temperature_pdf
+    time_mask = time_points >= 10 * t_sh
+    print("Number of snapshots with t >= 10 t_sh:", time_mask.sum())
+    avg_dV_dlogT = temperature_pdf[time_mask].mean(axis=0)
+    logT_bin_edges = jnp.linspace(jnp.log10(T_cold), jnp.log10(T_hot), config.snapshot_settings.num_temperature_bins + 1)
+    logT_bin_centers = 0.5 * (logT_bin_edges[:-1] + logT_bin_edges[1:])
+    T_bin_centers = 10 ** logT_bin_centers
+    avg_dV_dT = avg_dV_dlogT / (T_bin_centers * jnp.log(10))  # convert from dV/dlogT to dV/dT
+    # normalize dV/dT so that its integral over T is 1 (i.e. it becomes a proper PDF)
+    V = jnp.sum(avg_dV_dT * (10 ** logT_bin_edges[1:] - 10 ** logT_bin_edges[:-1]))
+    avg_dV_dT = avg_dV_dT / V
+    fig_pdf, ax_pdf = plt.subplots()
+    ax_pdf.plot(T_bin_centers, avg_dV_dT)
+    ax_pdf.set_xlabel("log10(Temperature)")
+    ax_pdf.set_ylabel("dV/dT")
+    ax_pdf.set_title("Average Temperature PDF for t >= 10 t_sh")
+    ax_pdf.set_xscale("log")
+    ax_pdf.set_yscale("log")
+    fig_pdf.savefig("figures/trml_temperature_pdf.png", dpi=500)

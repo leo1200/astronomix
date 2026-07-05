@@ -19,7 +19,7 @@ from astronomix._finite_difference._interface_fluxes._weno import (
     _weno_flux_z,
 )
 
-from astronomix._finite_difference._maths._differencing import finite_difference_int6
+from astronomix._spatial_operators._differencing import finite_difference_int6
 
 from astronomix._finite_difference._magnetic_update._constrained_transport import (
     constrained_transport_rhs,
@@ -57,7 +57,7 @@ from astronomix._finite_volume._magnetic_update._magnetic_field_update import (
 from mpl_toolkits.axes_grid1.axes_divider import make_axes_locatable
 
 
-from astronomix._finite_difference._fluid_equations._equations import (
+from astronomix._fluid_equations._equations_mhd import (
     conserved_state_from_primitive_mhd,
 )
 # from astronomix._finite_difference._magnetic_update._constrained_transport import initialize_face_centered_b

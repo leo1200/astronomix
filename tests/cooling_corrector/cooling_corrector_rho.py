@@ -3,10 +3,10 @@ from autocvd import autocvd
 from astronomix.initial_condition_generation.construct_primitive_state import construct_primitive_state
 autocvd(num_gpus = 1)
 
-from astronomix._physics_modules._cooling._cooling import get_pressure_from_temperature, get_temperature_from_pressure
-from astronomix._physics_modules._cooling._cooling_tables import schure_cooling
+from astronomix._modules._cooling._cooling import get_pressure_from_temperature, get_temperature_from_pressure
+from astronomix._modules._cooling._cooling_tables import schure_cooling
 
-from astronomix._physics_modules._stellar_wind.stellar_wind_options import EI, MEI, MEO
+from astronomix._modules._stellar_wind.stellar_wind_options import EI, MEI, MEO
 
 import jax.numpy as jnp
 
@@ -22,7 +22,7 @@ from astronomix import WindParams
 from astronomix import SimulationConfig
 from astronomix import SimulationParams
 from astronomix.option_classes import WindConfig
-from astronomix._physics_modules._cooling.cooling_options import NEURAL_NET_COOLING, NEURAL_NET_COOLING_WITH_DENSITY, PIECEWISE_POWER_LAW, SIMPLE_POWER_LAW, CoolingConfig, CoolingCurveConfig, CoolingNetConfig, CoolingNetParams, CoolingParams, PiecewisePowerLawParams, SimplePowerLawParams
+from astronomix._modules._cooling.cooling_options import NEURAL_NET_COOLING, NEURAL_NET_COOLING_WITH_DENSITY, PIECEWISE_POWER_LAW, SIMPLE_POWER_LAW, CoolingConfig, CoolingCurveConfig, CoolingNetConfig, CoolingNetParams, CoolingParams, PiecewisePowerLawParams, SimplePowerLawParams
 
 from astronomix import get_helper_data
 from astronomix._fluid_equations._equations import conserved_state_from_primitive, primitive_state_from_conserved
@@ -43,7 +43,7 @@ import astropy.constants as c
 from astropy.constants import m_p
 
 # wind-specific
-from astronomix._physics_modules._stellar_wind.weaver import Weaver
+from astronomix._modules._stellar_wind.weaver import Weaver
 
 
 import equinox as eqx

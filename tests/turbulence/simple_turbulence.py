@@ -57,7 +57,7 @@ from matplotlib.colors import LogNorm
 # astronomix
 from astronomix._fluid_equations._equations import get_absolute_velocity
 from astronomix._finite_difference._magnetic_update._constrained_transport import initialize_interface_fields
-from astronomix._physics_modules._turbulent_forcing._turbulent_forcing_options import TurbulentForcingConfig, TurbulentForcingParams
+from astronomix._modules._turbulent_forcing._turbulent_forcing_options import TurbulentForcingConfig, TurbulentForcingParams
 from astronomix.initial_condition_generation.construct_primitive_state import construct_primitive_state
 from astronomix.option_classes.simulation_config import (
     FINITE_DIFFERENCE,
@@ -108,7 +108,6 @@ for M_A_aim in M_A_aim_list:
             progress_bar = True,
             dimensionality = 3,
             num_cells = 64,
-            enforce_positivity = False, # only necessary for high Mach turbulence
             box_size = 1.0,
             mhd = True,
             boundary_settings=BoundarySettings(

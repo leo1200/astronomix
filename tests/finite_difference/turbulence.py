@@ -25,7 +25,7 @@ from matplotlib.colors import LogNorm
 # astronomix
 from astronomix._fluid_equations._equations import get_absolute_velocity
 from astronomix._finite_difference._magnetic_update._constrained_transport import initialize_interface_fields
-from astronomix._physics_modules._turbulent_forcing._turbulent_forcing_options import TurbulentForcingConfig, TurbulentForcingParams
+from astronomix._modules._turbulent_forcing._turbulent_forcing_options import TurbulentForcingConfig, TurbulentForcingParams
 from astronomix.initial_condition_generation.construct_primitive_state import construct_primitive_state
 from astronomix.option_classes.simulation_config import (
     FINITE_DIFFERENCE,

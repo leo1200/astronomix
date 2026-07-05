@@ -48,8 +48,8 @@ from astronomix.option_classes.simulation_config import (
 )
 from astronomix.option_classes.simulation_config import finalize_config
 
-from astronomix._physics_modules._cooling._cooling_tables import schure_cooling
-from astronomix._physics_modules._cooling.cooling_options import (
+from astronomix._modules._cooling._cooling_tables import schure_cooling
+from astronomix._modules._cooling.cooling_options import (
     PIECEWISE_POWER_LAW, CoolingConfig, CoolingCurveConfig, CoolingParams
 )
 from astronomix._finite_difference._magnetic_update._constrained_transport import initialize_interface_fields
@@ -61,8 +61,8 @@ import astropy.constants as c
 from astropy.constants import m_p
 
 # wind-specific
-from astronomix._physics_modules._stellar_wind.weaver import Weaver
-from astronomix._physics_modules._stellar_wind.stellar_wind_options import EI
+from astronomix._modules._stellar_wind.weaver import Weaver
+from astronomix._modules._stellar_wind.stellar_wind_options import EI
 
 # ==== Common physics setup ====
 

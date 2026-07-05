@@ -1,0 +1,7 @@
+--- check_std (mturb10 rho02, auto-default) ---
+[chk_std] eos=iso M_turb_aim=10.0 beta=0.1 a=0.100 P0=None B0=0.4472 F0=3.5 kf=9.425 cfl=1.5 rhomin=0.02 prot=True hardfloor=True vacuum_rest=True
+[chk_std] stationary(last 1/3): M_turb=10.42 v_rms=1.042 (rho-rho0)rms=2.049 E_K=0.508 E_B=0.411 first_bad_snap=-1 (all finite)
+--- check_void (mturb20 rho005, auto-default) ---
+[chk_void] eos=iso M_turb_aim=20.0 beta=0.1 a=0.050 P0=None B0=0.2236 F0=3.5 kf=9.425 cfl=1.5 rhomin=0.005 prot=True hardfloor=True vacuum_rest=True
+[chk_void] stationary(last 1/3): M_turb=20.78 v_rms=1.039 (rho-rho0)rms=2.162 E_K=0.501 E_B=0.243 first_bad_snap=-1 (all finite)
+=== CHECK DONE ===

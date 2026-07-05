@@ -1,12 +1,12 @@
 from autocvd import autocvd
 autocvd(num_gpus = 1)
 
-from astronomix._physics_modules._cooling.cooling_options import PIECEWISE_POWER_LAW, SIMPLE_POWER_LAW, SimplePowerLawParams
+from astronomix._modules._cooling.cooling_options import PIECEWISE_POWER_LAW, SIMPLE_POWER_LAW, SimplePowerLawParams
 
 
 import jax.numpy as jnp
 
-from astronomix._physics_modules._cooling._cooling import _cooling_rate, _evaluate_piecewise_power_law, _piecewise_power_law_temporal_evolution_function, _piecewise_power_law_temporal_evolution_function_inverse, _temporal_evolution_function, _temporal_evolution_function, _temporal_evolution_function_inverse
+from astronomix._modules._cooling._cooling import _cooling_rate, _evaluate_piecewise_power_law, _piecewise_power_law_temporal_evolution_function, _piecewise_power_law_temporal_evolution_function_inverse, _temporal_evolution_function, _temporal_evolution_function, _temporal_evolution_function_inverse
 
 from astronomix import CodeUnits
 from astropy import units as u
@@ -34,7 +34,7 @@ cooling_curve_paramsA = SimplePowerLawParams(
     reference_temperature = reference_temperature
 )
 
-from astronomix._physics_modules._cooling._cooling_tables import schure_cooling
+from astronomix._modules._cooling._cooling_tables import schure_cooling
 
 cooling_curve_paramsB = schure_cooling(code_units)
 

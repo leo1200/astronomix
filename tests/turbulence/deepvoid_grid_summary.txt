@@ -1,0 +1,9 @@
+[FAIL/ERR] rg_redist_cfl15 :: [rg_redist_cfl15] stationary(last 1/3): M_turb=0.00 v_rms=0.000 (rho-rho0)rms=0.500 E_K=0.000 E_B=0.000 first_bad_snap=7 @t/tc=nan
+[FAIL/ERR] rg_redist_cfl07 :: [rg_redist_cfl07] stationary(last 1/3): M_turb=0.00 v_rms=0.000 (rho-rho0)rms=0.500 E_K=0.000 E_B=0.000 first_bad_snap=7 @t/tc=nan
+[FAIL/ERR] rg_redist_cfl04 :: [rg_redist_cfl04] stationary(last 1/3): M_turb=0.00 v_rms=0.000 (rho-rho0)rms=0.500 E_K=0.000 E_B=0.000 first_bad_snap=7 @t/tc=nan
+[FAIL/ERR] rg_redist_ns60 :: [rg_redist_ns60] stationary(last 1/3): M_turb=0.00 v_rms=0.000 (rho-rho0)rms=0.950 E_K=0.000 E_B=0.000 first_bad_snap=59 @t/tc=nan
+[FAIL/ERR] rg_redist_ns200 :: [rg_redist_ns200] stationary(last 1/3): M_turb=0.00 v_rms=0.000 (rho-rho0)rms=0.985 E_K=0.000 E_B=0.000 first_bad_snap=199 @t/tc=nan
+[PASS] rg_mhd_redist :: [rg_mhd_redist] stationary(last 1/3): M_turb=20.77 v_rms=1.038 (rho-rho0)rms=2.156 E_K=0.497 E_B=0.226 first_bad_snap=-1 (all finite)
+[FAIL/ERR] rg_floor_cfl15 :: [rg_floor_cfl15] stationary(last 1/3): M_turb=0.00 v_rms=0.000 (rho-rho0)rms=0.997 E_K=0.000 E_B=0.000 first_bad_snap=7 @t/tc=nan
+[FAIL/ERR] rg_floor_cfl04 :: [rg_floor_cfl04] stationary(last 1/3): M_turb=0.00 v_rms=0.000 (rho-rho0)rms=0.997 E_K=0.000 E_B=0.000 first_bad_snap=7 @t/tc=nan
+=== GRID COMPLETE ===

@@ -1,25 +1,27 @@
+"""
+Finite-volume magnetic-field (and coupled velocity) update.
+
+Implements the implicit constrained-transport-style magnetic update of Pang &
+Wu (PPCT, arXiv:2410.05173), advancing the magnetic field and the velocity
+together with a fixed-point iteration and feeding the change back into the gas
+pressure. Supports 2D and 3D (there is no 1D MHD).
+"""
+
+# general
 from functools import partial
-import jax.numpy as jnp
+
+# typing
 from jaxtyping import Array, Float, jaxtyped
+
+# jax
 import jax
-from equinox.internal._loop.checkpointed import checkpointed_while_loop
-
-from astronomix._geometry.boundaries import _boundary_handler
-from astronomix._finite_volume._magnetic_update._vector_maths import (
-    cross,
-    curl2D,
-    curl3D,
-    divergence2D,
-)
-from astronomix._fluid_equations._equations import (
-    pressure_from_energy,
-    total_energy_from_primitives,
-)
-from astronomix.variable_registry.registered_variables import RegisteredVariables
-
-# runtime debugging
+import jax.numpy as jnp
 from jax.experimental import checkify
 
+# checkpointed loop
+from equinox.internal._loop.checkpointed import checkpointed_while_loop
+
+# astronomix constants
 from astronomix.option_classes.simulation_config import (
     BACKWARDS,
     DOUBLE_PRECISION,
@@ -30,6 +32,22 @@ from astronomix.option_classes.simulation_config import (
     MAGNETIC_FIELD_ONLY,
     SINGLE_PRECISION,
     VELOCITY_ONLY,
+)
+
+# astronomix containers
+from astronomix.variable_registry.registered_variables import RegisteredVariables
+
+# astronomix functions
+from astronomix._geometry.boundaries import _boundary_handler
+from astronomix._finite_volume._magnetic_update._vector_maths import (
+    cross,
+    curl2D,
+    curl3D,
+    divergence2D,
+)
+from astronomix._fluid_equations._equations import (
+    pressure_from_energy,
+    total_energy_from_primitives,
 )
 
 
@@ -58,8 +76,9 @@ def magnetic_update(
     """
 
     if config.dimensionality == 2:
-        # retrieve the velocity
-        # THIS IS ONLY WRITTEN FOR 2D!!!!!
+        # In 2D only the in-plane (x, y) velocity components live on the grid,
+        # so we pad to a full 3-vector and fill the first two slots from the
+        # gas state; the out-of-plane component stays zero.
         velocity = jnp.zeros((3, *gas_state.shape[1:]), dtype=magnetic_field.dtype)
         velocity = velocity.at[0:2, :, :].set(
             gas_state[

@@ -14,8 +14,8 @@ from astronomix.option_classes.simulation_config import CARTESIAN, HLL, MINMOD, 
 from astronomix import time_integration
 
 # cosmic rays
-from astronomix._physics_modules._cosmic_rays.cosmic_ray_options import CosmicRayConfig
-from astronomix._physics_modules._cosmic_rays.cosmic_ray_options import CosmicRayParams
+from astronomix._modules._cosmic_rays.cosmic_ray_options import CosmicRayConfig
+from astronomix._modules._cosmic_rays.cosmic_ray_options import CosmicRayParams
 from analytic_solution import get_cosmic_ray_analytic_solution
 from astronomix.shock_finder.shock_finder import find_shock_zone, shock_sensor, shock_criteria
 

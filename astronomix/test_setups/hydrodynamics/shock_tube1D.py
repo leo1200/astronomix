@@ -22,27 +22,68 @@ test is typically evaluated at t = 0.2 with gamma = 5/3.
   3rd ed., Springer.
 """
 
-import jax.numpy as jnp
-import numpy as np
+# typing
+from typing import NamedTuple
 
+# jax
+import jax.numpy as jnp
+
+# astronomix constants
 from astronomix import CARTESIAN
+from astronomix.option_classes.simulation_config import (
+    OPEN_BOUNDARY,
+    STATE_TYPE,
+)
+
+# astronomix containers
 from astronomix.data_classes.simulation_helper_data import HelperData
+from astronomix.option_classes.simulation_config import (
+    BoundarySettings1D,
+    SimulationConfig,
+)
+from astronomix.option_classes.simulation_params import SimulationParams
+from astronomix.variable_registry.registered_variables import RegisteredVariables
+
+# astronomix functions
 from astronomix.initial_condition_generation.construct_primitive_state import (
     construct_primitive_state,
 )
-from astronomix.option_classes.simulation_config import OPEN_BOUNDARY, STATE_TYPE, BoundarySettings1D, SimulationConfig, finalize_config
-from astronomix.option_classes.simulation_params import SimulationParams
+from astronomix.option_classes.simulation_config import finalize_config
 from astronomix.test_setups.reference_solutions.riemann_solver import _exact_riemann_ideal_gas
-from astronomix.variable_registry.registered_variables import RegisteredVariables
 
-# Problem constants
-_SHOCK_POS = 0.5
-_GAMMA = 5/3
-_BOX_SIZE = 1.0
-_T_END = 0.2
 
-_RHO_L, _U_L, _P_L = 1.0,   0.0, 1.0
-_RHO_R, _U_R, _P_R = 0.125, 0.0, 0.1
+class ShockTube1DSettings(NamedTuple):
+    """Problem constants for the 1D Sod shock tube test."""
+
+    #: Position of the initial diaphragm inside the box.
+    shock_pos: float = 0.5
+
+    #: Adiabatic index of the gas.
+    gamma: float = 5 / 3
+
+    #: Length of the simulation domain.
+    box_size: float = 1.0
+
+    #: Final time at which the solution is evaluated.
+    t_end: float = 0.2
+
+    #: Left state density.
+    rho_L: float = 1.0
+
+    #: Left state velocity.
+    u_L: float = 0.0
+
+    #: Left state pressure.
+    p_L: float = 1.0
+
+    #: Right state density.
+    rho_R: float = 0.125
+
+    #: Right state velocity.
+    u_R: float = 0.0
+
+    #: Right state pressure.
+    p_R: float = 0.1
 
 
 def setup_sod_shock_tube(
@@ -50,6 +91,7 @@ def setup_sod_shock_tube(
     registered_variables: RegisteredVariables,
     params: SimulationParams,
     helper_data: HelperData,
+    settings: ShockTube1DSettings = ShockTube1DSettings(),
 ) -> tuple[STATE_TYPE, SimulationConfig, SimulationParams]:
     """
     Set up the Sod shock tube test.
@@ -63,28 +105,30 @@ def setup_sod_shock_tube(
         registered_variables: Registered variables in the simulation.
         params: Simulation parameters.
         helper_data: Helper data for the simulation.
+        settings: Problem constants (defaults to the standard Sod values).
 
     Returns:
         state: Initial primitive state of the simulation.
         config: Updated simulation configuration (CARTESIAN geometry,
-            box_size = 1.0).
-        params: Updated simulation parameters (t_end = 0.2, gamma = 5/3).
+            box_size from ``settings``).
+        params: Updated simulation parameters (t_end and gamma from
+            ``settings``).
     """
     config = config._replace(
         geometry = CARTESIAN,
-        box_size = _BOX_SIZE,
+        box_size = settings.box_size,
         dimensionality = 1,
         boundary_settings = BoundarySettings1D(
             left_boundary = OPEN_BOUNDARY,
             right_boundary = OPEN_BOUNDARY,
         )
     )
-    params = params._replace(t_end = _T_END, gamma = _GAMMA)
+    params = params._replace(t_end = settings.t_end, gamma = settings.gamma)
 
     r = helper_data.geometric_centers
-    rho = jnp.where(r < _SHOCK_POS, _RHO_L, _RHO_R)
-    u   = jnp.where(r < _SHOCK_POS, _U_L,   _U_R)
-    p   = jnp.where(r < _SHOCK_POS, _P_L,   _P_R)
+    rho = jnp.where(r < settings.shock_pos, settings.rho_L, settings.rho_R)
+    u   = jnp.where(r < settings.shock_pos, settings.u_L,   settings.u_R)
+    p   = jnp.where(r < settings.shock_pos, settings.p_L,   settings.p_R)
 
     state = construct_primitive_state(
         config = config,
@@ -104,6 +148,7 @@ def sod_shock_tube_solution(
     registered_variables: RegisteredVariables,
     params: SimulationParams,
     helper_data: HelperData,
+    settings: ShockTube1DSettings = ShockTube1DSettings(),
 ) -> STATE_TYPE:
     """
     Exact Riemann solution for the Sod shock tube, evaluated on the cell
@@ -116,18 +161,24 @@ def sod_shock_tube_solution(
         registered_variables: Registered variables in the simulation.
         params: Simulation parameters.
         helper_data: Helper data for the simulation.
+        settings: Problem constants (must match those used in
+            :func:`setup_sod_shock_tube`).
 
     Returns:
         state: Exact primitive state at t = params.t_end.
     """
 
     rho, u, p = _exact_riemann_ideal_gas(
-        rho_L = _RHO_L, u_L = _U_L, p_L = _P_L,
-        rho_R = _RHO_R, u_R = _U_R, p_R = _P_R,
+        rho_L = settings.rho_L,
+        u_L = settings.u_L,
+        p_L = settings.p_L,
+        rho_R = settings.rho_R,
+        u_R = settings.u_R,
+        p_R = settings.p_R,
         gamma = params.gamma,
         x = helper_data.geometric_centers,
         t = params.t_end,
-        x0 = _SHOCK_POS,
+        x0 = settings.shock_pos,
     )
 
     return construct_primitive_state(

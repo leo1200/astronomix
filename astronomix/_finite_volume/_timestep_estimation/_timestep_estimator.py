@@ -1,14 +1,30 @@
+"""
+Finite-volume time-step estimation.
+
+Provides the maximum wave-speed estimate, the CFL time step (split and unsplit,
+including the viscous constraint) and the experimental source-term-aware time
+step that accounts for the stellar-wind injection.
+"""
+
 # general
-import jax.numpy as jnp
-import jax
 from functools import partial
 
-# type checking
+# typing
+from typing import Union
 from jaxtyping import Array, Float, jaxtyped
 from beartype import beartype as typechecker
-from typing import Union
-from astronomix._physics_modules._stellar_wind.stellar_wind import _wind_injection
-from astronomix.option_classes.simulation_config import DYNAMIC_VISCOSITY, KINEMATIC_VISCOSITY, STATE_TYPE, UNSPLIT
+
+# jax
+import jax
+import jax.numpy as jnp
+
+# astronomix constants
+from astronomix.option_classes.simulation_config import (
+    DYNAMIC_VISCOSITY,
+    KINEMATIC_VISCOSITY,
+    STATE_TYPE,
+    UNSPLIT,
+)
 
 # astronomix containers
 from astronomix.data_classes.simulation_helper_data import HelperData
@@ -17,22 +33,20 @@ from astronomix.option_classes.simulation_params import SimulationParams
 from astronomix.variable_registry.registered_variables import RegisteredVariables
 
 # astronomix functions
+from astronomix._modules._stellar_wind.stellar_wind import _wind_injection
 from astronomix._fluid_equations._fluxes import _euler_flux
 from astronomix._fluid_equations._equations import speed_of_sound
-from astronomix._physics_modules._cosmic_rays.cr_fluid_equations import (
+from astronomix._modules._cosmic_rays.cr_fluid_equations import (
     gas_pressure_from_primitives_with_crs,
     speed_of_sound_crs,
 )
-from astronomix._physics_modules.run_physics_modules import _run_physics_modules
-
-# better use same as in the riemann solver??
-# now these wave speeds are calculated without
-# the reconstruction - for the purely spatial
-# reconstruction, we do not need to know
-# the time step a priori
 
 
-# TODO: merge duplicate code in this and hll.py
+# NOTE: these wave speeds are computed without the reconstruction. For the
+# purely spatial reconstruction we do not need to know the time step a priori,
+# so a coarser estimate than the one used in the Riemann solver is acceptable
+# here.
+# TODO: merge the duplicate wave-speed code shared with hll.py.
 # @jaxtyped(typechecker=typechecker)
 @partial(
     jax.jit, static_argnames=["registered_variables", "config", "flux_direction_index"]
@@ -46,16 +60,19 @@ def get_wave_speeds(
     flux_direction_index: int,
 ) -> Union[float, Float[Array, ""]]:
     """
-    Returns the conservative fluxes.
+    Return the maximum signal (wave) speed across all interfaces along an axis.
 
     Args:
         primitives_left: States left of the interfaces.
         primitives_right: States right of the interfaces.
         gamma: The adiabatic index.
+        registered_variables: The registered variables.
+        config: The simulation configuration.
+        flux_direction_index: The state index of the velocity normal to the
+            interface (the flux direction).
 
     Returns:
-        The conservative fluxes at the interfaces.
-
+        The maximum wave speed over all interfaces along the given axis.
     """
 
     rho_L = primitives_left[registered_variables.density_index]
@@ -75,10 +92,8 @@ def get_wave_speeds(
         c_L = speed_of_sound_crs(primitives_left, registered_variables)
         c_R = speed_of_sound_crs(primitives_right, registered_variables)
 
-    # very simple approach for the wave velocities
-    # wave_speeds_right_plus = jnp.maximum(jnp.maximum(u_L + c_L, u_R + c_R), 0)
-    # wave_speeds_left_minus = jnp.minimum(jnp.minimum(u_L - c_L, u_R - c_R), 0)
-
+    # A simple symmetric estimate of the maximum signal speed on either side of
+    # the interface; the |u| + c form is sufficient for the time-step bound.
     wave_speeds_right_plus = jnp.abs(u_L) + c_L
     wave_speeds_left_minus = jnp.abs(u_R) + c_R
 
@@ -219,7 +234,7 @@ def _cfl_time_step(
     # viscous time step constraint
     if config.diffusion:
         
-        if config.enforce_positivity:
+        if config.positivity_config.clamp_in_estimates:
             rho_min = jnp.maximum(
                 jnp.min(primitive_state[registered_variables.density_index]),
                 params.minimum_density,
@@ -283,16 +298,6 @@ def _source_term_aware_time_step(
     hypothetical_new_state = _wind_injection(
         primitive_state, dt, config, params, helper_data, registered_variables
     )
-
-    # hypothetical_new_state = _run_physics_modules(
-    #     primitive_state,
-    #     dt,
-    #     config,
-    #     params,
-    #     helper_data,
-    #     registered_variables,
-    #     current_time,
-    # )
 
     dt = _cfl_time_step(
         hypothetical_new_state,

@@ -1,0 +1,25 @@
+=== ICM_N512 START Mon Jun 22 06:12:19 PM CEST 2026 ===
+ICM_N512 using CUDA_VISIBLE_DEVICES=3
+W0622 18:12:31.065470 3289990 hlo_rematerialization.cc:3231] Can't reduce memory use below 96.36GiB (103466663819 bytes) by rematerialization; only reduced to 136.00GiB (146028888676 bytes), down from 136.00GiB (146028888692 bytes) originally
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+Setting time integrator to RK4_SSP for finite difference solver mode.
+[ICM_N512] eos=iso M_turb_aim=0.5 beta=1e+06 a=2.000 P0=None B0=0.002828 F0=3.5 kf=9.425 cfl=1.5 rhomin=0.02 prot=False hardfloor=False
+[ICM_N512] wall 8936.5s, snaps=6
+[ICM_N512] stationary(last 1/3): M_turb=0.70 v_rms=1.407 (rho-rho0)rms=0.165 E_K=0.955 E_B=0.057 first_bad_snap=-1 (all finite)
+[ICM_N512] M_turb(t/tc): 0.00:0.0 0.83:0.6 1.67:0.8 2.50:0.6 3.33:0.7 5.00:0.7
+[ICM_N512] slice from snapshot 5 (t/tc=5.00)
+[ICM_N512] wrote data_fig14/paper_ICM_N512.npz
+=== ICM_N512 EXIT 0 Mon Jun 22 08:41:54 PM CEST 2026 ===
+=== ISM_N512_cfl1 START Mon Jun 22 08:41:54 PM CEST 2026 ===
+ISM_N512_cfl1 using CUDA_VISIBLE_DEVICES=3
+W0622 20:42:08.614143 3475547 hlo_rematerialization.cc:3231] Can't reduce memory use below 96.36GiB (103466663819 bytes) by rematerialization; only reduced to 136.00GiB (146028888692 bytes), down from 136.00GiB (146028888708 bytes) originally
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+Setting time integrator to RK4_SSP for finite difference solver mode.
+[ISM_N512] eos=iso M_turb_aim=10.0 beta=0.1 a=0.100 P0=None B0=0.4472 F0=3.5 kf=9.425 cfl=1.0 rhomin=0.02 prot=True hardfloor=True
+[ISM_N512] wall 42015.4s, snaps=6
+[ISM_N512] stationary(last 1/3): M_turb=5.32 v_rms=0.532 (rho-rho0)rms=1.314 E_K=0.245 E_B=0.215 first_bad_snap=5 @t/tc=nan
+[ISM_N512] M_turb(t/tc): 0.00:0.0 0.83:9.6 1.67:10.3 2.50:10.4 3.33:10.6 nan:0.0
+[ISM_N512] slice from snapshot 4 (t/tc=3.33)
+[ISM_N512] wrote data_fig14/paper_ISM_N512.npz
+=== ISM_N512_cfl1 EXIT 0 Tue Jun 23 08:22:44 AM CEST 2026 ===
+=== ALL DONE Tue Jun 23 08:22:44 AM CEST 2026 ===

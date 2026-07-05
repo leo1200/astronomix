@@ -60,8 +60,8 @@ from astronomix import (
     time_integration
 )
 
-from astronomix._physics_modules._turbulent_forcing._turbulent_forcing import _apply_forcing
-from astronomix._physics_modules._turbulent_forcing._turbulent_forcing_options import TurbulentForcingConfig, TurbulentForcingParams
+from astronomix._modules._turbulent_forcing._turbulent_forcing import _apply_forcing
+from astronomix._modules._turbulent_forcing._turbulent_forcing_options import TurbulentForcingConfig, TurbulentForcingParams
 from astronomix.initial_condition_generation.turbulent_ic_generator import create_turb_field
 from astronomix.option_classes.simulation_config import (
     FINITE_DIFFERENCE,

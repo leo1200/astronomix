@@ -1,0 +1,6 @@
+=== ISM_N512 cfl1.0 START Mon Jun 22 05:17:41 PM CEST 2026 ===
+ISM_N512 (cfl1.0) using CUDA_VISIBLE_DEVICES=1
+W0622 17:43:55.606500 3257446 hlo_rematerialization.cc:3231] Can't reduce memory use below 96.36GiB (103466663819 bytes) by rematerialization; only reduced to 136.00GiB (146028888692 bytes), down from 136.00GiB (146028888708 bytes) originally
+_rerun_ism_cfl1.sh: line 18: 3257446 Killed                  python paper_turbulence.py --tag ISM_N512 --outdir data_fig14 --eos iso --N 512 --mturb 10 --beta 0.1 --F0 3.5 --cfl 1.0 --tcross 5 --nsnap 6 --stage_mode redist --rhomin 0.02 --vmaxcap 50 --protect 1 2>&1
+     3257447 Done                    | tee data_fig14/ISM_N512_cfl1.log
+=== ISM_N512 cfl1.0 EXIT 137 Mon Jun 22 06:10:04 PM CEST 2026 ===

@@ -1,23 +1,35 @@
-# general imports
-from functools import partial
-import jax
-import jax.numpy as jnp
+"""
+Geometric source terms for curvilinear finite-volume updates.
 
-# typechecking
+Provides the pressure-nozzling source term that accounts for the changing cell
+cross-section in cylindrical and spherical geometry (Crittenden & Balachandar,
+2018).
+"""
+
+# general
+from functools import partial
+
+# typing
 from typing import Union
 from beartype import beartype as typechecker
 from jaxtyping import Array, Float, jaxtyped
 
-# general astronomix imports
+# jax
+import jax
+import jax.numpy as jnp
+
+# astronomix constants
 from astronomix.option_classes.simulation_config import (
     STATE_TYPE,
     STATE_TYPE_ALTERED,
-    SimulationConfig,
 )
+
+# astronomix containers
+from astronomix.option_classes.simulation_config import SimulationConfig
 from astronomix.data_classes.simulation_helper_data import HelperData
 from astronomix.variable_registry.registered_variables import RegisteredVariables
 
-# limited gradients
+# astronomix functions
 from astronomix._finite_volume._state_evolution.limited_gradients import _calculate_limited_gradients
 
 

@@ -1,7 +1,12 @@
-# """
-# THE FOR LOOPS IN THIS FILE ARE THE REASON FOR LONG COMPILATION TIMES!
-# TODO: FIX THIS.
-# """
+"""
+Legacy ghost-cell boundary handler (superseded, kept for reference).
+
+This is the original loop-based boundary implementation. The per-side Python
+``for`` loops scattered one ghost cell at a time, which expanded into very large
+traces and dominated compilation time, so it was replaced by the vectorised,
+loop-free handler in ``boundaries.py``. The whole body below is retained
+commented-out only as historical reference and is not imported anywhere.
+"""
 
 # from typing import NamedTuple
 # import jax.numpy as jnp

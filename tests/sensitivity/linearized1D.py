@@ -19,7 +19,7 @@ from astronomix import get_helper_data, time_integration, get_registered_variabl
 from astronomix.initial_condition_generation.construct_primitive_state import construct_primitive_state
 from astronomix.option_classes.simulation_config import (
     BACKWARDS, FINITE_DIFFERENCE, PERIODIC_ROLL, SimulationConfig, finalize_config,
-    PERIODIC_BOUNDARY, BoundarySettings1D
+    PERIODIC_BOUNDARY, BoundarySettings1D, GravityConfig, PositivityConfig
 )
 from astronomix.option_classes.simulation_params import SimulationParams
 
@@ -44,7 +44,6 @@ def run_1d_adjoint_test():
         geometry=CARTESIAN,
         memory_analysis=False,
         progress_bar=True,
-        self_gravity=False,
         boundary_handling=PERIODIC_ROLL,
         differentiation_mode=BACKWARDS,
         num_ghost_cells=0,

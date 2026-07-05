@@ -1,22 +1,24 @@
-# general imports
+"""
+Dispatch wrapper selecting the finite-volume Riemann solver.
+
+Routes to the configured solver (HLL, HLLC / HLLC-LM, AM-HLLC / hybrid HLLC, or
+Lax-Friedrichs) and returns the conservative interface fluxes. Also carries a
+back-compatibility shim for the FV-Pallas support predicate.
+"""
+
+# general
 from functools import partial
-import jax.numpy as jnp
-import jax
 
 # typing
+from typing import Union
 from jaxtyping import Array, Float, jaxtyped
 from beartype import beartype as typechecker
-from typing import Union
 
-# general astronomix
-from astronomix._physics_modules._cosmic_rays.cr_fluid_equations import speed_of_sound_crs
-from astronomix._finite_volume._riemann_solver._lax_friedrichs import _lax_friedrichs_solver
-from astronomix._finite_volume._riemann_solver.hll import _am_hllc_solver, _hll_solver, _hllc_solver
-from astronomix.variable_registry.registered_variables import RegisteredVariables
+# jax
+import jax
+import jax.numpy as jnp
 
-# fluid stuff
-from astronomix._fluid_equations._equations import conserved_state_from_primitive, speed_of_sound
-from astronomix._fluid_equations._fluxes import _euler_flux
+# astronomix constants
 from astronomix.option_classes.simulation_config import (
     AM_HLLC,
     HLL,
@@ -24,10 +26,33 @@ from astronomix.option_classes.simulation_config import (
     HLLC_LM,
     HYBRID_HLLC,
     LAX_FRIEDRICHS,
+    PALLAS,
     STATE_TYPE,
     STATE_TYPE_ALTERED,
-    SimulationConfig,
 )
+
+# astronomix containers
+from astronomix.variable_registry.registered_variables import RegisteredVariables
+from astronomix.option_classes.simulation_config import SimulationConfig
+
+# astronomix functions
+from astronomix._modules._cosmic_rays.cr_fluid_equations import speed_of_sound_crs
+from astronomix._finite_volume._riemann_solver._lax_friedrichs import _lax_friedrichs_solver
+from astronomix._finite_volume._riemann_solver.hll import _am_hllc_solver, _hll_solver, _hllc_solver
+from astronomix._fluid_equations._equations import conserved_state_from_primitive, speed_of_sound
+from astronomix._fluid_equations._fluxes import _euler_flux
+
+
+def _fv_pallas_supported(state, config: SimulationConfig) -> bool:
+    """Back-compat shim.  The real FV-Pallas predicate now lives in
+    ``astronomix._finite_volume._state_evolution._pallas_evolve`` as
+    ``_fv_pallas_evolve_supported``; this function just re-exports it so
+    older external callers still resolve.
+    """
+    from astronomix._finite_volume._state_evolution._pallas_evolve import (
+        _fv_pallas_evolve_supported,
+    )
+    return _fv_pallas_evolve_supported(state, config)
 
 
 # @jaxtyped(typechecker=typechecker)

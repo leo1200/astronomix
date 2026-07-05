@@ -1,7 +1,5 @@
 # ==== GPU selection ====
 from autocvd import autocvd
-
-from astronomix.initial_condition_generation.construct_primitive_state import construct_primitive_state
 autocvd(num_gpus = 1)
 # =======================
 
@@ -28,6 +26,7 @@ from astronomix import get_registered_variables
 from astronomix.option_classes import WindConfig
 
 from astronomix.option_classes.simulation_config import BACKWARDS, HLL, HYBRID_HLLC, OSHER, PERIODIC_BOUNDARY, BoundarySettings, BoundarySettings1D
+from astronomix.initial_condition_generation.construct_primitive_state import construct_primitive_state
 
 # units
 from astronomix import CodeUnits
@@ -36,7 +35,7 @@ import astropy.constants as c
 from astropy.constants import m_p
 
 # wind-specific
-from astronomix._physics_modules._stellar_wind.weaver import Weaver
+from astronomix._modules._stellar_wind.weaver import Weaver
 
 # turbulence
 from astronomix.initial_condition_generation.turbulent_ic_generator import create_turb_field

@@ -1,6 +1,6 @@
-# Circularly Polarized Alfvén Wave (3D)
-
 """
+Circularly polarized Alfvén wave (3D).
+
 Three-dimensional convergence test using a circularly polarized Alfvén
 wave propagating obliquely with respect to the grid axes. Polarized Alfvén
 waves are common in astrophysical plasmas (e.g. the solar corona;
@@ -29,12 +29,12 @@ which the wave has executed five full periods and the analytic state has
 returned to the initial condition.
 
 Depending on the chosen scheme:
-- For FINITE_DIFFERENCE (constrained-transport), the magnetic field is 
-  initialized from the analytic vector potential evaluated on the staggered 
-  edge grid, so that the discrete face-centered B is divergence-free to 
-  machine precision under the corresponding discrete curl. 
-- For FINITE_VOLUME (cell-centered), a central difference curl is applied 
-  to the cell-centered vector potential to guarantee a 0-divergence field 
+- For FINITE_DIFFERENCE (constrained-transport), the magnetic field is
+  initialized from the analytic vector potential evaluated on the staggered
+  edge grid, so that the discrete face-centered B is divergence-free to
+  machine precision under the corresponding discrete curl.
+- For FINITE_VOLUME (cell-centered), a central difference curl is applied
+  to the cell-centered vector potential to guarantee a 0-divergence field
   under a standard central difference discrete divergence operator.
 The uniform B background is added analytically in both cases.
 
@@ -44,46 +44,48 @@ The uniform B background is added analytically in both cases.
 
 """
 
+# typing
+from typing import NamedTuple
+
+# jax
 import jax.numpy as jnp
 
+# astronomix constants
 from astronomix import CARTESIAN
-from astronomix.data_classes.simulation_helper_data import HelperData, get_helper_data
-from astronomix.initial_condition_generation.construct_primitive_state import (
-    construct_primitive_state,
-)
 from astronomix.option_classes.simulation_config import (
     PERIODIC_BOUNDARY,
     STATE_TYPE,
+    FINITE_DIFFERENCE,
+    FINITE_VOLUME,
+)
+
+# astronomix containers
+from astronomix.data_classes.simulation_helper_data import HelperData
+from astronomix.option_classes.simulation_config import (
     BoundarySettings,
     BoundarySettings1D,
     SimulationConfig,
     StaticFloatVector,
-    finalize_config,
-    FINITE_DIFFERENCE,
-    FINITE_VOLUME,
 )
 from astronomix.option_classes.simulation_params import SimulationParams
-from astronomix.variable_registry.registered_variables import RegisteredVariables, get_registered_variables
-from astronomix._finite_difference._maths._differencing import finite_difference_int6
-from astronomix._finite_difference._maths._interpolate import interp_face_to_center
+from astronomix.variable_registry.registered_variables import RegisteredVariables
+
+# astronomix functions
+from astronomix.data_classes.simulation_helper_data import get_helper_data
+from astronomix.initial_condition_generation.construct_primitive_state import (
+    construct_primitive_state,
+)
+from astronomix.option_classes.simulation_config import finalize_config
+from astronomix.variable_registry.registered_variables import get_registered_variables
+from astronomix._spatial_operators._differencing import finite_difference_int6
+from astronomix._spatial_operators._interpolate import interp_face_to_center
 
 _XAXIS, _YAXIS, _ZAXIS = 0, 1, 2
 
-# Problem constants
-_BOX_SIZE   = (3.0, 1.5, 1.5)
-_T_END      = 5.0
-_GAMMA      = 5.0 / 3.0
-
-_RHO_0      = 1.0
-_P_0        = 0.1
-_B_PARALLEL = 1.0           # background field along the propagation direction
-_AMPLITUDE  = 0.1           # transverse perturbation amplitude
-_K_WAVE     = 2.0 * jnp.pi  # wavenumber in unrotated frame; wavelength = 1
-_V_ALFVEN   = 1.0           # = _B_PARALLEL / sqrt(_RHO_0); wave is left-going
-
 # Rotation matrix mapping the unrotated frame to the simulation frame:
 # rotate by -arctan(2/sqrt(5)) about y, then by arctan(2) about z. Its first
-# column is the simulation-frame propagation direction (1, 2, 2)/3.
+# column is the simulation-frame propagation direction (1, 2, 2)/3. This is
+# part of the fixed test geometry and not user-configurable.
 _SQRT5 = 5.0**0.5
 _R = jnp.array([
     [1.0 / 3.0,   -2.0 / _SQRT5,        -2.0 / (3.0 * _SQRT5)],
@@ -92,19 +94,50 @@ _R = jnp.array([
 ])
 
 
+class CPAlfvenWave3DSettings(NamedTuple):
+    """Problem constants for the 3D circularly polarized Alfvén wave test."""
+
+    #: Simulation-frame box size ``(L_x, L_y, L_z)``.
+    box_size: tuple = (3.0, 1.5, 1.5)
+
+    #: Final time at which the solution is evaluated.
+    t_end: float = 5.0
+
+    #: Adiabatic index of the gas.
+    gamma: float = 5.0 / 3.0
+
+    #: Background density ``rho_0``.
+    rho_0: float = 1.0
+
+    #: Background pressure ``p_0``.
+    p_0: float = 0.1
+
+    #: Uniform background field along the propagation direction.
+    b_parallel: float = 1.0
+
+    #: Transverse perturbation amplitude.
+    amplitude: float = 0.1
+
+    #: Wavenumber in the unrotated frame; wavelength = 2 pi / k_wave.
+    k_wave: float = 2.0 * jnp.pi
+
+    #: Alfvén speed ``= b_parallel / sqrt(rho_0)``; the wave is left-going.
+    v_alfven: float = 1.0
+
+
 def _x_unrot(X, Y, Z):
     """Unrotated x-coordinate at simulation-frame points: (X + 2Y + 2Z) / 3."""
     return _R[0, 0] * X + _R[1, 0] * Y + _R[2, 0] * Z
 
 
-def _phase(X, Y, Z, t):
+def _phase(X, Y, Z, t, settings: CPAlfvenWave3DSettings):
     """Wave phase k * (x_unrot + v_A * t); the wave is left-going in the
     unrotated frame, so the value at (x, t) equals the initial value at
     x + v_A t."""
-    return _K_WAVE * (_x_unrot(X, Y, Z) + _V_ALFVEN * t)
+    return settings.k_wave * (_x_unrot(X, Y, Z) + settings.v_alfven * t)
 
 
-def _wave_primitive_state(X, Y, Z, t):
+def _wave_primitive_state(X, Y, Z, t, settings: CPAlfvenWave3DSettings):
     """
     Cell-centered primitive state of the rotated CP Alfvén wave.
 
@@ -112,35 +145,37 @@ def _wave_primitive_state(X, Y, Z, t):
     coordinates (X, Y, Z) and time ``t``. The magnetic field includes the
     uniform background along the propagation direction.
     """
-    s, c = jnp.sin(_phase(X, Y, Z, t)), jnp.cos(_phase(X, Y, Z, t))
+    phi = _phase(X, Y, Z, t, settings)
+    s, c = jnp.sin(phi), jnp.cos(phi)
     # In the unrotated frame: v_x = 0, B_x = uniform; the transverse
     # perturbations of v and delta B coincide for a left-going wave.
-    dy = _AMPLITUDE * s
-    dz = _AMPLITUDE * c
+    dy = settings.amplitude * s
+    dz = settings.amplitude * c
 
     v_x = _R[0, 1] * dy + _R[0, 2] * dz
     v_y = _R[1, 1] * dy + _R[1, 2] * dz
     v_z = _R[2, 1] * dy + _R[2, 2] * dz
 
-    B_x = _R[0, 1] * dy + _R[0, 2] * dz + _R[0, 0] * _B_PARALLEL
-    B_y = _R[1, 1] * dy + _R[1, 2] * dz + _R[1, 0] * _B_PARALLEL
-    B_z = _R[2, 1] * dy + _R[2, 2] * dz + _R[2, 0] * _B_PARALLEL
+    B_x = _R[0, 1] * dy + _R[0, 2] * dz + _R[0, 0] * settings.b_parallel
+    B_y = _R[1, 1] * dy + _R[1, 2] * dz + _R[1, 0] * settings.b_parallel
+    B_z = _R[2, 1] * dy + _R[2, 2] * dz + _R[2, 0] * settings.b_parallel
 
-    rho = jnp.full_like(X, _RHO_0)
-    p   = jnp.full_like(X, _P_0)
+    rho = jnp.full_like(X, settings.rho_0)
+    p   = jnp.full_like(X, settings.p_0)
     return rho, v_x, v_y, v_z, p, B_x, B_y, B_z
 
 
-def _vector_potential(X, Y, Z, t):
+def _vector_potential(X, Y, Z, t, settings: CPAlfvenWave3DSettings):
     """
     Perturbation vector potential ``A`` in the simulation frame at points
     (X, Y, Z) and time ``t``. Its curl reproduces the perturbation field
     only -- the uniform B background must be added to B separately, since
     no periodic vector potential exists for a uniform 3D field.
     """
-    s, c = jnp.sin(_phase(X, Y, Z, t)), jnp.cos(_phase(X, Y, Z, t))
-    A_y_un = (_AMPLITUDE / _K_WAVE) * s
-    A_z_un = (_AMPLITUDE / _K_WAVE) * c
+    phi = _phase(X, Y, Z, t, settings)
+    s, c = jnp.sin(phi), jnp.cos(phi)
+    A_y_un = (settings.amplitude / settings.k_wave) * s
+    A_z_un = (settings.amplitude / settings.k_wave) * c
     A_x = _R[0, 1] * A_y_un + _R[0, 2] * A_z_un
     A_y = _R[1, 1] * A_y_un + _R[1, 2] * A_z_un
     A_z = _R[2, 1] * A_y_un + _R[2, 2] * A_z_un
@@ -152,6 +187,7 @@ def _generate_state(
     registered_variables: RegisteredVariables,
     helper_data: HelperData,
     t: float,
+    settings: CPAlfvenWave3DSettings,
 ) -> STATE_TYPE:
     """
     Generate the discrete state for the CP Alfvén wave at time `t`,
@@ -161,7 +197,7 @@ def _generate_state(
     Xc, Yc, Zc = cell_centers[..., 0], cell_centers[..., 1], cell_centers[..., 2]
 
     Nx, Ny, Nz = Xc.shape
-    Lx, Ly, Lz = _BOX_SIZE
+    Lx, Ly, Lz = settings.box_size
     dx = Lx / Nx                # uniform iff num_cells = (2N, N, N)
 
     if config.solver_mode == FINITE_DIFFERENCE:
@@ -180,9 +216,9 @@ def _generate_state(
         # A_z lives on xy-edges  (i+1/2, j+1/2, k  )  ->  (x_l, y_l, z_c)
         Xaz, Yaz, Zaz = jnp.meshgrid(x_l, y_l, z_c, indexing="ij")
 
-        A_x_edge, _, _ = _vector_potential(Xax, Yax, Zax, t = t)
-        _, A_y_edge, _ = _vector_potential(Xay, Yay, Zay, t = t)
-        _, _, A_z_edge = _vector_potential(Xaz, Yaz, Zaz, t = t)
+        A_x_edge, _, _ = _vector_potential(Xax, Yax, Zax, t = t, settings = settings)
+        _, A_y_edge, _ = _vector_potential(Xay, Yay, Zay, t = t, settings = settings)
+        _, _, A_z_edge = _vector_potential(Xaz, Yaz, Zaz, t = t, settings = settings)
 
         # discrete curl -> face-centered perturbation field
         bxb_pert = (1.0/dx) * finite_difference_int6(A_z_edge, _YAXIS) \
@@ -193,9 +229,9 @@ def _generate_state(
                  - (1.0/dx) * finite_difference_int6(A_x_edge, _YAXIS)
 
         # add uniform background to the face fields
-        bxb = bxb_pert + _R[0, 0] * _B_PARALLEL
-        byb = byb_pert + _R[1, 0] * _B_PARALLEL
-        bzb = bzb_pert + _R[2, 0] * _B_PARALLEL
+        bxb = bxb_pert + _R[0, 0] * settings.b_parallel
+        byb = byb_pert + _R[1, 0] * settings.b_parallel
+        bzb = bzb_pert + _R[2, 0] * settings.b_parallel
 
         # cell-centered B by face-to-center interpolation
         B_x = interp_face_to_center(bxb, _XAXIS)
@@ -204,7 +240,7 @@ def _generate_state(
 
     elif config.solver_mode == FINITE_VOLUME:
         # evaluate vector potential directly at cell centers
-        A_x_c, A_y_c, A_z_c = _vector_potential(Xc, Yc, Zc, t = t)
+        A_x_c, A_y_c, A_z_c = _vector_potential(Xc, Yc, Zc, t = t, settings = settings)
 
         # use central differencing identical to our FV volume divB logic
         def central_diff(f, axis):
@@ -217,9 +253,9 @@ def _generate_state(
         bzb_pert = central_diff(A_y_c, _XAXIS) - central_diff(A_x_c, _YAXIS)
 
         # add uniform background to the cell-centered fields
-        B_x = bxb_pert + _R[0, 0] * _B_PARALLEL
-        B_y = byb_pert + _R[1, 0] * _B_PARALLEL
-        B_z = bzb_pert + _R[2, 0] * _B_PARALLEL
+        B_x = bxb_pert + _R[0, 0] * settings.b_parallel
+        B_y = byb_pert + _R[1, 0] * settings.b_parallel
+        B_z = bzb_pert + _R[2, 0] * settings.b_parallel
 
         # fallback structure for compatibility; interfaces carry same as cell centers
         bxb, byb, bzb = B_x, B_y, B_z
@@ -227,7 +263,7 @@ def _generate_state(
         raise ValueError(f"Unsupported solver_mode: {config.solver_mode}")
 
     # cell-centered hydro state at time t
-    rho, v_x, v_y, v_z, p, _, _, _ = _wave_primitive_state(Xc, Yc, Zc, t = t)
+    rho, v_x, v_y, v_z, p, _, _, _ = _wave_primitive_state(Xc, Yc, Zc, t = t, settings = settings)
 
     return construct_primitive_state(
         config = config,
@@ -249,12 +285,13 @@ def _generate_state(
 def setup_cp_alfven_wave(
     config: SimulationConfig,
     params: SimulationParams,
+    settings: CPAlfvenWave3DSettings = CPAlfvenWave3DSettings(),
 ) -> tuple[STATE_TYPE, SimulationConfig, SimulationParams]:
     """
     Set up the 3D circularly polarized Alfvén wave test.
 
-    Enforces the geometry (3D Cartesian), box size (3, 3/2, 3/2), periodic
-    boundaries on all faces, end time t = 5, gamma = 5/3, and MHD mode
+    Enforces the geometry (3D Cartesian), box size, periodic
+    boundaries on all faces, end time, gamma, and MHD mode
     required by the standard problem. The number of cells, Riemann solver,
     slope limiter and CFL number are left untouched. The user is
     responsible for choosing num_cells = (2N, N, N) so that the grid
@@ -266,17 +303,20 @@ def setup_cp_alfven_wave(
     Args:
         config: Simulation configuration.
         params: Simulation parameters.
+        settings: Problem constants (defaults to the standard CP Alfvén
+            wave values).
 
     Returns:
         state: Initial primitive state of the simulation.
         config: Updated simulation configuration (CARTESIAN geometry,
-            box_size = (3, 3/2, 3/2), 3D, periodic boundaries, MHD).
-        params: Updated simulation parameters (t_end = 5, gamma = 5/3).
+            box_size from ``settings``, 3D, periodic boundaries, MHD).
+        params: Updated simulation parameters (t_end and gamma from
+            ``settings``).
     """
     config = config._replace(
         geometry = CARTESIAN,
         dimensionality = 3,
-        box_size = StaticFloatVector(*_BOX_SIZE),
+        box_size = StaticFloatVector(*settings.box_size),
         boundary_settings = BoundarySettings(
             x = BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY),
             y = BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY),
@@ -284,7 +324,7 @@ def setup_cp_alfven_wave(
         ),
         mhd = True,
     )
-    params = params._replace(t_end = _T_END, gamma = _GAMMA)
+    params = params._replace(t_end = settings.t_end, gamma = settings.gamma)
 
     registered_variables = get_registered_variables(config)
     helper_data = get_helper_data(config)
@@ -294,6 +334,7 @@ def setup_cp_alfven_wave(
         registered_variables=registered_variables,
         helper_data=helper_data,
         t=0.0,
+        settings=settings,
     )
 
     config = finalize_config(config, state.shape)
@@ -306,6 +347,7 @@ def cp_alfven_wave_solution(
     registered_variables: RegisteredVariables,
     params: SimulationParams,
     helper_data: HelperData,
+    settings: CPAlfvenWave3DSettings = CPAlfvenWave3DSettings(),
 ) -> STATE_TYPE:
     """
     Exact CP Alfvén wave state at t = ``params.t_end``, evaluated on the
@@ -323,6 +365,8 @@ def cp_alfven_wave_solution(
         registered_variables: Registered variables in the simulation.
         params: Simulation parameters.
         helper_data: Helper data for the simulation.
+        settings: Problem constants (must match those used in
+            :func:`setup_cp_alfven_wave`).
 
     Returns:
         state: Exact primitive state at t = params.t_end.
@@ -332,4 +376,5 @@ def cp_alfven_wave_solution(
         registered_variables=registered_variables,
         helper_data=helper_data,
         t=params.t_end,
+        settings=settings,
     )

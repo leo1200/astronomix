@@ -1,23 +1,37 @@
-import jax.numpy as jnp
-import jax
+"""
+Hydrodynamic fluid equations: conversions between primitive and conserved
+states and the basic thermodynamic relations (pressure, internal energy, total
+energy and sound speed) for the (ideal-gas) Euler equations.
+"""
+
+# general
 from functools import partial
 
+# typing
+from typing import Union
 from jaxtyping import Array, Float, jaxtyped
 from beartype import beartype as typechecker
 
-from typing import Union
+# jax
+import jax
+import jax.numpy as jnp
 
-from astronomix._physics_modules._cosmic_rays.cr_fluid_equations import (
-    total_energy_from_primitives_with_crs,
-    total_pressure_from_conserved_with_crs,
-)
-from astronomix.variable_registry.registered_variables import RegisteredVariables
+# astronomix constants
 from astronomix.option_classes.simulation_config import (
     FIELD_TYPE,
     STATE_TYPE,
-    SimulationConfig,
 )
+
+# astronomix containers
+from astronomix.option_classes.simulation_config import SimulationConfig
+from astronomix.variable_registry.registered_variables import RegisteredVariables
 from astronomix.option_classes.simulation_params import SimulationParams
+
+# astronomix functions
+from astronomix._modules._cosmic_rays.cr_fluid_equations import (
+    total_energy_from_primitives_with_crs,
+    total_pressure_from_conserved_with_crs,
+)
 
 # @jaxtyped(typechecker=typechecker)
 @partial(jax.jit, static_argnames=["config", "registered_variables"])
@@ -36,10 +50,9 @@ def primitive_state_from_conserved(
     Returns:
         The primitive state.
     """
-    # note the indices of the conserved variables
-    # are the same as the indices of the primitive variables
-    # so velocity and moentum density have the same index
-
+    # The conserved variables share the same registry indices as the primitive
+    # ones, so velocity and momentum density (and pressure and energy) occupy the
+    # same slot; we read the conserved values out and overwrite them in place.
     rho = conserved_state[registered_variables.density_index]
     E = conserved_state[registered_variables.pressure_index]
 
@@ -48,7 +61,8 @@ def primitive_state_from_conserved(
     elif config.dimensionality == 2:
         ux = conserved_state[registered_variables.velocity_index.x] / rho
         uy = conserved_state[registered_variables.velocity_index.y] / rho
-        # TODO: find smarter way, problem d/dx sqrt(0) = inf
+        # The 1e-20 offset keeps the gradient of sqrt finite at u = 0, where
+        # d/dx sqrt(0) would otherwise be infinite. TODO: find a cleaner way.
         u = jnp.sqrt(ux**2 + uy**2 + 1e-20)
     elif config.dimensionality == 3:
         ux = conserved_state[registered_variables.velocity_index.x] / rho
@@ -65,7 +79,7 @@ def primitive_state_from_conserved(
     else:
         p = pressure_from_energy(E, rho, u, gamma)
 
-    # set the primitive state
+    # Write the recovered pressure and velocities into the primitive state.
     primitive_state = conserved_state.at[registered_variables.pressure_index].set(p)
 
     if config.dimensionality == 1:
@@ -88,13 +102,14 @@ def primitive_state_from_conserved(
             uz
         )
 
-    # for all other variables assume that primitive and conserved state are the same
-    # as for the mass density
-
+    # All other variables (e.g. the mass density) coincide between the primitive
+    # and conserved representations, so they are left untouched.
     return primitive_state
 
-# ===========================================
-# ======= Create the conserved state ========
+
+# -------------------------------------------------------------
+# =============== ↓ Create the conserved state ↓ ==============
+# -------------------------------------------------------------
 
 
 # @jaxtyped(typechecker=typechecker)
@@ -153,9 +168,14 @@ def conserved_state_from_primitive(
 
     return conserved_state
 
-# ===========================================
+# -------------------------------------------------------------
+# =============== ↑ Create the conserved state ↑ ==============
+# -------------------------------------------------------------
 
-# =============== Fluid physics ===============
+
+# -------------------------------------------------------------
+# ===================== ↓ Fluid physics ↓ =====================
+# -------------------------------------------------------------
 
 
 # @jaxtyped(typechecker=typechecker)
@@ -279,4 +299,6 @@ def speed_of_sound(rho, p, gamma):
     return jnp.sqrt(gamma * p / rho)
 
 
-# ===========================================
+# -------------------------------------------------------------
+# ===================== ↑ Fluid physics ↑ =====================
+# -------------------------------------------------------------

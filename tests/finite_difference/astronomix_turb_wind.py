@@ -34,7 +34,7 @@ from astronomix.option_classes import WindConfig
 
 # turbulent forcing
 from astronomix._finite_difference._magnetic_update._constrained_transport import initialize_interface_fields
-from astronomix._physics_modules._turbulent_forcing._turbulent_forcing_options import TurbulentForcingConfig, TurbulentForcingParams
+from astronomix._modules._turbulent_forcing._turbulent_forcing_options import TurbulentForcingConfig, TurbulentForcingParams
 
 # units
 from astronomix import CodeUnits
@@ -84,7 +84,6 @@ config = SimulationConfig(
     solver_mode = FINITE_DIFFERENCE,
     mhd = True,
     progress_bar = True,
-    enforce_positivity = True,
     donate_state = True, # save storage
     dimensionality = 3,
     box_size = box_size,

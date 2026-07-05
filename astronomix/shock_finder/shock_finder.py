@@ -1,34 +1,56 @@
+"""
+Shock detection on a 1D fluid state.
+
+Implements the smoothness sensor and the multi-criterion shock test of
+Pfrommer et al. (2017) used to flag shocks (e.g. for diffusive shock
+acceleration of cosmic rays), plus a routine that broadens the strongest shock
+into a numerical shock zone.
+
+NOTE: the routines here currently only support 1D setups; TODO: generalise.
+"""
+
 # general
 from functools import partial
-import jax.numpy as jnp
-import jax
 
 # typing
 from typing import Tuple, Union
-from astronomix.data_classes.simulation_helper_data import HelperData
-from astronomix.variable_registry.registered_variables import RegisteredVariables
+from jaxtyping import Array, Int, jaxtyped
+from beartype import beartype as typechecker
+
+# jax
+import jax
+import jax.numpy as jnp
+
+# astronomix constants
 from astronomix.option_classes.simulation_config import (
     CARTESIAN,
     FIELD_TYPE,
     SPHERICAL,
     STATE_TYPE,
-    SimulationConfig,
 )
-from jaxtyping import Array, Int, jaxtyped
-from beartype import beartype as typechecker
-from typing import Union
 
+# astronomix containers
+from astronomix.data_classes.simulation_helper_data import HelperData
+from astronomix.variable_registry.registered_variables import RegisteredVariables
+from astronomix.option_classes.simulation_config import SimulationConfig
 from astronomix.option_classes.simulation_params import SimulationParams
-
-# NOTE: currently only works for 1d setups, TODO: generalize
 
 
 @partial(jax.jit, static_argnames=["config"])
 def _calculate_1d_divergence(
     field: FIELD_TYPE, config: SimulationConfig, r: FIELD_TYPE
 ) -> FIELD_TYPE:
-    # calculate the 1d divergence by a simple
-    # central difference approximation
+    """Central-difference 1D divergence of ``field`` for the active geometry.
+
+    Args:
+        field: The 1D field whose divergence is taken.
+        config: The simulation configuration (selects the geometry).
+        r: The radial cell-centre coordinates (used in spherical geometry).
+
+    Returns:
+        The divergence of the field; ghost cells at the ends are left at zero.
+    """
+    # Approximate the 1D divergence with a simple central difference.
     div_field = jnp.zeros_like(field)
     if config.geometry == CARTESIAN:
         div_field = div_field.at[1:-1].set(
@@ -36,9 +58,9 @@ def _calculate_1d_divergence(
         )
     elif config.geometry == SPHERICAL:
         div_field = jnp.zeros_like(field)
-        # this is not exactly correct, as our field values are
-        # defined at the volumetric not geometric cell centers etc
-        # but should be fine for the shock finder
+        # This is not exactly correct, since the field values live at the
+        # volumetric rather than the geometric cell centres, but it is accurate
+        # enough for the purposes of the shock finder.
         div_field = div_field.at[1:-1].set(
             (r[2:] ** 2 * field[2:] - r[:-2] ** 2 * field[:-2])
             / (2 * config.grid_spacing * r[1:-1] ** 2)

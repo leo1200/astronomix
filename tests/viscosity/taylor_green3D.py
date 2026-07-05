@@ -33,6 +33,8 @@ from astronomix.option_classes.simulation_config import (
     BoundarySettings1D,
     SnapshotSettings,
     finalize_config,
+    GravityConfig,
+    PositivityConfig,
 )
 from astronomix import get_registered_variables
 
@@ -99,8 +101,7 @@ def simulate_taylor_green(
         solver_mode=FINITE_DIFFERENCE,
         runtime_debugging=False,
         progress_bar=True,
-        self_gravity=False,
-        enforce_positivity=False,
+        positivity_config=PositivityConfig(default_positivity_protection=False),
         mhd=False,
         diffusion=True,
         dimensionality=3,

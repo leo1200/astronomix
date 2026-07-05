@@ -41,8 +41,8 @@ from astronomix.option_classes.simulation_config import finalize_config
 from astronomix import time_integration
 
 
-from astronomix._finite_difference._fluid_equations._equations import conserved_state_from_primitive_mhd
-from astronomix._finite_difference._fluid_equations._fluxes import _mhd_flux_x
+from astronomix._fluid_equations._equations_mhd import conserved_state_from_primitive_mhd
+from astronomix._fluid_equations._fluxes_mhd import _mhd_flux_x
 
 # --- Additional imports for analysis and plotting ---
 # For radially averaging the simulation data

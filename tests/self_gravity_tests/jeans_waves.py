@@ -58,13 +58,13 @@ from astronomix import SimulationParams
 from astronomix import get_helper_data
 from astronomix import time_integration
 from astronomix.initial_condition_generation.construct_primitive_state import construct_primitive_state
-from astronomix.option_classes.simulation_config import DONOR_ACCOUNTING, FD_FLUX_GRAVITY, FINITE_VOLUME, PERIODIC_ROLL, WENO_FLUX_GRAVITY, StaticFloatVector, StaticIntVector, finalize_config
+from astronomix.option_classes.simulation_config import SECOND_ORDER_CONSERVATIVE, FINITE_VOLUME, PERIODIC_ROLL, FOURTH_ORDER_CONSERVATIVE, StaticFloatVector, StaticIntVector, finalize_config
 from astronomix import get_registered_variables
 
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
     PERIODIC_BOUNDARY, BoundarySettings, BoundarySettings1D,
-    FINITE_DIFFERENCE, SIMPLE_SOURCE_TERM
+    FINITE_DIFFERENCE, SIMPLE_SOURCE, GravityConfig
 )
 
 def jeans_analytical(
@@ -89,7 +89,7 @@ def jeans_simulation(
     num_cells_x, # must be even
     num_periods = 1,
     solver_mode = FINITE_DIFFERENCE,
-    self_gravity_version = SIMPLE_SOURCE_TERM,
+    self_gravity_version = SIMPLE_SOURCE,
     animate = False
 ):
     """
@@ -114,8 +114,10 @@ def jeans_simulation(
         solver_mode=solver_mode,
         memory_analysis=True,
         progress_bar=True,
-        self_gravity=True,
-        self_gravity_version=self_gravity_version,
+        gravity_config=GravityConfig(
+            self_gravity=True,
+            self_gravity_version=self_gravity_version,
+        ),
         boundary_handling=PERIODIC_ROLL,
         num_ghost_cells=0,
         mhd=False,
@@ -246,18 +248,18 @@ class TestSetup(NamedTuple):
 
     def __str__(self):
         # FD for finite difference, FV for finite volume
-        # simple source for SIMPLE_SOURCE_TERM
-        # flux-based source for FD_FLUX_GRAVITY
-        # corrected flux-based source for WENO_FLUX_GRAVITY
+        # simple source for SIMPLE_SOURCE
+        # flux-based source for SECOND_ORDER_CONSERVATIVE
+        # corrected flux-based source for FOURTH_ORDER_CONSERVATIVE
         # total string e.g.: FD, simple source
         solver_str = 'FD' if self.solver_mode == FINITE_DIFFERENCE else 'FV'
-        gravity_str = 'simple source' if self.self_gravity_version == SIMPLE_SOURCE_TERM else 'flux-based source' if self.self_gravity_version == FD_FLUX_GRAVITY else 'corrected flux-based source'
+        gravity_str = 'simple source' if self.self_gravity_version == SIMPLE_SOURCE else 'flux-based source' if self.self_gravity_version == SECOND_ORDER_CONSERVATIVE else 'corrected flux-based source'
         return f"{solver_str}, {gravity_str}"
 
 test_setups = [
-    TestSetup(solver_mode=FINITE_DIFFERENCE, self_gravity_version=SIMPLE_SOURCE_TERM, marker='o', linewidth=3.0),
-    TestSetup(solver_mode=FINITE_DIFFERENCE, self_gravity_version=FD_FLUX_GRAVITY, marker='s', linewidth=2.0),
-    TestSetup(solver_mode=FINITE_DIFFERENCE, self_gravity_version=WENO_FLUX_GRAVITY, marker='^', linewidth=1.0),
+    TestSetup(solver_mode=FINITE_DIFFERENCE, self_gravity_version=SIMPLE_SOURCE, marker='o', linewidth=3.0),
+    TestSetup(solver_mode=FINITE_DIFFERENCE, self_gravity_version=SECOND_ORDER_CONSERVATIVE, marker='s', linewidth=2.0),
+    TestSetup(solver_mode=FINITE_DIFFERENCE, self_gravity_version=FOURTH_ORDER_CONSERVATIVE, marker='^', linewidth=1.0),
 ]
 
 errors = {str(test_setup): [] for test_setup in test_setups}

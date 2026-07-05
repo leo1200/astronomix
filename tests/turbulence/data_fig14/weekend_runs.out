@@ -1,0 +1,11 @@
+[Sat Jun 20 19:28:56 CEST 2026] weekend ladder start
+[Sat Jun 20 19:28:56 CEST 2026] feasibility check N=512 (tiny run, --memcheck)
+  Total size: 35328.01 MB
+[Sat Jun 20 19:35:05 CEST 2026] N=512 does NOT fit, stepping down
+[Sat Jun 20 19:35:05 CEST 2026] feasibility check N=448 (tiny run, --memcheck)
+  Total size: 23667.01 MB
+[Sat Jun 20 19:36:09 CEST 2026] N=448 FITS -> selected
+[Sat Jun 20 19:36:09 CEST 2026] === launching weekend ISM + ICM at N=448 ===
+[Sat Jun 20 19:56:41 CEST 2026] ISM_N448 done: [ISM_N448] stationary(last 1/3): M_turb=9.66 v_rms=0.966 (rho-rho0)rms=1.148 E_K=0.440 E_B=0.241 first_bad_snap=-1 (all finite)
+[Sun Jun 21 18:14:22 CEST 2026] ICM_N448 done: [ICM_N448] stationary(last 1/3): M_turb=0.60 v_rms=1.190 (rho-rho0)rms=0.128 E_K=0.694 E_B=0.340 first_bad_snap=-1 (all finite)
+[Sun Jun 21 18:14:22 CEST 2026] === weekend runs complete at N=448 ===

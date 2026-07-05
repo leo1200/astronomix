@@ -12,7 +12,7 @@ from matplotlib.colors import LogNorm
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 # fluids
-from astronomix._physics_modules._stellar_wind.stellar_wind_options import WindParams
+from astronomix._modules._stellar_wind.stellar_wind_options import WindParams
 from astronomix import SimulationConfig
 from astronomix import get_helper_data
 from astronomix import SimulationParams
@@ -27,7 +27,7 @@ from astropy import units as u
 import astropy.constants as c
 
 from astronomix.option_classes.simulation_config import BACKWARDS, SPHERICAL
-from astronomix._physics_modules._stellar_wind.stellar_wind_options import WindConfig
+from astronomix._modules._stellar_wind.stellar_wind_options import WindConfig
 
 
 print("👷 Setting up simulation...")

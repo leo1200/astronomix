@@ -1,8 +1,22 @@
+"""
+Ghost-cell boundary handling for the primitive state.
+
+Fills the padded ghost-cell regions according to the configured per-axis
+boundary conditions: open (zero-gradient), periodic, reflective (normal velocity
+negated), fixed (Dirichlet, optionally open in the normal momentum) and the
+specialised 2D MHD jet-injection boundary. The top-level ``_boundary_handler``
+dispatches per spatial axis; everything below it is a single traced branch on
+static configuration values, so no Python loops survive into the trace.
+"""
+
+# general
 from functools import partial
+
+# jax
 import jax
 import jax.numpy as jnp
- 
-from astronomix._fluid_equations._equations import conserved_state_from_primitive
+
+# astronomix constants
 from astronomix.option_classes.simulation_config import (
     CONSERVATIVE_GAS_STATE,
     FIXED_BOUNDARY,
@@ -18,11 +32,16 @@ from astronomix.option_classes.simulation_config import (
     VELOCITY_ONLY,
     XAXIS,
     YAXIS,
-    SimulationConfig,
 )
+
+# astronomix containers
+from astronomix.option_classes.simulation_config import SimulationConfig
 from astronomix.option_classes.simulation_params import SimulationParams
 from astronomix.variable_registry.registered_variables import RegisteredVariables
- 
+
+# astronomix functions
+from astronomix._fluid_equations._equations import conserved_state_from_primitive
+
  
 # -----------------------------------------------------------------------------
 # Indexing helper
@@ -154,6 +173,25 @@ def _jet_left_boundary(
     num_cells: int,
     type_handled: int,
 ) -> STATE_TYPE:
+    """Inject a magnetised jet through a y-left boundary patch (2D MHD).
+
+    The bulk of the boundary is treated as open; the central injection patch
+    (a band of width ``2 * half_inj_width`` around the domain mid-line) is then
+    overwritten with the prescribed jet gas state, velocity or magnetic field,
+    selected by ``type_handled``.
+
+    Args:
+        primitive_state: The primitive state array.
+        num_ghost_cells: The number of ghost cells per side.
+        axis: The (injection) spatial axis.
+        grid_spacing: The (uniform) grid spacing.
+        num_cells: The number of interior cells along the transverse axis.
+        type_handled: Which quantity is being written (gas state, velocity or
+            magnetic field).
+
+    Returns:
+        The primitive state with the jet patch injected.
+    """
     # Start from an open boundary (single broadcast; no loop).
     primitive_state = _open_left_boundary(primitive_state, num_ghost_cells, axis)
  
@@ -220,9 +258,10 @@ def _apply_axis_bcs(
             else params.fixed_boundary_state.z.left_state
         )
 
-        # AD HOC FIX
-        # the fixed state is given as a 1D array of primitive variables, if
-        # the boundary handler is applied on the conservative state we need to convert it first
+        # The fixed boundary state is supplied as a 1D array of primitive
+        # variables. When the boundary handler runs on the conservative state we
+        # must convert it first so the ghost cells are written in the same
+        # representation as the rest of the array.
         if type_handled == CONSERVATIVE_GAS_STATE:
 
             if config.mhd or config.equation_of_state == ISOTHERMAL:

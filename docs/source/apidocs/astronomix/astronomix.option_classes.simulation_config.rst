@@ -893,42 +893,42 @@ API
 
    .. py:attribute:: turbulent_forcing_config
       :canonical: astronomix.option_classes.simulation_config.SimulationConfig.turbulent_forcing_config
-      :type: astronomix._physics_modules._turbulent_forcing._turbulent_forcing_options.TurbulentForcingConfig
+      :type: astronomix._modules._turbulent_forcing._turbulent_forcing_options.TurbulentForcingConfig
       :value: 'TurbulentForcingConfig(...)'
 
       .. autodoc2-docstring:: astronomix.option_classes.simulation_config.SimulationConfig.turbulent_forcing_config
 
    .. py:attribute:: wind_config
       :canonical: astronomix.option_classes.simulation_config.SimulationConfig.wind_config
-      :type: astronomix._physics_modules._stellar_wind.stellar_wind_options.WindConfig
+      :type: astronomix._modules._stellar_wind.stellar_wind_options.WindConfig
       :value: 'WindConfig(...)'
 
       .. autodoc2-docstring:: astronomix.option_classes.simulation_config.SimulationConfig.wind_config
 
    .. py:attribute:: cosmic_ray_config
       :canonical: astronomix.option_classes.simulation_config.SimulationConfig.cosmic_ray_config
-      :type: astronomix._physics_modules._cosmic_rays.cosmic_ray_options.CosmicRayConfig
+      :type: astronomix._modules._cosmic_rays.cosmic_ray_options.CosmicRayConfig
       :value: 'CosmicRayConfig(...)'
 
       .. autodoc2-docstring:: astronomix.option_classes.simulation_config.SimulationConfig.cosmic_ray_config
 
    .. py:attribute:: cooling_config
       :canonical: astronomix.option_classes.simulation_config.SimulationConfig.cooling_config
-      :type: astronomix._physics_modules._cooling.cooling_options.CoolingConfig
+      :type: astronomix._modules._cooling.cooling_options.CoolingConfig
       :value: 'CoolingConfig(...)'
 
       .. autodoc2-docstring:: astronomix.option_classes.simulation_config.SimulationConfig.cooling_config
 
    .. py:attribute:: neural_net_force_config
       :canonical: astronomix.option_classes.simulation_config.SimulationConfig.neural_net_force_config
-      :type: astronomix._physics_modules._neural_net_force._neural_net_force_options.NeuralNetForceConfig
+      :type: astronomix._modules._neural_net_force._neural_net_force_options.NeuralNetForceConfig
       :value: 'NeuralNetForceConfig(...)'
 
       .. autodoc2-docstring:: astronomix.option_classes.simulation_config.SimulationConfig.neural_net_force_config
 
    .. py:attribute:: cnn_mhd_corrector_config
       :canonical: astronomix.option_classes.simulation_config.SimulationConfig.cnn_mhd_corrector_config
-      :type: astronomix._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_options.CNNMHDconfig
+      :type: astronomix._modules._cnn_mhd_corrector._cnn_mhd_corrector_options.CNNMHDconfig
       :value: 'CNNMHDconfig(...)'
 
       .. autodoc2-docstring:: astronomix.option_classes.simulation_config.SimulationConfig.cnn_mhd_corrector_config

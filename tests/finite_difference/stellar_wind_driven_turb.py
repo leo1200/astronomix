@@ -36,7 +36,7 @@ from astronomix import SimulationParams
 from astronomix import time_integration
 from astronomix.initial_condition_generation.construct_primitive_state import construct_primitive_state
 
-from astronomix._physics_modules._turbulent_forcing._turbulent_forcing_options import TurbulentForcingConfig, TurbulentForcingParams
+from astronomix._modules._turbulent_forcing._turbulent_forcing_options import TurbulentForcingConfig, TurbulentForcingParams
 
 from astronomix import get_registered_variables
 from astronomix.option_classes import WindConfig
@@ -85,7 +85,6 @@ config = SimulationConfig(
     solver_mode = FINITE_DIFFERENCE,
     mhd = True,
     progress_bar = True,
-    enforce_positivity = True,
     dimensionality = 3,
     box_size = box_size, 
     num_cells = num_cells,

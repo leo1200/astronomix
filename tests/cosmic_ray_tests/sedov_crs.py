@@ -22,8 +22,8 @@ from astronomix.option_classes.simulation_config import finalize_config
 from astronomix import time_integration
 
 # cosmic rays
-from astronomix._physics_modules._cosmic_rays.cosmic_ray_options import CosmicRayConfig
-from astronomix._physics_modules._cosmic_rays.cosmic_ray_options import CosmicRayParams
+from astronomix._modules._cosmic_rays.cosmic_ray_options import CosmicRayConfig
+from astronomix._modules._cosmic_rays.cosmic_ray_options import CosmicRayParams
 
 import matplotlib.pyplot as plt
 

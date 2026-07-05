@@ -1,5 +1,18 @@
-import jax.numpy as jnp
+"""
+Shell-averaged energy, cross and helicity spectra of 3D vector fields.
+
+Provides the FFT-based spectral diagnostics used by the snapshot machinery:
+generic vector-field energy and cross spectra, plus the MHD physics wrappers
+(density-weighted kinetic energy, magnetic energy, cross helicity, magnetic
+helicity). All spectra share a single shell-binning of the wavenumber grid so
+their bins line up.
+"""
+
+# general
 import math
+
+# jax
+import jax.numpy as jnp
 
 
 # ==========================================================================
@@ -24,44 +37,51 @@ def _wavenumber_bins(Nx, Ny, Nz, binning=PHYSICAL_BINNING):
         binning: One of LOG_BINNING, INTEGER_BINNING, PHYSICAL_BINNING.
 
     Returns:
-        k_idx: Flat int32 bin indices, shape (Nx*Ny*Nz,).
-        n_bins: Number of bins.
-        k_centers: Physical wavenumber bin centers, shape (n_bins,).
+        bin_indices: Flat int32 shell-bin indices, shape (Nx*Ny*Nz,).
+        number_of_bins: Number of shells.
+        wavenumber_centers: Physical wavenumber bin centers, shape
+            (number_of_bins,).
     """
-    freq_x = jnp.fft.fftfreq(Nx, d=1.0 / Nx)  # integer mode numbers
+    # Integer mode numbers along each axis (fftfreq with d = 1/N yields integers).
+    freq_x = jnp.fft.fftfreq(Nx, d=1.0 / Nx)
     freq_y = jnp.fft.fftfreq(Ny, d=1.0 / Ny)
     freq_z = jnp.fft.fftfreq(Nz, d=1.0 / Nz)
-    FX, FY, FZ = jnp.meshgrid(freq_x, freq_y, freq_z, indexing="ij")
+    freq_grid_x, freq_grid_y, freq_grid_z = jnp.meshgrid(
+        freq_x, freq_y, freq_z, indexing="ij"
+    )
 
-    m_mag = jnp.sqrt(FX**2 + FY**2 + FZ**2)  # integer mode magnitude
+    # Magnitude of the integer mode vector at each grid point, and the largest
+    # magnitude any mode can reach (the corner of the half-grid).
+    mode_magnitude = jnp.sqrt(freq_grid_x**2 + freq_grid_y**2 + freq_grid_z**2)
     max_mode = math.sqrt((Nx // 2) ** 2 + (Ny // 2) ** 2 + (Nz // 2) ** 2)
 
     if binning == LOG_BINNING:
         k_min = 1.0
         k_max = max_mode
-        n_bins = max(Nx, Ny, Nz) // 4
+        number_of_bins = max(Nx, Ny, Nz) // 4
         log_edges = jnp.logspace(
-            jnp.log10(k_min * 0.5), jnp.log10(k_max + 0.5), n_bins + 1
+            jnp.log10(k_min * 0.5), jnp.log10(k_max + 0.5), number_of_bins + 1
         )
-        k_idx = jnp.clip(
-            jnp.digitize(m_mag.ravel(), log_edges) - 1, 0, n_bins - 1
+        bin_indices = jnp.clip(
+            jnp.digitize(mode_magnitude.ravel(), log_edges) - 1, 0, number_of_bins - 1
         )
-        # Geometric mean of edges, converted to physical wavenumber
-        k_centers = 2.0 * jnp.pi * jnp.sqrt(log_edges[:-1] * log_edges[1:])
-        return k_idx, n_bins, k_centers
+        # Bin centers are the geometric mean of the edges, scaled to physical
+        # wavenumber.
+        wavenumber_centers = 2.0 * jnp.pi * jnp.sqrt(log_edges[:-1] * log_edges[1:])
+        return bin_indices, number_of_bins, wavenumber_centers
 
     elif binning == INTEGER_BINNING:
-        k_idx = m_mag.astype(jnp.int32).ravel()
-        n_bins = int(max_mode) + 2
-        k_centers = (jnp.arange(n_bins) + 0.5) * 2.0 * jnp.pi
-        return k_idx, n_bins, k_centers
+        bin_indices = mode_magnitude.astype(jnp.int32).ravel()
+        number_of_bins = int(max_mode) + 2
+        wavenumber_centers = (jnp.arange(number_of_bins) + 0.5) * 2.0 * jnp.pi
+        return bin_indices, number_of_bins, wavenumber_centers
 
     else:  # PHYSICAL_BINNING
-        k_phys = 2.0 * jnp.pi * m_mag
-        k_idx = k_phys.astype(jnp.int32).ravel()
-        n_bins = int(2.0 * math.pi * max_mode) + 2
-        k_centers = jnp.arange(n_bins) + 0.5
-        return k_idx, n_bins, k_centers
+        physical_wavenumber = 2.0 * jnp.pi * mode_magnitude
+        bin_indices = physical_wavenumber.astype(jnp.int32).ravel()
+        number_of_bins = int(2.0 * math.pi * max_mode) + 2
+        wavenumber_centers = jnp.arange(number_of_bins) + 0.5
+        return bin_indices, number_of_bins, wavenumber_centers
 
 
 # ==========================================================================
@@ -82,7 +102,7 @@ def vector_field_energy_spectrum(fx, fy, fz, energy_coeff=1.0,
         binning: LOG_BINNING, INTEGER_BINNING, or PHYSICAL_BINNING.
 
     Returns:
-        k_centers: Physical wavenumber bin centers.
+        wavenumber_centers: Physical wavenumber bin centers.
         Ek: Energy spectrum per bin.
 
     Based on: https://qiauil.github.io/blog/2026/tke_spectrum/
@@ -98,9 +118,11 @@ def vector_field_energy_spectrum(fx, fy, fz, energy_coeff=1.0,
         jnp.abs(fx_hat) ** 2 + jnp.abs(fy_hat) ** 2 + jnp.abs(fz_hat) ** 2
     ) / N_total**2
 
-    k_idx, n_bins, k_centers = _wavenumber_bins(Nx, Ny, Nz, binning)
-    Ek = jnp.zeros(n_bins).at[k_idx].add(energy_fft.ravel())
-    return k_centers, Ek
+    bin_indices, number_of_bins, wavenumber_centers = _wavenumber_bins(
+        Nx, Ny, Nz, binning
+    )
+    Ek = jnp.zeros(number_of_bins).at[bin_indices].add(energy_fft.ravel())
+    return wavenumber_centers, Ek
 
 
 def vector_field_cross_spectrum(f1x, f1y, f1z, f2x, f2y, f2z, coeff=1.0,
@@ -121,7 +143,7 @@ def vector_field_cross_spectrum(f1x, f1y, f1z, f2x, f2y, f2z, coeff=1.0,
         binning: LOG_BINNING, INTEGER_BINNING, or PHYSICAL_BINNING.
 
     Returns:
-        k_centers: Physical wavenumber bin centers.
+        wavenumber_centers: Physical wavenumber bin centers.
         Ck: Cross spectrum per bin.
     """
     Nx, Ny, Nz = f1x.shape
@@ -141,9 +163,11 @@ def vector_field_cross_spectrum(f1x, f1y, f1z, f2x, f2y, f2z, coeff=1.0,
         + jnp.conj(f1z_hat) * f2z_hat
     ) / N_total**2
 
-    k_idx, n_bins, k_centers = _wavenumber_bins(Nx, Ny, Nz, binning)
-    Ck = jnp.zeros(n_bins).at[k_idx].add(cross_fft.ravel())
-    return k_centers, Ck
+    bin_indices, number_of_bins, wavenumber_centers = _wavenumber_bins(
+        Nx, Ny, Nz, binning
+    )
+    Ck = jnp.zeros(number_of_bins).at[bin_indices].add(cross_fft.ravel())
+    return wavenumber_centers, Ck
 
 
 # ==========================================================================
@@ -162,7 +186,7 @@ def get_kinetic_energy_spectrum(vx, vy, vz, rho, binning=PHYSICAL_BINNING):
         binning: LOG_BINNING, INTEGER_BINNING, or PHYSICAL_BINNING.
 
     Returns:
-        k_centers, Ek: Wavenumber bin centers and kinetic energy spectrum.
+        wavenumber_centers, Ek: Wavenumber bin centers and kinetic energy spectrum.
     """
     rho_sqrt = jnp.sqrt(rho)
     return vector_field_energy_spectrum(
@@ -183,7 +207,7 @@ def get_magnetic_energy_spectrum(Bx, By, Bz, mu0=1.0, binning=PHYSICAL_BINNING):
         binning: LOG_BINNING, INTEGER_BINNING, or PHYSICAL_BINNING.
 
     Returns:
-        k_centers, Em: Wavenumber bin centers and magnetic energy spectrum.
+        wavenumber_centers, Em: Wavenumber bin centers and magnetic energy spectrum.
     """
     return vector_field_energy_spectrum(
         Bx, By, Bz,
@@ -204,7 +228,7 @@ def get_cross_helicity_spectrum(vx, vy, vz, Bx, By, Bz, binning=PHYSICAL_BINNING
         binning: LOG_BINNING, INTEGER_BINNING, or PHYSICAL_BINNING.
 
     Returns:
-        k_centers, Hc: Wavenumber bin centers and cross-helicity spectrum.
+        wavenumber_centers, Hc: Wavenumber bin centers and cross-helicity spectrum.
     """
     return vector_field_cross_spectrum(
         vx, vy, vz, Bx, By, Bz,
@@ -227,7 +251,7 @@ def get_magnetic_helicity_spectrum(Bx, By, Bz, binning=PHYSICAL_BINNING):
         binning: LOG_BINNING, INTEGER_BINNING, or PHYSICAL_BINNING.
 
     Returns:
-        k_centers, Hm: Wavenumber bin centers and magnetic helicity spectrum.
+        wavenumber_centers, Hm: Wavenumber bin centers and magnetic helicity spectrum.
     """
     Nx, Ny, Nz = Bx.shape
     N_total = float(Nx * Ny * Nz)
@@ -236,41 +260,49 @@ def get_magnetic_helicity_spectrum(Bx, By, Bz, binning=PHYSICAL_BINNING):
     By_hat = jnp.fft.fftn(By)
     Bz_hat = jnp.fft.fftn(Bz)
 
-    # Physical wavevector components
+    # Physical wavevector components on the FFT grid.
     freq_x = jnp.fft.fftfreq(Nx, d=1.0 / Nx)
     freq_y = jnp.fft.fftfreq(Ny, d=1.0 / Ny)
     freq_z = jnp.fft.fftfreq(Nz, d=1.0 / Nz)
-    KX, KY, KZ = jnp.meshgrid(freq_x, freq_y, freq_z, indexing="ij")
+    freq_grid_x, freq_grid_y, freq_grid_z = jnp.meshgrid(
+        freq_x, freq_y, freq_z, indexing="ij"
+    )
 
-    kx = 2.0 * jnp.pi * KX
-    ky = 2.0 * jnp.pi * KY
-    kz = 2.0 * jnp.pi * KZ
+    kx = 2.0 * jnp.pi * freq_grid_x
+    ky = 2.0 * jnp.pi * freq_grid_y
+    kz = 2.0 * jnp.pi * freq_grid_z
 
     k_sq = kx**2 + ky**2 + kz**2
+    # Guard the k=0 mode against division by zero; its contribution is zeroed
+    # out below, so the placeholder value is irrelevant.
     k_sq_safe = jnp.where(k_sq == 0, 1.0, k_sq)
 
-    # A_hat = +i (k x B_hat) / |k|^2  (Coulomb gauge)
-    cx = ky * Bz_hat - kz * By_hat
-    cy = kz * Bx_hat - kx * Bz_hat
-    cz = kx * By_hat - ky * Bx_hat
+    # Vector potential in Coulomb gauge: A_hat = +i (k x B_hat) / |k|^2, built
+    # from the cross product k x B_hat component-wise.
+    curl_x = ky * Bz_hat - kz * By_hat
+    curl_y = kz * Bx_hat - kx * Bz_hat
+    curl_z = kx * By_hat - ky * Bx_hat
 
-    Ax_hat = +1j * cx / k_sq_safe
-    Ay_hat = +1j * cy / k_sq_safe
-    Az_hat = +1j * cz / k_sq_safe
+    Ax_hat = +1j * curl_x / k_sq_safe
+    Ay_hat = +1j * curl_y / k_sq_safe
+    Az_hat = +1j * curl_z / k_sq_safe
 
-    # Zero out k=0 mode (no helicity contribution, avoids division artefact)
+    # Drop the k=0 mode: it carries no helicity and would otherwise pick up the
+    # placeholder denominator above.
     Ax_hat = jnp.where(k_sq == 0, 0.0, Ax_hat)
     Ay_hat = jnp.where(k_sq == 0, 0.0, Ay_hat)
     Az_hat = jnp.where(k_sq == 0, 0.0, Az_hat)
 
-    # Helicity density in Fourier space: Re(A_hat* . B_hat)
-    hel_fft = jnp.real(
+    # Helicity density in Fourier space: Re(A_hat* . B_hat).
+    helicity_fft = jnp.real(
         jnp.conj(Ax_hat) * Bx_hat
         + jnp.conj(Ay_hat) * By_hat
         + jnp.conj(Az_hat) * Bz_hat
     ) / N_total**2
 
-    # Shell accumulation
-    k_idx, n_bins, k_centers = _wavenumber_bins(Nx, Ny, Nz, binning)
-    Hm = jnp.zeros(n_bins).at[k_idx].add(hel_fft.ravel())
-    return k_centers, Hm
+    # Accumulate the helicity density into wavenumber shells.
+    bin_indices, number_of_bins, wavenumber_centers = _wavenumber_bins(
+        Nx, Ny, Nz, binning
+    )
+    Hm = jnp.zeros(number_of_bins).at[bin_indices].add(helicity_fft.ravel())
+    return wavenumber_centers, Hm

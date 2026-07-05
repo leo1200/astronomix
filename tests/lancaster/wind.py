@@ -39,10 +39,10 @@ from astronomix.initial_condition_generation.construct_primitive_state import co
 from astronomix import get_registered_variables
 from astronomix.option_classes import WindConfig
 
-from astronomix.option_classes.simulation_config import BACKWARDS, DONOR_ACCOUNTING, HLL, HLLC, MINMOD, OSHER, PERIODIC_BOUNDARY, SIMPLE_SOURCE_TERM, VARAXIS, XAXIS, YAXIS, ZAXIS, BoundarySettings, BoundarySettings1D, SnapshotSettings
+from astronomix.option_classes.simulation_config import BACKWARDS, HLL, HLLC, MINMOD, OSHER, PERIODIC_BOUNDARY, SIMPLE_SOURCE, VARAXIS, XAXIS, YAXIS, ZAXIS, BoundarySettings, BoundarySettings1D, SnapshotSettings
 
-from astronomix._physics_modules._cooling._cooling_tables import schure_cooling
-from astronomix._physics_modules._cooling.cooling_options import IMPLICIT_COOLING, PIECEWISE_POWER_LAW, CoolingConfig, CoolingCurveConfig, CoolingParams
+from astronomix._modules._cooling._cooling_tables import schure_cooling
+from astronomix._modules._cooling.cooling_options import IMPLICIT_COOLING, PIECEWISE_POWER_LAW, CoolingConfig, CoolingCurveConfig, CoolingParams
 
 # units
 from astronomix import CodeUnits
@@ -51,7 +51,7 @@ import astropy.constants as c
 from astropy.constants import m_p
 
 # wind-specific
-from astronomix._physics_modules._stellar_wind.weaver import Weaver
+from astronomix._modules._stellar_wind.weaver import Weaver
 
 # turbulence
 from astronomix.initial_condition_generation.turbulent_ic_generator import create_turb_field

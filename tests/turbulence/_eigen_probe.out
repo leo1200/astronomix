@@ -1,0 +1,10 @@
+L finite: True  R finite: True  lambda finite: True
+L.R identity: max|M-I| = 1.525e-04, median = 1.143e-05
+worst cells (idx: identity-err, state rho,vx,Bx,By,Bz):
+  cell 92: err=1.525e-04  rho=0.05 vx=50 B=(0,1e-08,1e-08) finite_M=True
+  cell 101: err=1.222e-04  rho=0.05 vx=-30 B=(0,1e-08,1e-08) finite_M=True
+  cell 83: err=1.078e-04  rho=0.05 vx=1 B=(0,1e-08,1e-08) finite_M=True
+  cell 74: err=1.070e-04  rho=0.05 vx=0 B=(0,1e-08,1e-08) finite_M=True
+  cell 95: err=8.097e-05  rho=0.05 vx=50 B=(3,3,3) finite_M=True
+  cell 130: err=6.487e-05  rho=1 vx=50 B=(0,3,0) finite_M=True
+ANY non-finite in M: False

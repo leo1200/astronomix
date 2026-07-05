@@ -1,0 +1,25 @@
+=== prov_M20_rho02_capOFF START 09:48:52 ===
+prov_M20_rho02_capOFF GPU=3 N=128 mturb=20 args: --cfl 1.5 --rhomin 0.02 --vmaxcap 1000000000
+[prov_M20_rho02_capOFF] eos=iso M_turb_aim=20.0 beta=0.1 a=0.050 P0=None B0=0.2236 F0=3.5 kf=9.425 cfl=1.5 rhomin=0.02 prot=True hardfloor=True
+[prov_M20_rho02_capOFF] wall 62.8s, snaps=8
+[prov_M20_rho02_capOFF] stationary(last 1/3): M_turb=21.69 v_rms=1.085 (rho-rho0)rms=2.236 E_K=0.573 E_B=0.253 first_bad_snap=-1 (all finite)
+=== prov_M20_rho02_capOFF DONE 09:50:10 ===
+=== prov_M20_rho005_capOFF START 09:50:10 ===
+prov_M20_rho005_capOFF GPU=3 N=128 mturb=20 args: --cfl 1.5 --rhomin 0.005 --vmaxcap 1000000000
+[prov_M20_rho005_capOFF] eos=iso M_turb_aim=20.0 beta=0.1 a=0.050 P0=None B0=0.2236 F0=3.5 kf=9.425 cfl=1.5 rhomin=0.005 prot=True hardfloor=True
+[prov_M20_rho005_capOFF] wall 27.0s, snaps=8
+[prov_M20_rho005_capOFF] stationary(last 1/3): M_turb=0.00 v_rms=0.000 (rho-rho0)rms=0.500 E_K=0.000 E_B=0.000 first_bad_snap=7 @t/tc=nan
+=== prov_M20_rho005_capOFF DONE 09:50:53 ===
+=== prov_M40_rho005_capOFF START 09:50:53 ===
+prov_M40_rho005_capOFF GPU=3 N=128 mturb=40 args: --cfl 1.5 --rhomin 0.005 --vmaxcap 1000000000
+[prov_M40_rho005_capOFF] eos=iso M_turb_aim=40.0 beta=0.1 a=0.025 P0=None B0=0.1118 F0=3.5 kf=9.425 cfl=1.5 rhomin=0.005 prot=True hardfloor=True
+[prov_M40_rho005_capOFF] wall 15.5s, snaps=8
+[prov_M40_rho005_capOFF] stationary(last 1/3): M_turb=0.00 v_rms=0.000 (rho-rho0)rms=0.500 E_K=0.000 E_B=0.000 first_bad_snap=7 @t/tc=nan
+=== prov_M40_rho005_capOFF DONE 09:51:21 ===
+=== prov_256_M10_capOFF START 09:51:21 ===
+prov_256_M10_capOFF GPU=3 N=256 mturb=10 args: --cfl 1.8 --rhomin 0.02 --vmaxcap 1000000000
+[prov_256_M10_capOFF] eos=iso M_turb_aim=10.0 beta=0.1 a=0.100 P0=None B0=0.4472 F0=3.5 kf=9.425 cfl=1.8 rhomin=0.02 prot=True hardfloor=True
+[prov_256_M10_capOFF] wall 1008.4s, snaps=8
+[prov_256_M10_capOFF] stationary(last 1/3): M_turb=10.65 v_rms=1.065 (rho-rho0)rms=2.345 E_K=0.510 E_B=0.447 first_bad_snap=-1 (all finite)
+=== prov_256_M10_capOFF DONE 10:08:32 ===
+=== SWEEP2 DONE 10:08:32 ===

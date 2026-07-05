@@ -1,19 +1,43 @@
-# general imports
+"""
+Limited gradient reconstruction for the finite-volume scheme.
+
+Computes the forward/backward finite differences along an axis (handling the
+unequal cell-centre spacings of 1D spherical geometry) and applies the
+configured slope limiter to obtain the limited cell-centred gradients.
+"""
+
+# general
 from functools import partial
+
+# typing
+from typing import Union
+from beartype import beartype as typechecker
+from jaxtyping import jaxtyped
+
+# jax
 import jax
 import jax.numpy as jnp
 
-# typechecking imports
-from beartype import beartype as typechecker
-from jaxtyping import jaxtyped
-from typing import Union
+# astronomix constants
+from astronomix.option_classes.simulation_config import (
+    CARTESIAN,
+    MINMOD,
+    OSHER,
+    DOUBLE_MINMOD,
+    SUPERBEE,
+    SPHERICAL,
+    STATE_TYPE,
+    STATE_TYPE_ALTERED,
+    VAN_ALBADA,
+    VAN_ALBADA_PP,
+)
 
-# general astronomix imports
-from astronomix._stencil_operations._stencil_operations import _stencil_add
+# astronomix containers
 from astronomix.data_classes.simulation_helper_data import HelperData
-from astronomix.option_classes.simulation_config import CARTESIAN, MINMOD, OSHER, DOUBLE_MINMOD, SUPERBEE, SPHERICAL, STATE_TYPE, STATE_TYPE_ALTERED, VAN_ALBADA, VAN_ALBADA_PP, SimulationConfig
+from astronomix.option_classes.simulation_config import SimulationConfig
 
-# limiter imports
+# astronomix functions
+from astronomix._stencil_operations._stencil_operations import _stencil_add
 from astronomix._finite_volume._state_evolution.limiters import _double_minmod, _minmod, _superbee, _van_albada_limiter
 
 
@@ -70,17 +94,17 @@ def _calculate_limited_gradients(
             config
         )
     elif config.limiter == OSHER:
-        # Quotient formulation:
-        epsilon = 1e-11  # Small constant to prevent division by zero
+        # Quotient formulation: limit on the ratio of forward to backward
+        # differences. The epsilon guards the division when the backward
+        # difference is (near) zero.
+        epsilon = 1e-11
         g = jnp.where(
-            jnp.abs(backward_diff) > epsilon,  # Avoid division if `a` is very small
-            forward_diff / (backward_diff + epsilon),  # Add epsilon to `a` for numerical stability
+            jnp.abs(backward_diff) > epsilon,
+            forward_diff / (backward_diff + epsilon),
             jnp.zeros_like(backward_diff)
         )
-        # slope_limited = jnp.maximum(0, jnp.minimum(1, g))  # Minmod limiter
-        slope_limited = jnp.maximum(0, jnp.minimum(1.3, g))  # Osher limiter with beta = 1.3
-        # ospre limiter
-        # slope_limited = (1.5 * (g ** 2 + g)) / (g ** 2 + g + 1)
+        # Osher limiter with beta = 1.3.
+        slope_limited = jnp.maximum(0, jnp.minimum(1.3, g))
         limited_gradients = slope_limited * backward_diff
     else:
         raise ValueError("Unknown limiter.")

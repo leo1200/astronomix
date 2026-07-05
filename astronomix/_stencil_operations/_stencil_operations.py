@@ -5,18 +5,34 @@ Allows for code "closer to the math".
 """
 
 # general
-import jax
-import jax.numpy as jnp
 from functools import partial
 
-# typechecking
+# typing
+from typing import Tuple, Union
 from beartype import beartype as typechecker
 from jaxtyping import Array, Float, jaxtyped
-from typing import Tuple, Union
+
+# jax
+import jax
+import jax.numpy as jnp
 
 # @jaxtyped(typechecker=typechecker)
 @partial(jax.jit, static_argnames=["shift", "axis"])
 def custom_roll(input_array: jnp.ndarray, shift: int, axis: int) -> jnp.ndarray:
+    """Periodic roll of ``input_array`` by ``shift`` along ``axis``.
+
+    Equivalent to ``jnp.roll`` but expressed via two static slices and a
+    concatenate, which keeps ``shift`` / ``axis`` compile-time constants so the
+    stencil helpers built on top of it fuse cleanly.
+
+    Args:
+        input_array: The array to roll.
+        shift: The (signed) number of positions to roll by.
+        axis: The axis along which to roll.
+
+    Returns:
+        The rolled array.
+    """
     i = (-shift) % input_array.shape[axis]
     return jax.lax.concatenate(
         [
@@ -26,20 +42,14 @@ def custom_roll(input_array: jnp.ndarray, shift: int, axis: int) -> jnp.ndarray:
         dimension=axis,
     )
 
-# this can possibly be used for van neumann boundary conditions
-# via array shifting
-# @partial(jax.jit, static_argnames=["shift", "axis"])
-# def shift_neumann(input_array: jnp.ndarray, shift: int, axis: int) -> jnp.ndarray:
-#     if shift == 0:
-#         return input_array
-#     size = input_array.shape[axis]
-#     indices = jnp.arange(size)
-#     indices = indices - shift
-#     indices = jnp.clip(indices, 0, size - 1)
-#     return jnp.take(input_array, indices, axis=axis)
 
 def _shift(input_array: jnp.ndarray, shift: int, axis: int) -> jnp.ndarray:
-    # the shift function might generally support differend boundary conditions
+    """Shift ``input_array`` by ``shift`` along ``axis``.
+
+    A thin indirection over :func:`custom_roll`: the shift is currently periodic,
+    but routing every stencil through this single entry point leaves room to
+    support other boundary conditions later without touching call sites.
+    """
     return custom_roll(input_array, shift, axis)
 
 # @jaxtyped(typechecker=typechecker)

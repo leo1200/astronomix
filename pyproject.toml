@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "astronomix"
-version = "0.6.0"
+version = "0.6.5"
 description = "differentiable (magneto)hydrodynamics for astrophysics in JAX"
 authors = ["Leonard Storcks"]
 readme = "README.md"
@@ -14,6 +14,11 @@ astropy = ">=6.0.0"
 numpy = ">=1.0.0"
 equinox = ">=0.10.10"
 beartype = ">=0.19.0"
+# Pinned to the 0.11.0–0.11.10 line: it is the Orbax range whose multi-device
+# (sharded) save/restore round-trips correctly against the project's JAX 0.6.2.
+# Newer Orbax (>=0.11.20) either corrupts sharded restores or calls
+# jax.sharding.set_mesh as a context manager, which JAX 0.6.2 does not support.
+orbax-checkpoint = ">=0.11.0,<0.11.11"
 
 [build-system]
 requires = ["poetry-core"]

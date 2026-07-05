@@ -19,10 +19,11 @@ import numpy as np
 
 from astronomix.data_classes.simulation_helper_data import get_helper_data
 from astronomix.option_classes.simulation_config import (
-    FD_FLUX_GRAVITY,
+    GravityConfig,
+    SECOND_ORDER_CONSERVATIVE,
     FINITE_DIFFERENCE,
-    SIMPLE_SOURCE_TERM,
-    WENO_FLUX_GRAVITY,
+    SIMPLE_SOURCE,
+    FOURTH_ORDER_CONSERVATIVE,
     SimulationConfig,
     StaticFloatVector,
     StaticIntVector,
@@ -40,11 +41,11 @@ from astronomix.test_setups.self_gravity.slab_advection import (
 
 
 def _gravity_version_to_string(version: int) -> str:
-    if version == SIMPLE_SOURCE_TERM:
+    if version == SIMPLE_SOURCE:
         return "simple source"
-    if version == FD_FLUX_GRAVITY:
+    if version == SECOND_ORDER_CONSERVATIVE:
         return "flux-based source"
-    if version == WENO_FLUX_GRAVITY:
+    if version == FOURTH_ORDER_CONSERVATIVE:
         return "corrected flux-based source"
     raise ValueError(f"Unknown self-gravity version: {version}")
 
@@ -52,7 +53,7 @@ def _gravity_version_to_string(version: int) -> str:
 def _config_label(config: SimulationConfig) -> str:
     return (
         f"{solver_mode_to_string(config.solver_mode)}, "
-        f"{_gravity_version_to_string(config.self_gravity_version)}"
+        f"{_gravity_version_to_string(config.gravity_config.self_gravity_version)}"
     )
 
 
@@ -66,8 +67,7 @@ config_list = [
         solver_mode=FINITE_DIFFERENCE,
         box_size=_BOX,
         mhd=False,
-        self_gravity=True,
-        self_gravity_version=SIMPLE_SOURCE_TERM,
+        gravity_config=GravityConfig(self_gravity=True, self_gravity_version=SIMPLE_SOURCE),
         dimensionality=3,
         progress_bar=True,
     ),
@@ -75,8 +75,7 @@ config_list = [
         solver_mode=FINITE_DIFFERENCE,
         box_size=_BOX,
         mhd=False,
-        self_gravity=True,
-        self_gravity_version=FD_FLUX_GRAVITY,
+        gravity_config=GravityConfig(self_gravity=True, self_gravity_version=SECOND_ORDER_CONSERVATIVE),
         dimensionality=3,
         progress_bar=True,
     ),
@@ -84,8 +83,7 @@ config_list = [
         solver_mode=FINITE_DIFFERENCE,
         box_size=_BOX,
         mhd=False,
-        self_gravity=True,
-        self_gravity_version=WENO_FLUX_GRAVITY,
+        gravity_config=GravityConfig(self_gravity=True, self_gravity_version=FOURTH_ORDER_CONSERVATIVE),
         dimensionality=3,
         progress_bar=True,
     ),

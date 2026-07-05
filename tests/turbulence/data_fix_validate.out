@@ -1,0 +1,21 @@
+=== val_cap10 START 09:56:11 ===
+val_cap10 GPU=3 args: --mturb 20 --rhomin 0.005 --cfl 1.5 --vmaxcap 10
+[val_cap10] wall 47.6s, snaps=8
+[val_cap10] stationary(last 1/3): M_turb=0.00 v_rms=0.000 (rho-rho0)rms=0.500 E_K=0.000 E_B=0.000 first_bad_snap=7 @t/tc=nan
+=== val_cap10 DONE 10:09:42 ===
+=== val_vacrest START 10:09:42 ===
+val_vacrest GPU=3 args: --mturb 20 --rhomin 0.005 --cfl 1.5 --vmaxcap 1000000000 --vacuum_rest 1
+[val_vacrest] wall 100.3s, snaps=8
+[val_vacrest] stationary(last 1/3): M_turb=20.74 v_rms=1.037 (rho-rho0)rms=2.111 E_K=0.521 E_B=0.234 first_bad_snap=-1 (all finite)
+=== val_vacrest DONE 10:11:40 ===
+=== val_codefix START 10:11:40 ===
+val_codefix GPU=3 args: --mturb 20 --rhomin 0.005 --cfl 1.5 --vmaxcap 1000000000 --cfl_vcap 1
+[val_codefix] wall 82.9s, snaps=8
+[val_codefix] stationary(last 1/3): M_turb=10.65 v_rms=0.532 (rho-rho0)rms=1.070 E_K=0.270 E_B=0.115 first_bad_snap=7 @t/tc=nan
+=== val_codefix DONE 10:13:19 ===
+=== val_regr START 10:13:19 ===
+val_regr GPU=3 args: --mturb 10 --rhomin 0.02 --cfl 1.5 --vmaxcap 50 --cfl_vcap 1
+[val_regr] wall 64.9s, snaps=8
+[val_regr] stationary(last 1/3): M_turb=10.48 v_rms=1.048 (rho-rho0)rms=2.001 E_K=0.513 E_B=0.413 first_bad_snap=-1 (all finite)
+=== val_regr DONE 10:14:39 ===
+=== VALIDATE DONE 10:14:39 ===

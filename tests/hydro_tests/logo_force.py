@@ -39,8 +39,8 @@ from astronomix.option_classes.simulation_config import (
     BoundarySettings1D
 )
 
-from astronomix._physics_modules._neural_net_force._neural_net_force import ForceNet
-from astronomix._physics_modules._neural_net_force._neural_net_force_options import NeuralNetForceConfig, NeuralNetForceParams
+from astronomix._modules._neural_net_force._neural_net_force import ForceNet
+from astronomix._modules._neural_net_force._neural_net_force_options import NeuralNetForceConfig, NeuralNetForceParams
 
 
 # ===================================================

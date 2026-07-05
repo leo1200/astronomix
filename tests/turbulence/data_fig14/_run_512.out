@@ -1,0 +1,19 @@
+=== ISM_N512 START Mon Jun 22 01:26:31 PM CEST 2026 ===
+ISM_N512 using CUDA_VISIBLE_DEVICES=3
+W0622 13:26:45.957821 2879024 hlo_rematerialization.cc:3231] Can't reduce memory use below 96.36GiB (103466663819 bytes) by rematerialization; only reduced to 136.00GiB (146028888692 bytes), down from 136.00GiB (146028888708 bytes) originally
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+Setting time integrator to RK4_SSP for finite difference solver mode.
+[ISM_N512] eos=iso M_turb_aim=10.0 beta=0.1 a=0.100 P0=None B0=0.4472 F0=3.5 kf=9.425 cfl=1.5 rhomin=0.02 prot=True hardfloor=True
+[ISM_N512] wall 10528.1s, snaps=6
+[ISM_N512] stationary(last 1/3): M_turb=0.00 v_rms=0.000 (rho-rho0)rms=0.500 E_K=0.000 E_B=0.000 first_bad_snap=5 @t/tc=nan
+[ISM_N512] M_turb(t/tc): 0.00:0.0 0.83:9.7 1.67:10.3 0.00:0.0 0.00:0.0 nan:0.0
+[ISM_N512] slice from snapshot 2 (t/tc=1.67)
+[ISM_N512] wrote data_fig14/paper_ISM_N512.npz
+=== ISM_N512 EXIT 0 Mon Jun 22 04:22:23 PM CEST 2026 ===
+=== ICM_N512 START Mon Jun 22 04:22:23 PM CEST 2026 ===
+ICM_N512 using CUDA_VISIBLE_DEVICES=3
+W0622 16:22:34.983938 3102351 hlo_rematerialization.cc:3231] Can't reduce memory use below 96.36GiB (103466663819 bytes) by rematerialization; only reduced to 136.00GiB (146028888676 bytes), down from 136.00GiB (146028888692 bytes) originally
+/export/home/lstorcks/agent-home/astronomix-refactor-port/tests/turbulence/_run_512.sh: line 28: 3102351 Killed                  python paper_turbulence.py --tag ICM_N512 --outdir data_fig14 --eos iso --N 512 --mturb 0.5 --beta 1e6 --F0 3.5 --cfl 1.5 --tcross 5 --nsnap 6 --stage_mode redist --rhomin 0.02 --vmaxcap 50 --protect 0 2>&1
+     3102352 Done                    | tee data_fig14/ICM_N512.log
+=== ICM_N512 EXIT 137 Mon Jun 22 06:10:04 PM CEST 2026 ===
+=== ALL DONE Mon Jun 22 06:10:04 PM CEST 2026 ===

@@ -8,7 +8,7 @@ from matplotlib.colors import LogNorm
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import jax
 import numpy as np
-from astronomix._physics_modules._cooling._simple_mixing_cooling import _cooling_rate
+from astronomix._modules._cooling._simple_mixing_cooling import _cooling_rate
 from trml import P0, T_cold, T_hot, registered_variables, mixing_cooling_params, params, t_coolmin, rho_cold, rho_hot, initial_state, config
 from astronomix._geometry.boundaries import _boundary_handler
 from astronomix.time_stepping._utils import _pad
@@ -45,8 +45,7 @@ num_bins = 400
 # the bin widths will still be in linear space
 temperature_bins = np.logspace(np.log10(T_cold), np.log10(T_hot), num_bins)
 
-# either this produces dV/dT and not dV/dlogT
-# or something is up with the data
+# produces dV/dT
 ax_pdf.hist(
     temp_flat,
     bins=temperature_bins,

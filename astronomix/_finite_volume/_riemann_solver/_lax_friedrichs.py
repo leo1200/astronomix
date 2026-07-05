@@ -1,17 +1,33 @@
+"""
+Local Lax-Friedrichs (Rusanov) Riemann solver for the finite-volume scheme.
+
+Returns the conservative interface fluxes from the reconstructed left/right
+primitive states, using a single global dissipation coefficient ``alpha`` from
+the cell-centred state.
+"""
+
+# general
+from functools import partial
+
+# typing
 from typing import Union
-from astronomix._fluid_equations._fluxes import _euler_flux
-from astronomix._fluid_equations._equations import conserved_state_from_primitive, speed_of_sound
-from astronomix.variable_registry.registered_variables import RegisteredVariables
-from astronomix.option_classes.simulation_config import STATE_TYPE, SimulationConfig
+from jaxtyping import Array, Float, jaxtyped
+from beartype import beartype as typechecker
 
-
+# jax
 import jax
 import jax.numpy as jnp
-from beartype import beartype as typechecker
-from jaxtyping import Array, Float, jaxtyped
 
+# astronomix constants
+from astronomix.option_classes.simulation_config import STATE_TYPE
 
-from functools import partial
+# astronomix containers
+from astronomix.variable_registry.registered_variables import RegisteredVariables
+from astronomix.option_classes.simulation_config import SimulationConfig
+
+# astronomix functions
+from astronomix._fluid_equations._fluxes import _euler_flux
+from astronomix._fluid_equations._equations import conserved_state_from_primitive, speed_of_sound
 
 
 # @jaxtyped(typechecker=typechecker)
@@ -27,16 +43,30 @@ def _lax_friedrichs_solver(
     registered_variables: RegisteredVariables,
     flux_direction_index: int,
 ) -> STATE_TYPE:
+    """
+    Local Lax-Friedrichs (Rusanov) solver returning the conservative interface
+    fluxes.
 
-    # the flux such that the array at position i stores the interface
-    # from from i-1 to i.
+    Args:
+        primitives_left: States left of the interfaces.
+        primitives_right: States right of the interfaces.
+        primitive_state: The full cell-centred primitive state (used to set the
+            global dissipation coefficient ``alpha``).
+        gamma: The adiabatic index.
+        config: The simulation configuration.
+        registered_variables: The registered variables.
+        flux_direction_index: The state index of the velocity normal to the
+            interface (the flux direction).
 
-    # primitives left at i is the left state at the interface
-    # between i-1 and i so the right extrapolation from the cell i-1
+    Returns:
+        The conservative fluxes at the interfaces.
+    """
 
-    # primitives right at i is the right state at the interface
-    # between i-1 and i so the left extrapolation from the cell i
-
+    # The flux array is laid out so that position i stores the interface flux
+    # from cell i-1 to cell i. ``primitives_left`` at i is the right
+    # extrapolation from cell i-1 (the left state of that interface) and
+    # ``primitives_right`` at i is the left extrapolation from cell i (the
+    # right state of that interface).
 
     rho_L = primitives_left[registered_variables.density_index]
     u_L = primitives_left[flux_direction_index]
@@ -57,12 +87,13 @@ def _lax_friedrichs_solver(
     c_L = speed_of_sound(rho_L, p_L, gamma)
     c_R = speed_of_sound(rho_R, p_R, gamma)
 
-    # alpha = jnp.max(jnp.maximum(jnp.abs(u_L) + c_L, jnp.abs(u_R) + c_R))
     u = primitive_state[flux_direction_index]
     rho = primitive_state[registered_variables.density_index]
     p = primitive_state[registered_variables.pressure_index]
     c = speed_of_sound(rho, p, gamma)
-    # THE COMMON ALPHA PARAMETER MAKES NO SENSE (?) - LOOK INTO PAPER AGAIN???
+    # A single global dissipation coefficient is used for every interface,
+    # taken as the maximum signal speed over the whole cell-centred state.
+    # TODO: revisit whether a per-interface (local) alpha is preferable here.
     alpha = jnp.max(jnp.abs(u) + c)
 
     fluxes_left = _euler_flux(

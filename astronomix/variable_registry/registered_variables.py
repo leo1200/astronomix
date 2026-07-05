@@ -1,6 +1,6 @@
 """
-The registered_variables module tells the code where 
-in the state array which field is stored. This is important 
+The registered_variables module tells the code where
+in the state array which field is stored. This is important
 for modularity and readability of the code.
 
 When you want to add new variables to the state array, e.g.
@@ -12,36 +12,51 @@ and for finite difference MHD the magnetic field at interfaces
 is assumed to be stored in the three indices.
 """
 
-from typing import NamedTuple
-
-import jax.numpy as jnp
-
+# typing
+from typing import NamedTuple, Union
 from jaxtyping import Array, Float, Int
 
-from typing import Union
+# jax
+import jax.numpy as jnp
 
+# astronomix constants
 from astronomix.option_classes.simulation_config import (
-    FINITE_DIFFERENCE, FINITE_VOLUME, IDEAL_GAS, ISOTHERMAL, XAXIS, YAXIS, ZAXIS, SimulationConfig, StaticIntVector
+    FINITE_DIFFERENCE,
+    FINITE_VOLUME,
+    IDEAL_GAS,
+    ISOTHERMAL,
+    XAXIS,
+    YAXIS,
+    ZAXIS,
+)
+
+# astronomix containers
+from astronomix.option_classes.simulation_config import (
+    SimulationConfig,
+    StaticIntVector,
 )
 
 
 # =============================================================
 
-"""
-We perform simulations in multiple spatial dimensions. To an axis,
-e.g. the x-axis, corresponds the axis in the array storing the state
-(along which e.g. x varies) but also fields in the state related
-to that axis, e.g. the x-velocity or the x-magnetic field component.
+# Each spatial dimension (e.g. the x-axis) corresponds both to an axis in the
+# state array (along which that coordinate varies) and to the fields tied to
+# that axis (e.g. the x-velocity or the x-component of the magnetic field). A
+# common pattern is a loop over the spatial dimensions that needs exactly this
+# mapping, which ``AxisInfo`` bundles together.
 
-A common pattern will be a loop over the spatial dimensions where
-we exactly need to know this information.
-"""
 
 class AxisInfo(NamedTuple):
-    # corresponding axis in the array
-    axis_in_array: int
+    """The array axis and field indices associated with one spatial dimension.
 
-    # corresponding field indices
+    Attributes:
+        axis_in_array: The axis in the state array along which this coordinate
+            varies.
+        velocity_index: The index of the velocity component along this axis.
+        magnetic_index: The index of the magnetic field component along this axis.
+    """
+
+    axis_in_array: int
     velocity_index: int
     magnetic_index: int
 
@@ -105,9 +120,14 @@ class RegisteredVariables(NamedTuple):
 
     # here you can add more variables
 
-# TODO: update
+
 def get_registered_variables(config: SimulationConfig) -> RegisteredVariables:
-    """Get the registered variables for the simulation.
+    """Build the variable registry for a given simulation configuration.
+
+    Starts from the baseline (density, velocity, pressure) registry and grows /
+    re-indexes it for the active solver mode, dimensionality, equation of state
+    and any extra tracked fields (MHD, stellar-wind density, cosmic rays), so
+    that every field lands at the index the rest of the code expects.
 
     Args:
         config: The simulation configuration.
@@ -117,7 +137,7 @@ def get_registered_variables(config: SimulationConfig) -> RegisteredVariables:
     """
 
     registered_variables = RegisteredVariables()
-    
+
     if config.solver_mode == FINITE_VOLUME:
 
         if config.dimensionality == 2:
@@ -172,7 +192,7 @@ def get_registered_variables(config: SimulationConfig) -> RegisteredVariables:
                 registered_variables = registered_variables._replace(
                     num_vars=registered_variables.num_vars + 3
                 )
-        
+
         # NOTE: CURRENTLY ONLY IMPLEMENTED FOR FINITE VOLUME MODE
         if config.wind_config.trace_wind_density:
             registered_variables = registered_variables._replace(
@@ -197,11 +217,13 @@ def get_registered_variables(config: SimulationConfig) -> RegisteredVariables:
     if config.solver_mode == FINITE_DIFFERENCE:
 
         if config.mhd:
-            
-            # we always assume all velocity fields present, 
-            # even in 1D and 2D, for the magnetic update
 
-            # TEMPORARY: set the registered variables manually
+            # The finite-difference MHD update always carries all three velocity
+            # components (even in 1D and 2D) for the magnetic field update, so
+            # the registry is set explicitly per equation of state rather than
+            # derived from the dimensionality as in the hydrodynamics case.
+            # NOTE: the magnetic field is stored before the interface magnetic
+            # field, which occupies the final three indices.
             if config.equation_of_state == IDEAL_GAS:
                 registered_variables = RegisteredVariables(
                     density_index=0,
@@ -244,7 +266,7 @@ def get_registered_variables(config: SimulationConfig) -> RegisteredVariables:
                     pressure_index=4,
                     num_vars=5,
                 )
-            
+
             if config.equation_of_state == ISOTHERMAL:
                 registered_variables = registered_variables._replace(
                     pressure_index=-1

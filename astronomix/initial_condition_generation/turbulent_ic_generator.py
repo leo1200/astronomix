@@ -1,19 +1,38 @@
+"""
+Generate Gaussian random fields with a prescribed power-law spectrum.
+
+Builds a real-valued 3D turbulent field by sampling complex Fourier
+coefficients with a target amplitude scaling ``A0 * k^slope`` inside a
+wavenumber band, enforcing Hermitian symmetry so the inverse transform is
+real, and transforming back to real space. The implementation deliberately
+avoids explicit meshgrid / index arrays (relying on broadcasting and roll /
+flip tricks instead) to keep the memory footprint low at large resolution.
+"""
+
+# jax
 import jax
 import jax.numpy as jnp
 
 
 def _cosine_taper(k, k0, k1):
-    """Returns taper factor in [0,1]: 1 for k<=k0, smooth down to 0 at k>=k1."""
-    # If k1 == k0, use a hard cutoff
+    """Cosine roll-off factor in [0, 1]: 1 for ``k <= k0``, smoothly down to 0
+    at ``k >= k1``.
+
+    Args:
+        k: The wavenumber magnitude (array) to taper.
+        k0: The wavenumber at which the taper starts (factor still 1).
+        k1: The wavenumber at which the taper reaches 0.
+
+    Returns:
+        The taper factor, same shape as ``k``.
+    """
+    # Guard against a degenerate band (k1 == k0): fall back to a hard cutoff.
     small = 1e-12
     if k1 <= k0 + small:
         return jnp.where(k <= k0, 1.0, 0.0)
-    t = (k - k0) / (k1 - k0)
-    t = jnp.clip(t, 0.0, 1.0)
-    return jnp.where(k <= k0, 1.0, 0.5 * (1.0 + jnp.cos(jnp.pi * t)))
-
-
-# k_max <= int(0.7 * Ndim/2)
+    fraction = (k - k0) / (k1 - k0)
+    fraction = jnp.clip(fraction, 0.0, 1.0)
+    return jnp.where(k <= k0, 1.0, 0.5 * (1.0 + jnp.cos(jnp.pi * fraction)))
 
 
 def create_turb_field(
@@ -28,82 +47,106 @@ def create_turb_field(
     zero_mean=True,
 ):
     """
-    Generate a real Gaussian random field with target amplitude scaling.
+    Generate a real Gaussian random field with a target amplitude scaling.
 
-    This version is optimized for memory by avoiding explicit meshgrid/indices
+    This version is optimized for memory by avoiding explicit meshgrid / index
     arrays and using broadcasting and efficient array manipulations instead.
+
+    Args:
+        Ndim: The number of grid points along each of the three axes.
+        A0: The amplitude prefactor of the power-law spectrum.
+        slope: The spectral slope (``amplitude ~ A0 * k^slope``).
+        kmin: The lower edge of the wavenumber band carrying power.
+        kmax: The upper edge of the wavenumber band carrying power.
+        key: The PRNG key used to sample the Fourier coefficients.
+        sharding: An optional sharding applied to the large k-space arrays.
+        kroll_frac: The fraction of ``kmax`` at which the cosine roll-off begins.
+        zero_mean: Whether to remove the DC component so the field has zero mean.
+
+    Returns:
+        The real-valued turbulent field of shape ``(Ndim, Ndim, Ndim)``.
     """
-    # Build integer wavenumbers [-N/2..N/2-1]
-    k1d = jnp.fft.fftfreq(Ndim, d=1.0) * Ndim
+    # Integer wavenumbers laid out in FFT order [-N/2 .. N/2-1].
+    wavenumbers_1d = jnp.fft.fftfreq(Ndim, d=1.0) * Ndim
 
     # --- Memory Optimization 1: Broadcasting instead of meshgrid ---
-    # Calculate k-space magnitude without creating full kx, ky, kz arrays.
-    # JAX will broadcast the 1D arrays to 3D during the operation.
-    k3d_sq = (
-        k1d.reshape(Ndim, 1, 1) ** 2
-        + k1d.reshape(1, Ndim, 1) ** 2
-        + k1d.reshape(1, 1, Ndim) ** 2
+    # Compute the k-space magnitude without materialising full kx, ky, kz
+    # arrays; JAX broadcasts the 1D arrays to 3D during the operation.
+    wavenumber_magnitude_squared = (
+        wavenumbers_1d.reshape(Ndim, 1, 1) ** 2
+        + wavenumbers_1d.reshape(1, Ndim, 1) ** 2
+        + wavenumbers_1d.reshape(1, 1, Ndim) ** 2
     )
 
-    # Shard the first large array created. Subsequent element-wise ops
-    # will inherit the sharding.
+    # Shard the first large array created; subsequent element-wise operations
+    # inherit the sharding.
     if sharding is not None:
-        k3d_sq = jax.device_put(k3d_sq, sharding)
+        wavenumber_magnitude_squared = jax.device_put(
+            wavenumber_magnitude_squared, sharding
+        )
 
-    k3d = jnp.sqrt(k3d_sq)
+    wavenumber_magnitude = jnp.sqrt(wavenumber_magnitude_squared)
 
-    # Optional roll-off: start rolling at kroll_frac * kmax and finish at kmax
+    # Optional roll-off: start tapering at kroll_frac * kmax and finish at kmax.
     k_roll_start = kroll_frac * kmax
-    taper = _cosine_taper(k3d, k_roll_start, kmax)
+    taper = _cosine_taper(wavenumber_magnitude, k_roll_start, kmax)
 
-    # Mask inside k-band where we want power
-    band_mask = (k3d >= kmin) & (k3d <= kmax)
+    # Restrict power to the requested k-band.
+    band_mask = (wavenumber_magnitude >= kmin) & (wavenumber_magnitude <= kmax)
 
-    # Set amplitude, avoiding division by zero at k=0
-    k_safe = jnp.where(k3d == 0.0, 1.0, k3d)
-    amplitude = A0 * (k_safe**slope)
+    # Set the target amplitude, avoiding division by zero at k = 0.
+    wavenumber_magnitude_safe = jnp.where(
+        wavenumber_magnitude == 0.0, 1.0, wavenumber_magnitude
+    )
+    amplitude = A0 * (wavenumber_magnitude_safe**slope)
     if zero_mean:
         amplitude = amplitude.at[0, 0, 0].set(0.0)
 
-    # Apply band + taper
+    # Apply the band restriction and the taper.
     amplitude = amplitude * band_mask * taper
 
-    # Sample complex Fourier coefficients with variance ~ amplitude^2
+    # Sample complex Fourier coefficients with variance ~ amplitude^2.
     sigma = amplitude / jnp.sqrt(2.0)
     subkeys = jax.random.split(key, 2)
-    re = jax.random.normal(subkeys[0], shape=k3d.shape) * sigma
-    im = jax.random.normal(subkeys[1], shape=k3d.shape) * sigma
-    F = re + 1j * im
+    real_part = jax.random.normal(subkeys[0], shape=wavenumber_magnitude.shape) * sigma
+    imag_part = jax.random.normal(subkeys[1], shape=wavenumber_magnitude.shape) * sigma
+    fourier_coeffs = real_part + 1j * imag_part
 
     # --- Memory Optimization 2: Enforce Hermitian symmetry without indices ---
-    # The operation F_conj_flipped[-k] is equivalent to flipping all axes and
-    # rolling by one element due to the fftfreq convention. This is much
-    # cheaper than a gather operation with explicit index arrays.
-    F_conj_flipped = jnp.roll(
-        jnp.flip(jnp.conj(F), axis=(0, 1, 2)), shift=1, axis=(0, 1, 2)
+    # The map F[k] -> conj(F[-k]) is, under the fftfreq convention, equivalent
+    # to flipping all axes and rolling by one element. This is much cheaper than
+    # a gather with explicit index arrays.
+    fourier_conj_flipped = jnp.roll(
+        jnp.flip(jnp.conj(fourier_coeffs), axis=(0, 1, 2)),
+        shift=1,
+        axis=(0, 1, 2),
     )
-    F_sym = 0.5 * (F + F_conj_flipped)
+    fourier_symmetric = 0.5 * (fourier_coeffs + fourier_conj_flipped)
 
     # --- Memory Optimization 3: Find self-conjugate modes without indices ---
-    # Self-conjugate modes are where k_i = -k_i (mod N), which occurs at
-    # indices 0 and N/2 (for even N). We can build this mask via broadcasting.
-    idx_1d = jnp.arange(Ndim)
-    sc_1d = idx_1d == ((-idx_1d) % Ndim)
+    # Self-conjugate modes satisfy k_i = -k_i (mod N), occurring at indices 0
+    # and N/2 (for even N). Build the 3D mask by broadcasting a 1D mask.
+    index_1d = jnp.arange(Ndim)
+    self_conj_1d = index_1d == ((-index_1d) % Ndim)
     self_conj_mask = (
-        sc_1d.reshape(Ndim, 1, 1)
-        & sc_1d.reshape(1, Ndim, 1)
-        & sc_1d.reshape(1, 1, Ndim)
+        self_conj_1d.reshape(Ndim, 1, 1)
+        & self_conj_1d.reshape(1, Ndim, 1)
+        & self_conj_1d.reshape(1, 1, Ndim)
     )
 
-    # Force imaginary part to be zero at self-conjugate locations
-    F_sym = jnp.where(self_conj_mask, jnp.real(F_sym).astype(F_sym.dtype), F_sym)
+    # The self-conjugate modes must be purely real, so drop their imaginary part.
+    fourier_symmetric = jnp.where(
+        self_conj_mask,
+        jnp.real(fourier_symmetric).astype(fourier_symmetric.dtype),
+        fourier_symmetric,
+    )
 
-    # Optional: explicitly ensure DC is real zero (if zero_mean True)
+    # Explicitly pin the DC component to a real zero when a zero mean is wanted.
     if zero_mean:
-        F_sym = F_sym.at[0, 0, 0].set(0.0 + 0.0j)
+        fourier_symmetric = fourier_symmetric.at[0, 0, 0].set(0.0 + 0.0j)
 
-    # Inverse transform back to real space
-    rfield_complex = jnp.fft.ifftn(F_sym)
-    rfield = jnp.real(rfield_complex)
+    # Inverse transform back to real space; the imaginary part is zero by
+    # construction up to round-off, so take the real part.
+    real_space_field = jnp.real(jnp.fft.ifftn(fourier_symmetric))
 
-    return rfield
+    return real_space_field

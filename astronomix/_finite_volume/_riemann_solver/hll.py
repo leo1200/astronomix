@@ -1,32 +1,44 @@
-# general imports
+"""
+HLL-family Riemann solvers for the finite-volume scheme.
+
+Provides the HLL, HLLC (with optional low-Mach HLLC-LM correction) and the
+adaptive/hybrid AM-HLLC solvers that return the conservative interface fluxes
+from the reconstructed left/right primitive states.
+"""
+
+# general
 from functools import partial
-import jax.numpy as jnp
-import jax
 
 # typing
+from typing import Union
 from jaxtyping import Array, Float, jaxtyped
 from beartype import beartype as typechecker
-from typing import Union
 
-# general astronomix
-from astronomix._physics_modules._cosmic_rays.cr_fluid_equations import speed_of_sound_crs
-from astronomix._stencil_operations._stencil_operations import _stencil_add
+# jax
+import jax
+import jax.numpy as jnp
+
+# astronomix constants
+from astronomix.option_classes.simulation_config import (
+    AM_HLLC,
+    HLLC_LM,
+    HYBRID_HLLC,
+    STATE_TYPE,
+)
+
+# astronomix containers
 from astronomix.variable_registry.registered_variables import RegisteredVariables
+from astronomix.option_classes.simulation_config import SimulationConfig
 
-# fluid stuff
+# astronomix functions
+from astronomix._modules._cosmic_rays.cr_fluid_equations import speed_of_sound_crs
+from astronomix._stencil_operations._stencil_operations import _stencil_add
 from astronomix._fluid_equations._equations import (
     conserved_state_from_primitive,
     get_absolute_velocity,
     speed_of_sound,
 )
 from astronomix._fluid_equations._fluxes import _euler_flux
-from astronomix.option_classes.simulation_config import (
-    AM_HLLC,
-    HLLC_LM,
-    HYBRID_HLLC,
-    STATE_TYPE,
-    SimulationConfig,
-)
 
 
 # @jaxtyped(typechecker=typechecker)
@@ -81,12 +93,11 @@ def _hll_solver(
         primitives_right, gamma, config, registered_variables, flux_direction_index
     )
 
-    # very simple approach for the wave velocities
+    # Estimate the fastest right- and left-running signal speeds and clamp them
+    # to be one-sided (>= 0 and <= 0 respectively), so the HLL average reduces
+    # to the upwind flux when the whole fan moves in one direction.
     wave_speeds_right_plus = jnp.maximum(jnp.maximum(u_L + c_L, u_R + c_R), 0)
     wave_speeds_left_minus = jnp.minimum(jnp.minimum(u_L - c_L, u_R - c_R), 0)
-
-    # wave_speeds_right_plus = jnp.maximum(u_L - c_L, 0)
-    # wave_speeds_left_minus = jnp.minimum(u_R + c_R, 0)
 
     # get the left and right conserved variables
     conserved_left = conserved_state_from_primitive(
@@ -130,11 +141,32 @@ def _hllc_solver(
     hllc_lm: bool = False,
     low_mach_dissipation_control: bool = False,
 ) -> STATE_TYPE:
+    """
+    HLLC Riemann solver returning the conservative interface fluxes.
 
-    # There seem to be problems for 1d radial, maybe because the same stuff that has to be
-    # taken into consideration in the general scheme (averaging based on density might be
-    # problematic, as the surface increases radially, ...) is not taken into account here.
-    # Maybe interesting for future research, for now HLL works fine.
+    Args:
+        primitives_left: States left of the interfaces.
+        primitives_right: States right of the interfaces.
+        gamma: The adiabatic index.
+        config: The simulation configuration.
+        registered_variables: The registered variables.
+        flux_direction_index: The state index of the velocity normal to the
+            interface (the flux direction).
+        hllc_lm: Force the low-Mach HLLC-LM wave-speed reduction even when the
+            configured solver is plain HLLC.
+        low_mach_dissipation_control: Scale the velocity-component dissipation
+            by the local Mach number to suppress excess dissipation in the
+            low-Mach regime.
+
+    Returns:
+        The conservative fluxes at the interfaces.
+    """
+
+    # NOTE: this scheme shows problems for the 1D radial case, presumably
+    # because the radially varying cell surfaces (which make the density-based
+    # averaging questionable there) are not accounted for. That regime falls
+    # back to HLL, which works fine; revisiting HLLC for radial geometry is
+    # left for future work.
 
     rho_L = primitives_left[registered_variables.density_index]
     u_L = primitives_left[flux_direction_index]
@@ -275,7 +307,32 @@ def _am_hllc_solver(
     flux_direction_index: int,
 ) -> STATE_TYPE:
     """
-    https://www.sciencedirect.com/science/article/pii/S1007570425005891
+    Adaptive/hybrid HLLC solver that blends two HLLC fluxes per interface using
+    a local compression indicator.
+
+    A compression indicator ``g`` is set to 1 where the velocity divergence is
+    sufficiently negative (strongly compressive, i.e. near a shock) and 0
+    elsewhere. The returned flux is the per-interface blend
+    ``g * F_hllc_lm + (1 - g) * F_hllc``: compressive interfaces take the
+    HLLC-LM flux (``hllc_lm=True``) and the remaining interfaces take the
+    standard HLLC flux. Both HLLC fluxes are computed with
+    ``low_mach_dissipation_control`` enabled for the ``AM_HLLC`` solver and
+    disabled for ``HYBRID_HLLC``. See
+    https://www.sciencedirect.com/science/article/pii/S1007570425005891.
+
+    Args:
+        primitives_left: States left of the interfaces.
+        primitives_right: States right of the interfaces.
+        primitive_state: The full cell-centred primitive state (used for the
+            divergence-based shock indicator).
+        gamma: The adiabatic index.
+        config: The simulation configuration.
+        registered_variables: The registered variables.
+        flux_direction_index: The state index of the velocity normal to the
+            interface (the flux direction).
+
+    Returns:
+        The conservative fluxes at the interfaces.
     """
 
     d = config.grid_spacing
@@ -285,8 +342,8 @@ def _am_hllc_solver(
         primitive_state[registered_variables.pressure_index],
         gamma,
     )
-    # not optimal, sum over all dimensions
-    # is carried out once per dimension
+    # NOTE: not optimal — the per-dimension central difference is summed up
+    # here once per dimension rather than being computed in a single fused pass.
     div_v = sum(
         _stencil_add(
             primitive_state[i + 1], indices=(1, -1), factors=(1.0, -1.0), axis=i

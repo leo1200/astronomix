@@ -22,7 +22,7 @@ from astronomix.initial_condition_generation.construct_primitive_state import co
 from astronomix.option_classes.simulation_config import (
     BACKWARDS, FINITE_DIFFERENCE, FINITE_VOLUME, PERIODIC_ROLL, SimulationConfig, finalize_config,
     PERIODIC_BOUNDARY, BoundarySettings, BoundarySettings1D,
-    StaticFloatVector, StaticIntVector
+    StaticFloatVector, StaticIntVector, GravityConfig, PositivityConfig
 )
 from astronomix.option_classes.simulation_params import SimulationParams
 
@@ -76,7 +76,6 @@ def run_nd_adjoint_test(dim=2):
         solver_mode=FINITE_DIFFERENCE,
         geometry=CARTESIAN,
         progress_bar=True,
-        self_gravity=False,
         boundary_handling=PERIODIC_ROLL,
         differentiation_mode=BACKWARDS,
         num_ghost_cells=0,

@@ -1,0 +1,29 @@
+=== repro_cfl15_capOFF START 09:43:57 ===
+repro_cfl15_capOFF GPU=3  args: --cfl 1.5 --rhomin 0.02 --vmaxcap 1000000000
+[repro_cfl15_capOFF] eos=iso M_turb_aim=10.0 beta=0.1 a=0.100 P0=None B0=0.4472 F0=3.5 kf=9.425 cfl=1.5 rhomin=0.02 prot=True hardfloor=True
+[repro_cfl15_capOFF] wall 66.1s, snaps=8
+[repro_cfl15_capOFF] stationary(last 1/3): M_turb=10.51 v_rms=1.051 (rho-rho0)rms=2.015 E_K=0.517 E_B=0.409 first_bad_snap=-1 (all finite)
+[repro_cfl15_capOFF] M_turb(t/tc): 0.00:0.0 0.50:6.9 1.00:9.8 1.50:10.3 2.00:10.2 2.50:10.3 3.00:10.0 4.00:11.0
+=== repro_cfl15_capOFF DONE 09:45:21 ===
+=== repro_cfl20_capOFF START 09:45:21 ===
+repro_cfl20_capOFF GPU=3  args: --cfl 2.0 --rhomin 0.02 --vmaxcap 1000000000
+[repro_cfl20_capOFF] eos=iso M_turb_aim=10.0 beta=0.1 a=0.100 P0=None B0=0.4472 F0=3.5 kf=9.425 cfl=2.0 rhomin=0.02 prot=True hardfloor=True
+[repro_cfl20_capOFF] wall 50.7s, snaps=8
+[repro_cfl20_capOFF] stationary(last 1/3): M_turb=10.33 v_rms=1.033 (rho-rho0)rms=2.073 E_K=0.523 E_B=0.360 first_bad_snap=-1 (all finite)
+[repro_cfl20_capOFF] M_turb(t/tc): 0.00:0.0 0.50:7.0 1.00:10.0 1.50:10.2 2.00:10.1 2.50:10.1 3.00:10.5 4.00:10.1
+=== repro_cfl20_capOFF DONE 09:46:28 ===
+=== fix_cap10 START 09:46:28 ===
+fix_cap10 GPU=3  args: --cfl 2.0 --rhomin 0.02 --vmaxcap 10
+[fix_cap10] eos=iso M_turb_aim=10.0 beta=0.1 a=0.100 P0=None B0=0.4472 F0=3.5 kf=9.425 cfl=2.0 rhomin=0.02 prot=True hardfloor=True
+[fix_cap10] wall 50.7s, snaps=8
+[fix_cap10] stationary(last 1/3): M_turb=10.27 v_rms=1.027 (rho-rho0)rms=2.064 E_K=0.508 E_B=0.361 first_bad_snap=-1 (all finite)
+[fix_cap10] M_turb(t/tc): 0.00:0.0 0.50:7.0 1.00:10.0 1.50:10.2 2.00:10.1 2.50:10.0 3.00:10.5 4.00:10.1
+=== fix_cap10 DONE 09:47:35 ===
+=== fix_rho05 START 09:47:35 ===
+fix_rho05 GPU=3  args: --cfl 2.0 --rhomin 0.05 --vmaxcap 1000000000
+[fix_rho05] eos=iso M_turb_aim=10.0 beta=0.1 a=0.100 P0=None B0=0.4472 F0=3.5 kf=9.425 cfl=2.0 rhomin=0.05 prot=True hardfloor=True
+[fix_rho05] wall 40.3s, snaps=8
+[fix_rho05] stationary(last 1/3): M_turb=10.06 v_rms=1.006 (rho-rho0)rms=2.144 E_K=0.492 E_B=0.377 first_bad_snap=-1 (all finite)
+[fix_rho05] M_turb(t/tc): 0.00:0.0 0.50:7.0 1.00:10.0 1.50:10.2 2.00:10.1 2.50:10.0 3.00:10.0 4.00:10.1
+=== fix_rho05 DONE 09:48:30 ===
+=== SWEEP DONE 09:48:30 ===

@@ -1,11 +1,11 @@
 :orphan:
 
-:py:mod:`astronomix._physics_modules`
+:py:mod:`astronomix._modules`
 =====================================
 
-.. py:module:: astronomix._physics_modules
+.. py:module:: astronomix._modules
 
-.. autodoc2-docstring:: astronomix._physics_modules
+.. autodoc2-docstring:: astronomix._modules
    :allowtitles:
 
 Submodules
@@ -15,4 +15,4 @@ Submodules
    :titlesonly:
    :maxdepth: 1
 
-   astronomix._physics_modules.run_physics_modules
+   astronomix._modules.run_modules

@@ -1,24 +1,64 @@
-import math
-from types import NoneType
-from typing import NamedTuple, Union
+"""
+Static simulation configuration.
 
+Defines :class:`SimulationConfig` — the bundle of options that, unlike the
+simulation parameters, necessitate recompilation when changed — together with
+the integer-coded enumerations they reference (backends, solver/boundary/Riemann
+modes, positivity modes, ...), the small geometry vector helpers, the sub-configs
+for gravity and positivity, and the ``finalize_config`` pass that fills in
+derived fields and validates the configuration.
+"""
+
+# general
+import math
+
+# typing
+from types import NoneType
+from typing import NamedTuple, Tuple, Union
+from jaxtyping import Array, Float
+
+# jax
 import jax
 
-from astronomix._physics_modules._cnn_mhd_corrector._cnn_mhd_corrector_options import (
+# astronomix containers
+from astronomix._modules._cnn_mhd_corrector._cnn_mhd_corrector_options import (
     CNNMHDconfig,
 )
-from astronomix._physics_modules._cooling.cooling_options import CoolingConfig
-from astronomix._physics_modules._cosmic_rays.cosmic_ray_options import CosmicRayConfig
-from astronomix._physics_modules._neural_net_force._neural_net_force_options import (
+from astronomix._modules._cooling.cooling_options import CoolingConfig
+from astronomix._modules._cosmic_rays.cosmic_ray_options import CosmicRayConfig
+from astronomix._modules._neural_net_force._neural_net_force_options import (
     NeuralNetForceConfig,
 )
-from astronomix._physics_modules._stellar_wind.stellar_wind_options import WindConfig
 
 from jaxtyping import Array, Float, Bool, Int
-
-from astronomix._physics_modules._turbulent_forcing._turbulent_forcing_options import TurbulentForcingConfig
+from astronomix._modules._stellar_wind.stellar_wind_options import WindConfig
+from astronomix._modules._turbulent_forcing._turbulent_forcing_options import TurbulentForcingConfig
 
 # ===================== constant definition =====================
+
+# backends (very limited support currently)
+NATIVE_JAX = 0
+PALLAS = 1
+
+# positivity-enforcement modes (used by ``PositivityConfig.per_stage_mode`` /
+# ``per_step_mode``).  HARD_FLOOR clamps density (and, for ideal
+# gas, pressure) pointwise — cheap, non-conservative, matches the *adiabatic*
+# HOW-MHD ``prot.f``.  REDISTRIBUTE neighbour-averages density+momentum (and
+# energy) over the valid 3x3x3 neighbourhood of sub-threshold cells — much
+# gentler at strong shocks than a hard floor (no sharp floored cell), matches
+# the *isothermal* HOW-MHD ``prot.f`` (not strictly mass-conserving: like
+# ``prot.f`` it copies neighbour values without debiting the donors).
+POSITIVITY_NONE = 0
+POSITIVITY_HARD_FLOOR = 1
+POSITIVITY_REDISTRIBUTE = 2
+#: CONSERVATIVE: enforce internal-energy positivity by an antisymmetric
+#: face-flux diffusion that pulls internal energy into (near-)negative-pressure
+#: cells from their hotter neighbours (exact total-energy conservation), plus a
+#: density floor / vacuum-rest for voids and a minimal residual pressure floor
+#: as the unconditional guarantee. The smooth, conservative cousin of HARD_FLOOR:
+#: it keeps the energy-conserving self-gravity scheme stable on violent collapse
+#: without the 100%+ energy injection a bare floor causes.
+POSITIVITY_CONSERVATIVE = 3
 
 # solver modes
 FINITE_VOLUME = 0
@@ -51,10 +91,10 @@ AM_HLLC = 5
 # time integrators
 # currently only for finite volume
 RK2_SSP = 0
-MIDPOINT_OPTIM = 10 # experiment
 MUSCL = 1
 # currently only for finite difference
 RK4_SSP = 2
+RK4_LSRK = 3
 
 # boundary conditions
 OPEN_BOUNDARY = 0
@@ -85,14 +125,14 @@ GHOST_CELLS = 0
 PERIODIC_ROLL = 1
 # OPEN_SHIFT = 2
 
-# self-gravity versions
-SIMPLE_SOURCE_TERM = 0
-DONOR_ACCOUNTING = 1
-RIEMANN_SPLIT = 2
-RIEMANN_SPLIT_UNSTABLE = 3
-HALF_SPLIT = 4
-FD_FLUX_GRAVITY = 5
-WENO_FLUX_GRAVITY = 6
+# self-gravity coupling schemes (FD):
+#   SIMPLE_SOURCE              - rho * v * a energy source (non-conservative)
+#   SECOND_ORDER_CONSERVATIVE  - flux-based energy source (2nd-order accurate)
+#   FOURTH_ORDER_CONSERVATIVE  - corrected flux-based energy source (4th-order,
+#                                the energy-conserving high-order scheme)
+SIMPLE_SOURCE = 0
+SECOND_ORDER_CONSERVATIVE = 1
+FOURTH_ORDER_CONSERVATIVE = 2
 
 # Magnetic part integrators for split MHD
 IMPLICIT_MIDPOINT = 0
@@ -110,21 +150,31 @@ DYNAMIC_VISCOSITY = 1
 IDEAL_GAS = 0
 ISOTHERMAL = 1
 
+# Snapshot storage modes
+ON_DEVICE = 0
+TO_DISK = 1
+
 # ============================================================
 
 # ===================== type definitions =====================
 
 class StaticIntVector(NamedTuple):
+    """A static (compile-time) per-axis integer triple (e.g. cells per axis)."""
+
     x: int = -1
     y: int = -1
     z: int = -1
 
+
 class StaticFloatVector(NamedTuple):
+    """A static (compile-time) per-axis float triple (e.g. box size per axis)."""
+
     x: float = -1.0
     y: float = -1.0
     z: float = -1.0
 
     def __truediv__(self, other: StaticIntVector) -> "StaticFloatVector":
+        """Divide component-wise by a :class:`StaticIntVector` (e.g. box / cells)."""
         if not isinstance(other, StaticIntVector):
             return NotImplemented
         return StaticFloatVector(
@@ -172,8 +222,14 @@ GEOMETRY_TYPE = Union[
 class SnapshotSettings(NamedTuple):
     """Settings for the snapshot output of the simulation."""
 
-    #: Whether to return states during the simulation.
-    return_states: bool = True
+    #: Whether to record the full primitive state at every checkpoint.
+    #: This is the single biggest snapshot allocation
+    #: (``num_snapshots × num_vars × num_cells^d``); it is **opt-in**.
+    #: Set to ``True`` if you actually need the per-snapshot states; for
+    #: the common case of only wanting a final state plus integrated
+    #: diagnostics (energies, total mass, runtime, num_iterations), the
+    #: default ``False`` skips the per-snapshot state allocation entirely.
+    return_states: bool = False
 
     #: Whether to return the final state of the simulation.
     return_final_state: bool = False
@@ -209,15 +265,115 @@ class SnapshotSettings(NamedTuple):
     #: NOTE: currently only implemented for finite difference MHD
     return_magnetic_divergence: bool = False
 
+    #: Whether to return the temperature PDF (dV/dlogT)
+    return_temperature_pdf: bool = False
+    num_temperature_bins: int = 100
+    temperature_pdf_min: float = 1e-10
+    temperature_pdf_max: float = 1e10
+
 
 class BoundarySettings1D(NamedTuple):
+    """The boundary-condition type at the left and right end of a single axis."""
+
     left_boundary: int = OPEN_BOUNDARY
     right_boundary: int = OPEN_BOUNDARY
 
+
 class BoundarySettings(NamedTuple):
+    """Per-axis boundary settings for the simulation."""
+
     x: BoundarySettings1D = BoundarySettings1D()
     y: BoundarySettings1D = BoundarySettings1D()
     z: BoundarySettings1D = BoundarySettings1D()
+
+
+class GravityConfig(NamedTuple):
+    """Self-gravity and external-potential configuration."""
+
+    #: Self-gravity switch (currently only for periodic / manual-open boundaries).
+    self_gravity: bool = False
+
+    #: Coupling of the self-gravity source to the hydrodynamics. One of
+    #: ``SIMPLE_SOURCE`` / ``SECOND_ORDER_CONSERVATIVE`` /
+    #: ``FOURTH_ORDER_CONSERVATIVE``.
+    self_gravity_version: int = FOURTH_ORDER_CONSERVATIVE
+
+    #: Enable an external, static gravitational potential provided via
+    #: ``params.gravitational_potential``. It is added to the self-gravity
+    #: potential (if any) in ``_compute_total_potential``.
+    external_potential: bool = False
+
+    #: Manual open boundary conditions in the Poisson solver.
+    poisson_manual_open_boundaries: bool = False
+
+    #: Master gravity switch. Set automatically in ``finalize_config`` to
+    #: ``self_gravity or external_potential``; gates the gravity source-term
+    #: machinery so an external potential works without self-gravity. Not set
+    #: by the user directly.
+    gravity: bool = False
+
+
+class PositivityConfig(NamedTuple):
+    """
+    Density/pressure positivity-enforcement configuration.
+    """
+
+    #: Casual on/off switch for the per-stage / per-step STATE floors. Default
+    #: False (no flooring). When True, finalize_config sets per_stage_mode and
+    #: per_step_mode to HARD_FLOOR unless explicitly overridden. Does NOT affect
+    #: the read-only ``clamp_in_estimates`` (always respected).
+    default_positivity_protection: bool = False
+
+    #: Positivity enforcement applied inside every SSPRK/LSRK stage (on the
+    #: conserved state — the CFL lever for strong shocks). One of
+    #: ``POSITIVITY_{NONE,HARD_FLOOR,REDISTRIBUTE,CONSERVATIVE}``. Default NONE;
+    #: set to HARD_FLOOR by finalize when ``default_positivity_protection``.
+    per_stage_mode: int = POSITIVITY_NONE
+
+    #: Positivity enforcement applied once per step before the evolve (on the
+    #: primitive state). With turbulent forcing + ``vacuum_protection`` the
+    #: conservative ``prot`` redistribution already runs once per step, so a
+    #: per-step REDISTRIBUTE here is redundant and is auto-skipped.
+    per_step_mode: int = POSITIVITY_NONE
+
+    #: Read-only density/pressure clamp in the flux / eigenvalue / timestep
+    #: estimates (NaN-safety; does NOT modify the evolved state). This is the
+    #: role the old ``enforce_positivity`` bool played in those estimators.
+    #: DECOUPLED from ``default_positivity_protection`` and ON by default --
+    #: cheap insurance that never touches the conserved solution.
+    clamp_in_estimates: bool = True
+
+    #: Vacuum-rest velocity recovery: zero the momentum in below-floor (vacuum)
+    #: cells so the recovered velocity is 0 rather than ``momentum/rho_floored``
+    #: (which spikes and drives high-Mach blow-up); lets ``minimum_density`` be
+    #: lowered by orders of magnitude without instability.
+    vacuum_rest: bool = False
+
+    #: NaN/inf backstop: reset non-finite conserved entries to zero before the
+    #: density/pressure floors so they become a valid floored state.
+    nan_safe: bool = False
+
+    #: POSITIVITY_CONSERVATIVE-mode parameters (conservative internal-energy
+    #: redistribution): per-axis diffusion coefficient (stability needs
+    #: < 1/(2*dim)), number of Jacobi passes, and the activation margin in units
+    #: of the internal-energy floor (keep ~1 -- genuine near-violations only).
+    cons_coeff: float = 0.15
+    cons_passes: int = 16
+    cons_activate: float = 1.0
+
+    #: Deep-void first-order flux blending (FOFC-style): blend the WENO interface
+    #: flux toward LLF in cells near the density floor; the weight ramps from 1
+    #: at the floor to 0 at ``deepvoid_blend_factor * minimum_density``.
+    deepvoid_blend: bool = False
+    deepvoid_blend_factor: float = 8.0
+
+    #: Positivity-preserving (Hu-Adams-Shu / Zalesak FCT) flux limiter: blend the
+    #: WENO flux toward LLF by the largest weight keeping the LF-updated density
+    #: AND pressure above their floors. Shares the unified flux-blending
+    #: infrastructure with ``deepvoid_blend`` (different activation path; both may
+    #: be on, the stronger blend wins). Forces the non-fused WENO+divergence path.
+    preserving_flux: bool = False
+
 
 class SimulationConfig(NamedTuple):
     """
@@ -227,6 +383,22 @@ class SimulationConfig(NamedTuple):
     """
 
     # Static simulation parameters
+
+    #: Backend
+    backend: int = NATIVE_JAX
+    pallas_block_shape: Tuple[int, int, int] = (4, 4, 8)
+    pallas_use_triton: bool = True
+    pallas_interpret: bool = False
+    pallas_num_warps: int = 4
+    #: Toggle for the Pallas constrained-transport helpers
+    #: (``update_cell_center_fields``, ``constrained_transport_rhs``).
+    #: Disabled by default: the staged Pallas-CT pipeline gives a clear
+    #: memory win at small grids (~65% temp at N=16 on alfven_wave3D)
+    #: but only marginal savings at production scale (~2% temp at N=64)
+    #: while adding ~25s of one-time compile cost.  Flip to True if the
+    #: small-N memory profile matters; the rest of the Pallas backend
+    #: stays on regardless.
+    pallas_ct: bool = False
 
     #: Basic solver mode, either finite volume or finite difference.
     #: FINITE_DIFFERENCE is for now only planned for the HOW_MHD
@@ -251,6 +423,14 @@ class SimulationConfig(NamedTuple):
     #: function
     memory_analysis: bool = False
 
+    #: Build the simulation helper data on the host (CPU) and
+    #: only move the fields that are actually needed by the
+    #: enabled subsystems onto the accelerator. Useful in
+    #: production runs where a large meshgrid like
+    #: ``geometric_centers`` is not required on device and the
+    #: per-field memory footprint matters.
+    host_helper_data: bool = False
+
     #: Print the elapsed time of the simulation
     print_elapsed_time: bool = False
 
@@ -266,6 +446,10 @@ class SimulationConfig(NamedTuple):
     #: The geometry of the simulation.
     geometry: int = CARTESIAN
 
+    #: The random seed for any stochastic processes
+    #: in the simulation, e.g. turbulent forcing.
+    random_seed: int = 42
+
     #: The equation of state for the simulation.
     #: NOTE: CURRENTLY ONLY IMPLEMENTED FOR 
     #: FINITE DIFFERENCE MODE.
@@ -277,22 +461,11 @@ class SimulationConfig(NamedTuple):
     #: Integrator used for the magnetic part in the FV MHD scheme.
     fv_magnetic_integrator: int = IMPLICIT_MIDPOINT
 
-    #: Enforce positivity of density and pressure.
-    #: NOTE: CURRENTLY ONLY IMPLEMENTED FOR 
-    #: FINITE DIFFERENCE MODE.
-    enforce_positivity: bool = True
+    #: Density/pressure positivity-enforcement configuration (see PositivityConfig).
+    positivity_config: PositivityConfig = PositivityConfig()
 
-    #: Self gravity switch, currently only
-    #: for periodic boundaries.
-    self_gravity: bool = False
-
-    #: Coupling of the self-gravity to the
-    #: hydrodynamics.
-    self_gravity_version: int = DONOR_ACCOUNTING
-
-    #: Manual open boundary conditions in the
-    #: Poisson solver.
-    poisson_manual_open_boundaries: bool = False
+    #: Self-gravity / external-potential configuration (see GravityConfig).
+    gravity_config: GravityConfig = GravityConfig()
 
     #: Explicit diffusion term 
     #: (currently only for finite difference mode)
@@ -300,6 +473,11 @@ class SimulationConfig(NamedTuple):
 
     #: Viscosity type - either kinematic or dynamic viscosity.
     viscosity_type: int = DYNAMIC_VISCOSITY
+
+    #: Explicit thermal conduction term div(kappa grad T) in the energy
+    #: equation (constant conductivity params.thermal_conductivity,
+    #: explicit integration). Currently only for finite difference mode.
+    thermal_conduction: bool = False
 
     #: The size of the simulation box.
     box_size: Union[float, StaticFloatVector] = 1.0
@@ -388,6 +566,20 @@ class SimulationConfig(NamedTuple):
     #: Snapshot settings
     snapshot_settings: SnapshotSettings = SnapshotSettings()
 
+    #: Where the snapshots are stored. ``ON_DEVICE`` (default) keeps the
+    #: snapshot diagnostics in preallocated device buffers and returns them
+    #: at the end (the classic behaviour). ``TO_DISK`` instead streams each
+    #: snapshot to disk via Orbax: the run is split into segments between the
+    #: snapshot times, and the loop carry (primitive state, PRNG key, OU
+    #: forcing field) plus the time is written to ``snapshot_storage_path``
+    #: after each segment. Each device writes its own shard, so this scales
+    #: to multiple devices / nodes. TO_DISK is forward-mode only.
+    snapshot_storage_mode: int = ON_DEVICE
+
+    #: Directory the Orbax checkpoints are written to / read from when
+    #: ``snapshot_storage_mode == TO_DISK``. Required in that mode.
+    snapshot_storage_path: Union[str, NoneType] = None
+
     #: Call a user given function on the snapshot data,
     #: e.g. for saving or plotting. Must have signature
     #: callback(time, state, registered_variables).
@@ -429,10 +621,40 @@ class SimulationConfig(NamedTuple):
 
 
 def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
-    """Finalizes the simulation configuration."""
+    """Fill in derived configuration fields and validate the configuration.
 
-    # num_cells = state_shape[-1]
-    # config = config._replace(num_cells=num_cells)
+    Resolves the values that depend on the actual state shape or on
+    cross-field consistency: the positivity-protection defaults, the number
+    of cells per axis, the grid spacing, the geometry- and solver-specific
+    overrides, the master gravity switch, the boundary defaults, and the
+    disk-snapshot requirements.
+
+    Args:
+        config: The user-supplied simulation configuration.
+        state_shape: The shape of the (unpadded) primitive state array, used
+            to derive ``num_cells`` per axis.
+
+    Returns:
+        The finalized simulation configuration.
+    """
+
+    # ``default_positivity_protection`` is a casual on/off switch for the STATE
+    # floors only: the default ``False`` is a clean slate (no per-stage /
+    # per-step flooring). When set, turn the floors on (HARD_FLOOR) unless the
+    # user explicitly chose a mode. The read-only clamps (clamp_in_estimates)
+    # are decoupled and left untouched (default on), as are the feature toggles
+    # (deepvoid_blend, preserving_flux, conservative redistribution,
+    # vacuum_rest, nan_safe).
+    positivity_config = config.positivity_config
+    if positivity_config.default_positivity_protection:
+        config = config._replace(positivity_config=positivity_config._replace(
+            per_stage_mode=(POSITIVITY_HARD_FLOOR
+                            if positivity_config.per_stage_mode == POSITIVITY_NONE
+                            else positivity_config.per_stage_mode),
+            per_step_mode=(POSITIVITY_HARD_FLOOR
+                           if positivity_config.per_step_mode == POSITIVITY_NONE
+                           else positivity_config.per_step_mode),
+        ))
 
     if jax.config.jax_enable_x64:
         config._replace(numerical_precision=DOUBLE_PRECISION)
@@ -459,12 +681,12 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
             )
         )
 
-    # for now we assume the grid spacing is the same in all dimensions
+    # For now we assume the grid spacing is the same in all dimensions, so the
+    # scalar ``grid_spacing`` is taken from the x-axis and the other axes are
+    # only checked for consistency below. This restriction can be lifted once
+    # the solver accepts a per-axis grid-spacing vector.
     grid_spacing_vec = config.box_size / config.num_cells
 
-    # as soon as we accept a grid spacing vector, 
-    # this will not be necessary anymore
-    # config = config._replace(grid_spacing=config.box_size / config.num_cells)
     if config.dimensionality == 1:
         config = config._replace(grid_spacing=grid_spacing_vec.x)
     elif config.dimensionality == 2:
@@ -481,13 +703,15 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
                 "For now, we assume the grid spacing is the same in all dimensions. "
                 f"Got grid spacing {grid_spacing_vec}."
             )
-            
 
     if config.geometry == SPHERICAL:
         print(
             "For spherical geometry, only HLL is currently supported. Also, only the unsplit mode has been tested."
         )
-        config = config._replace(grid_spacing=config.box_size / config.num_cells)
+        # SPHERICAL is intrinsically 1D in this code; pick the x component
+        # so grid_spacing stays a scalar (otherwise CFL divisions blow up
+        # because StaticFloatVector can't be divided by a scalar wave speed).
+        config = config._replace(grid_spacing=(config.box_size / config.num_cells).x)
 
         if config.riemann_solver != HLL:
             print("Setting HLL Riemann solver for spherical geometry.")
@@ -505,30 +729,23 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
             print("Setting MUSCL time integrator for spherical geometry")
             config = config._replace(time_integrator=MUSCL)
 
-    if config.self_gravity and (config.limiter != MINMOD):
+    # master gravity switch: active if self-gravity and/or an external
+    # potential is used. This gates the (shared) gravity source-term machinery.
+    config = config._replace(gravity_config=config.gravity_config._replace(
+        gravity=config.gravity_config.self_gravity
+        or config.gravity_config.external_potential
+    ))
+
+    if config.gravity_config.gravity and (config.limiter != MINMOD):
         print(
             "Curiously, in self-gravitating systems, the VAN_ALBADA limiters seem to cause crashes."
         )
-        print("Setting DOUBLE_MINMOD limiter for self-gravity.")
+        print("Setting MINMOD limiter for gravity.")
         config = config._replace(limiter=MINMOD)
 
-    # finite difference specific checks
+    # Finite-difference-specific checks.
     if config.solver_mode == FINITE_DIFFERENCE:
-        
-        # if not config.mhd:
-        #     raise ValueError(
-        #         "Finite difference solver mode is currently " \
-        #         "only supported for MHD simulations. This will be easy to extend, " \
-        #         "feel free to contribute."
-        #     )
 
-        # if config.dimensionality != 3 and config.mhd:
-        #     raise ValueError(
-        #         "Finite difference solver mode in MHD mode is currently " \
-        #         "only supported for 3D simulations. This will be easy to extend, " \
-        #         "feel free to contribute."
-        #     )
-        
         if config.dimensionality == 3 and config.boundary_settings == BoundarySettings(
             BoundarySettings1D(
                 left_boundary=PERIODIC_BOUNDARY, right_boundary=PERIODIC_BOUNDARY
@@ -540,7 +757,8 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
                 left_boundary=PERIODIC_BOUNDARY, right_boundary=PERIODIC_BOUNDARY
             ),
         ):
-            # set boundary handling to periodic roll and num_ghost_cells to 0
+            # Fully periodic boundaries are enforced more cheaply by rolling the
+            # arrays (PERIODIC_ROLL) than by maintaining explicit ghost cells.
             print(
                 "For 3D simulations with periodic boundaries, setting boundary handling to " \
                 "PERIODIC_ROLL and num_ghost_cells to 0 for better performance."
@@ -548,8 +766,8 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
             config = config._replace(boundary_handling=PERIODIC_ROLL, num_ghost_cells=0)
         else:
             if config.dimensionality == 3:
-                config = config._replace(boundary_handling=GHOST_CELLS, num_ghost_cells=4) 
-        
+                config = config._replace(boundary_handling=GHOST_CELLS, num_ghost_cells=4)
+
         if config.dimensionality == 2 and config.boundary_settings == BoundarySettings(
             BoundarySettings1D(
                 left_boundary=PERIODIC_BOUNDARY, right_boundary=PERIODIC_BOUNDARY
@@ -558,7 +776,8 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
                 left_boundary=PERIODIC_BOUNDARY, right_boundary=PERIODIC_BOUNDARY
             ),
         ):
-            # set boundary handling to periodic roll and num_ghost_cells to 0
+            # Fully periodic boundaries are enforced more cheaply by rolling the
+            # arrays (PERIODIC_ROLL) than by maintaining explicit ghost cells.
             print(
                 "For 2D simulations with periodic boundaries, setting boundary handling to " \
                 "PERIODIC_ROLL and num_ghost_cells to 0 for better performance."
@@ -568,7 +787,11 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
             if config.dimensionality == 2:
                 config = config._replace(boundary_handling=GHOST_CELLS, num_ghost_cells=4)
 
-        if config.time_integrator != RK4_SSP:
+        # The FD scheme has two supported time integrators: the SSPRK4
+        # Spiteri-Ruuth 3-register scheme (default) and the Carpenter-Kennedy
+        # 2N-storage LSRK4 ("RK4_LSRK") which trades CFL margin for one fewer
+        # full-state buffer.  Anything else falls back to SSPRK4.
+        if config.time_integrator not in (RK4_SSP, RK4_LSRK):
             print(
                 "Setting time integrator to RK4_SSP for finite difference solver mode."
             )
@@ -577,10 +800,10 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
         if config.boundary_handling == PERIODIC_ROLL:
             config = config._replace(num_ghost_cells=0)
 
-        if config.boundary_handling == GHOST_CELLS and config.diffusion:
+        if config.boundary_handling == GHOST_CELLS and (config.diffusion or config.thermal_conduction):
             config = config._replace(num_ghost_cells=max(config.num_ghost_cells, 6))
 
-    # set boundary conditions if not set
+    # Pick sensible default boundary conditions when the user left them unset.
     if config.boundary_settings is None:
         if config.geometry == CARTESIAN:
             print("Automatically setting open boundaries for Cartesian geometry.")
@@ -608,16 +831,25 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
         )
         config = config._replace(source_term_aware_timestep=True)
 
-    if (
-        config.self_gravity
-        and (config.riemann_solver == HLLC or config.riemann_solver == HLLC_LM)
-        and config.riemann_solver != RIEMANN_SPLIT
-    ):
-        print("Consider using RIEMANN_SPLIT as the self_gravity_version.")
+    # Disk-snapshot (Orbax) mode requirements.
+    if config.snapshot_storage_mode == TO_DISK:
+        if not config.snapshot_storage_path:
+            raise ValueError(
+                "snapshot_storage_mode == TO_DISK requires a non-empty "
+                "snapshot_storage_path (the directory the Orbax checkpoints "
+                "are written to)."
+            )
+        if config.differentiation_mode != FORWARDS:
+            raise ValueError(
+                "snapshot_storage_mode == TO_DISK is forward-mode only; "
+                "set differentiation_mode = FORWARDS."
+            )
 
     return config
 
+
 def riemann_solver_to_string(riemann_solver: int) -> str:
+    """Return the human-readable name of a Riemann-solver constant."""
     if riemann_solver == HLL:
         return "HLL"
     elif riemann_solver == HLLC:
@@ -631,7 +863,9 @@ def riemann_solver_to_string(riemann_solver: int) -> str:
     elif riemann_solver == AM_HLLC:
         return "AM HLLC"
 
+
 def limiter_to_string(limiter: int) -> str:
+    """Return the human-readable name of a slope-limiter constant."""
     if limiter == MINMOD:
         return "Minmod"
     elif limiter == SUPERBEE:
@@ -644,14 +878,18 @@ def limiter_to_string(limiter: int) -> str:
         return "Van Albada"
     elif limiter == VAN_ALBADA_PP:
         return "Van Albada PP"
-    
+
+
 def solver_mode_to_string(solver_mode: int) -> str:
+    """Return the short label (``"FV"`` / ``"FD"``) of a solver-mode constant."""
     if solver_mode == FINITE_VOLUME:
         return "FV"
     elif solver_mode == FINITE_DIFFERENCE:
         return "FD"
-    
+
+
 def config_to_string(config: SimulationConfig) -> str:
+    """Return a compact one-line description of the solver configuration."""
     if config.solver_mode == FINITE_VOLUME:
         return f"FV, {riemann_solver_to_string(config.riemann_solver)}, {limiter_to_string(config.limiter)}, {config.num_cells.x} cells"
     elif config.solver_mode == FINITE_DIFFERENCE:
