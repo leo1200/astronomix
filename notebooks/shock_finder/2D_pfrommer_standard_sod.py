@@ -22,7 +22,7 @@ from astronomix import get_helper_data, finalize_config
 from astronomix import get_registered_variables, construct_primitive_state
 from astronomix import time_integration
 from astronomix.option_classes.simulation_config import HLLC, MINMOD, StaticIntVector, StaticFloatVector
-from astronomix._physics_modules._shock_finder.shock_finder_2d import find_shocks_pfrommer
+from astronomix._physics_modules._shock_finder.pfrommer_shock_finder import find_shocks_pfrommer
 
 from jaxtyping import Array, Float
 

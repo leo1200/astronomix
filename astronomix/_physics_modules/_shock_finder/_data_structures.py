@@ -17,6 +17,9 @@ class ShockFinderResult:
     * mach_numbers: 
         float array, 
         nonzero only at surface cells; holds the Rankine-Hugoniot Mach number
+    * thermal_energy_flux: 
+        float array, 
+        nonzero only at surface cells; holds the energy flux through the shock
     * shock_zones: 
         boolean array 
         marking the broader 3-4 cell thick region around each shock
@@ -31,34 +34,37 @@ class ShockFinderResult:
     shock_surface_cells: BOOL_FIELD_TYPE
     shock_direction:     FIELD_TYPE
     mach_numbers:        FIELD_TYPE 
+    thermal_energy_flux: FIELD_TYPE 
     shock_zones:         BOOL_FIELD_TYPE
     num_shocks:          int
     shock_ids:           INT_FIELD_TYPE
     shock_zone_ids:      INT_FIELD_TYPE
 
 
-def _shockresult_flatten(r):
+def _shockresult_flatten(result):
     children = (
-        r.shock_surface_cells,
-        r.shock_direction,
-        r.mach_numbers,
-        r.shock_zones,
-        r.shock_ids,
-        r.shock_zone_ids,
-        r.num_shocks,          # moved from aux to children
+        result.shock_surface_cells,
+        result.shock_direction,
+        result.mach_numbers,
+        result.thermal_energy_flux,
+        result.shock_zones,
+        result.shock_ids,
+        result.shock_zone_ids,
+        result.num_shocks,
     )
-    aux = None                 # nothing truly static here
-    return children, aux
+
+    return children, None
 
 def _shockresult_unflatten(aux, children):
     return ShockFinderResult(
         shock_surface_cells=children[0],
         shock_direction=children[1],
         mach_numbers=children[2],
-        shock_zones=children[3],
-        shock_ids=children[4],
-        shock_zone_ids=children[5],
-        num_shocks=children[6],
+        thermal_energy_flux=children[3],
+        shock_zones=children[4],
+        shock_ids=children[5],
+        shock_zone_ids=children[6],
+        num_shocks=children[7],
     )
 
 tree_util.register_pytree_node(

@@ -13,10 +13,10 @@ from astronomix.option_classes.simulation_config import (
 
 from astronomix._physics_modules._shock_finder._data_structures import ShockFinderResult
 from astronomix._physics_modules._shock_finder._gradients import _calculate_shock_direction
-from astronomix._physics_modules._shock_finder._shock_zones_2d import identify_shock_zones
-from astronomix._physics_modules._shock_finder._shock_surface_2d import identify_shock_surface
-from astronomix._physics_modules._shock_finder._mach_2d import _calculate_mach_at_surface
-
+from astronomix._physics_modules._shock_finder._shock_zones import identify_shock_zones
+from astronomix._physics_modules._shock_finder._shock_surface import identify_shock_surface
+from astronomix._physics_modules._shock_finder._shock_mach import _calculate_mach_at_surface
+from astronomix._physics_modules._shock_finder._energy_dissipation import calculate_thermal_energy_flux
 
 @partial(jax.jit, static_argnames=["registered_variables", "config"])
 def find_shocks_pfrommer(
@@ -71,6 +71,16 @@ def find_shocks_pfrommer(
         primitive_state, shock_surface, shock_direction,
         config, registered_variables,
     )
+    
+    # Phase 5: thermal-energy flux at shock-surface cells
+    thermal_energy_flux = calculate_thermal_energy_flux(
+        primitive_state=primitive_state,
+        shock_surface=shock_surface,
+        shock_direction=shock_direction,
+        mach_numbers=mach_numbers,
+        config=config,
+        registered_variables=registered_variables,
+    )
 
     num_shocks     = jnp.sum(shock_surface, dtype=jnp.int32)
     shock_ids      = jnp.where(shock_surface, 1, 0)
@@ -80,6 +90,7 @@ def find_shocks_pfrommer(
         shock_surface_cells=shock_surface,
         shock_direction=shock_direction,
         mach_numbers=mach_numbers,
+        thermal_energy_flux=thermal_energy_flux,
         shock_zones=shock_zones,
         num_shocks=num_shocks,
         shock_ids=shock_ids,

@@ -10,7 +10,7 @@ from astronomix.option_classes.simulation_config import (
     STATE_TYPE,
     SimulationConfig,
 )
-from astronomix._physics_modules._shock_finder._shock_zones_2d import get_post_pre_shock_values
+from astronomix._physics_modules._shock_finder._shock_zones import get_post_pre_shock_values
 
 """
 Calculate Mach number for all cells, 

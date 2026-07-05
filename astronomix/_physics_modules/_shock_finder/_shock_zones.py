@@ -64,57 +64,165 @@ Criterion 3: Minimum Mach number
     and check if those jumps are large enough to correspond to a shock of at least Mach mach_min
 """
 def get_post_pre_shock_values(
-    shock_direction, pressure, temperature,
-    max_steps=1
+    shock_direction,
+    field_a,
+    field_b,
+    max_steps=1,
 ):
-    dominant_axis = jnp.argmax(jnp.abs(shock_direction), axis=0)
-    ds_dominant = jnp.take_along_axis(
+    """
+    Sample two scalar fields on both sides of a candidate shock.
+
+    The shock direction points from the hot/post-shock side toward the
+    cold/pre-shock side. For every cell, the dominant component of the
+    shock-direction vector determines which grid axis is used for sampling.
+
+    Args:
+        shock_direction:
+            Unit-vector field with shape (ndim, *spatial_shape).
+
+        field_a:
+            First scalar field to sample, for example pressure.
+
+        field_b:
+            Second scalar field to sample, for example temperature or density.
+
+        max_steps:
+            Number of grid cells to move away from the candidate shock cell.
+
+    Returns:
+        field_a_post:
+            field_a sampled on the post-shock side.
+
+        field_a_pre:
+            field_a sampled on the pre-shock side.
+
+        field_b_post:
+            field_b sampled on the post-shock side.
+
+        field_b_pre:
+            field_b sampled on the pre-shock side.
+    """
+
+    dominant_axis = jnp.argmax(
+        jnp.abs(shock_direction),
+        axis=0,
+    )
+
+    dominant_direction = jnp.take_along_axis(
         shock_direction,
         dominant_axis[jnp.newaxis],
         axis=0,
     )[0]
-    step = jnp.sign(ds_dominant).astype(jnp.int32)
-    ndim = pressure.ndim
 
-    def roll_to_plateau(field, direction, ax):
-        # FIXED: always walk exactly max_steps, no zone tracking
-        # zone tracking was buggy — periodic wrapping caused early freeze
-        result = field
+    step_sign = jnp.sign(
+        dominant_direction
+    ).astype(jnp.int32)
+
+    ndim = field_a.ndim
+
+    def shift_field(field, shift, axis):
+        """
+        Move a scalar field by a fixed number of cells.
+
+        Note:
+            jnp.roll wraps around at domain boundaries. Boundary cells must
+            therefore be masked elsewhere before the sampled values are used.
+        """
+
+        shifted_field = field
+
         for _ in range(max_steps):
-            result = jnp.roll(result, shift=direction, axis=ax)
-        return result
+            shifted_field = jnp.roll(
+                shifted_field,
+                shift=shift,
+                axis=axis,
+            )
 
-    p_post = pressure
-    p_pre  = pressure
-    T_post = temperature
-    T_pre  = temperature
+        return shifted_field
 
-    for ax in range(ndim):
-        is_dominant = (dominant_axis == ax)
-        is_fwd = is_dominant & (step > 0)
-        is_bwd = is_dominant & (step < 0)
+    # Default values are the original cell values. They are replaced only
+    # along the locally selected dominant shock axis.
+    field_a_post = field_a
+    field_a_pre = field_a
+    field_b_post = field_b
+    field_b_pre = field_b
 
-        p_post_ax_fwd = roll_to_plateau(pressure,    +1, ax)
-        p_post_ax_bwd = roll_to_plateau(pressure,    -1, ax)
-        p_pre_ax_fwd  = roll_to_plateau(pressure,    -1, ax)
-        p_pre_ax_bwd  = roll_to_plateau(pressure,    +1, ax)
+    for axis in range(ndim):
+        uses_this_axis = dominant_axis == axis
 
-        T_post_ax_fwd = roll_to_plateau(temperature, +1, ax)
-        T_post_ax_bwd = roll_to_plateau(temperature, -1, ax)
-        T_pre_ax_fwd  = roll_to_plateau(temperature, -1, ax)
-        T_pre_ax_bwd  = roll_to_plateau(temperature, +1, ax)
+        points_in_positive_direction = (
+            uses_this_axis
+            & (step_sign > 0)
+        )
 
-        p_post = jnp.where(is_fwd, p_post_ax_fwd,
-                 jnp.where(is_bwd, p_post_ax_bwd, p_post))
-        p_pre  = jnp.where(is_fwd, p_pre_ax_fwd,
-                 jnp.where(is_bwd, p_pre_ax_bwd,  p_pre))
-        T_post = jnp.where(is_fwd, T_post_ax_fwd,
-                 jnp.where(is_bwd, T_post_ax_bwd, T_post))
-        T_pre  = jnp.where(is_fwd, T_pre_ax_fwd,
-                 jnp.where(is_bwd, T_pre_ax_bwd,  T_pre))
+        points_in_negative_direction = (
+            uses_this_axis
+            & (step_sign < 0)
+        )
 
-    return p_post, p_pre, T_post, T_pre
+        # If the shock direction points in the positive axis direction,
+        # the pre-shock gas is ahead (+axis), while the post-shock gas is
+        # behind (-axis).
+        field_a_post_positive = shift_field(field_a, +1, axis)
+        field_a_pre_positive  = shift_field(field_a, -1, axis)
 
+        field_b_post_positive = shift_field(field_b, +1, axis)
+        field_b_pre_positive  = shift_field(field_b, -1, axis)
+
+        # Reverse the sampling sides if the shock direction points
+        # in the negative axis direction.
+        field_a_post_negative = shift_field(field_a, -1, axis)
+        field_a_pre_negative  = shift_field(field_a, +1, axis)
+
+        field_b_post_negative = shift_field(field_b, -1, axis)
+        field_b_pre_negative  = shift_field(field_b, +1, axis)
+
+        field_a_post = jnp.where(
+            points_in_positive_direction,
+            field_a_post_positive,
+            jnp.where(
+                points_in_negative_direction,
+                field_a_post_negative,
+                field_a_post,
+            ),
+        )
+
+        field_a_pre = jnp.where(
+            points_in_positive_direction,
+            field_a_pre_positive,
+            jnp.where(
+                points_in_negative_direction,
+                field_a_pre_negative,
+                field_a_pre,
+            ),
+        )
+
+        field_b_post = jnp.where(
+            points_in_positive_direction,
+            field_b_post_positive,
+            jnp.where(
+                points_in_negative_direction,
+                field_b_post_negative,
+                field_b_post,
+            ),
+        )
+
+        field_b_pre = jnp.where(
+            points_in_positive_direction,
+            field_b_pre_positive,
+            jnp.where(
+                points_in_negative_direction,
+                field_b_pre_negative,
+                field_b_pre,
+            ),
+        )
+
+    return (
+        field_a_post,
+        field_a_pre,
+        field_b_post,
+        field_b_pre,
+    )
 
 def _make_interior_mask(spatial_shape):
     """
