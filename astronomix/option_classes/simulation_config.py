@@ -30,6 +30,8 @@ from astronomix._modules._cosmic_rays.cosmic_ray_options import CosmicRayConfig
 from astronomix._modules._neural_net_force._neural_net_force_options import (
     NeuralNetForceConfig,
 )
+
+from jaxtyping import Array, Float, Bool, Int
 from astronomix._modules._stellar_wind.stellar_wind_options import WindConfig
 from astronomix._modules._turbulent_forcing._turbulent_forcing_options import TurbulentForcingConfig
 
@@ -203,6 +205,24 @@ FIELD_TYPE = Union[
     Float[Array, "num_cells_x"],
     Float[Array, "num_cells_x num_cells_y"],
     Float[Array, "num_cells_x num_cells_y num_cells_z"],
+]
+
+BOOL_FIELD_TYPE = Union[
+    Bool[Array, "num_cells_x"],
+    Bool[Array, "num_cells_x num_cells_y"],
+    Bool[Array, "num_cells_x num_cells_y num_cells_z"],
+]
+
+INT_FIELD_TYPE = Union[
+    Int[Array, "num_cells_x"],
+    Int[Array, "num_cells_x num_cells_y"],
+    Int[Array, "num_cells_x num_cells_y num_cells_z"],
+]
+
+GEOMETRY_TYPE = Union[
+    Float[Array, "num_cells_x 2"],
+    Float[Array, "num_cells_x num_cells_y 2"],
+    Float[Array, "num_cells_x num_cells_y num_cells_z 2"],
 ]
 
 class SnapshotSettings(NamedTuple):
