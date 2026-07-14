@@ -67,8 +67,10 @@ we deliberately avoid:
   rise with support-L1 ≈ 0.12 (best at Δt ≈ 0.008–0.02 t_sh), mixing-range L1 ≈
   8×10⁻⁴. It is **approximately** right, not exact.
 - **Transfer-matrix (flux-driven) ↔ Eulerian:** full-support L1 ≈ 0.106,
-  interior-L1 ≈ 0.065 — i.e. it **beats** FP on the marginal at N=128 (using the
-  full, non-Gaussian kernel instead of the Gaussian one).
+  interior-L1 ≈ 0.065 — i.e. it **nearly coincides with FP** (0.116). The small
+  edge is mostly cleaner boundary handling, **not** the non-Gaussian kernel; the
+  near-coincidence is itself the point (see §3): the marginal is insensitive to
+  the kernel shape.
 
 `fp_summary`, `tm_four_pdfs`: all four curves overlay to ~0.1 L1 / ~0.3 dex.
 
@@ -103,17 +105,28 @@ FP's ~0.1–0.3-dex residual into its two possible causes.
    mean row-TV ≈ **0.087**, peaking in the mixing range where cooling and mixing
    compete (skewed, heavier-than-Gaussian increments).
 
-**At the base (one-step) lag the non-Gaussianity of the kernel (≈0.084)
-dominates the non-Markovianity (≈0.004); memory only accumulates over multiple
-steps (up to ≈0.02 over the CK scan).** So FP's imperfection is primarily the
-*second-order/Gaussian truncation*, with a secondary, lag-accumulating memory
-term. Replacing the Gaussian kernel with the full empirical kernel (the transfer
-matrix) does help the *marginal*: at N=128 it goes from FP's 0.116 to 0.106
-(full support) / 0.065 (interior). The improvement is real but bounded, because
-the marginal's accuracy is also gated by the **flux/boundary treatment**, which
-both models handle the same way. (At N=64 the gain is washed out by the transfer
-matrix's own boundary point-source artifact — see §6 — so we trust the N=128
-comparison, where more statistics shrink that artifact.)
+**Two levels — do not conflate them.** These diagnostics say the FP *kernel* is
+wrong: non-Gaussian at one step (≈0.084, larger than the ≈0.004 single-step
+non-Markov term) and non-Markov over multiple steps (accumulating to ≈0.02). But
+that is a statement about the *transition operator*, **not** about the *marginal
+PDF*. The marginal is a coarse observable that largely washes out the kernel's
+higher moments — which is exactly why FP `P̂` and the transfer-matrix marginal
+(which uses the *full, exact* kernel) **nearly coincide** (both ≈0.11 vs the
+target; the TM's ≈0.065 interior gain is mostly its cleaner boundary handling,
+not the non-Gaussian kernel). So it would be **wrong to say non-Gaussianity is
+the main reason the FP *marginal* is inexact**: if it were, the exact-kernel
+transfer matrix would be far better, and it isn't.
+
+The ~0.1 *marginal* error is instead dominated by what the two models **share**
+and neither repairs: the measured flux and its boundary discretization, the
+drift/diffusion estimation, the coarse binning/interpolation gauge, and the
+Markov-in-`T` assumption itself (the transfer matrix is *also* Markov, so it does
+not fix the memory). We cannot cleanly rank these from the current data and do
+not claim to. (Caution: a naïve isolation — solving the discrete flux equation
+with a Gaussian kernel of the same `A`, `D` — collapses, but that is a
+coarse-bin discretization pathology of the *analytic* kernel, **not** the FP
+model, whose 4000-point continuous march is well behaved at 0.116; it does not
+cleanly quantify the non-Gaussianity's marginal effect.)
 
 ## 4. Verdict (avoiding confirmation bias)
 
@@ -125,13 +138,21 @@ comparison, where more statistics shrink that artifact.)
 - **Does the Fokker–Planck model hold?** Approximately. It is a *useful* but
   *imperfect* reduced model. It is not a clean diffusion in a scale-separated
   window: the kernel is measurably non-Gaussian and `T` is weakly non-Markov.
-- **Does the transfer matrix do better?** At N=128, yes on the marginal
-  (full-support 0.106 / interior 0.065 vs FP 0.116), because the true kernel is
-  non-Gaussian; at N=64 the two are on par (its boundary artifact eats the gain).
-  Its more durable value is **diagnostic**: it isolates *why* FP is imperfect
-  (one-step non-Gaussianity > lag-accumulating memory) and demonstrates, via the
-  honest (non-self-fulfilling) closed-vs-flux comparison, that the marginal is
-  flux-maintained, not an interior fixed point.
+- **Does the transfer matrix do better?** On the *marginal*, essentially no — FP
+  `P̂` and the flux-driven transfer matrix **nearly coincide** (both ≈0.11 vs the
+  target; the TM's small interior edge is mostly cleaner boundary handling, not
+  the exact kernel). That near-coincidence is itself the key finding: the marginal
+  is **insensitive to the kernel's non-Gaussianity**, so using the exact kernel
+  barely helps. The transfer matrix's real value is therefore **diagnostic**: it
+  shows *where* FP's assumptions fail — at the **dynamics/kernel** level (non-
+  Gaussian one-step kernel; non-Markov multi-step) rather than at the marginal —
+  and, via the honest (non-self-fulfilling) closed-vs-flux comparison, that the
+  marginal is flux-maintained, not an interior fixed point.
+- **So why *is* the FP marginal off by ~0.1?** Not the non-Gaussianity (see
+  above). It is dominated by the factors both models share and neither fixes:
+  the measured flux and its boundary discretization, the drift/diffusion
+  estimation, the binning/interpolation gauge, and the Markov-in-`T` assumption.
+  We do not have a clean rank-ordering of these and do not claim one.
 - **Metric honesty.** We report L1 over the support *and* an interior L1
   (excluding the point source/sink bins); mixing-range L1; and dex-scale shape,
   because the cold peak (≈90% of the mass) makes a global L1 look artificially

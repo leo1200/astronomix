@@ -171,14 +171,13 @@ fig.colorbar(mesh, ax=axK, label=r"$p(\delta T/\Delta t\,|\,T)$")
 axP.plot(T_centers, eul_mass_pdf, lw=3, color="tab:blue", label="Eulerian mass-weighted")
 axP.plot(T_centers, lag_pdf, "--", lw=2, color="tab:orange", label="Lagrangian tracers")
 axP.plot(T_centers, recon, ":", lw=2.6, color="black", label=fr"Fokker-Planck $\widehat P$ (L1={fp_l1:.3f})")
-axP.plot(tm_T, tm_flux, "-o", lw=1.8, ms=3, color="tab:green", label="transfer matrix, flux-driven")
-axP.plot(tm_T, tm_closed, "-s", lw=1.1, ms=3, color="tab:red", alpha=0.6,
-         label=r"transfer matrix, closed ($J{=}0$): collapses")
+axP.plot(tm_T, tm_flux, "-o", lw=1.8, ms=3, color="tab:green",
+         label="transfer matrix (flux-driven, exact kernel)")
 axP.set_xscale("log"); axP.set_yscale("log")
 axP.set_xlim(T_support_lo, T_support_hi)
 axP.set_ylim(bottom=max(1e-4, eul_mass_pdf[eul_mass_pdf > 0].min() * 0.5))
 axP.set_xlabel("T"); axP.set_ylabel(r"$dM/d\log T$ (normalized)")
-axP.set_title(f"(2) Temperature PDF: models reproduce it -- but only with flux "
+axP.set_title(f"(2) Temperature PDF: FP and the transfer matrix nearly coincide "
               f"(Check0 L1={check0_l1:.3f})")
 axP.legend(fontsize=8)
 
@@ -189,7 +188,8 @@ axG.axhline(float(tm["mean_kernel_tv"]), color="0.5", ls="--",
 axG.set_xscale("log"); axG.set_xlim(T_support_lo, T_support_hi); axG.set_ylim(bottom=0)
 axG.set_xlabel(r"$T(t)$")
 axG.set_ylabel(r"row TV$(M_{\rm empirical},\,M_{\rm FP\ Gaussian})$")
-axG.set_title("(3) The one-step kernel is non-Gaussian\n(dominant reason FP is not exact)")
+axG.set_title("(3) The one-step kernel is non-Gaussian\n"
+              "(a transition-level error; the marginal in (2) is largely blind to it)")
 axG.legend(fontsize=9)
 
 # (4) Chapman-Kolmogorov
@@ -199,7 +199,7 @@ axC.plot(tm["ck_lags_tsh"], tm["ck_null"], "s--", lw=2, color="0.5",
          label="Markov null (parametric bootstrap)")
 axC.set_xlabel(r"total lag $k\,\Delta t/t_{sh}$")
 axC.set_ylabel("stationary-weighted row TV")
-axC.set_title("(4) Temperature is non-Markov\n(signal >> null; the second reason)")
+axC.set_title("(4) Temperature is non-Markov\n(the other FP/TM assumption that fails at the dynamics level)")
 axC.set_ylim(bottom=0); axC.legend(fontsize=9)
 
 fig.suptitle("TRML temperature PDF from Lagrangian tracers: Fokker-Planck vs transfer matrix "
