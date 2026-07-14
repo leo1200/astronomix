@@ -1,0 +1,11 @@
+E0702 08:16:44.327921  226639 ptx_compiler_helpers.cc:157] *** WARNING *** Invoking ptxas with version 12.4.131, which corresponds to a CUDA version <=12.6.2. CUDA versions 12.x.y up to and including 12.6.2 miscompile certain edge cases around clamping.
+Please upgrade to CUDA 12.6.3 or newer.
+E0702 08:24:17.330040  226716 slow_operation_alarm.cc:73] 
+********************************
+[Compiling module jit__time_integration for GPU] Very slow compile? If you want to file a bug, run with envvar XLA_FLAGS=--xla_dump_to=/tmp/foo and attach the results.
+********************************
+E0702 08:25:25.834556  226639 slow_operation_alarm.cc:140] The operation took 3m8.504586603s
+
+********************************
+[Compiling module jit__time_integration for GPU] Very slow compile? If you want to file a bug, run with envvar XLA_FLAGS=--xla_dump_to=/tmp/foo and attach the results.
+********************************

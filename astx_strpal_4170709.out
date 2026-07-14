@@ -1,0 +1,145 @@
+=== job 4170709 on hkn0909 ===
+partition: dev_accelerated-h100  nodes: 1  gpus(visible): 0,1,2,3
+GPU 0: NVIDIA H100 (UUID: GPU-84eb54e7-70d4-11eb-0b8a-afaa19cd4aa2)
+GPU 1: NVIDIA H100 (UUID: GPU-1de7caf2-ca30-4d72-bcc6-e0a2c0dd33b6)
+GPU 2: NVIDIA H100 (UUID: GPU-42f3be1d-531f-d806-e2dd-665a79eb66ec)
+GPU 3: NVIDIA H100 (UUID: GPU-65a6bd4f-1777-299c-cc2d-b508ef66cdd9)
+############ STRONG scaling 1-vs-4 (H100, hydro, PALLAS-only, full ladder) ############
+
+========== STRONG SCALING [hydro] 1 vs 4 GPUs (1 solver(s)) ==========
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 160.00 MB
+Argument size: 80.00 MB
+Total size: 240.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.08 seconds
+🔄 Number of iterations: 8
+⏱️ / 🔄 time per iteration: 0.010433205403387547 seconds
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 130.00 MB
+Argument size: 20.00 MB
+Total size: 150.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 1.34 seconds
+🔄 Number of iterations: 8
+⏱️ / 🔄 time per iteration: 0.16773608326911926 seconds
+[hydro_h100pallas] FD (Pallas) N=128: 1 GPU=0.08s, 4 GPUs=1.34s, speedup=0.06x
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 1280.00 MB
+Argument size: 640.00 MB
+Total size: 1920.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.97 seconds
+🔄 Number of iterations: 8
+⏱️ / 🔄 time per iteration: 0.12155218422412872 seconds
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 845.00 MB
+Argument size: 160.00 MB
+Total size: 1005.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.23 seconds
+🔄 Number of iterations: 8
+⏱️ / 🔄 time per iteration: 0.029176296666264534 seconds
+[hydro_h100pallas] FD (Pallas) N=256: 1 GPU=0.97s, 4 GPUs=0.23s, speedup=4.17x
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 4320.00 MB
+Argument size: 2160.00 MB
+Total size: 6480.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 3.29 seconds
+🔄 Number of iterations: 8
+⏱️ / 🔄 time per iteration: 0.4109262228012085 seconds
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 3330.00 MB
+Argument size: 540.00 MB
+Total size: 3870.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.95 seconds
+🔄 Number of iterations: 8
+⏱️ / 🔄 time per iteration: 0.11868909746408463 seconds
+[hydro_h100pallas] FD (Pallas) N=384: 1 GPU=3.29s, 4 GPUs=0.95s, speedup=3.46x
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 10240.00 MB
+Argument size: 5120.00 MB
+Total size: 15360.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 7.89 seconds
+🔄 Number of iterations: 8
+⏱️ / 🔄 time per iteration: 0.9858494400978088 seconds
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 7840.00 MB
+Argument size: 1280.00 MB
+Total size: 9120.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 2.26 seconds
+🔄 Number of iterations: 8
+⏱️ / 🔄 time per iteration: 0.28207632899284363 seconds
+[hydro_h100pallas] FD (Pallas) N=512: 1 GPU=7.89s, 4 GPUs=2.26s, speedup=3.49x
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 20000.00 MB
+Argument size: 10000.00 MB
+Total size: 30000.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 15.20 seconds
+🔄 Number of iterations: 8
+⏱️ / 🔄 time per iteration: 1.8994626998901367 seconds
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 15250.00 MB
+Argument size: 2500.00 MB
+Total size: 17750.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 4.31 seconds
+🔄 Number of iterations: 8
+⏱️ / 🔄 time per iteration: 0.5385962724685669 seconds
+[hydro_h100pallas] FD (Pallas) N=640: 1 GPU=15.20s, 4 GPUs=4.31s, speedup=3.53x
+
+============================= JOB FEEDBACK =============================
+
+Job ID: 4170709
+Cluster: hk
+User/Group: hd_bn306/hk-project-pai00101
+Account: hk-project-pai00101
+State: TIMEOUT (exit code 0)
+Partition: dev_accelerated-h100
+Nodes: 1
+Cores per node: 64
+Nodelist: hkn0909
+CPU Utilized: 00:03:10
+CPU Efficiency: 0.08% of 2-16:18:08 core-walltime
+Job Wall-clock time: 01:00:17
+Starttime: Sun Jun 28 14:39:49 2026
+Endtime: Sun Jun 28 15:40:06 2026
+Memory Utilized: 10.20 GB
+Memory Efficiency: 1.36% of 750.00 GB (750.00 GB/node)
+Energy Consumed: 3580680 Joule / 994.633333333333 Watthours
+Average node power draw: 989.958529167819 Watt

@@ -1,0 +1,55 @@
+=== job 4112617 on hkn[0907-0908] ===
+partition: accelerated-h100  nodes: 2  gpus(visible): 0,1,2,3
+GPU 0: NVIDIA H100 (UUID: GPU-1a6a8703-3e38-a3e9-2733-86786c0ddf18)
+GPU 1: NVIDIA H100 (UUID: GPU-b84cfa46-df25-7cb6-3eea-e7ca06e163ee)
+GPU 2: NVIDIA H100 (UUID: GPU-76d188d3-568f-4ee3-ca1e-52d6ed981f7b)
+GPU 3: NVIDIA H100 (UUID: GPU-4241c47f-27a0-e8e5-115e-3fb6591acc3f)
+[pre-init procid=4 localid=0] CUDA_VISIBLE_DEVICES=0,1,2,3
+[pre-init procid=0 localid=0] CUDA_VISIBLE_DEVICES=0,1,2,3
+[pre-init procid=5 localid=1] CUDA_VISIBLE_DEVICES=0,1,2,3
+[pre-init procid=1 localid=1] CUDA_VISIBLE_DEVICES=0,1,2,3
+[pre-init procid=6 localid=2] CUDA_VISIBLE_DEVICES=0,1,2,3
+[pre-init procid=2 localid=2] CUDA_VISIBLE_DEVICES=0,1,2,3
+[pre-init procid=7 localid=3] CUDA_VISIBLE_DEVICES=0,1,2,3
+[pre-init procid=3 localid=3] CUDA_VISIBLE_DEVICES=0,1,2,3
+[rank 5/8] host=hkn0908 local_devices=1 global_devices=8 CUDA_VISIBLE_DEVICES=0,1,2,3
+[rank 6/8] host=hkn0908 local_devices=1 global_devices=8 CUDA_VISIBLE_DEVICES=0,1,2,3
+[rank 7/8] host=hkn0908 local_devices=1 global_devices=8 CUDA_VISIBLE_DEVICES=0,1,2,3
+[rank 4/8] host=hkn0908 local_devices=1 global_devices=8 CUDA_VISIBLE_DEVICES=0,1,2,3
+[rank 1/8] host=hkn0907 local_devices=1 global_devices=8 CUDA_VISIBLE_DEVICES=0,1,2,3
+[rank 2/8] host=hkn0907 local_devices=1 global_devices=8 CUDA_VISIBLE_DEVICES=0,1,2,3
+[rank 0/8] host=hkn0907 local_devices=1 global_devices=8 CUDA_VISIBLE_DEVICES=0,1,2,3
+[rank 3/8] host=hkn0907 local_devices=1 global_devices=8 CUDA_VISIBLE_DEVICES=0,1,2,3
+[rank 0] allgather = [0. 1. 2. 3. 4. 5. 6. 7.]  (expect 0..7)
+[rank 0] PASS distributed rendezvous: 8 processes, 8 devices
+[rank 0] done
+[rank 2] done
+[rank 1] done
+[rank 3] done
+[rank 6] done
+[rank 7] done
+[rank 5] done
+[rank 4] done
+DONE dist_sanity rc=0
+
+============================= JOB FEEDBACK =============================
+
+Job ID: 4112617
+Cluster: hk
+User/Group: hd_bn306/hk-project-pai00101
+Account: hk-project-pai00101
+State: COMPLETED (exit code 0)
+Partition: accelerated-h100
+Nodes: 2
+Cores per node: 64
+Nodelist: hkn[0907-0908]
+CPU Utilized: 00:00:01
+CPU Efficiency: 0.01% of 01:55:12 core-walltime
+Job Wall-clock time: 00:00:54
+Starttime: Wed Jul  1 10:41:33 2026
+Endtime: Wed Jul  1 10:42:27 2026
+Memory Utilized: 6.46 GB
+Memory Efficiency: 0.43% of 1.46 TB (750.00 GB/node)
+The task which had the largest memory consumption differs by 101.37% from the average task max memory consumption
+Energy Consumed: 162836 Joule / 45.2322222222222 Watthours
+Average node power draw: 3015.48148148148 Watt

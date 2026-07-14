@@ -1,0 +1,307 @@
+=== job 4113031 on hkn1970 ===
+partition: accelerated-h200-8  nodes: 1  gpus(visible): 0,1,2,3,4,5,6,7
+GPU 0: NVIDIA H200 (UUID: GPU-20728b64-b6fb-8edc-c997-23282a4d096f)
+GPU 1: NVIDIA H200 (UUID: GPU-dff3986b-9fa6-e7d0-e182-dee43fdf70d8)
+GPU 2: NVIDIA H200 (UUID: GPU-43464d80-8fa0-40bc-f984-39e9b893a1fe)
+GPU 3: NVIDIA H200 (UUID: GPU-794abe94-0d84-b59a-437a-7a33ea41575e)
+GPU 4: NVIDIA H200 (UUID: GPU-9b18b436-f6e7-c548-585e-d6c7bcbb3fd4)
+GPU 5: NVIDIA H200 (UUID: GPU-cab6d43f-b768-4d68-7c5d-f7f7ef345ae2)
+GPU 6: NVIDIA H200 (UUID: GPU-7a8fb7e0-f5a2-8187-4b45-711ba1ed77c6)
+GPU 7: NVIDIA H200 (UUID: GPU-57747185-8cc5-f3b4-fa46-06f5d0c7e394)
+############ STRONG scaling 1-vs-8 (H200, hydro, FD-Pallas, up to N=1024) ############
+
+========== STRONG SCALING [hydro] 1 vs 8 GPUs (1 solver(s)) ==========
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 160.00 MB
+Argument size: 80.00 MB
+Total size: 240.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.15 seconds
+🔄 Number of iterations: 10
+⏱️ / 🔄 time per iteration: 0.015431256964802742 seconds
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 61.25 MB
+Argument size: 10.00 MB
+Total size: 71.25 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 1.78 seconds
+🔄 Number of iterations: 10
+⏱️ / 🔄 time per iteration: 0.17791089415550232 seconds
+[hydro_h200] FD (Pallas) N=128: 1 GPU=0.15s, 8 GPUs=1.78s, speedup=0.09x
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 1280.00 MB
+Argument size: 640.00 MB
+Total size: 1920.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.78 seconds
+🔄 Number of iterations: 10
+⏱️ / 🔄 time per iteration: 0.07784595340490341 seconds
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 445.00 MB
+Argument size: 80.00 MB
+Total size: 525.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.15 seconds
+🔄 Number of iterations: 10
+⏱️ / 🔄 time per iteration: 0.01521863229572773 seconds
+[hydro_h200] FD (Pallas) N=256: 1 GPU=0.78s, 8 GPUs=0.15s, speedup=5.12x
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 4320.00 MB
+Argument size: 2160.00 MB
+Total size: 6480.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 2.64 seconds
+🔄 Number of iterations: 10
+⏱️ / 🔄 time per iteration: 0.2638667821884155 seconds
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 1710.00 MB
+Argument size: 270.00 MB
+Total size: 1980.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.42 seconds
+🔄 Number of iterations: 10
+⏱️ / 🔄 time per iteration: 0.04215986281633377 seconds
+[hydro_h200] FD (Pallas) N=384: 1 GPU=2.64s, 8 GPUs=0.42s, speedup=6.26x
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 10240.00 MB
+Argument size: 5120.00 MB
+Total size: 15360.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 6.43 seconds
+🔄 Number of iterations: 10
+⏱️ / 🔄 time per iteration: 0.6434671878814697 seconds
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 4000.00 MB
+Argument size: 640.00 MB
+Total size: 4640.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.99 seconds
+🔄 Number of iterations: 10
+⏱️ / 🔄 time per iteration: 0.0985928624868393 seconds
+[hydro_h200] FD (Pallas) N=512: 1 GPU=6.43s, 8 GPUs=0.99s, speedup=6.53x
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 20000.00 MB
+Argument size: 10000.00 MB
+Total size: 30000.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 12.33 seconds
+🔄 Number of iterations: 10
+⏱️ / 🔄 time per iteration: 1.232795238494873 seconds
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 7750.00 MB
+Argument size: 1250.00 MB
+Total size: 9000.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 1.91 seconds
+🔄 Number of iterations: 10
+⏱️ / 🔄 time per iteration: 0.19090457260608673 seconds
+[hydro_h200] FD (Pallas) N=640: 1 GPU=12.33s, 8 GPUs=1.91s, speedup=6.46x
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 34560.00 MB
+Argument size: 17280.00 MB
+Total size: 51840.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 21.43 seconds
+🔄 Number of iterations: 10
+⏱️ / 🔄 time per iteration: 2.142932653427124 seconds
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 13320.00 MB
+Argument size: 2160.00 MB
+Total size: 15480.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 3.25 seconds
+🔄 Number of iterations: 10
+⏱️ / 🔄 time per iteration: 0.32519060373306274 seconds
+[hydro_h200] FD (Pallas) N=768: 1 GPU=21.43s, 8 GPUs=3.25s, speedup=6.59x
+[hydro_h200] FD (Pallas) N=896: SKIP 1-GPU baseline (predicted peak > 129 GiB device budget); running 8-GPU only.
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 17701.25 MB
+Argument size: 3430.00 MB
+Total size: 21131.25 MB
+========================================
+🚀 Starting simulation...
+[hydro_h200] FD (Pallas) N=896 on 8 GPU(s) FAILED: JaxRuntimeError('RESOURCE_EXHAUSTED: Out of memory while trying to allocate 26.80GiB.')
+[hydro_h200] FD (Pallas) N=896: 1 GPU=nans, 8 GPUs=nans, speedup=n/a
+[hydro_h200] FD (Pallas) N=1024: SKIP 1-GPU baseline (predicted peak > 129 GiB device budget); running 8-GPU only.
+[hydro_h200] FD (Pallas) N=1024 on 8 GPU(s) FAILED: JaxRuntimeError('INTERNAL: Autotuning failed for HLO: %wrapped_transpose = f32[2048,1024,1024,3]{3,2,1,0} fusion(%a.1), kind=kLoop, calls=%wrapped_transpose_computation, metadata={op_name="a"} with error: NOT_FOUND: No valid config found! Failures: 2\nEXECUTION FAILED: RESOURCE_EXHAUSTED: Out of memory while trying to allocate 24.00GiB. [tf-allocator-allocation-error=\'\']\nEXECUTION FAILED: RESOURCE_EXHAUSTED: Out of memory while trying to allocate 24.00GiB. [tf-allocator-allocation-error=\'\']')
+[hydro_h200] FD (Pallas) N=1024: 1 GPU=nans, 8 GPUs=nans, speedup=n/a
+############ STRONG scaling 1-vs-8 (H200, mhd, FD-Pallas, up to N=1024) ############
+
+========== STRONG SCALING [mhd] 1 vs 8 GPUs (1 solver(s)) ==========
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 816.00 MB
+Argument size: 176.00 MB
+Total size: 992.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.24 seconds
+🔄 Number of iterations: 10
+⏱️ / 🔄 time per iteration: 0.023584619164466858 seconds
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 131.46 MB
+Argument size: 22.00 MB
+Total size: 153.46 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 2.50 seconds
+🔄 Number of iterations: 10
+⏱️ / 🔄 time per iteration: 0.25009477138519287 seconds
+[mhd_h200] FD (Pallas) N=128: 1 GPU=0.24s, 8 GPUs=2.50s, speedup=0.09x
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 2754.00 MB
+Argument size: 594.00 MB
+Total size: 3348.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.80 seconds
+🔄 Number of iterations: 10
+⏱️ / 🔄 time per iteration: 0.08006773144006729 seconds
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 434.98 MB
+Argument size: 74.25 MB
+Total size: 509.23 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.24 seconds
+🔄 Number of iterations: 10
+⏱️ / 🔄 time per iteration: 0.024473268538713455 seconds
+[mhd_h200] FD (Pallas) N=192: 1 GPU=0.80s, 8 GPUs=0.24s, speedup=3.27x
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 6528.00 MB
+Argument size: 1408.00 MB
+Total size: 7936.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 1.92 seconds
+🔄 Number of iterations: 10
+⏱️ / 🔄 time per iteration: 0.19182473421096802 seconds
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 1003.52 MB
+Argument size: 176.00 MB
+Total size: 1179.52 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 0.40 seconds
+🔄 Number of iterations: 10
+⏱️ / 🔄 time per iteration: 0.0401255302131176 seconds
+[mhd_h200] FD (Pallas) N=256: 1 GPU=1.92s, 8 GPUs=0.40s, speedup=4.78x
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 22032.00 MB
+Argument size: 4752.00 MB
+Total size: 26784.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 6.65 seconds
+🔄 Number of iterations: 10
+⏱️ / 🔄 time per iteration: 0.664599597454071 seconds
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 3320.46 MB
+Argument size: 594.00 MB
+Total size: 3914.46 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 1.12 seconds
+🔄 Number of iterations: 10
+⏱️ / 🔄 time per iteration: 0.11237291246652603 seconds
+[mhd_h200] FD (Pallas) N=384: 1 GPU=6.65s, 8 GPUs=1.12s, speedup=5.91x
+[mhd_h200] FD (Pallas) N=512: SKIP 1-GPU baseline (predicted peak > 129 GiB device budget); running 8-GPU only.
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 7819.03 MB
+Argument size: 1408.00 MB
+Total size: 9227.03 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 2.50 seconds
+🔄 Number of iterations: 10
+⏱️ / 🔄 time per iteration: 0.24977870285511017 seconds
+[mhd_h200] FD (Pallas) N=512: 1 GPU=nans, 8 GPUs=2.50s, speedup=n/a
+[mhd_h200] FD (Pallas) N=768: SKIP 1-GPU baseline (predicted peak > 129 GiB device budget); running 8-GPU only.
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 26232.78 MB
+Argument size: 4752.00 MB
+Total size: 30984.78 MB
+========================================
+🚀 Starting simulation...
+[mhd_h200] FD (Pallas) N=768 on 8 GPU(s) FAILED: JaxRuntimeError('RESOURCE_EXHAUSTED: Out of memory while trying to allocate 3.38GiB.')
+[mhd_h200] FD (Pallas) N=768: 1 GPU=nans, 8 GPUs=nans, speedup=n/a
+[mhd_h200] FD (Pallas) N=1024: SKIP 1-GPU baseline (predicted peak > 129 GiB device budget); running 8-GPU only.
+[mhd_h200] FD (Pallas) N=1024 on 8 GPU(s) FAILED: JaxRuntimeError('INTERNAL: Autotuning failed for HLO: %wrapped_transpose = f32[2048,1024,1024,3]{3,2,1,0} fusion(%a.1), kind=kLoop, calls=%wrapped_transpose_computation, metadata={op_name="a"} with error: NOT_FOUND: No valid config found! Failures: 2\nEXECUTION FAILED: RESOURCE_EXHAUSTED: Out of memory while trying to allocate 24.00GiB. [tf-allocator-allocation-error=\'\']\nEXECUTION FAILED: RESOURCE_EXHAUSTED: Out of memory while trying to allocate 24.00GiB. [tf-allocator-allocation-error=\'\']')
+[mhd_h200] FD (Pallas) N=1024: 1 GPU=nans, 8 GPUs=nans, speedup=n/a
+DONE strong_h200_1v8
+
+============================= JOB FEEDBACK =============================
+
+Job ID: 4113031
+Cluster: hk
+User/Group: hd_bn306/hk-project-pai00101
+Account: hk-project-pai00101
+State: COMPLETED (exit code 0)
+Partition: accelerated-h200-8
+Nodes: 1
+Cores per node: 96
+Nodelist: hkn1970
+CPU Utilized: 00:13:19
+CPU Efficiency: 0.89% of 1-00:56:00 core-walltime
+Job Wall-clock time: 00:15:35
+Starttime: Wed Jul  1 10:56:16 2026
+Endtime: Wed Jul  1 11:11:51 2026
+Memory Utilized: 13.65 GB
+Memory Efficiency: 0.68% of 1.96 TB (1.96 TB/node)
+Energy Consumed: 2220263 Joule / 616.739722222222 Watthours
+Average node power draw: 2374.6128342246 Watt

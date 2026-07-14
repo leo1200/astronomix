@@ -1,0 +1,27 @@
+{
+  "gpu_model": "NVIDIA H200",
+  "num_gpus": 8,
+  "num_processes": 1,
+  "num_nodes": 1,
+  "partition": "accelerated-h200-8",
+  "nodelist": "hkn1970",
+  "slurm_job_id": "4113031",
+  "x64": false,
+  "setup": "mhd",
+  "phase": "strong_scaling",
+  "block_shape": [
+    4,
+    4,
+    8
+  ],
+  "num_timesteps": 10,
+  "strong_N": [
+    128,
+    192,
+    256,
+    384,
+    512,
+    768,
+    1024
+  ]
+}

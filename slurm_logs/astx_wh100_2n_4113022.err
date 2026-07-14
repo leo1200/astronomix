@@ -1,0 +1,118 @@
+GpuFreq=control_disabled
+GpuFreq=control_disabled
+E0701 10:50:47.281598 1316357 ptx_compiler_helpers.cc:157] *** WARNING *** Invoking ptxas with version 12.4.131, which corresponds to a CUDA version <=12.6.2. CUDA versions 12.x.y up to and including 12.6.2 miscompile certain edge cases around clamping.
+Please upgrade to CUDA 12.6.3 or newer.
+E0701 10:50:47.281594 1316358 ptx_compiler_helpers.cc:157] *** WARNING *** Invoking ptxas with version 12.4.131, which corresponds to a CUDA version <=12.6.2. CUDA versions 12.x.y up to and including 12.6.2 miscompile certain edge cases around clamping.
+Please upgrade to CUDA 12.6.3 or newer.
+E0701 10:50:47.281594 1316359 ptx_compiler_helpers.cc:157] *** WARNING *** Invoking ptxas with version 12.4.131, which corresponds to a CUDA version <=12.6.2. CUDA versions 12.x.y up to and including 12.6.2 miscompile certain edge cases around clamping.
+Please upgrade to CUDA 12.6.3 or newer.
+E0701 10:50:47.281603 1316360 ptx_compiler_helpers.cc:157] *** WARNING *** Invoking ptxas with version 12.4.131, which corresponds to a CUDA version <=12.6.2. CUDA versions 12.x.y up to and including 12.6.2 miscompile certain edge cases around clamping.
+Please upgrade to CUDA 12.6.3 or newer.
+E0701 10:50:47.314556 1409084 ptx_compiler_helpers.cc:157] *** WARNING *** Invoking ptxas with version 12.4.131, which corresponds to a CUDA version <=12.6.2. CUDA versions 12.x.y up to and including 12.6.2 miscompile certain edge cases around clamping.
+Please upgrade to CUDA 12.6.3 or newer.
+E0701 10:50:47.314553 1409085 ptx_compiler_helpers.cc:157] *** WARNING *** Invoking ptxas with version 12.4.131, which corresponds to a CUDA version <=12.6.2. CUDA versions 12.x.y up to and including 12.6.2 miscompile certain edge cases around clamping.
+Please upgrade to CUDA 12.6.3 or newer.
+E0701 10:50:47.314551 1409086 ptx_compiler_helpers.cc:157] *** WARNING *** Invoking ptxas with version 12.4.131, which corresponds to a CUDA version <=12.6.2. CUDA versions 12.x.y up to and including 12.6.2 miscompile certain edge cases around clamping.
+Please upgrade to CUDA 12.6.3 or newer.
+E0701 10:50:47.314557 1409087 ptx_compiler_helpers.cc:157] *** WARNING *** Invoking ptxas with version 12.4.131, which corresponds to a CUDA version <=12.6.2. CUDA versions 12.x.y up to and including 12.6.2 miscompile certain edge cases around clamping.
+Please upgrade to CUDA 12.6.3 or newer.
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/weak_scaling_hydro.py", line 102, in <module>
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/weak_scaling_hydro.py", line 102, in <module>
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/weak_scaling_hydro.py", line 102, in <module>
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/weak_scaling_hydro.py", line 102, in <module>
+    info = init_distributed()
+    info = init_distributed()
+           ^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/parallel/distributed.py", line 100, in init_distributed
+    info = init_distributed()
+           ^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/parallel/distributed.py", line 100, in init_distributed
+           ^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/parallel/distributed.py", line 100, in init_distributed
+    jax.distributed.initialize(local_device_ids=local_ids)
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/distributed.py", line 320, in initialize
+    jax.distributed.initialize(local_device_ids=local_ids)
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/distributed.py", line 320, in initialize
+    jax.distributed.initialize(local_device_ids=local_ids)
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/distributed.py", line 320, in initialize
+    info = init_distributed()
+           ^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/parallel/distributed.py", line 100, in init_distributed
+    jax.distributed.initialize(local_device_ids=local_ids)
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/distributed.py", line 320, in initialize
+    raise RuntimeError("jax.distributed.initialize() must be called before "
+RuntimeError: jax.distributed.initialize() must be called before any JAX calls that might initialise the XLA backend. This includes any computation, but also calls to jax.devices, jax.device_put, and others.
+    raise RuntimeError("jax.distributed.initialize() must be called before "
+RuntimeError: jax.distributed.initialize() must be called before any JAX calls that might initialise the XLA backend. This includes any computation, but also calls to jax.devices, jax.device_put, and others.
+    raise RuntimeError("jax.distributed.initialize() must be called before "
+RuntimeError: jax.distributed.initialize() must be called before any JAX calls that might initialise the XLA backend. This includes any computation, but also calls to jax.devices, jax.device_put, and others.
+    raise RuntimeError("jax.distributed.initialize() must be called before "
+RuntimeError: jax.distributed.initialize() must be called before any JAX calls that might initialise the XLA backend. This includes any computation, but also calls to jax.devices, jax.device_put, and others.
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/weak_scaling_hydro.py", line 102, in <module>
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/weak_scaling_hydro.py", line 102, in <module>
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/weak_scaling_hydro.py", line 102, in <module>
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/weak_scaling_hydro.py", line 102, in <module>
+    info = init_distributed()
+    info = init_distributed()
+    info = init_distributed()
+           ^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/parallel/distributed.py", line 100, in init_distributed
+           ^^^^^^^^^^^^^^^^^^
+           ^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/parallel/distributed.py", line 100, in init_distributed
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/parallel/distributed.py", line 100, in init_distributed
+    info = init_distributed()
+           ^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/parallel/distributed.py", line 100, in init_distributed
+    jax.distributed.initialize(local_device_ids=local_ids)
+    jax.distributed.initialize(local_device_ids=local_ids)
+    jax.distributed.initialize(local_device_ids=local_ids)
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/distributed.py", line 320, in initialize
+    jax.distributed.initialize(local_device_ids=local_ids)
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/distributed.py", line 320, in initialize
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/distributed.py", line 320, in initialize
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/distributed.py", line 320, in initialize
+    raise RuntimeError("jax.distributed.initialize() must be called before "
+RuntimeError: jax.distributed.initialize() must be called before any JAX calls that might initialise the XLA backend. This includes any computation, but also calls to jax.devices, jax.device_put, and others.
+    raise RuntimeError("jax.distributed.initialize() must be called before "
+RuntimeError: jax.distributed.initialize() must be called before any JAX calls that might initialise the XLA backend. This includes any computation, but also calls to jax.devices, jax.device_put, and others.
+    raise RuntimeError("jax.distributed.initialize() must be called before "
+RuntimeError: jax.distributed.initialize() must be called before any JAX calls that might initialise the XLA backend. This includes any computation, but also calls to jax.devices, jax.device_put, and others.
+    raise RuntimeError("jax.distributed.initialize() must be called before "
+RuntimeError: jax.distributed.initialize() must be called before any JAX calls that might initialise the XLA backend. This includes any computation, but also calls to jax.devices, jax.device_put, and others.
+W0701 10:50:50.024023 1317477 pjrt_client.cc:1604] WatchJobStateAsync failed for task 0: UNAVAILABLE: failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.102:62078: Failed to connect to remote host: Connection refused
+Additional GRPC error information from remote target coordination_service while calling /tensorflow.CoordinationService/WatchJobState:
+:UNKNOWN:Error received from peer  {grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.102:62078: Failed to connect to remote host: Connection refused", grpc_status:14}
+W0701 10:50:50.024115 1317480 pjrt_client.cc:1604] WatchJobStateAsync failed for task 2: UNAVAILABLE: failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.102:62078: Failed to connect to remote host: Connection refused
+Additional GRPC error information from remote target coordination_service while calling /tensorflow.CoordinationService/WatchJobState:
+:UNKNOWN:Error received from peer  {grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.102:62078: Failed to connect to remote host: Connection refused", grpc_status:14}
+W0701 10:50:50.024169 1317479 pjrt_client.cc:1604] WatchJobStateAsync failed for task 1: UNAVAILABLE: failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.102:62078: Failed to connect to remote host: Connection refused
+Additional GRPC error information from remote target coordination_service while calling /tensorflow.CoordinationService/WatchJobState:
+:UNKNOWN:Error received from peer  {grpc_status:14, grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.102:62078: Failed to connect to remote host: Connection refused"}
+W0701 10:50:50.024192 1317478 pjrt_client.cc:1604] WatchJobStateAsync failed for task 3: UNAVAILABLE: failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.102:62078: Failed to connect to remote host: Connection refused
+Additional GRPC error information from remote target coordination_service while calling /tensorflow.CoordinationService/WatchJobState:
+:UNKNOWN:Error received from peer  {grpc_status:14, grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.102:62078: Failed to connect to remote host: Connection refused"}
+W0701 10:50:50.024439 1410032 pjrt_client.cc:1604] WatchJobStateAsync failed for task 7: UNAVAILABLE: failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.102:62078: Failed to connect to remote host: Connection refused
+Additional GRPC error information from remote target coordination_service while calling /tensorflow.CoordinationService/WatchJobState:
+:UNKNOWN:Error received from peer  {grpc_status:14, grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.102:62078: Failed to connect to remote host: Connection refused"}
+W0701 10:50:50.024520 1410033 pjrt_client.cc:1604] WatchJobStateAsync failed for task 6: UNAVAILABLE: failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.102:62078: Failed to connect to remote host: Connection refused
+Additional GRPC error information from remote target coordination_service while calling /tensorflow.CoordinationService/WatchJobState:
+:UNKNOWN:Error received from peer  {grpc_status:14, grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.102:62078: Failed to connect to remote host: Connection refused"}
+W0701 10:50:50.024543 1410034 pjrt_client.cc:1604] WatchJobStateAsync failed for task 5: UNAVAILABLE: failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.102:62078: Failed to connect to remote host: Connection refused
+Additional GRPC error information from remote target coordination_service while calling /tensorflow.CoordinationService/WatchJobState:
+:UNKNOWN:Error received from peer  {grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.102:62078: Failed to connect to remote host: Connection refused", grpc_status:14}
+W0701 10:50:50.024606 1410035 pjrt_client.cc:1604] WatchJobStateAsync failed for task 4: UNAVAILABLE: failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.102:62078: Failed to connect to remote host: Connection refused
+Additional GRPC error information from remote target coordination_service while calling /tensorflow.CoordinationService/WatchJobState:
+:UNKNOWN:Error received from peer  {grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.102:62078: Failed to connect to remote host: Connection refused", grpc_status:14}
+srun: error: hkn0913: tasks 5-6: Exited with exit code 1
+srun: error: hkn0903: tasks 0,2: Exited with exit code 1
+srun: error: hkn0913: tasks 4,7: Exited with exit code 1
+srun: error: hkn0903: tasks 1,3: Exited with exit code 1

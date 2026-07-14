@@ -1,0 +1,28 @@
+E0628 14:40:35.608476 2868022 ptx_compiler_helpers.cc:157] *** WARNING *** Invoking ptxas with version 12.4.131, which corresponds to a CUDA version <=12.6.2. CUDA versions 12.x.y up to and including 12.6.2 miscompile certain edge cases around clamping.
+Please upgrade to CUDA 12.6.3 or newer.
+W0628 14:40:50.742223 2868022 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0628 14:40:59.510329 2868022 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0628 14:41:11.655868 2868022 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0628 14:41:19.288739 2868022 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0628 14:41:33.643719 2868022 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0628 14:41:41.944821 2868022 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0628 14:42:01.006379 2868022 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0628 14:42:10.586398 2868022 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0628 14:42:37.070089 2868022 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0628 14:42:48.769586 2868022 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0628 14:42:50.973819 2868022 hlo_rematerialization.cc:3233] Can't reduce memory use below 82.20GiB (88263762274 bytes) by rematerialization; only reduced to 118.12GiB (126835753352 bytes), down from 118.12GiB (126835753356 bytes) originally
+W0628 14:43:08.432370 2868022 bfc_allocator.cc:502] Allocator (GPU_0_bfc) ran out of memory trying to allocate 33.75GiB (rounded to 36238788608)requested by op 
+If the cause is memory fragmentation maybe the environment variable 'TF_GPU_ALLOCATOR=cuda_malloc_async' will improve the situation. 
+Current allocation summary follows.
+Current allocation summary follows.
+W0628 14:43:08.432624 2868022 bfc_allocator.cc:513] ********************__________________________________________*************_______________*****____*
+W0628 14:43:10.319142 2868022 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0628 14:43:27.837502 2868240 bfc_allocator.cc:502] Allocator (GPU_0_bfc) ran out of memory trying to allocate 25.66GiB (rounded to 27556581376)requested by op 
+If the cause is memory fragmentation maybe the environment variable 'TF_GPU_ALLOCATOR=cuda_malloc_async' will improve the situation. 
+Current allocation summary follows.
+Current allocation summary follows.
+W0628 14:43:27.837701 2868240 bfc_allocator.cc:513] _________________________*************__________________******____________________________*****____*
+E0628 14:43:27.970703 2868243 rendezvous.cc:116] [id=1] This thread has been waiting for `[1] [rank=1] [run_id=-1760502517] Acquire clique: devices=4:[0,1,2,3]; is_p2p=false; local_participants=4; incarnations=[]` for 10 seconds and may be stuck. Expected 4 threads to join the rendezvous, but not all of them arrived on time.
+E0628 14:43:27.970711 2868249 rendezvous.cc:116] [id=0] This thread has been waiting for `[3] [rank=3] [run_id=-1760502517] Acquire clique: devices=4:[0,1,2,3]; is_p2p=false; local_participants=4; incarnations=[]` for 10 seconds and may be stuck. Expected 4 threads to join the rendezvous, but not all of them arrived on time.
+E0628 14:43:27.970706 2868246 rendezvous.cc:116] [id=2] This thread has been waiting for `[2] [rank=2] [run_id=-1760502517] Acquire clique: devices=4:[0,1,2,3]; is_p2p=false; local_participants=4; incarnations=[]` for 10 seconds and may be stuck. Expected 4 threads to join the rendezvous, but not all of them arrived on time.
+[2026-06-28T15:40:07.033] error: *** JOB 4170709 ON hkn0909 CANCELLED AT 2026-06-28T15:40:07 DUE TO TIME LIMIT ***

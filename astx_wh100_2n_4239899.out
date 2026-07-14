@@ -1,0 +1,122 @@
+=== job 4239899 on hkn[0903,0915] ===
+partition: accelerated-h100  nodes: 2  gpus(visible): 0,1,2,3
+GPU 0: NVIDIA H100 (UUID: GPU-08b8b995-d8a7-4233-2344-bd0bdf482ffa)
+GPU 1: NVIDIA H100 (UUID: GPU-42b99324-f802-8296-f51d-1c87880e269a)
+GPU 2: NVIDIA H100 (UUID: GPU-f18db11a-2cc4-2fd7-8a0f-7dfafbda5c7a)
+GPU 3: NVIDIA H100 (UUID: GPU-d7ab977f-d74f-5491-7b30-33869cf13cad)
+==== weak rung G=8 on 2 H100 nodes (per-GPU 128x2048x2048, global 1024x2048x2048) ====
+[distributed] processes=8 global_devices=8 local_devices/proc=1 distributed=True
+[weak] G=8 mesh=(1, 8, 1, 1) global_grid=(1024, 2048, 2048) (4.295e+09 cells, ~5.369e+08 cells/GPU) block=(4, 4, 8) steps=10 dt=0.4
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 54080.00 MB
+Argument size: 10240.00 MB
+Total size: 64320.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 25.37 seconds
+🔄 Number of iterations: 10
+⏱️ / 🔄 time per iteration: 2.537116765975952 seconds
+[results] wrote /hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/scaling_results/weak_scaling/weak_hydro_pallas_h100_G008.{npz,json}
+[weak_hydro_pallas_h100] G=8 (1024, 2048, 2048) runtime=25.371s iters=10 temp/dev=52.81GB throughput=2.116e+07 cells/s/GPU
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 54080.00 MB
+Argument size: 10240.00 MB
+Total size: 64320.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 25.29 seconds
+🔄 Number of iterations: 10
+⏱️ / 🔄 time per iteration: 2.5287692546844482 seconds
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 54080.00 MB
+Argument size: 10240.00 MB
+Total size: 64320.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 25.30 seconds
+🔄 Number of iterations: 10
+⏱️ / 🔄 time per iteration: 2.530048370361328 seconds
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 54080.00 MB
+Argument size: 10240.00 MB
+Total size: 64320.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 25.37 seconds
+🔄 Number of iterations: 10
+⏱️ / 🔄 time per iteration: 2.537036180496216 seconds
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 54080.00 MB
+Argument size: 10240.00 MB
+Total size: 64320.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 25.35 seconds
+🔄 Number of iterations: 10
+⏱️ / 🔄 time per iteration: 2.5346570014953613 seconds
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 54080.00 MB
+Argument size: 10240.00 MB
+Total size: 64320.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 25.35 seconds
+🔄 Number of iterations: 10
+⏱️ / 🔄 time per iteration: 2.5352697372436523 seconds
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 54080.00 MB
+Argument size: 10240.00 MB
+Total size: 64320.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 25.26 seconds
+🔄 Number of iterations: 10
+⏱️ / 🔄 time per iteration: 2.5258681774139404 seconds
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 54080.00 MB
+Argument size: 10240.00 MB
+Total size: 64320.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 25.33 seconds
+🔄 Number of iterations: 10
+⏱️ / 🔄 time per iteration: 2.5334203243255615 seconds
+DONE weak_h100_2node rc=0
+
+============================= JOB FEEDBACK =============================
+
+Job ID: 4239899
+Cluster: hk
+User/Group: hd_bn306/hk-project-pai00101
+Account: hk-project-pai00101
+State: COMPLETED (exit code 0)
+Partition: accelerated-h100
+Nodes: 2
+Cores per node: 64
+Nodelist: hkn[0903,0915]
+CPU Utilized: 00:00:01
+CPU Efficiency: 0.01% of 03:05:36 core-walltime
+Job Wall-clock time: 00:01:27
+Starttime: Thu Jul  2 02:00:34 2026
+Endtime: Thu Jul  2 02:02:01 2026
+Memory Utilized: 28.08 GB
+Memory Efficiency: 1.87% of 1.46 TB (750.00 GB/node)
+The task which had the largest memory consumption differs by 100.97% from the average task max memory consumption
+Energy Consumed: 780724 Joule / 216.867777777778 Watthours
+Average node power draw: 8973.83908045977 Watt

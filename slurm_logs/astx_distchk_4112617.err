@@ -1,0 +1,42 @@
+GpuFreq=control_disabled
+GpuFreq=control_disabled
+W0701 10:42:23.968630 2393668 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0701 10:42:23.968627 2393669 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0701 10:42:23.968633 2393670 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0701 10:42:23.968635 2393671 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0701 10:42:23.972574 3153531 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0701 10:42:23.973357 3153533 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0701 10:42:23.978555 3153532 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0701 10:42:23.978781 3153530 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0701 10:42:26.745209 3153532 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0701 10:42:26.745263 3153531 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0701 10:42:26.745581 2393669 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0701 10:42:26.745712 2393670 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0701 10:42:26.745770 3153530 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0701 10:42:26.745738 2393671 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0701 10:42:26.745878 2393668 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0701 10:42:26.747508 3153533 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0701 10:42:26.762355 3154616 pjrt_client.cc:1604] WatchJobStateAsync failed for task 3: CANCELLED: CANCELLED
+Additional GRPC error information from remote target coordination_service while calling /tensorflow.CoordinationService/WatchJobState:
+:UNKNOWN:Error received from peer  {grpc_message:"CANCELLED", grpc_status:1} [type.googleapis.com/tensorflow.DerivedStatus='']
+W0701 10:42:26.762387 3154617 pjrt_client.cc:1604] WatchJobStateAsync failed for task 2: CANCELLED: CANCELLED
+Additional GRPC error information from remote target coordination_service while calling /tensorflow.CoordinationService/WatchJobState:
+:UNKNOWN:Error received from peer  {grpc_status:1, grpc_message:"CANCELLED"} [type.googleapis.com/tensorflow.DerivedStatus='']
+W0701 10:42:26.762394 3154615 pjrt_client.cc:1604] WatchJobStateAsync failed for task 1: CANCELLED: CANCELLED
+Additional GRPC error information from remote target coordination_service while calling /tensorflow.CoordinationService/WatchJobState:
+:UNKNOWN:Error received from peer  {grpc_status:1, grpc_message:"CANCELLED"} [type.googleapis.com/tensorflow.DerivedStatus='']
+W0701 10:42:26.762423 3154618 pjrt_client.cc:1604] WatchJobStateAsync failed for task 0: CANCELLED: CANCELLED
+Additional GRPC error information from remote target coordination_service while calling /tensorflow.CoordinationService/WatchJobState:
+:UNKNOWN:Error received from peer  {grpc_message:"CANCELLED", grpc_status:1} [type.googleapis.com/tensorflow.DerivedStatus='']
+W0701 10:42:26.762456 2394620 pjrt_client.cc:1604] WatchJobStateAsync failed for task 5: CANCELLED: CANCELLED
+Additional GRPC error information from remote target coordination_service while calling /tensorflow.CoordinationService/WatchJobState:
+:UNKNOWN:Error received from peer  {grpc_status:1, grpc_message:"CANCELLED"} [type.googleapis.com/tensorflow.DerivedStatus='']
+W0701 10:42:26.762464 2394619 pjrt_client.cc:1604] WatchJobStateAsync failed for task 6: CANCELLED: CANCELLED
+Additional GRPC error information from remote target coordination_service while calling /tensorflow.CoordinationService/WatchJobState:
+:UNKNOWN:Error received from peer  {grpc_status:1, grpc_message:"CANCELLED"} [type.googleapis.com/tensorflow.DerivedStatus='']
+W0701 10:42:26.762449 2394617 pjrt_client.cc:1604] WatchJobStateAsync failed for task 4: CANCELLED: CANCELLED
+Additional GRPC error information from remote target coordination_service while calling /tensorflow.CoordinationService/WatchJobState:
+:UNKNOWN:Error received from peer  {grpc_status:1, grpc_message:"CANCELLED"} [type.googleapis.com/tensorflow.DerivedStatus='']
+W0701 10:42:26.762754 2394618 pjrt_client.cc:1604] WatchJobStateAsync failed for task 7: UNAVAILABLE: failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.106:61673: Failed to connect to remote host: Connection refused
+Additional GRPC error information from remote target coordination_service while calling /tensorflow.CoordinationService/WatchJobState:
+:UNKNOWN:Error received from peer  {grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.106:61673: Failed to connect to remote host: Connection refused", grpc_status:14}

@@ -1,0 +1,197 @@
+=== job 4240032 on hkn0909 ===
+partition: dev_accelerated-h100  nodes: 1  gpus(visible): 0
+GPU 0: NVIDIA H100 (UUID: GPU-1de7caf2-ca30-4d72-bcc6-e0a2c0dd33b6)
+==== single-GPU block-shape sweep (hydro FD-Pallas, N=384) ====
+
+========== BLOCK-SHAPE SWEEP hydro FD(Pallas) N=384 (NVIDIA H100) ==========
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 4320.00 MB
+Argument size: 2160.00 MB
+Total size: 6480.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 27.98 seconds
+🔄 Number of iterations: 20
+⏱️ / 🔄 time per iteration: 1.3989192247390747 seconds
+[hydro_block_shape_h100_n384] block_shape=(2, 2, 4) (768x384x384): runtime=27.978s temp=4320.0MB
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 4320.00 MB
+Argument size: 2160.00 MB
+Total size: 6480.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 14.35 seconds
+🔄 Number of iterations: 20
+⏱️ / 🔄 time per iteration: 0.7175197005271912 seconds
+[hydro_block_shape_h100_n384] block_shape=(2, 2, 8) (768x384x384): runtime=14.350s temp=4320.0MB
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 4320.00 MB
+Argument size: 2160.00 MB
+Total size: 6480.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 18.23 seconds
+🔄 Number of iterations: 20
+⏱️ / 🔄 time per iteration: 0.911677360534668 seconds
+[hydro_block_shape_h100_n384] block_shape=(4, 4, 4) (768x384x384): runtime=18.234s temp=4320.0MB
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 4320.00 MB
+Argument size: 2160.00 MB
+Total size: 6480.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 9.66 seconds
+🔄 Number of iterations: 20
+⏱️ / 🔄 time per iteration: 0.48324599862098694 seconds
+[hydro_block_shape_h100_n384] block_shape=(2, 4, 8) (768x384x384): runtime=9.665s temp=4320.0MB
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 4320.00 MB
+Argument size: 2160.00 MB
+Total size: 6480.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 8.18 seconds
+🔄 Number of iterations: 20
+⏱️ / 🔄 time per iteration: 0.40904179215431213 seconds
+[hydro_block_shape_h100_n384] block_shape=(4, 4, 8) (768x384x384): runtime=8.181s temp=4320.0MB
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 4320.00 MB
+Argument size: 2160.00 MB
+Total size: 6480.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 6.39 seconds
+🔄 Number of iterations: 20
+⏱️ / 🔄 time per iteration: 0.3192524015903473 seconds
+[hydro_block_shape_h100_n384] block_shape=(4, 4, 16) (768x384x384): runtime=6.385s temp=4320.0MB
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 4320.00 MB
+Argument size: 2160.00 MB
+Total size: 6480.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 9.59 seconds
+🔄 Number of iterations: 20
+⏱️ / 🔄 time per iteration: 0.4796231687068939 seconds
+[hydro_block_shape_h100_n384] block_shape=(4, 8, 8) (768x384x384): runtime=9.592s temp=4320.0MB
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 4320.00 MB
+Argument size: 2160.00 MB
+Total size: 6480.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 9.55 seconds
+🔄 Number of iterations: 20
+⏱️ / 🔄 time per iteration: 0.47752103209495544 seconds
+[hydro_block_shape_h100_n384] block_shape=(8, 4, 8) (768x384x384): runtime=9.550s temp=4320.0MB
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 4320.00 MB
+Argument size: 2160.00 MB
+Total size: 6480.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 8.20 seconds
+🔄 Number of iterations: 20
+⏱️ / 🔄 time per iteration: 0.4098641574382782 seconds
+[hydro_block_shape_h100_n384] block_shape=(2, 8, 8) (768x384x384): runtime=8.197s temp=4320.0MB
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 4320.00 MB
+Argument size: 2160.00 MB
+Total size: 6480.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 18.23 seconds
+🔄 Number of iterations: 20
+⏱️ / 🔄 time per iteration: 0.9112691283226013 seconds
+[hydro_block_shape_h100_n384] block_shape=(4, 8, 16) (768x384x384): runtime=18.225s temp=4320.0MB
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 4320.00 MB
+Argument size: 2160.00 MB
+Total size: 6480.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 23.20 seconds
+🔄 Number of iterations: 20
+⏱️ / 🔄 time per iteration: 1.1599563360214233 seconds
+[hydro_block_shape_h100_n384] block_shape=(8, 8, 8) (768x384x384): runtime=23.199s temp=4320.0MB
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 4320.00 MB
+Argument size: 2160.00 MB
+Total size: 6480.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 40.08 seconds
+🔄 Number of iterations: 20
+⏱️ / 🔄 time per iteration: 2.0040364265441895 seconds
+[hydro_block_shape_h100_n384] block_shape=(8, 8, 16) (768x384x384): runtime=40.081s temp=4320.0MB
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 4320.00 MB
+Argument size: 2160.00 MB
+Total size: 6480.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 134.64 seconds
+🔄 Number of iterations: 20
+⏱️ / 🔄 time per iteration: 6.732159614562988 seconds
+[hydro_block_shape_h100_n384] block_shape=(8, 16, 16) (768x384x384): runtime=134.643s temp=4320.0MB
+For 3D simulations with periodic boundaries, setting boundary handling to PERIODIC_ROLL and num_ghost_cells to 0 for better performance.
+=== Compiled memory usage PER DEVICE ===
+Temp size: 4320.00 MB
+Argument size: 2160.00 MB
+Total size: 6480.00 MB
+========================================
+🚀 Starting simulation...
+🏁 Simulation finished!
+⏱️ Time elapsed: 133.52 seconds
+🔄 Number of iterations: 20
+⏱️ / 🔄 time per iteration: 6.675881385803223 seconds
+[hydro_block_shape_h100_n384] block_shape=(16, 16, 16) (768x384x384): runtime=133.518s temp=4320.0MB
+[results] wrote /hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/scaling_results/block_shape/hydro_block_shape_h100_n384.{npz,json}
+DONE block_sweep_dev rc=0
+
+============================= JOB FEEDBACK =============================
+
+Job ID: 4240032
+Cluster: hk
+User/Group: hd_bn306/hk-project-pai00101
+Account: hk-project-pai00101
+State: COMPLETED (exit code 0)
+Partition: dev_accelerated-h100
+Nodes: 1
+Cores per node: 16
+Nodelist: hkn0909
+CPU Utilized: 00:30:52
+CPU Efficiency: 6.02% of 08:32:32 core-walltime
+Job Wall-clock time: 00:32:02
+Starttime: Thu Jul  2 08:16:02 2026
+Endtime: Thu Jul  2 08:48:04 2026
+Memory Utilized: 5.81 GB
+Memory Efficiency: 3.10% of 187.50 GB (187.50 GB/node)
+Energy Consumed: 1733541 Joule / 481.539166666667 Watthours
+Average node power draw: 901.946409989594 Watt

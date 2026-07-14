@@ -45,15 +45,21 @@ def _style_for(label):
     return SOLVER_STYLE.get(label, dict(marker="o", linestyle="-"))
 
 
+def _savefig(fig, path):
+    """Save a PNG plus an SVG sibling (vector version for papers/email)."""
+    fig.savefig(path, dpi=STYLE["dpi"])
+    fig.savefig(path[:-4] + ".svg")
+    print("wrote", path, "(+ .svg)")
+
+
 def _finish(ax, fig, path, title=""):
     ax.grid(True, which="both", ls="-", alpha=STYLE["grid_alpha"])
     ax.legend(fontsize=9)
     if title:
         ax.set_title(title, fontsize=13)
     fig.tight_layout()
-    fig.savefig(path, dpi=STYLE["dpi"])
+    _savefig(fig, path)
     plt.close(fig)
-    print("wrote", path)
 
 
 def _set_n_ticks(ax, N_values):
@@ -320,7 +326,7 @@ def plot_single_gpu_memory():
         _set_n_ticks(a1, seen_N); _set_n_ticks(a2, seen_N)
         fig.tight_layout()
         out = os.path.join(FIG, f"single_gpu_{setup}_memory_breakdown.png")
-        fig.savefig(out, dpi=STYLE["dpi"]); plt.close(fig); print("wrote", out)
+        _savefig(fig, out); plt.close(fig)
 
 
 # --------------------------------------------------------------------------

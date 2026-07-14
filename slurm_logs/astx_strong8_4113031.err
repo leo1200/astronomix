@@ -1,0 +1,154 @@
+E0701 10:56:50.161539 2248883 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0701 10:56:50.161633 2248882 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0701 10:56:50.161641 2248881 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0701 10:56:50.162397 2248889 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0701 10:56:50.162451 2248887 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0701 10:56:50.162503 2248888 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0701 10:56:50.163717 2248896 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0701 10:56:50.163786 2248898 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0701 10:56:50.163869 2248897 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0701 10:56:50.164220 2248900 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0701 10:56:50.164300 2248899 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0701 10:56:50.164405 2248901 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0701 10:56:50.487987 2248603 ptx_compiler_helpers.cc:157] *** WARNING *** Invoking ptxas with version 12.4.131, which corresponds to a CUDA version <=12.6.2. CUDA versions 12.x.y up to and including 12.6.2 miscompile certain edge cases around clamping.
+Please upgrade to CUDA 12.6.3 or newer.
+W0701 10:57:06.618460 2248603 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0701 10:57:17.014518 2248603 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0701 10:57:29.561122 2248603 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0701 10:57:38.290763 2248603 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0701 10:57:52.795295 2248603 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0701 10:58:01.868868 2248603 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0701 10:58:20.342530 2248603 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0701 10:58:29.913699 2248603 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0701 10:58:54.291952 2248603 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0701 10:59:04.700918 2248603 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0701 10:59:38.516858 2248603 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0701 10:59:50.390465 2248603 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0701 11:00:01.578686 2248603 bfc_allocator.cc:502] Allocator (GPU_0_bfc) ran out of memory trying to allocate 26.80GiB (rounded to 28772925440)requested by op 
+If the cause is memory fragmentation maybe the environment variable 'TF_GPU_ALLOCATOR=cuda_malloc_async' will improve the situation. 
+Current allocation summary follows.
+Current allocation summary follows.
+W0701 11:00:01.578845 2248603 bfc_allocator.cc:513] ____________**********************_______________**************___*****___**********___*****_______*
+W0701 11:00:02.476812 2248603 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0701 11:00:21.463863 2248962 bfc_allocator.cc:502] Allocator (GPU_0_bfc) ran out of memory trying to allocate 24.00GiB (rounded to 25769803776)requested by op 
+If the cause is memory fragmentation maybe the environment variable 'TF_GPU_ALLOCATOR=cuda_malloc_async' will improve the situation. 
+Current allocation summary follows.
+Current allocation summary follows.
+W0701 11:00:21.463988 2248962 bfc_allocator.cc:513] **************************************___________********************______________________________*
+W0701 11:00:31.464349 2248962 bfc_allocator.cc:502] Allocator (GPU_0_bfc) ran out of memory trying to allocate 24.00GiB (rounded to 25769803776)requested by op 
+If the cause is memory fragmentation maybe the environment variable 'TF_GPU_ALLOCATOR=cuda_malloc_async' will improve the situation. 
+Current allocation summary follows.
+Current allocation summary follows.
+W0701 11:00:31.464433 2248962 bfc_allocator.cc:513] **************************************___________********************______________________________*
+E0701 11:00:31.464647 2248603 autotuner.cc:197] Failed to autotune HLO: %wrapped_transpose = f32[2048,1024,1024,3]{3,2,1,0} fusion(%a.1), kind=kLoop, calls=%wrapped_transpose_computation, metadata={op_name="a"} with status: INTERNAL: Autotuning failed for HLO: %wrapped_transpose = f32[2048,1024,1024,3]{3,2,1,0} fusion(%a.1), kind=kLoop, calls=%wrapped_transpose_computation, metadata={op_name="a"} with error: NOT_FOUND: No valid config found! Failures: 2
+EXECUTION FAILED: RESOURCE_EXHAUSTED: Out of memory while trying to allocate 24.00GiB. [tf-allocator-allocation-error='']
+EXECUTION FAILED: RESOURCE_EXHAUSTED: Out of memory while trying to allocate 24.00GiB. [tf-allocator-allocation-error='']
+E0701 11:00:39.791547 2250774 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0701 11:00:39.791641 2250772 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0701 11:00:39.791639 2250773 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0701 11:00:39.792328 2250778 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0701 11:00:39.792408 2250780 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0701 11:00:39.792464 2250779 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0701 11:00:39.793780 2250788 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0701 11:00:39.793851 2250787 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0701 11:00:39.793961 2250789 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0701 11:00:39.794220 2250790 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0701 11:00:39.794274 2250792 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0701 11:00:39.794339 2250791 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0701 11:00:40.069351 2250490 ptx_compiler_helpers.cc:157] *** WARNING *** Invoking ptxas with version 12.4.131, which corresponds to a CUDA version <=12.6.2. CUDA versions 12.x.y up to and including 12.6.2 miscompile certain edge cases around clamping.
+Please upgrade to CUDA 12.6.3 or newer.
+W0701 11:01:34.713940 2250490 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0701 11:02:22.914576 2250490 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0701 11:03:15.778582 2250490 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0701 11:04:01.457550 2250490 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0701 11:04:55.226199 2250490 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0701 11:05:41.204035 2250490 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0701 11:06:40.284934 2250490 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0701 11:07:26.697215 2250490 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0701 11:07:30.179493 2250490 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0701 11:08:18.310484 2250490 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0701 11:08:30.514367 2250490 bfc_allocator.cc:502] Allocator (GPU_0_bfc) ran out of memory trying to allocate 3.38GiB (rounded to 3623878656)requested by op 
+If the cause is memory fragmentation maybe the environment variable 'TF_GPU_ALLOCATOR=cuda_malloc_async' will improve the situation. 
+Current allocation summary follows.
+Current allocation summary follows.
+W0701 11:08:30.514557 2250490 bfc_allocator.cc:513] ************************************************_*************************************_**********__*
+W0701 11:08:40.515482 2250490 bfc_allocator.cc:502] Allocator (GPU_0_bfc) ran out of memory trying to allocate 3.38GiB (rounded to 3623878656)requested by op 
+If the cause is memory fragmentation maybe the environment variable 'TF_GPU_ALLOCATOR=cuda_malloc_async' will improve the situation. 
+Current allocation summary follows.
+Current allocation summary follows.
+W0701 11:08:40.515625 2250490 bfc_allocator.cc:513] ************************************************_*************************************_**********__*
+W0701 11:08:50.516587 2250490 bfc_allocator.cc:502] Allocator (GPU_0_bfc) ran out of memory trying to allocate 3.38GiB (rounded to 3623878656)requested by op 
+If the cause is memory fragmentation maybe the environment variable 'TF_GPU_ALLOCATOR=cuda_malloc_async' will improve the situation. 
+Current allocation summary follows.
+Current allocation summary follows.
+W0701 11:08:50.516710 2250490 bfc_allocator.cc:513] ************************************************_*************************************_**********__*
+W0701 11:09:00.517561 2250490 bfc_allocator.cc:502] Allocator (GPU_0_bfc) ran out of memory trying to allocate 3.38GiB (rounded to 3623878656)requested by op 
+If the cause is memory fragmentation maybe the environment variable 'TF_GPU_ALLOCATOR=cuda_malloc_async' will improve the situation. 
+Current allocation summary follows.
+Current allocation summary follows.
+W0701 11:09:00.517689 2250490 bfc_allocator.cc:513] ************************************************_*************************************_**********__*
+W0701 11:09:10.518595 2250490 bfc_allocator.cc:502] Allocator (GPU_0_bfc) ran out of memory trying to allocate 3.38GiB (rounded to 3623878656)requested by op 
+If the cause is memory fragmentation maybe the environment variable 'TF_GPU_ALLOCATOR=cuda_malloc_async' will improve the situation. 
+Current allocation summary follows.
+Current allocation summary follows.
+W0701 11:09:10.518721 2250490 bfc_allocator.cc:513] ************************************************_*************************************_**********__*
+W0701 11:09:20.519548 2250490 bfc_allocator.cc:502] Allocator (GPU_0_bfc) ran out of memory trying to allocate 3.38GiB (rounded to 3623878656)requested by op 
+If the cause is memory fragmentation maybe the environment variable 'TF_GPU_ALLOCATOR=cuda_malloc_async' will improve the situation. 
+Current allocation summary follows.
+Current allocation summary follows.
+W0701 11:09:20.519688 2250490 bfc_allocator.cc:513] ************************************************_*************************************_**********__*
+W0701 11:09:30.520597 2250490 bfc_allocator.cc:502] Allocator (GPU_0_bfc) ran out of memory trying to allocate 3.38GiB (rounded to 3623878656)requested by op 
+If the cause is memory fragmentation maybe the environment variable 'TF_GPU_ALLOCATOR=cuda_malloc_async' will improve the situation. 
+Current allocation summary follows.
+Current allocation summary follows.
+W0701 11:09:30.520718 2250490 bfc_allocator.cc:513] ************************************************_*************************************_**********__*
+W0701 11:09:40.521575 2250490 bfc_allocator.cc:502] Allocator (GPU_0_bfc) ran out of memory trying to allocate 3.38GiB (rounded to 3623878656)requested by op 
+If the cause is memory fragmentation maybe the environment variable 'TF_GPU_ALLOCATOR=cuda_malloc_async' will improve the situation. 
+Current allocation summary follows.
+Current allocation summary follows.
+W0701 11:09:40.521698 2250490 bfc_allocator.cc:513] ************************************************_*************************************_**********__*
+W0701 11:09:50.523687 2250490 bfc_allocator.cc:502] Allocator (GPU_0_bfc) ran out of memory trying to allocate 3.38GiB (rounded to 3623878656)requested by op 
+If the cause is memory fragmentation maybe the environment variable 'TF_GPU_ALLOCATOR=cuda_malloc_async' will improve the situation. 
+Current allocation summary follows.
+Current allocation summary follows.
+W0701 11:09:50.523812 2250490 bfc_allocator.cc:513] ************************************************_*************************************_**********__*
+W0701 11:10:00.524697 2250490 bfc_allocator.cc:502] Allocator (GPU_0_bfc) ran out of memory trying to allocate 3.38GiB (rounded to 3623878656)requested by op 
+If the cause is memory fragmentation maybe the environment variable 'TF_GPU_ALLOCATOR=cuda_malloc_async' will improve the situation. 
+Current allocation summary follows.
+Current allocation summary follows.
+W0701 11:10:00.524818 2250490 bfc_allocator.cc:513] ************************************************_*************************************_**********__*
+W0701 11:10:10.526913 2250490 bfc_allocator.cc:502] Allocator (GPU_0_bfc) ran out of memory trying to allocate 3.38GiB (rounded to 3623878656)requested by op 
+If the cause is memory fragmentation maybe the environment variable 'TF_GPU_ALLOCATOR=cuda_malloc_async' will improve the situation. 
+Current allocation summary follows.
+Current allocation summary follows.
+W0701 11:10:10.527036 2250490 bfc_allocator.cc:513] ************************************************_*************************************_**********__*
+W0701 11:10:20.527887 2250490 bfc_allocator.cc:502] Allocator (GPU_0_bfc) ran out of memory trying to allocate 3.38GiB (rounded to 3623878656)requested by op 
+If the cause is memory fragmentation maybe the environment variable 'TF_GPU_ALLOCATOR=cuda_malloc_async' will improve the situation. 
+Current allocation summary follows.
+Current allocation summary follows.
+W0701 11:10:20.528012 2250490 bfc_allocator.cc:513] ************************************************_*************************************_**********__*
+W0701 11:10:30.582827 2250490 bfc_allocator.cc:502] Allocator (GPU_0_bfc) ran out of memory trying to allocate 3.38GiB (rounded to 3623878656)requested by op 
+If the cause is memory fragmentation maybe the environment variable 'TF_GPU_ALLOCATOR=cuda_malloc_async' will improve the situation. 
+Current allocation summary follows.
+Current allocation summary follows.
+W0701 11:10:30.582945 2250490 bfc_allocator.cc:513] ************************************************_*************************************_**********__*
+W0701 11:10:40.583755 2250490 bfc_allocator.cc:502] Allocator (GPU_0_bfc) ran out of memory trying to allocate 3.38GiB (rounded to 3623878656)requested by op 
+If the cause is memory fragmentation maybe the environment variable 'TF_GPU_ALLOCATOR=cuda_malloc_async' will improve the situation. 
+Current allocation summary follows.
+Current allocation summary follows.
+W0701 11:10:40.583876 2250490 bfc_allocator.cc:513] ************************************************_*************************************_**********__*
+W0701 11:10:40.616513 2250490 hlo_rematerialization.cc:3233] Can't reduce memory use below 88.77GiB (95321471995 bytes) by rematerialization; only reduced to 111.38GiB (119587995648 bytes), down from 111.38GiB (119587995648 bytes) originally
+W0701 11:10:42.389543 2250490 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0701 11:11:38.529152 2250798 bfc_allocator.cc:502] Allocator (GPU_0_bfc) ran out of memory trying to allocate 24.00GiB (rounded to 25769803776)requested by op 
+If the cause is memory fragmentation maybe the environment variable 'TF_GPU_ALLOCATOR=cuda_malloc_async' will improve the situation. 
+Current allocation summary follows.
+Current allocation summary follows.
+W0701 11:11:38.529297 2250798 bfc_allocator.cc:513] **************************************___________********************______________________________*
+W0701 11:11:48.529623 2250798 bfc_allocator.cc:502] Allocator (GPU_0_bfc) ran out of memory trying to allocate 24.00GiB (rounded to 25769803776)requested by op 
+If the cause is memory fragmentation maybe the environment variable 'TF_GPU_ALLOCATOR=cuda_malloc_async' will improve the situation. 
+Current allocation summary follows.
+Current allocation summary follows.
+W0701 11:11:48.529715 2250798 bfc_allocator.cc:513] **************************************___________********************______________________________*
+E0701 11:11:48.529948 2250490 autotuner.cc:197] Failed to autotune HLO: %wrapped_transpose = f32[2048,1024,1024,3]{3,2,1,0} fusion(%a.1), kind=kLoop, calls=%wrapped_transpose_computation, metadata={op_name="a"} with status: INTERNAL: Autotuning failed for HLO: %wrapped_transpose = f32[2048,1024,1024,3]{3,2,1,0} fusion(%a.1), kind=kLoop, calls=%wrapped_transpose_computation, metadata={op_name="a"} with error: NOT_FOUND: No valid config found! Failures: 2
+EXECUTION FAILED: RESOURCE_EXHAUSTED: Out of memory while trying to allocate 24.00GiB. [tf-allocator-allocation-error='']
+EXECUTION FAILED: RESOURCE_EXHAUSTED: Out of memory while trying to allocate 24.00GiB. [tf-allocator-allocation-error='']

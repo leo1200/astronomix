@@ -1,0 +1,368 @@
+GpuFreq=control_disabled
+GpuFreq=control_disabled
+E0702 01:55:09.608789 1355689 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0702 01:55:09.608976 1355690 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0702 01:55:09.608997 1355691 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0702 01:55:09.609062 1355692 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0702 01:55:09.609133 1355693 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0702 01:55:09.609241 1355694 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0702 01:55:09.611831 1355695 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0702 01:55:09.611918 1355696 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0702 01:55:09.611965 1355697 numa_hwloc.cc:121] Call to hwloc_set_cpubind() failed: Invalid argument [22]
+E0702 01:55:09.821098 1996128 ptx_compiler_helpers.cc:157] *** WARNING *** Invoking ptxas with version 12.4.131, which corresponds to a CUDA version <=12.6.2. CUDA versions 12.x.y up to and including 12.6.2 miscompile certain edge cases around clamping.
+Please upgrade to CUDA 12.6.3 or newer.
+E0702 01:55:09.821095 1996129 ptx_compiler_helpers.cc:157] *** WARNING *** Invoking ptxas with version 12.4.131, which corresponds to a CUDA version <=12.6.2. CUDA versions 12.x.y up to and including 12.6.2 miscompile certain edge cases around clamping.
+Please upgrade to CUDA 12.6.3 or newer.
+E0702 01:55:09.821095 1996130 ptx_compiler_helpers.cc:157] *** WARNING *** Invoking ptxas with version 12.4.131, which corresponds to a CUDA version <=12.6.2. CUDA versions 12.x.y up to and including 12.6.2 miscompile certain edge cases around clamping.
+Please upgrade to CUDA 12.6.3 or newer.
+E0702 01:55:09.821093 1996131 ptx_compiler_helpers.cc:157] *** WARNING *** Invoking ptxas with version 12.4.131, which corresponds to a CUDA version <=12.6.2. CUDA versions 12.x.y up to and including 12.6.2 miscompile certain edge cases around clamping.
+Please upgrade to CUDA 12.6.3 or newer.
+E0702 01:55:09.840442 1355003 ptx_compiler_helpers.cc:157] *** WARNING *** Invoking ptxas with version 12.4.131, which corresponds to a CUDA version <=12.6.2. CUDA versions 12.x.y up to and including 12.6.2 miscompile certain edge cases around clamping.
+Please upgrade to CUDA 12.6.3 or newer.
+E0702 01:55:09.840452 1355004 ptx_compiler_helpers.cc:157] *** WARNING *** Invoking ptxas with version 12.4.131, which corresponds to a CUDA version <=12.6.2. CUDA versions 12.x.y up to and including 12.6.2 miscompile certain edge cases around clamping.
+Please upgrade to CUDA 12.6.3 or newer.
+E0702 01:55:09.840458 1355005 ptx_compiler_helpers.cc:157] *** WARNING *** Invoking ptxas with version 12.4.131, which corresponds to a CUDA version <=12.6.2. CUDA versions 12.x.y up to and including 12.6.2 miscompile certain edge cases around clamping.
+Please upgrade to CUDA 12.6.3 or newer.
+E0702 01:55:09.840460 1355006 ptx_compiler_helpers.cc:157] *** WARNING *** Invoking ptxas with version 12.4.131, which corresponds to a CUDA version <=12.6.2. CUDA versions 12.x.y up to and including 12.6.2 miscompile certain edge cases around clamping.
+Please upgrade to CUDA 12.6.3 or newer.
+W0702 01:55:12.164445 1355003 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0702 01:55:12.164451 1355004 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0702 01:55:12.164613 1355006 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0702 01:55:12.164671 1355005 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0702 01:55:12.170391 1996128 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0702 01:55:12.170740 1996129 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0702 01:55:12.170877 1996130 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0702 01:55:12.170930 1996131 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0702 01:55:12.398349 1355003 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0702 01:55:12.400535 1355004 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0702 01:55:12.403532 1355005 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0702 01:55:12.403703 1355006 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0702 01:55:12.405654 1996129 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0702 01:55:12.405785 1996128 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0702 01:55:12.406940 1996131 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0702 01:55:12.407203 1996130 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0702 01:55:15.206609 1355003 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0702 01:55:15.206744 1996129 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0702 01:55:15.208108 1996130 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0702 01:55:15.208214 1355005 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0702 01:55:15.208235 1355004 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0702 01:55:15.208432 1355006 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0702 01:55:15.208564 1996128 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+W0702 01:55:15.209696 1996131 sharding_propagation.cc:3130] GSPMD sharding propagation is going to be deprecated and not supported in the future. Please consider migrating to Shardy (https://openxla.org/shardy). For reference, Shardy is already the default partitioner in JAX.
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/weak_scaling_hydro.py", line 140, in <module>
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/weak_scaling_hydro.py", line 140, in <module>
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/weak_scaling_hydro.py", line 140, in <module>
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/weak_scaling_hydro.py", line 140, in <module>
+    run_weak_scaling_point(
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/_benchmark_utils.py", line 760, in run_weak_scaling_point
+Traceback (most recent call last):
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/weak_scaling_hydro.py", line 140, in <module>
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/weak_scaling_hydro.py", line 140, in <module>
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/weak_scaling_hydro.py", line 140, in <module>
+    run_weak_scaling_point(
+Traceback (most recent call last):
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/_benchmark_utils.py", line 760, in run_weak_scaling_point
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/weak_scaling_hydro.py", line 140, in <module>
+    run_weak_scaling_point(
+    run_weak_scaling_point(
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/_benchmark_utils.py", line 760, in run_weak_scaling_point
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/_benchmark_utils.py", line 760, in run_weak_scaling_point
+    run_weak_scaling_point(
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/_benchmark_utils.py", line 760, in run_weak_scaling_point
+    run_weak_scaling_point(
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/_benchmark_utils.py", line 760, in run_weak_scaling_point
+    run_weak_scaling_point(
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/_benchmark_utils.py", line 760, in run_weak_scaling_point
+    run_weak_scaling_point(
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/pytests/_benchmark_utils.py", line 760, in run_weak_scaling_point
+    result = time_integration(
+             ^^^^^^^^^^^^^^^^^
+    result = time_integration(
+    result = time_integration(
+             ^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/time_stepping/time_integration.py", line 167, in time_integration
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/time_stepping/time_integration.py", line 167, in time_integration
+             ^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/time_stepping/time_integration.py", line 167, in time_integration
+    result = time_integration(
+             ^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/time_stepping/time_integration.py", line 167, in time_integration
+    result = time_integration(
+             ^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/time_stepping/time_integration.py", line 167, in time_integration
+    result = time_integration(
+    result = time_integration(
+             ^^^^^^^^^^^^^^^^^
+             ^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/time_stepping/time_integration.py", line 167, in time_integration
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/time_stepping/time_integration.py", line 167, in time_integration
+    result = time_integration(
+             ^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/time_stepping/time_integration.py", line 167, in time_integration
+    params = jax.tree.map(
+    params = jax.tree.map(
+             ^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree.py", line 156, in map
+             ^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree.py", line 156, in map
+    params = jax.tree.map(
+    params = jax.tree.map(
+             ^^^^^^^^^^^^^
+             ^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree.py", line 156, in map
+    params = jax.tree.map(
+             ^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree.py", line 156, in map
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree.py", line 156, in map
+    params = jax.tree.map(
+             ^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree.py", line 156, in map
+    params = jax.tree.map(
+             ^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree.py", line 156, in map
+    params = jax.tree.map(
+             ^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree.py", line 156, in map
+    return tree_util.tree_map(f, tree, *rest, is_leaf=is_leaf)
+    return tree_util.tree_map(f, tree, *rest, is_leaf=is_leaf)
+    return tree_util.tree_map(f, tree, *rest, is_leaf=is_leaf)
+    return tree_util.tree_map(f, tree, *rest, is_leaf=is_leaf)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree_util.py", line 373, in tree_map
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree_util.py", line 373, in tree_map
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree_util.py", line 373, in tree_map
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree_util.py", line 373, in tree_map
+    return tree_util.tree_map(f, tree, *rest, is_leaf=is_leaf)
+    return tree_util.tree_map(f, tree, *rest, is_leaf=is_leaf)
+    return tree_util.tree_map(f, tree, *rest, is_leaf=is_leaf)
+    return tree_util.tree_map(f, tree, *rest, is_leaf=is_leaf)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree_util.py", line 373, in tree_map
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree_util.py", line 373, in tree_map
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree_util.py", line 373, in tree_map
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree_util.py", line 373, in tree_map
+    return treedef.unflatten(f(*xs) for xs in zip(*all_leaves))
+    return treedef.unflatten(f(*xs) for xs in zip(*all_leaves))
+    return treedef.unflatten(f(*xs) for xs in zip(*all_leaves))
+    return treedef.unflatten(f(*xs) for xs in zip(*all_leaves))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree_util.py", line 373, in <genexpr>
+    return treedef.unflatten(f(*xs) for xs in zip(*all_leaves))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree_util.py", line 373, in <genexpr>
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree_util.py", line 373, in <genexpr>
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree_util.py", line 373, in <genexpr>
+    return treedef.unflatten(f(*xs) for xs in zip(*all_leaves))
+    return treedef.unflatten(f(*xs) for xs in zip(*all_leaves))
+    return treedef.unflatten(f(*xs) for xs in zip(*all_leaves))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree_util.py", line 373, in <genexpr>
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree_util.py", line 373, in <genexpr>
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree_util.py", line 373, in <genexpr>
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/tree_util.py", line 373, in <genexpr>
+    return treedef.unflatten(f(*xs) for xs in zip(*all_leaves))
+    return treedef.unflatten(f(*xs) for xs in zip(*all_leaves))
+                             ^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/time_stepping/time_integration.py", line 168, in <lambda>
+                             ^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/time_stepping/time_integration.py", line 168, in <lambda>
+    return treedef.unflatten(f(*xs) for xs in zip(*all_leaves))
+    return treedef.unflatten(f(*xs) for xs in zip(*all_leaves))
+                             ^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/time_stepping/time_integration.py", line 168, in <lambda>
+    return treedef.unflatten(f(*xs) for xs in zip(*all_leaves))
+                             ^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/time_stepping/time_integration.py", line 168, in <lambda>
+                             ^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/time_stepping/time_integration.py", line 168, in <lambda>
+    return treedef.unflatten(f(*xs) for xs in zip(*all_leaves))
+                             ^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/time_stepping/time_integration.py", line 168, in <lambda>
+    return treedef.unflatten(f(*xs) for xs in zip(*all_leaves))
+    lambda leaf: jax.device_put(leaf, replicated),
+    return treedef.unflatten(f(*xs) for xs in zip(*all_leaves))
+                             ^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/time_stepping/time_integration.py", line 168, in <lambda>
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/api.py", line 2732, in device_put
+                             ^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/astronomix/astronomix/time_stepping/time_integration.py", line 168, in <lambda>
+    lambda leaf: jax.device_put(leaf, replicated),
+    lambda leaf: jax.device_put(leaf, replicated),
+    lambda leaf: jax.device_put(leaf, replicated),
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/api.py", line 2732, in device_put
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/api.py", line 2732, in device_put
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/api.py", line 2732, in device_put
+    lambda leaf: jax.device_put(leaf, replicated),
+    lambda leaf: jax.device_put(leaf, replicated),
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/api.py", line 2732, in device_put
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    lambda leaf: jax.device_put(leaf, replicated),
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/api.py", line 2732, in device_put
+    lambda leaf: jax.device_put(leaf, replicated),
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/api.py", line 2732, in device_put
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/api.py", line 2732, in device_put
+    out_flat = dispatch._batched_device_put_impl(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    out_flat = dispatch._batched_device_put_impl(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    out_flat = dispatch._batched_device_put_impl(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/dispatch.py", line 602, in _batched_device_put_impl
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/dispatch.py", line 602, in _batched_device_put_impl
+    out_flat = dispatch._batched_device_put_impl(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/dispatch.py", line 602, in _batched_device_put_impl
+    out_flat = dispatch._batched_device_put_impl(
+    out_flat = dispatch._batched_device_put_impl(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/dispatch.py", line 602, in _batched_device_put_impl
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/dispatch.py", line 602, in _batched_device_put_impl
+    out_flat = dispatch._batched_device_put_impl(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    out_flat = dispatch._batched_device_put_impl(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/dispatch.py", line 602, in _batched_device_put_impl
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/dispatch.py", line 602, in _batched_device_put_impl
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/dispatch.py", line 602, in _batched_device_put_impl
+    y = _device_put_impl(x, device=device, src=src, copy=cp, aval=aval)
+    y = _device_put_impl(x, device=device, src=src, copy=cp, aval=aval)
+    y = _device_put_impl(x, device=device, src=src, copy=cp, aval=aval)
+    y = _device_put_impl(x, device=device, src=src, copy=cp, aval=aval)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    y = _device_put_impl(x, device=device, src=src, copy=cp, aval=aval)
+    y = _device_put_impl(x, device=device, src=src, copy=cp, aval=aval)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    y = _device_put_impl(x, device=device, src=src, copy=cp, aval=aval)
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/dispatch.py", line 582, in _device_put_impl
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/dispatch.py", line 582, in _device_put_impl
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/dispatch.py", line 582, in _device_put_impl
+    y = _device_put_impl(x, device=device, src=src, copy=cp, aval=aval)
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/dispatch.py", line 582, in _device_put_impl
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/dispatch.py", line 582, in _device_put_impl
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/dispatch.py", line 582, in _device_put_impl
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/dispatch.py", line 582, in _device_put_impl
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/dispatch.py", line 582, in _device_put_impl
+    return _device_put_sharding_impl(x, aval, device, copy)
+    return _device_put_sharding_impl(x, aval, device, copy)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    return _device_put_sharding_impl(x, aval, device, copy)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/dispatch.py", line 496, in _device_put_sharding_impl
+    return _device_put_sharding_impl(x, aval, device, copy)
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/dispatch.py", line 496, in _device_put_sharding_impl
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    return _device_put_sharding_impl(x, aval, device, copy)
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/dispatch.py", line 496, in _device_put_sharding_impl
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/dispatch.py", line 496, in _device_put_sharding_impl
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/dispatch.py", line 496, in _device_put_sharding_impl
+    return _device_put_sharding_impl(x, aval, device, copy)
+    return _device_put_sharding_impl(x, aval, device, copy)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/dispatch.py", line 496, in _device_put_sharding_impl
+    return _device_put_sharding_impl(x, aval, device, copy)
+    multihost_utils.assert_equal(
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/experimental/multihost_utils.py", line 183, in assert_equal
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/dispatch.py", line 496, in _device_put_sharding_impl
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/_src/dispatch.py", line 496, in _device_put_sharding_impl
+    multihost_utils.assert_equal(
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/experimental/multihost_utils.py", line 183, in assert_equal
+    multihost_utils.assert_equal(
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/experimental/multihost_utils.py", line 183, in assert_equal
+    multihost_utils.assert_equal(
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/experimental/multihost_utils.py", line 183, in assert_equal
+    multihost_utils.assert_equal(
+    multihost_utils.assert_equal(
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/experimental/multihost_utils.py", line 183, in assert_equal
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/experimental/multihost_utils.py", line 183, in assert_equal
+    multihost_utils.assert_equal(
+    multihost_utils.assert_equal(
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/experimental/multihost_utils.py", line 183, in assert_equal
+  File "/hkfs/home/project/hk-project-pai00101/hd_bn306/micromamba/envs/astrojax09/lib/python3.12/site-packages/jax/experimental/multihost_utils.py", line 183, in assert_equal
+    raise AssertionError(
+AssertionError: <class 'float'> passed to device_put is not the same on each process. Make sure you are passing the same value of <class 'float'> on each process.. Expected: [1.6666666 1.6666666 1.6666666 1.6666666 1.6666666 1.6666666 1.6666666
+ 1.6666666]; got: 1.6666666666666667.
+    raise AssertionError(
+AssertionError: <class 'float'> passed to device_put is not the same on each process. Make sure you are passing the same value of <class 'float'> on each process.. Expected: [1.6666666 1.6666666 1.6666666 1.6666666 1.6666666 1.6666666 1.6666666
+ 1.6666666]; got: 1.6666666666666667.
+    raise AssertionError(
+AssertionError: <class 'float'> passed to device_put is not the same on each process. Make sure you are passing the same value of <class 'float'> on each process.. Expected: [1.6666666 1.6666666 1.6666666 1.6666666 1.6666666 1.6666666 1.6666666
+ 1.6666666]; got: 1.6666666666666667.
+    raise AssertionError(
+AssertionError: <class 'float'> passed to device_put is not the same on each process. Make sure you are passing the same value of <class 'float'> on each process.. Expected: [1.6666666 1.6666666 1.6666666 1.6666666 1.6666666 1.6666666 1.6666666
+ 1.6666666]; got: 1.6666666666666667.
+    raise AssertionError(
+AssertionError: <class 'float'> passed to device_put is not the same on each process. Make sure you are passing the same value of <class 'float'> on each process.. Expected: [1.6666666 1.6666666 1.6666666 1.6666666 1.6666666 1.6666666 1.6666666
+ 1.6666666]; got: 1.6666666666666667.
+    raise AssertionError(
+AssertionError: <class 'float'> passed to device_put is not the same on each process. Make sure you are passing the same value of <class 'float'> on each process.. Expected: [1.6666666 1.6666666 1.6666666 1.6666666 1.6666666 1.6666666 1.6666666
+ 1.6666666]; got: 1.6666666666666667.
+    raise AssertionError(
+AssertionError: <class 'float'> passed to device_put is not the same on each process. Make sure you are passing the same value of <class 'float'> on each process.. Expected: [1.6666666 1.6666666 1.6666666 1.6666666 1.6666666 1.6666666 1.6666666
+ 1.6666666]; got: 1.6666666666666667.
+    raise AssertionError(
+AssertionError: <class 'float'> passed to device_put is not the same on each process. Make sure you are passing the same value of <class 'float'> on each process.. Expected: [1.6666666 1.6666666 1.6666666 1.6666666 1.6666666 1.6666666 1.6666666
+ 1.6666666]; got: 1.6666666666666667.
+W0702 01:55:15.257404 1997226 pjrt_client.cc:1604] WatchJobStateAsync failed for task 0: UNAVAILABLE: failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.102:65374: Failed to connect to remote host: Connection refused
+Additional GRPC error information from remote target coordination_service while calling /tensorflow.CoordinationService/WatchJobState:
+:UNKNOWN:Error received from peer  {grpc_status:14, grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.102:65374: Failed to connect to remote host: Connection refused"}
+W0702 01:55:15.257465 1997227 pjrt_client.cc:1604] WatchJobStateAsync failed for task 2: UNAVAILABLE: failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.102:65374: Failed to connect to remote host: Connection refused
+Additional GRPC error information from remote target coordination_service while calling /tensorflow.CoordinationService/WatchJobState:
+:UNKNOWN:Error received from peer  {grpc_status:14, grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.102:65374: Failed to connect to remote host: Connection refused"}
+W0702 01:55:15.257509 1997228 pjrt_client.cc:1604] WatchJobStateAsync failed for task 1: UNAVAILABLE: failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.102:65374: Failed to connect to remote host: Connection refused
+Additional GRPC error information from remote target coordination_service while calling /tensorflow.CoordinationService/WatchJobState:
+:UNKNOWN:Error received from peer  {grpc_status:14, grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.102:65374: Failed to connect to remote host: Connection refused"}
+W0702 01:55:15.257717 1355956 pjrt_client.cc:1604] WatchJobStateAsync failed for task 5: UNAVAILABLE: failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.102:65374: Failed to connect to remote host: Connection refused
+Additional GRPC error information from remote target coordination_service while calling /tensorflow.CoordinationService/WatchJobState:
+:UNKNOWN:Error received from peer  {grpc_status:14, grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.102:65374: Failed to connect to remote host: Connection refused"}
+W0702 01:55:15.257752 1997229 pjrt_client.cc:1604] WatchJobStateAsync failed for task 3: UNAVAILABLE: failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.102:65374: Failed to connect to remote host: Connection refused
+Additional GRPC error information from remote target coordination_service while calling /tensorflow.CoordinationService/WatchJobState:
+:UNKNOWN:Error received from peer  {grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.102:65374: Failed to connect to remote host: Connection refused", grpc_status:14}
+W0702 01:55:15.257762 1355954 pjrt_client.cc:1604] WatchJobStateAsync failed for task 4: UNAVAILABLE: failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.102:65374: Failed to connect to remote host: Connection refused
+Additional GRPC error information from remote target coordination_service while calling /tensorflow.CoordinationService/WatchJobState:
+:UNKNOWN:Error received from peer  {grpc_status:14, grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.102:65374: Failed to connect to remote host: Connection refused"}
+W0702 01:55:15.257768 1355955 pjrt_client.cc:1604] WatchJobStateAsync failed for task 6: UNAVAILABLE: failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.102:65374: Failed to connect to remote host: Connection refused
+Additional GRPC error information from remote target coordination_service while calling /tensorflow.CoordinationService/WatchJobState:
+:UNKNOWN:Error received from peer  {grpc_status:14, grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.102:65374: Failed to connect to remote host: Connection refused"}
+W0702 01:55:15.257776 1355957 pjrt_client.cc:1604] WatchJobStateAsync failed for task 7: UNAVAILABLE: failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.102:65374: Failed to connect to remote host: Connection refused
+Additional GRPC error information from remote target coordination_service while calling /tensorflow.CoordinationService/WatchJobState:
+:UNKNOWN:Error received from peer  {grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:10.0.4.102:65374: Failed to connect to remote host: Connection refused", grpc_status:14}
+srun: error: hkn0915: task 4: Exited with exit code 1
+srun: error: hkn0903: tasks 0,3: Exited with exit code 1
+srun: error: hkn0915: tasks 5-7: Exited with exit code 1
+srun: error: hkn0903: task 2: Exited with exit code 1
+srun: error: hkn0903: task 1: Exited with exit code 1
