@@ -64,6 +64,23 @@ class SnapshotData(NamedTuple):
     #: The temperature PDF (dV/dlogT) at the times the snapshots were taken.
     temperature_pdf: jnp.ndarray = None
 
+    #: The mass-weighted (rho-weighted) Eulerian temperature PDF (dM/dlogT) at
+    #: the times the snapshots were taken.
+    mass_temperature_pdf: jnp.ndarray = None
+
+    #: Lagrangian tracer temperatures, shape ``(num_snapshots, num_tracers)``,
+    #: recorded at each snapshot time.
+    tracer_temperature: jnp.ndarray = None
+
+    #: Lagrangian tracer positions, shape ``(num_snapshots, num_tracers, dim)``,
+    #: recorded at each snapshot time (when ``tracer_config.record_positions``).
+    tracer_position: jnp.ndarray = None
+
+    #: Per-tracer regeneration counter, shape ``(num_snapshots, num_tracers)``,
+    #: recorded when the regeneration thermostat is active; the analysis drops
+    #: increments whose endpoints differ in generation.
+    tracer_generation: jnp.ndarray = None
+
     #: The runtime of the simulation loop.
     runtime: float = 0.0
 

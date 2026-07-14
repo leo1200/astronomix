@@ -31,6 +31,7 @@ from astronomix._modules._neural_net_force._neural_net_force_options import (
     NeuralNetForceConfig,
 )
 from astronomix._modules._stellar_wind.stellar_wind_options import WindConfig
+from astronomix._modules._tracers._tracer_options import TracerConfig
 from astronomix._modules._turbulent_forcing._turbulent_forcing_options import TurbulentForcingConfig
 
 # ===================== constant definition =====================
@@ -256,6 +257,12 @@ class SnapshotSettings(NamedTuple):
     num_temperature_bins: int = 100
     temperature_pdf_min: float = 1e-10
     temperature_pdf_max: float = 1e10
+
+    #: Whether to return the mass-weighted (rho-weighted) Eulerian temperature
+    #: PDF (dM/dlogT) on the same bins as ``return_temperature_pdf``. Used to
+    #: validate that the Lagrangian tracer marginal samples the mass
+    #: distribution (the tracer Fokker-Planck self-consistency test).
+    return_mass_weighted_temperature_pdf: bool = False
 
 
 class BoundarySettings1D(NamedTuple):
@@ -605,6 +612,11 @@ class SimulationConfig(NamedTuple):
 
     #: Configuration of the CNN MHD corrector module.
     cnn_mhd_corrector_config: CNNMHDconfig = CNNMHDconfig()
+
+    #: Configuration of the Lagrangian tracer-particle module. When enabled,
+    #: tracer positions are carried in the loop state and advected each step;
+    #: requires ``state_struct = True`` to supply initial positions.
+    tracer_config: TracerConfig = TracerConfig()
 
 
 def gpu_compute_capability_at_least_80() -> bool:

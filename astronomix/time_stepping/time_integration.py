@@ -57,6 +57,14 @@ from astronomix._finite_difference._timestep_estimation._timestep_estimator impo
     _cfl_time_step_fd_hydro
 )
 from astronomix._modules._iteration_level_updates import _iteration_level_updates
+from astronomix._modules._tracers._tracers import (
+    _interior_slice as _tracer_interior_slice,
+    advance_tracers,
+    recycle_tracers,
+    regenerate_tracers,
+    sample_tracer_temperature,
+    seed_tracers,
+)
 from astronomix._modules._turbulent_forcing._turbulent_forcing import _init_ou_forcing_state
 from astronomix._snapshotting._snapshot_diagnostics import (
     build_snapshot_store,
@@ -101,10 +109,17 @@ class LoopState(NamedTuple):
         key: The PRNG key advanced by stochastic per-step modules (forcing, ...).
         forcing: The persistent OU forcing field ``f`` (shape (3, nx, ny, nz)),
             or ``None`` when OU forcing is inactive.
+        tracers: Lagrangian tracer-particle positions ``(num_tracers, dim)``,
+            or ``None`` when the tracer module is inactive.
+        tracer_generation: Per-tracer regeneration counter ``(num_tracers,)``,
+            bumped each time a tracer is re-drawn by the regeneration thermostat;
+            used by the analysis to drop increments spanning a regeneration.
     """
     primitive_state: Any
     key: Any
     forcing: Any = None
+    tracers: Any = None
+    tracer_generation: Any = None
 
 
 def _raise_with_time_integration_hint(error: Exception, config: SimulationConfig):
@@ -515,20 +530,57 @@ def _seed_key_and_forcing(config, params):
     return key0, forcing0
 
 
-def _build_initial_loop_state(primitive_state, config, params, restart_state=None):
+def _seed_tracers_if_needed(primitive_state, config, registered_variables, tracers):
+    """Return tracer positions for the initial carry.
+
+    Passes ``tracers`` straight through when supplied (e.g. from a
+    ``StateStruct``); when the tracer module is active but no positions were
+    given, seeds them from the (padded) initial density via the configured seed
+    mode. Returns ``None`` when the tracer module is inactive.
+    """
+    if not config.tracer_config.tracers:
+        return None
+    if tracers is not None:
+        return tracers
+    # Seed from the interior density of the (padded) initial state. Fold the
+    # random seed so tracer seeding does not consume the forcing PRNG stream.
+    density = primitive_state[registered_variables.density_index]
+    density_interior = density[_tracer_interior_slice(config)]
+    tracer_key = jax.random.fold_in(jax.random.key(config.random_seed), 1)
+    return seed_tracers(
+        tracer_key, density_interior, config, config.tracer_config.num_tracers
+    )
+
+
+def _build_initial_loop_state(
+    primitive_state, config, params, registered_variables, restart_state=None, tracers=None
+):
     """Construct the initial loop carry for an (already padded) state.
 
     When ``restart_state`` is given, its PRNG key and persistent OU forcing
     field are reused so a resumed run continues the same stochastic realisation;
     otherwise they are seeded from ``config.random_seed``. The OU forcing (when
     active) needs a persistent solenoidal field; otherwise the forcing slot
-    stays ``None`` and costs nothing in the carry.
+    stays ``None`` and costs nothing in the carry. Tracer positions are passed
+    through when supplied, else seeded from the initial density.
     """
+    tracers = _seed_tracers_if_needed(
+        primitive_state, config, registered_variables, tracers
+    )
+    generation = (
+        jnp.zeros(config.tracer_config.num_tracers, dtype=jnp.int32)
+        if config.tracer_config.tracers
+        else None
+    )
+
     if restart_state is not None:
-        return LoopState(primitive_state, restart_state.key, restart_state.forcing)
+        return LoopState(
+            primitive_state, restart_state.key, restart_state.forcing, tracers,
+            generation,
+        )
 
     key0, forcing0 = _seed_key_and_forcing(config, params)
-    return LoopState(primitive_state, key0, forcing0)
+    return LoopState(primitive_state, key0, forcing0, tracers, generation)
 
 
 def _integrate_core(
@@ -601,6 +653,8 @@ def _integrate_core(
         primitive_state = state.primitive_state
         key = state.key
         forcing = state.forcing
+        tracers = state.tracers
+        tracer_generation = state.tracer_generation
 
         # determine the time step size
         if not config.fixed_timestep:
@@ -668,7 +722,27 @@ def _integrate_core(
                 helper_data_pad, registered_variables,
             )
 
-        return dt, LoopState(primitive_state, key, forcing)
+        # advect tracer particles with the end-of-step (padded) velocity field,
+        # then apply flux-matched boundary recycling so the (mass-seeded) tracer
+        # ensemble tracks the steady-state mass distribution rather than its
+        # initial seeding (the inflow mass is otherwise never tracered).
+        if config.tracer_config.tracers:
+            tracers = advance_tracers(
+                tracers, primitive_state, dt, config, registered_variables
+            )
+            if config.tracer_config.recycle:
+                key, tracers = recycle_tracers(
+                    tracers, key, primitive_state, dt, config, registered_variables
+                )
+            if config.tracer_config.regenerate:
+                key, tracers, tracer_generation = regenerate_tracers(
+                    tracers, tracer_generation, key, primitive_state, dt, config,
+                    registered_variables,
+                )
+
+        return dt, LoopState(
+            primitive_state, key, forcing, tracers, tracer_generation
+        )
 
     def _record_snapshot(time, state, store, idx):
         """Record snapshot ``idx`` (the requested diagnostics)."""
@@ -682,7 +756,7 @@ def _integrate_core(
         # Recover the unpadded helper data by slicing — free under jit.
         helper_data_unpad = _unpad_helper_data(helper_data_pad, config)
 
-        return record_snapshot(
+        store = record_snapshot(
             store,
             idx,
             time,
@@ -692,6 +766,32 @@ def _integrate_core(
             config,
             registered_variables,
         )
+
+        # Tracer diagnostics live outside the SNAPSHOT_QUANTITIES registry
+        # because they need the tracer positions from the loop carry (the
+        # registry's compute() only sees the primitive state). Temperature is
+        # interpolated on the padded state at the tracer positions.
+        if config.tracer_config.tracers:
+            tracer_temperature = sample_tracer_temperature(
+                state.tracers, primitive_state, config, registered_variables
+            )
+            store = store._replace(
+                tracer_temperature=store.tracer_temperature.at[idx].set(
+                    tracer_temperature
+                )
+            )
+            if config.tracer_config.record_positions:
+                store = store._replace(
+                    tracer_position=store.tracer_position.at[idx].set(state.tracers)
+                )
+            if config.tracer_config.regenerate:
+                store = store._replace(
+                    tracer_generation=store.tracer_generation.at[idx].set(
+                        state.tracer_generation
+                    )
+                )
+
+        return store
 
     def _should_record_snapshot(time, idx):
         """Whether snapshot ``idx`` is due at the start of a step at ``time``."""
@@ -816,8 +916,10 @@ def _time_integration(
     # and the star particle data
     if config.state_struct:
         primitive_state = state.primitive_state
+        tracers = state.tracers
     else:
         primitive_state = state
+        tracers = None
 
     # we must pad the state with ghost cells to account for the
     # boundary conditions (unless they are enforced by rolling)
@@ -828,7 +930,7 @@ def _time_integration(
 
     if initial_loop_state is None:
         initial_loop_state = _build_initial_loop_state(
-            primitive_state, config, params
+            primitive_state, config, params, registered_variables, tracers=tracers
         )
 
     _, loop_state, snapshot_store, num_iterations = _integrate_core(
@@ -865,7 +967,7 @@ def _time_integration(
         primitive_state = _unpad(primitive_state, config)
 
     if config.state_struct:
-        return StateStruct(primitive_state=primitive_state)
+        return StateStruct(primitive_state=primitive_state, tracers=loop_state.tracers)
 
     return primitive_state
 

@@ -10,6 +10,8 @@ the fluid. Selected via ``config.state_struct``.
 from types import NoneType
 from typing import NamedTuple, Union
 
+import jax.numpy as jnp
+
 # astronomix constants
 from astronomix.option_classes.simulation_config import STATE_TYPE
 
@@ -21,6 +23,11 @@ class StateStruct(NamedTuple):
 
     #: The fluid (primitive) state.
     primitive_state: Union[STATE_TYPE, NoneType] = None
+
+    #: Lagrangian tracer-particle positions, shape ``(num_tracers, dim)``,
+    #: or ``None`` when the tracer module is inactive. Supplied as the initial
+    #: positions on input; returned (no-snapshot path) as the final positions.
+    tracers: Union[jnp.ndarray, NoneType] = None
 
     # Further fields (for example the positions of star particles) can be added
     # here as the simulation grows to follow additional quantities.

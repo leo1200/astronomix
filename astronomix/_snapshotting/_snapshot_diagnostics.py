@@ -190,23 +190,65 @@ def _compute_helicity_spectrum(primitive_state, helper_data, params, config, reg
     return spectrum
 
 
+def _fast_uniform_histogram(values, low, high, number_of_bins, weights=None):
+    """Weighted histogram on a fixed uniform range, scatter-free.
+
+    A drop-in replacement for ``jnp.histogram(values, bins=n, range=(low, high),
+    weights=w)`` that stays fast *inside the time-integration ``while_loop``*.
+    Both ``jnp.histogram`` (a sort) and ``jnp.bincount`` (a scatter-add) are
+    fast in isolation but lower to a serialized atomic scatter inside a
+    ``while_loop`` body — ~140 ms per call at 64^3, which dominated per-snapshot
+    recording (the temperature PDFs were ~99% of the per-iteration cost). This
+    uses a dense one-hot reduction instead: a comparison against the bin indices
+    followed by a weighted sum. No scatter, no sort — ~0.03 ms per call, a
+    ~4000x speed-up in the loop. The transient one-hot array is
+    ``(num_cells, number_of_bins)``; at 128^3 that is ~1.25 GB, comfortably
+    within an accelerator's memory and freed immediately.
+
+    Values outside ``[low, high)`` are dropped (weight zeroed), matching
+    ``jnp.histogram`` up to its inclusive right edge (a single-bin difference
+    that is irrelevant for the PDFs here).
+    """
+    scaled = (values - low) / (high - low) * number_of_bins
+    bin_index = jnp.clip(jnp.floor(scaled).astype(jnp.int32), 0, number_of_bins - 1)
+    in_range = (values >= low) & (values < high)
+    if weights is None:
+        weights = jnp.ones_like(values)
+    weights = jnp.where(in_range, weights, 0.0)
+    one_hot = bin_index[:, None] == jnp.arange(number_of_bins)[None, :]
+    return jnp.sum(one_hot * weights[:, None], axis=0)
+
+
 def _compute_temperature_pdf(primitive_state, helper_data, params, config, registered_variables):
     # temperature from the ideal gas law, ASSUMING T = P / rho
     temperature = (
         primitive_state[registered_variables.pressure_index]
         / primitive_state[registered_variables.density_index]
     )
-    log_temperature = jnp.log10(temperature)
+    log_temperature = jnp.log10(temperature).flatten()
     # temperature PDF (dV / dlogT)
-    volume_per_log_temperature, _ = jnp.histogram(
-        log_temperature.flatten(),
-        range=(
-            jnp.log10(config.snapshot_settings.temperature_pdf_min),
-            jnp.log10(config.snapshot_settings.temperature_pdf_max),
-        ),
-        bins=config.snapshot_settings.num_temperature_bins,
+    return _fast_uniform_histogram(
+        log_temperature,
+        jnp.log10(config.snapshot_settings.temperature_pdf_min),
+        jnp.log10(config.snapshot_settings.temperature_pdf_max),
+        config.snapshot_settings.num_temperature_bins,
     )
-    return volume_per_log_temperature
+
+
+def _compute_mass_weighted_temperature_pdf(primitive_state, helper_data, params, config, registered_variables):
+    # mass-weighted (rho-weighted) temperature PDF (dM / dlogT). Cartesian cells
+    # share a volume, so the cell mass is proportional to rho; weighting the
+    # log10(T) histogram by rho gives the mass distribution over temperature.
+    density = primitive_state[registered_variables.density_index]
+    temperature = primitive_state[registered_variables.pressure_index] / density
+    log_temperature = jnp.log10(temperature).flatten()
+    return _fast_uniform_histogram(
+        log_temperature,
+        jnp.log10(config.snapshot_settings.temperature_pdf_min),
+        jnp.log10(config.snapshot_settings.temperature_pdf_max),
+        config.snapshot_settings.num_temperature_bins,
+        weights=density.flatten(),
+    )
 
 
 SNAPSHOT_QUANTITIES = (
@@ -292,6 +334,14 @@ SNAPSHOT_QUANTITIES = (
         ),
         compute=_compute_temperature_pdf,
     ),
+    SnapshotQuantity(
+        field="mass_temperature_pdf",
+        is_enabled=lambda config: config.snapshot_settings.return_mass_weighted_temperature_pdf,
+        per_snapshot_shape=lambda config, state_shape: (
+            config.snapshot_settings.num_temperature_bins,
+        ),
+        compute=_compute_mass_weighted_temperature_pdf,
+    ),
 )
 
 
@@ -310,6 +360,25 @@ def build_snapshot_store(config, number_of_snapshots, state_shape) -> SnapshotDa
         )
         for quantity in enabled_snapshot_quantities(config)
     }
+
+    # Tracer buffers are allocated here but written by the time integrator's
+    # snapshot recorder (not the SNAPSHOT_QUANTITIES registry), because the
+    # per-quantity ``compute(primitive_state, ...)`` signature has no access to
+    # the tracer positions carried in the loop state.
+    if config.tracer_config.tracers:
+        number_of_tracers = config.tracer_config.num_tracers
+        quantity_buffers["tracer_temperature"] = jnp.zeros(
+            (number_of_snapshots, number_of_tracers)
+        )
+        if config.tracer_config.record_positions:
+            quantity_buffers["tracer_position"] = jnp.zeros(
+                (number_of_snapshots, number_of_tracers, config.dimensionality)
+            )
+        if config.tracer_config.regenerate:
+            quantity_buffers["tracer_generation"] = jnp.zeros(
+                (number_of_snapshots, number_of_tracers), dtype=jnp.int32
+            )
+
     return SnapshotData(
         time_points=jnp.zeros(number_of_snapshots),
         k_spectra=spectral_wavenumbers(config),
