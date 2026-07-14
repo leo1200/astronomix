@@ -25,6 +25,7 @@ import jax
 from astronomix._modules._cnn_mhd_corrector._cnn_mhd_corrector_options import (
     CNNMHDconfig,
 )
+from astronomix._modules._chemistry.chemistry_options import ChemistryConfig
 from astronomix._modules._cooling.cooling_options import CoolingConfig
 from astronomix._modules._cosmic_rays.cosmic_ray_options import CosmicRayConfig
 from astronomix._modules._neural_net_force._neural_net_force_options import (
@@ -594,6 +595,9 @@ class SimulationConfig(NamedTuple):
 
     #: The configuration for the cooling module.
     cooling_config: CoolingConfig = CoolingConfig()
+
+    #: Configuration for advected chemical species and their reaction source term.
+    chemistry_config: ChemistryConfig = ChemistryConfig()
 
     #: Frame tracking in z-direction
     #: shifting the frame to follow a
