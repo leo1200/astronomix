@@ -6,14 +6,18 @@ write-up of the tracer-particle study of the turbulent-radiative-mixing-layer
 Eulerian**, **Lagrangian**, and **model** (Fokker–Planck / transfer-matrix)
 temperature PDFs be brought into agreement, and *what does or does not hold*?
 
-Reproduce:
+Reproduce (the installed `astronomix` wheel is stale w.r.t. this branch, so
+either `pip install .` from the repo root first, or prepend the repo to
+`PYTHONPATH` as below so the branch's `astronomix` is used):
 ```bash
 cd tests/trml
-TRML_PRESET=fiducial python trml_tracers.py        # N=128 two-phase run
-TRML_PRESET=fiducial python fokker_planck_test.py   # FP reconstruction
-TRML_PRESET=fiducial python transfer_matrix_test.py # transfer-matrix + CK + kernel
+REPO=$(git rev-parse --show-toplevel)
+TRML_PRESET=fiducial PYTHONPATH=$REPO python trml_tracers.py        # N=128 two-phase run
+TRML_PRESET=fiducial python fokker_planck_test.py    # FP reconstruction (no astronomix import)
+TRML_PRESET=fiducial python transfer_matrix_test.py  # transfer-matrix + CK + kernel
 ```
-(`long64` = N=64 steady-state; `quick` = shakedown.)
+(`long64` = N=64 steady-state; `quick` = shakedown. Only `trml_tracers.py`
+imports `astronomix`; the two analyses just load the saved `.npz`.)
 
 ---
 
