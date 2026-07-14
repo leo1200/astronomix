@@ -1,7 +1,7 @@
 # standard gitignore from
 # https://github.com/github/gitignore/blob/main/Python.gitignore
 
-.claude/
+
 node_modules/
 package.json
 package-lock.json
