@@ -202,9 +202,14 @@ def stationary(Mmat):
     vals, vecs = np.linalg.eig(Mmat.T)
     k = int(np.argmin(np.abs(vals - 1.0)))
     pi = np.real(vecs[:, k])
+    # eig fixes the eigenvector only up to sign; orient it so its mass is
+    # positive before clipping numerical dust (else an all-negative vector would
+    # clip to all zeros -> a spurious "collapsed" pi).
+    if pi.sum() < 0:
+        pi = -pi
     pi = np.where(pi < 0, 0.0, pi)   # kill tiny negative numerical dust
     s = pi.sum()
-    return pi / s if s > 0 else pi
+    return pi / s if s > 0 else np.full(NB, 1.0 / NB)
 
 
 def row_tv(A, B, weights):
