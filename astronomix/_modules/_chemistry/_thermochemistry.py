@@ -1,6 +1,9 @@
 """
 Heating and cooling for the chemistry module (thermochemistry).
 
+LICENSE: GPL-3.0 (NOT astronomix's MIT). This file is a derivative work of KROME
+(Grassi et al. 2014, GPL-3.0); see ``LICENSE.md`` in this directory.
+
 Provides the net gas heating minus cooling rate and the corresponding
 temperature derivative used to evolve the gas temperature alongside the chemical
 abundances. Everything works in CGS with the temperature in Kelvin, matching the

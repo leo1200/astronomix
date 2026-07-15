@@ -34,8 +34,10 @@ from astronomix._modules._chemistry.chemistry_options import (
     ChemistryParams,
 )
 
-# Default location of KROME's Neufeld & Kaufman CO cooling table.
-DEFAULT_CO_COOLING_TABLE_PATH = "/export/scratch/lbranca/krome/data/coolCO.dat"
+# The Neufeld & Kaufman CO cooling table is KROME/Omukai data (GPL) and is NOT
+# bundled here; the caller must supply the path to their own ``coolCO.dat`` when
+# CO cooling is requested. There is deliberately no default path.
+DEFAULT_CO_COOLING_TABLE_PATH = None
 
 
 def _load_co_cooling_table(table_path):
@@ -101,7 +103,7 @@ def build_chemistry_from_network_file(
     floor_temperature: float = 1e1,
     hydrogen_molecule_formation_rate_coefficient: float = 3e-17,
     co_cooling: bool = False,
-    co_cooling_table_path: str = DEFAULT_CO_COOLING_TABLE_PATH,
+    co_cooling_table_path=DEFAULT_CO_COOLING_TABLE_PATH,
 ) -> Tuple[ChemistryConfig, ChemistryParams, Tuple[str, ...]]:
     """Assemble the chemistry containers from a carbox network file.
 
@@ -164,6 +166,12 @@ def build_chemistry_from_network_file(
     co_cooling_table = jnp.array([])
     co_cooling_bounds = jnp.array([])
     if co_cooling:
+        if co_cooling_table_path is None:
+            raise ValueError(
+                "co_cooling=True requires co_cooling_table_path pointing to a "
+                "Neufeld & Kaufman CO cooling table (e.g. KROME's coolCO.dat); "
+                "no table is bundled."
+            )
         co_cooling_table, co_cooling_bounds = _load_co_cooling_table(
             co_cooling_table_path
         )
