@@ -391,10 +391,11 @@ a cycle-20 observation is a soft-band error, not a model error).
 Count rates in 0.5–7 keV against the real 295 counts/s, and band ratios
 (synthetic/real) inside r < 200″:
 
-| model | rate | 0.5–1.5 | 1.5–2.1 | 2.1–2.8 | 4.2–6.0 | 6.0–7.0 |
-|---|---|---|---|---|---|---|
-| single-fluid `T` (CIE) | 113.5 (0.39x) | 0.20 | — | — | — | 3.00 |
-| **`T_e` (CIE)** | 137.3 (**0.47x**) | 0.30 | 0.34 | 0.58 | 1.70 | 2.88 |
+| model | rate | 0.5–1.5 | 1.5–2.1 | 2.1–2.8 | 2.8–4.2 | 4.2–6.0 | 6.0–7.0 |
+|---|---|---|---|---|---|---|---|
+| single-fluid `T` (CIE) | 113.5 (0.39x) | 0.20 | — | — | — | — | 3.00 |
+| `T_e` (CIE) | 137.3 (0.47x) | 0.30 | 0.34 | 0.58 | 1.23 | 1.70 | 2.88 |
+| **`T_e` + NEI** | 254.2 (**0.86x**) | **0.70** | **0.74** | **1.16** | 1.64 | 1.60 | 2.51 |
 
 Using `T_e` rather than the single-fluid temperature is worth 21 % in total rate
 and 50 % in the soft band — hotter gas puts more of its power outside the ACIS
@@ -414,7 +415,28 @@ that has not reached it. Measured directly with AtomDB (NEI/CIE, at
 Every entry moves the model toward the observation — the two bands where it was
 3x low go up by 3–6x, and Fe-K, where it was 2.9x high, comes down by a factor
 2.6. That agreement in *sign and rough size across six independent bands* is the
-reason to believe the diagnosis, and `--nei` implements it.
+reason to believe the diagnosis, and `--nei` implements it: the full run takes
+the count rate from 0.47x to **0.86x** of the observed 295 counts/s and the two
+line bands that carry most of Cas A's counts from 0.30/0.34 to 0.70/0.74.
+`figures/obs_final_nei_spectrum_2004.png` shows the two spectra together — every
+line complex (O/Ne/Fe-L, Si He-a, S He-a, Ar, Ca, Fe-K) lands at the right
+energy with the right rough strength, and the ratio stays inside a factor ~2
+across 0.4–8 keV.
+
+What is left is still one-sided and still hard, but smaller: 1.6x too much
+continuum at 4–6 keV, 2.5x at Fe-K, and 0.7x below 1.5 keV. Three candidates,
+in the order they are worth testing:
+
+1. **`T_e` is still too high.** Everything above is consistent with a bit too
+   much hot gas; the Ghavamian post-shock value is calibrated on H-dominated ISM
+   shocks and is extrapolated here to a reverse shock in metal ejecta.
+2. **Unresolved clumping.** Emission goes as `<n^2>`; at 256^3 a cell is 1.7"
+   and the imposed clumps are 13 % of the remnant radius against Orlando's 2 %.
+   Denser, cooler knots would add soft emission without adding hard.
+3. **The Ar and Ca lines are ~2x too strong** while Si is 0.74x, so the observed
+   line ratios want less Ar and Ca per unit Si than Hwang & Laming's quoted
+   masses imply. That is a `TRACER_SPLIT` input, and it is the one residual that
+   is an assumption rather than a physical effect.
 
 ### What is assumed rather than simulated
 
