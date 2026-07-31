@@ -287,6 +287,29 @@ def electron_ion_temperatures(T, rho_code, time_since_shock_code, X,
       most of the heat capacity there. Relaxing on ``t_eq`` itself (what an
       earlier version of this did) leaves the electrons systematically too cold.
 
+    The relaxation is integrated in TIME with the parcel's PRESENT density and
+    temperature, and for an adiabatic parcel that is not an approximation but
+    exact. The Spitzer time goes as ``t_eq ~ T^{3/2} / n_e``, and adiabatic
+    expansion carries ``T ~ rho^{2/3}``, so ``T^{3/2}/n_e`` is INVARIANT along
+    the trajectory: a parcel that has expanded since being shocked is both
+    cooler and thinner in exactly the proportion that leaves ``t_eq``
+    unchanged. Hence ``int dt / t_eq = t / t_eq(now)``.
+
+    That invariance is what makes the present-day snapshot sufficient, and it is
+    only available because this remnant is adiabatic to measurement precision
+    (t_cool ~ 2.8 Myr in the shocked gas). Integrating instead in the electron
+    column ``int n_e dt`` -- tempting, since the solver carries it for the
+    ionization age -- assumes ``t_eq n_e`` is the invariant, which would require
+    a constant temperature; it over-equilibrates the ejecta by ~40 %.
+
+    Args:
+        T: Single-fluid temperature (K).
+        rho_code: Density (code units), for the local rate.
+        time_since_shock_code: Time since the parcel was shocked (code units).
+        X: Per-element mass fractions.
+        kT_e_shock_keV: Post-shock electron temperature (Ghavamian et al.).
+        n_substeps: Substeps for the relaxation integral.
+
     Unshocked parcels are returned with ``T_e = T_i = T``: they were never
     shocked, so there is no two-temperature state to describe.
     """
@@ -308,10 +331,9 @@ def electron_ion_temperatures(T, rho_code, time_since_shock_code, X,
     shocked = dt_total > 0.0
     dt = dt_total / n_substeps
     for _ in range(n_substeps):
-        t_eq = equipartition_time(T_e, T_i, rho_code, X)
         # the temperature DIFFERENCE decays on t_eq * n_i/(n_e + n_i); both
         # temperatures therefore approach the (energy-conserving) mean on it
-        tau = t_eq * (1.0 - f_e)
+        tau = equipartition_time(T_e, T_i, rho_code, X) * (1.0 - f_e)
         frac = np.where(shocked, -np.expm1(-np.clip(dt / tau, 0.0, 50.0)), 0.0)
         T_mean = f_e * T_e + (1.0 - f_e) * T_i
         T_e = T_e + frac * (T_mean - T_e)
@@ -337,6 +359,8 @@ def plasma_state(fields, *, kT_e_shock_keV=0.3, two_temperature=True):
     nd = number_densities(fields["rho"], X)
     T = temperature(fields["rho"], fields["press"], X)
 
+    net = (ionization_age(fields["density_time"], X)
+           if "density_time" in fields else None)
     has_history = "time_since_shock" in fields
     if two_temperature and has_history:
         T_e, T_i = electron_ion_temperatures(
@@ -344,8 +368,6 @@ def plasma_state(fields, *, kT_e_shock_keV=0.3, two_temperature=True):
             kT_e_shock_keV=kT_e_shock_keV)
     else:
         T_e = T_i = T
-    net = (ionization_age(fields["density_time"], X)
-           if "density_time" in fields else None)
 
     # The shocked FRACTION, never "has any accumulated time": advection leaks an
     # infinitesimal amount of the record into every cell, so a > 0 test calls

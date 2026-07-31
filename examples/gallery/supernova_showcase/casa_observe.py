@@ -45,14 +45,16 @@ What is faithful here:
     carry ~1.7x fewer electrons per gram than cosmic gas, and both the emission
     measure and the ionization age scale with it.
 
+  * **non-equilibrium ionization** with ``--nei``: the ion populations come from
+    the simulated (kT_e, n_e t) of each parcel rather than from the assumption
+    that it has reached collisional equilibrium, which at Cas A's n_e t ~ 1e11
+    it has not. See :mod:`_nei`.
+
 What is still approximate, and must be stated with any figure:
-  * **collisional ionization equilibrium.** Cas A's bulk plasma sits at
-    n_e t ~ 1e11 cm^-3 s, far from equilibrium, so the He- and H-like line ratios
-    are wrong. The ingredients for the fix now exist — the shock history gives
-    the ionization age per cell (``casa_plasma.py`` turns it into the observable
-    EM(kT, n_e t) distribution) — but pyXSIM's ``NEISourceModel`` wants per-ion
-    fields rather than an ionization age, so the swap is not a one-liner. It is
-    the largest remaining spectral error.
+  * **collisional ionization equilibrium**, unless ``--nei`` is given. Cas A's
+    bulk plasma sits an order of magnitude short of equilibrium, so CIE gets the
+    line-to-continuum and He/H-like ratios wrong, in a direction the spectral
+    comparison measures directly.
   * **hydrogen-free ejecta.** APEC normalises to hydrogen, which formally
     diverges when there is none. :func:`emission_fields` sets a per-cell
     reference hydrogen density so that every METAL density is exact and only the
@@ -199,7 +201,48 @@ def emission_fields(state, *, max_abundance, two_temperature=True):
         abundance_max=float(max(np.max(a) for a in abund.values())),
     )
     return dict(n_e=n_e, n_H=n_H_ref, abundances=abund, T_e=ps["T_e"], T=ps["T"],
-                info=ps["info"], report=report, moments=ps["moments"])
+                net=ps["net"], info=ps["info"], report=report,
+                moments=ps["moments"])
+
+
+def ion_abundance_fields(em, net, *, threshold=0.02, kt_emitting=0.5):
+    """Per-ION abundances (solar units) from the ionization age, for NEI.
+
+    The ionization state of a parcel shocked once is a function of
+    ``(kT_e, n_e t)``, both of which the simulation carries, so this is a table
+    lookup rather than a network integration -- see :mod:`_nei`. Each ion of
+    element ``el`` gets ``A_el * f_ion``, which is what an APEC NEI model wants.
+
+    Every ion kept costs a full 3D field, so ions are dropped below
+    ``threshold`` of their element's X-ray-emitting mass; ``kt_emitting``
+    excludes the cells too cool to contribute counts, which would otherwise keep
+    near-neutral ions alive on the strength of gas that emits nothing in band.
+    The retained fraction per element is reported, since anything dropped is
+    emission thrown away.
+
+    Returns ``({"O^7": field, ...}, report)``.
+    """
+    import _nei
+
+    kt_grid, net_grid, table = _nei.load_table()
+    kT_e = em["T_e"] / KEV_IN_K
+    emitting = kT_e > kt_emitting
+
+    fields, report = {}, {}
+    for el, a_el in em["abundances"].items():
+        if el not in table:
+            continue
+        f = _nei.interpolate_fractions(table[el], kt_grid, net_grid, kT_e, net)
+        w = em["n_e"] * a_el * em["n_H"] * emitting * np.sqrt(np.maximum(kT_e, 0.0))
+        w_tot = float(w.sum())
+        share = np.array([float((fi * w).sum()) / max(w_tot, 1e-300) for fi in f])
+        keep = np.where(share >= threshold)[0]
+        for ion in keep:
+            fields[f"{el}^{ion}"] = a_el * f[ion]
+        report[el] = dict(kept=len(keep), covered=float(share[keep].sum()),
+                          mean_charge=float((share * np.arange(len(share))).sum()))
+        del f
+    return fields, report
 
 
 def describe_emission(em):
@@ -264,7 +307,11 @@ def make_yt_dataset(state, em, *, zmet, ejecta_zmet, ejecta_temperature_K):
     for name, key in (("velocity_x", "vx"), ("velocity_y", "vy"), ("velocity_z", "vz")):
         data[("gas", name)] = ((f[key] * CODE_VELOCITY) if key in f else zero, "cm/s")
 
-    if em["abundances"]:
+    if em.get("ions"):
+        # NEI: one field per ION, each already scaled by its element's abundance
+        for name, a in em["ions"].items():
+            data[("gas", f"{name.replace('^', '_')}_abundance")] = (a, "Zsun")
+    elif em["abundances"]:
         for el, a in em["abundances"].items():
             # units MUST be "Zsun" (they are solar-unit abundances, so this is
             # also the honest label). pyXSIM masks the hydrogen fraction to the
@@ -296,23 +343,23 @@ def make_events(state, args):
 
     em = emission_fields(state, max_abundance=args.max_abundance,
                          two_temperature=not args.single_temperature)
+    if args.nei:
+        if em["net"] is None:
+            raise SystemExit("--nei needs the ionization age: rerun "
+                             "casa_orlando.py with --composition")
+        em["ions"], ion_report = ion_abundance_fields(
+            em, em["net"], threshold=args.ion_threshold)
+        for el, r in ion_report.items():
+            print(f"[casa-obs] {el:2s}: <Z> = {r['mean_charge']:5.2f}, "
+                  f"{r['kept']} ions carrying {100 * r['covered']:.1f}% of the "
+                  f"emitting mass")
+        print(f"[casa-obs] NEI: {len(em['ions'])} ion fields")
     describe_emission(em)
     ds = make_yt_dataset(state, em, zmet=args.zmet, ejecta_zmet=args.ejecta_zmet,
                          ejecta_temperature_K=args.ejecta_temperature)
     sp = ds.all_data()
 
-    # With the simulated composition available every element varies per cell and
-    # the emission measure carries the true electron and metal densities, so the
-    # remaining ``Zmet`` covers only the elements no tracer stands for (C, N, Ni).
-    var_elem = None
-    if em["abundances"]:
-        var_elem = {el: ("gas", f"{el}_abundance") for el in em["abundances"]}
-        Zmet = args.zmet
-    else:
-        Zmet = ("gas", "metallicity") if args.ejecta_zmet is not None else args.zmet
-    source = pyxsim.CIESourceModel(
-        "apec", args.emin, args.emax, args.nbins, Zmet,
-        var_elem=var_elem,
+    common = dict(
         # our own n_e n_H dV, from the simulated composition
         emission_measure_field=("gas", "emission_measure_neneh"),
         # do not let the cold, unshocked ejecta (which is at the pressure floor
@@ -325,6 +372,28 @@ def make_events(state, args):
         thermal_broad=True,
         abund_table="angr",
     )
+    if em.get("ions"):
+        # Every emitting element must be listed ion by ion: in NEI mode the
+        # model has no "metallicity" to fall back on, which is the honest
+        # behaviour -- an unlisted element simply does not emit.
+        source = pyxsim.NEISourceModel(
+            args.emin, args.emax, args.nbins,
+            {name: ("gas", f"{name.replace('^', '_')}_abundance")
+             for name in em["ions"]},
+            **common)
+    else:
+        # With the simulated composition available every element varies per cell
+        # and the emission measure carries the true electron and metal
+        # densities, so ``Zmet`` covers only the elements no tracer stands for.
+        var_elem = None
+        if em["abundances"]:
+            var_elem = {el: ("gas", f"{el}_abundance") for el in em["abundances"]}
+            Zmet = args.zmet
+        else:
+            Zmet = ("gas", "metallicity") if args.ejecta_zmet is not None else args.zmet
+        source = pyxsim.CIESourceModel(
+            "apec", args.emin, args.emax, args.nbins, Zmet,
+            var_elem=var_elem, **common)
 
     # Generate more photons than we will need, then sub-sample at projection: a
     # collecting area above Chandra's lets soxs draw the real number. Beware the
@@ -760,6 +829,17 @@ def main():
                          ":func:`emission_fields`). Lowering it re-introduces the "
                          "old error -- at 50 the iron knots emit as if they held "
                          "a tenth of their iron")
+    ap.add_argument("--nei", action="store_true",
+                    help="non-equilibrium ionization: take the ion populations "
+                         "from the simulated (kT_e, n_e t) instead of assuming "
+                         "collisional equilibrium. Cas A's bulk plasma sits an "
+                         "order of magnitude short of equilibrium, so CIE gets "
+                         "the line-to-continuum ratio and the He/H-like ratios "
+                         "wrong -- measurably: the CIE spectrum is 0.30x the "
+                         "observed 0.5-1.5 keV rate and 2.9x at Fe-K")
+    ap.add_argument("--ion-threshold", type=float, default=0.02,
+                    help="drop ions holding less than this fraction of their "
+                         "element's X-ray-emitting mass (each costs a 3D field)")
     ap.add_argument("--single-temperature", action="store_true",
                     help="use the single-fluid temperature instead of T_e. Only "
                          "for showing what the two-temperature model changes: "
