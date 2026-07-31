@@ -220,12 +220,25 @@ def main():
             state[k] = np.asarray(d[k], dtype=np.float64)
     # refuse a blown-up state: analysing one produces confident nonsense (a
     # previous aborted run reported an ejecta mass of 2.5e13 Msun)
-    if not np.all(np.isfinite(state["rho"])) or float(state["rho"].max()) > 1e6:
+    bad = []
+    if not np.all(np.isfinite(state["rho"])):
+        bad.append(f"{int(np.sum(~np.isfinite(state['rho'])))} non-finite density cells")
+    if float(state["rho"].max()) > 1e6:
+        bad.append(f"max density {float(state['rho'].max()):.3e}")
+    if not np.all(np.isfinite(state["press"])) or float(state["press"].min()) < 0:
+        bad.append("non-finite or negative pressure")
+    # an aborted run can leave the density looking innocuous while the ENERGY has
+    # collapsed; a total ejecta mass near zero or a wildly super-unity T_e/T are
+    # the tells (one aborted run reported 2.5e13 Msun, another 0.000)
+    if "C_ej" in d:
+        m_ej = float(np.sum(np.asarray(d["C_ej"]) * state["rho"])
+                     * (float(d["box"]) / int(d["num_cells"])) ** 3)
+        if not (0.1 < m_ej < 100.0):
+            bad.append(f"total ejecta mass {m_ej:.3e} Msun")
+    if bad:
         raise SystemExit(
-            f"{args.state} looks unphysical (max density "
-            f"{float(state['rho'].max()):.3e}, "
-            f"{int(np.sum(~np.isfinite(state['rho'])))} non-finite cells) -- the "
-            "run probably aborted. Check the log for an ABORT before analysing.")
+            f"{args.state} looks unphysical ({'; '.join(bad)}) -- the run "
+            "probably aborted. Check its log for an ABORT before analysing.")
 
     age = float(d["age"])
     box = float(d["box"])

@@ -295,3 +295,44 @@ cd examples/gallery/supernova_showcase
 
 Logs of the runs quoted above: `calib_scan.log`, `calib_scan_fine.log`,
 `gamma_scan.log`, `solve_calib.log`, `solve_mej.log`.
+
+
+## Result 7 — the unshocked ejecta mass, and an inner-slope caveat
+
+The calibration above fixed the shock radii and speeds but said nothing about how
+far the reverse shock has eaten into the ejecta **in mass**. The 3D runs then came
+out with 96 % of the ejecta shocked against the ~87–90 % observed, which shows up
+twice over: shocked Si+S 3× too high (0.24 against 0.08 M☉), and a reverse shock
+0.35 pc too far in. One cause, two symptoms.
+
+`m_unshocked` is now a calibration target (0.35 ± 0.10 M☉; DeLaney et al. 2014,
+Hwang & Laming 2012), and the parameter that controls it is the **inner** ejecta
+density index δ (`ρ ∝ r^-δ` inside the core radius). A flat core has
+`M(<r) ∝ r³`, i.e. almost no mass at low velocity, so the reverse shock reaches
+the centre in mass long before it does in radius:
+
+| δ | `M_unshocked` | `r_FS` | score |
+|---|---|---|---|
+| 0.0 (flat) | 0.096 | 2.519 | 4.69 |
+| 0.5 | 0.186 | 2.531 | 4.01 |
+| **1.0** | **0.321** | **2.549** | **2.81** |
+| 1.5 | 0.527 | 2.579 | 4.37 |
+| 2.0 | 0.853 | 2.637 | 8.48 |
+
+δ = 1 lands on target while *improving* `r_FS`, and is the standard
+core-collapse value.
+
+Two caveats, both load-bearing:
+
+* `ejecta_radial_shape` clipped the profile to a maximum of 1. That is harmless
+  for a flat core, where the shape never exceeds 1 anyway, but it silently
+  flattened any central peak — so `inner_slope` was a **no-op** until the clip
+  was restricted to a lower bound. Any result computed before that fix is a
+  δ = 0 result whatever the flag said.
+* **δ = 1 has not yet been shown to work in 3D.** The 256³ run with pistons,
+  shell and cooling aborts on a timestep collapse at t = 0.019. The likely
+  interaction is that a centrally peaked core puts the Fe pistons
+  (`D_knot = 0.15`) inside denser material and pushes the contrast over the
+  crush threshold — the same mechanism that killed the tabulated-radius and
+  capped-radius piston variants. Until that is bisected, **δ = 0 is the working
+  configuration** and the Si / `r_RS` discrepancy stands.
