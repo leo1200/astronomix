@@ -57,7 +57,11 @@ from astronomix import (
     FINITE_DIFFERENCE,
     PERIODIC_BOUNDARY,
 )
-from astronomix.option_classes.simulation_config import POSITIVITY_HARD_FLOOR
+from astronomix.option_classes.simulation_config import (
+    POSITIVITY_HARD_FLOOR,
+    POSITIVITY_REDISTRIBUTE,
+    POSITIVITY_CONSERVATIVE,
+)
 
 # astronomix containers
 from astronomix import (
@@ -92,7 +96,8 @@ GAMMA = 5.0 / 3.0
 # =============================================================================
 # ============ ↓ Solver configuration (high-order FD/WENO) ↓ ==================
 # =============================================================================
-def fd_positivity(tfloor=False, tfloor_stage=False):
+def fd_positivity(tfloor=False, tfloor_stage=False, coldcrush_factor=8.0,
+                  mode=POSITIVITY_HARD_FLOOR):
     """The positivity configuration that keeps the blast stable in float32.
 
     The positivity-preserving flux limiter (``preserving_flux``) is the key
@@ -108,8 +113,13 @@ def fd_positivity(tfloor=False, tfloor_stage=False):
     (the proven hero recipe).
     """
     return PositivityConfig(
-        per_stage_mode=POSITIVITY_HARD_FLOOR,
-        per_step_mode=POSITIVITY_HARD_FLOOR,
+        # HARD_FLOOR is documented as NON-CONSERVATIVE and it is how these
+        # runs manufacture mass: a drained cell is refilled from nothing, its
+        # neighbour drains it again, and rho runs to 1e16+ while the box goes
+        # from 17 Msun to 1e12 Msun. Selectable so the alternatives can be
+        # tested against that.
+        per_stage_mode=mode,
+        per_step_mode=mode,
         per_step_specific_floor=tfloor,
         per_stage_specific_floor=tfloor_stage,
         preserving_flux=True,
@@ -120,6 +130,11 @@ def fd_positivity(tfloor=False, tfloor_stage=False):
         # crush has no pressure support and collapses without bound (rho ~ 1e16,
         # dt -> 0). Inert when params.minimum_specific_pressure == 0.
         coldcrush_blend=True,
+        # 8 is the proven value for the adiabatic hero runs. With genuine
+        # radiative cooling the crushing band is wider, so this is exposed:
+        # the failure it guards against (rho running to 1e10+ and dt -> 0 in
+        # the piston wakes) reappears at 8 once cooling is actually solved.
+        coldcrush_blend_factor=float(coldcrush_factor),
         nan_safe=True,
         vacuum_rest=True,
     )
@@ -391,7 +406,8 @@ def temperature_K(rho, p, code_units):
 
 def schure_cooling_setup(code_units, floor_temperature_K=1e4,
                          hydrogen_mass_fraction=0.7, metal_mass_fraction=0.02,
-                         resolution_limiter_alpha=4.0):
+                         resolution_limiter_alpha=4.0, explicit=False,
+                         max_cooling_fraction=0.0, clamp_to_floor=False):
     """(CoolingConfig, CoolingParams) for the Schure et al. (2009) ISM cooling curve.
 
     Radiative cooling Lambda(T) applied with the unconditionally-stable implicit
@@ -400,10 +416,18 @@ def schure_cooling_setup(code_units, floor_temperature_K=1e4,
     ``resolution_limiter_alpha`` suppresses cooling where the cooling length is
     below that many grid cells (see ``CoolingParams.resolution_limiter_alpha``)
     -- the guard against the unresolved-radiative-shock crush runaway.
+
+    ``explicit=True`` switches to the forward update, which brings the cooling
+    time into the CFL (see the ``EXPLICIT_COOLING`` branch of the FD timestep
+    estimator). That is far slower -- the constraint bites hardest exactly in
+    the cells that are crushing -- but it removes the possibility of a single
+    backward-Euler step taking a cell from its post-shock temperature to the
+    floor, so it is the clean DIAGNOSTIC for whether the crush is an
+    operator-splitting artefact or real unresolved physics.
     """
     config = CoolingConfig(
         cooling=True,
-        cooling_method=IMPLICIT_COOLING,
+        cooling_method=EXPLICIT_COOLING if explicit else IMPLICIT_COOLING,
         cooling_curve_config=CoolingCurveConfig(cooling_curve_type=PIECEWISE_POWER_LAW),
     )
     # The cooling kernel works in the RESCALED temperature T~ = p * mu / rho
@@ -422,6 +446,8 @@ def schure_cooling_setup(code_units, floor_temperature_K=1e4,
         metal_mass_fraction=metal_mass_fraction,
         floor_temperature=float(floor_temperature_K) * tilde_per_kelvin,
         resolution_limiter_alpha=float(resolution_limiter_alpha),
+        max_cooling_fraction=float(max_cooling_fraction),
+        clamp_to_floor=bool(clamp_to_floor),
         cooling_curve_params=schure_cooling(code_units),
     )
     return config, params

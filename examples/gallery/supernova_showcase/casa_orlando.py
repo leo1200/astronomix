@@ -104,6 +104,9 @@ from _common import (
     chandra_deep_figure,
     ejecta_mass_coordinate,
     fd_positivity,
+    POSITIVITY_HARD_FLOOR,
+    POSITIVITY_REDISTRIBUTE,
+    POSITIVITY_CONSERVATIVE,
     layered_composition,
     make_fd_config,
     map_1d_profile,
@@ -163,7 +166,7 @@ def build(args, sharding=None):
     """Map the calibrated 1D profile into 3D and impose the multi-D structure."""
     code_units = snr_code_units()
     num_cells = args.n
-    dx = BOX_SIZE / num_cells
+    dx = args.box / num_cells
 
     cooling_config = cooling_params = None
     if args.cooling:
@@ -177,6 +180,9 @@ def build(args, sharding=None):
             code_units, floor_temperature_K=1e4,
             hydrogen_mass_fraction=1.0 - 0.28 - 0.02, metal_mass_fraction=0.02,
             resolution_limiter_alpha=float(alpha),
+            explicit=args.explicit_cooling,
+            max_cooling_fraction=args.max_cool_fraction,
+            clamp_to_floor=args.clamp_floor,
         )
 
     snaps = SnapshotSettings(
@@ -185,6 +191,14 @@ def build(args, sharding=None):
         return_internal_energy=True, return_kinetic_energy=True,
     )
     extra = dict(random_seed=SEED, dual_energy=True)
+    if args.conduction:
+        # Conduction supplies the physical length the pure-hydro model lacks.
+        # An ideal optically-thin radiative shock collapses without bound, so
+        # SOMETHING has to set the layer thickness; here every candidate has
+        # been numerical (the floor revert, the LLF blend, the resolution
+        # limiter), which is why refining the grid only made the crush worse.
+        # The Field length is the physical answer and it is resolvable.
+        extra["thermal_conduction"] = True
     if args.composition:
         # An ejecta/CSM discriminator plus the chemical stratification, and the
         # shock bookkeeping that gives the ionization age and the time since
@@ -198,18 +212,29 @@ def build(args, sharding=None):
         # recovery can run away in the near-vacuum interior where the fast
         # pistons and radiative cooling compress the same cells
         extra["passive_scalar_bounds"] = tuple((0.0, 1.0) for _ in SCALAR_NAMES)
-    if args.cooling:
-        # with real cooling the shocked shell reaches the isothermal jump and a
-        # CONSTANT pressure floor leaves it pressureless against ram crushing
-        extra["positivity_config"] = fd_positivity(tfloor=True)
-    config = make_fd_config(BOX_SIZE, num_cells, mhd=False,
+    # Positivity protection is applied ALWAYS, not only with --cooling. It used
+    # to be gated on cooling, which meant every adiabatic run silently used the
+    # default PositivityConfig() -- no preserving_flux, no cold-crush blend, no
+    # floor, no vacuum_rest -- despite this module's docstring listing them as
+    # part of the recipe. Those runs are marginal: two completed and a third,
+    # identical but for the node, blew up with rho ~ 1e18.
+    # ``tfloor`` stays cooling-only: with real cooling the shocked shell reaches
+    # the isothermal jump and a CONSTANT pressure floor leaves it pressureless
+    # against ram crushing, but for an adiabatic run the density-scaled floor
+    # has nothing to do.
+    extra["positivity_config"] = fd_positivity(
+        tfloor=bool(args.cooling), coldcrush_factor=args.coldcrush_factor,
+        mode={"floor": POSITIVITY_HARD_FLOOR,
+              "redistribute": POSITIVITY_REDISTRIBUTE,
+              "conservative": POSITIVITY_CONSERVATIVE}[args.positivity])
+    config = make_fd_config(args.box, num_cells, mhd=False,
                             cooling_config=cooling_config,
                             snapshot_settings=snaps, num_snapshots=args.nsnap,
                             **extra)
     registered_variables = get_registered_variables(config)
     helper_data = get_helper_data(config, sharding)
 
-    r, X, Y, Z = centered_radius(helper_data, BOX_SIZE, num_cells)
+    r, X, Y, Z = centered_radius(helper_data, args.box, num_cells)
     r_safe = jnp.maximum(r, 0.5 * dx)
 
     rho_per_n = float((MASS_PER_NUCLEUS * const.m_p / u.cm ** 3).to(code_units.code_density).value)
@@ -295,7 +320,7 @@ def build(args, sharding=None):
         # clump size ~2% of the remnant radius -> a wavenumber band; at 512^3 in
         # a 7 pc box that is right at the grid scale, so it is clamped and the
         # achieved clump size reported.
-        k_clump = BOX_SIZE / (CLUMP_SIZE_FRACTION * r_fs)
+        k_clump = args.box / (CLUMP_SIZE_FRACTION * r_fs)
         k_hi = int(min(k_clump, num_cells // 6))
         k_lo = max(4, int(k_hi / 3))
         g = turbulent_field(num_cells, keys[1], kmin=k_lo, kmax=k_hi, slope=CLUMP_SLOPE)
@@ -305,9 +330,9 @@ def build(args, sharding=None):
         sigma = np.log(CLUMP_MAX_CONTRAST) / 3.0 * args.clump_sigma
         ejecta_mult = ejecta_mult * jnp.exp(sigma * g - 0.5 * sigma ** 2)
         print(f"[orlando] ejecta clumps: k = {k_lo}-{k_hi} "
-              f"(size {BOX_SIZE / k_hi:.4f} pc = {100 * BOX_SIZE / k_hi / r_fs:.1f}% of "
+              f"(size {args.box / k_hi:.4f} pc = {100 * args.box / k_hi / r_fs:.1f}% of "
               f"r_FS, target {100 * CLUMP_SIZE_FRACTION:.0f}%; "
-              f"{BOX_SIZE / k_hi / dx:.1f} cells), sigma_ln = {sigma:.3f}")
+              f"{args.box / k_hi / dx:.1f} cells), sigma_ln = {sigma:.3f}")
 
     piston_info = piston_species = None
     if args.pistons:
@@ -427,6 +452,7 @@ def build(args, sharding=None):
         minimum_density=dfloor, minimum_pressure=pfloor,
         minimum_specific_pressure=float(p_per_n / rho_per_n),
         cooling_params=cooling_params,
+        thermal_conductivity=float(args.kappa) if args.conduction else 0.0,
     )
 
     ke = float(jnp.sum(0.5 * rho * (vx ** 2 + vy ** 2 + vz ** 2)) * cell_vol)
@@ -560,10 +586,42 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("profile", help="casa_calibrate_1d.py --save-profile npz")
     ap.add_argument("--n", type=int, default=256, help="cells per axis")
+    ap.add_argument("--box", type=float, default=BOX_SIZE,
+                    help="box side (pc). The default 7 pc is sized for the "
+                         "350 yr remnant; a SMALLER box mapped at an EARLIER "
+                         "age is the first stage of the Orlando expanding-grid "
+                         "approach, and buys cells per remnant radius exactly "
+                         "when the pistons are imposed")
     ap.add_argument("--age", type=float, default=TARGET_AGE_YR, help="target age (yr)")
     ap.add_argument("--nsnap", type=int, default=21, help="number of snapshots")
     ap.add_argument("--gpus", type=int, default=1, help="number of GPUs (x-axis sharding)")
     ap.add_argument("--cooling", action="store_true", help="radiative cooling (+ limiter + tfloor)")
+    ap.add_argument("--positivity", choices=("floor", "redistribute", "conservative"),
+                    default="floor",
+                    help="positivity enforcement. The default hard floor is "
+                         "NON-CONSERVATIVE and is how the failing runs create "
+                         "mass (17 Msun -> 1e12 Msun)")
+    ap.add_argument("--conduction", action="store_true",
+                    help="isotropic thermal conduction; sets a PHYSICAL layer "
+                         "thickness (Field length) for the radiative shell, "
+                         "which no numerical guard can do. Slow: explicit, with "
+                         "a parabolic dt constraint")
+    ap.add_argument("--kappa", type=float, default=0.05,
+                    help="constant thermal conductivity (code units)")
+    ap.add_argument("--clamp-floor", action="store_true",
+                    help="clamp a cooling cell ONTO the temperature floor instead "
+                         "of discarding its update; more correct, but the revert is "
+                         "load-bearing crush protection -- see CoolingParams")
+    ap.add_argument("--max-cool-fraction", type=float, default=0.0,
+                    help="cap the fractional temperature drop per hydro step "
+                         "(0 = off); the local alternative to a wide LLF blend")
+    ap.add_argument("--explicit-cooling", action="store_true",
+                    help="forward cooling update (cooling time enters the CFL): "
+                         "far slower, but rules out a one-step backward-Euler "
+                         "jump as the cause of the piston crush")
+    ap.add_argument("--coldcrush-factor", type=float, default=8.0,
+                    help="width of the first-order LLF blend at crushed cells, "
+                         "in multiples of the floor temperature (PositivityConfig)")
     ap.add_argument("--limiter-alpha", type=float, default=None,
                     help="cooling resolution-limiter alpha (default: fixed 0.109 pc cutoff)")
     ap.add_argument("--clump-sigma", type=float, default=1.0,
@@ -610,6 +668,21 @@ def main():
     print(f"[orlando] time_points:  {np.array2string(np.asarray(snaps.time_points), precision=4, max_line_width=200)}")
     print(f"[orlando] total_energy: {np.array2string(te, precision=4, max_line_width=200)}")
 
+    # MASS is the diagnostic that actually catches this setup failing, and it
+    # was requested but never printed. Every blown-up run here CREATES mass --
+    # 17.4 Msun becomes 1e12 Msun -- so the failure is a conservation violation,
+    # NOT the radiative collapse it looks like. (A cooled shock is isothermal,
+    # so its compression ratio is bounded by ~Mach^2 ~ 1e5; rho ~ 1e18 is eleven
+    # orders past anything physical.) Watch this, not energy: energy stayed
+    # conserved to 0.02% in runs whose mass had already run away.
+    tm = np.asarray(snaps.total_mass)
+    print(f"[orlando] total_mass:   {np.array2string(tm, precision=4, max_line_width=200)}")
+    good = tm[np.isfinite(tm) & (tm > 0)]
+    if good.size and good.max() > 1.01 * good[0]:
+        print(f"[orlando] MASS NOT CONSERVED: {good[0]:.4e} -> {good.max():.4e} "
+              f"({good.max() / good[0]:.3e}x). The run is manufacturing mass; "
+              f"nothing downstream of this point is physical.")
+
     fs = np.asarray(snaps.final_state)
     rho = fs[rv.density_index]
     p = fs[rv.pressure_index]
@@ -627,16 +700,35 @@ def main():
                                       "time_since_shock", "density_time")):
                 extra_fields[name] = fs[i_hist + j]
         np.savez_compressed(args.save_state, rho=rho, press=p, vx=vx, vy=vy, vz=vz,
-                            box=float(BOX_SIZE), age=float(args.age),
+                            box=float(args.box), age=float(args.age),
                             num_cells=args.n, map_age=meta["map_age"],
                             **extra_fields)
         print(f"[orlando] saved state {args.save_state}"
               + (f" (+ {len(extra_fields)} scalar fields)" if extra_fields else ""))
 
+    # ==== ↓ Refuse to report numbers from a state that has left the physical
+    # regime ↓ ================================================================
+    # The dt-collapse guard inside the solver only fires when dt drops below the
+    # float resolution of the clock. A run can instead carry a blown-up state
+    # all the way to t_end -- exit code 0, no ABORT, and a perfectly plausible
+    # "measured at 350 yr" line -- while holding rho ~ 1e18 and NaN scalars.
+    # That happened with the per-step cooling cap, and the printed radii were
+    # taken at face value. Check the state, not the exit status.
+    rho_max, p_max = float(np.max(rho)), float(np.max(p))
+    n_bad = int(np.sum(~np.isfinite(rho)) + np.sum(~np.isfinite(p)))
+    if n_bad or rho_max > 1e6 or p_max > 1e9:
+        print(f"[orlando] REFUSING to report shock radii: the final state is "
+              f"unphysical (rho_max = {rho_max:.3e}, p_max = {p_max:.3e}, "
+              f"{n_bad} non-finite cells). Check the log for an ABORT above; if "
+              f"there is none the run reached t_end carrying this state, which "
+              f"is the WORSE case. Treat earlier snapshots with suspicion too.")
+        return
+    # ==== ↑ ===================================================================
+
     # measured shock radii, with the same criteria the 1D calibration used
-    r, X, Y, Z = centered_radius(helper_data, BOX_SIZE, args.n)
+    r, X, Y, Z = centered_radius(helper_data, args.box, args.n)
     r_np = np.asarray(r)
-    r_safe = np.maximum(r_np, 0.5 * BOX_SIZE / args.n)
+    r_safe = np.maximum(r_np, 0.5 * args.box / args.n)
     v_r = (vx * np.asarray(X) + vy * np.asarray(Y) + vz * np.asarray(Z)) / r_safe
     rho_per_n = float((MASS_PER_NUCLEUS * const.m_p / u.cm ** 3).to(cu.code_density).value)
     # the wind the shock detector compares against must be the CALIBRATED one
@@ -650,6 +742,17 @@ def main():
     m = measure_shocks_3d(rho, v_r, r_np, age_yr=args.age, code_units=cu,
                           rho_per_n=rho_per_n, shocked_fraction=f_sh,
                           ejecta_fraction=f_ej, **wind)
+    # A radius beyond the inscribed sphere is not a shock: the detector has
+    # flagged the domain corners, where the 1/r^2 ambient it compares against
+    # has fallen below the local density. Seen at N = 192 and 224, which report
+    # r_FS = 6.005 pc -- the box DIAGONAL half-length -- from entirely healthy
+    # states. Say so rather than printing it next to the observed value.
+    if not np.isfinite(m["r_fs"]) or m["r_fs"] > 0.5 * args.box:
+        print(f"[orlando] r_FS = {m['r_fs']:.3f} pc is outside the inscribed "
+              f"sphere (half-box {0.5 * args.box:.3f} pc): the shock detector "
+              f"has locked onto the domain corners, NOT a measurement. The "
+              f"state itself may be fine -- check rho_max before concluding "
+              f"anything about the run.")
     print(f"[orlando] measured at {args.age:.0f} yr: r_FS = {m['r_fs']:.3f} pc "
           f"(observed 2.52 +- 0.20), r_RS = {m['r_rs']:.3f} pc (observed 1.58 +- 0.16)")
 
@@ -660,16 +763,16 @@ def main():
           f"max {np.nanmax(r_pa):.3f}, spread {np.nanmax(r_pa) - np.nanmin(r_pa):.3f} pc")
 
     T = temperature_K(rho, p, cu)
-    dx_cm = (BOX_SIZE / args.n) * float((1.0 * cu.code_length).to(u.cm).value)
+    dx_cm = (args.box / args.n) * float((1.0 * cu.code_length).to(u.cm).value)
     # name the figures after the state, or parallel legs of a ladder silently
     # overwrite each other's output
     stem = (Path(args.save_state).stem if args.save_state
             else f"casa_orlando_n{args.n}")
-    realistic_figure(rho, T, r_np, BOX_SIZE,
+    realistic_figure(rho, T, r_np, args.box,
                      title=f"Cas A, Orlando Route B ({args.age:.0f} yr, "
                            f"mapped at {meta['map_age']:.0f} yr)",
                      out_path=FIGURES_DIR / f"{stem}_realistic.png")
-    chandra_deep_figure(rho, p, cu, BOX_SIZE, dx_cm,
+    chandra_deep_figure(rho, p, cu, args.box, dx_cm,
                         FIGURES_DIR / f"{stem}_chandra.png", observe=True)
     print(f"[orlando] wrote figures/{stem}_{{realistic,chandra}}.png")
 
