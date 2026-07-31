@@ -19,10 +19,14 @@ This script does it the way Orlando et al. (2016) do:
   ~1.27 pc and there are still >100 cells per remnant radius), and the
   multi-dimensional structure is imposed *there*:
 
-    * small-scale ejecta clumping interior to the reverse shock (Orlando et al.
-      2012: power-law perturbations, clump size ~2% of the remnant radius,
-      maximum contrast ~5) -- seeds the Rayleigh-Taylor fingering at the
-      contact discontinuity;
+    * small-scale ejecta clumping through the whole ejecta, out to the contact
+      discontinuity (Orlando et al. 2012: power-law perturbations, clump size
+      ~2% of the remnant radius, maximum contrast ~5) -- seeds the
+      Rayleigh-Taylor fingering at that interface. It used to stop at the
+      REVERSE SHOCK, which left the dense shocked shell -- most of the ejecta
+      mass and essentially all of the X-ray emission -- perfectly smooth, so
+      the fingers grew out of grid noise instead. ``--clump-region unshocked``
+      restores the old window for comparison;
     * the five large-scale anisotropies of Orlando et al. (2016) Table 4
       (``--pistons``) -- the Fe-rich knots that produce the layer inversion and
       the Si-rich NE jet / SW counter-jet. Without these essentially no Fe is
@@ -118,6 +122,7 @@ from _common import (
     snr_code_units,
     temperature_K,
     turbulent_field,
+    turbulent_field_on,
 )
 
 #: The species carried as passive scalars. Hydrogen is NOT tracked: mass
@@ -307,12 +312,41 @@ def build(args, sharding=None):
               f"{shell_info['n_peak_far']:.1f} cm^-3 across the gradient")
 
     # -------------------------------------------------------------
-    # ====== ↓ Stage 2c: ejecta structure (r < r_RS) ↓ ============
+    # ====== ↓ Stage 2c: ejecta structure (r < r_CD) ↓ ============
     # -------------------------------------------------------------
     # Everything here multiplies the DENSITY only: the pressure stays on the
     # smooth mapped profile, so the structure is isobaric (dense knots cold,
     # rarefied regions hot) rather than carrying a spurious pressure imprint.
+    #
+    # The enclosed-mass coordinate is needed here and not only for the
+    # composition: the radius that encloses the whole ejecta mass IS the contact
+    # discontinuity, and that is where the clumping has to stop.
+    m_ej_code = float((meta.get("cfg_ejecta_mass_msun", 3.0) * u.Msun)
+                      .to(code_units.code_mass).value)
+    m_coord, C_ej, r_cd = ejecta_mass_coordinate(
+        r, args.profile, ejecta_mass=m_ej_code,
+        interior_wind_mass=meta.get("M_wind_inside_r0", 0.0))
+
     inside = 1.0 - _smoothstep((r - r_rs) / (2.0 * dx))
+    # Where the CLUMPING acts. The pistons are unshocked-ejecta features and
+    # stay on ``inside``; the clumping is a property of the ejecta as a whole.
+    #
+    # This distinction is not bookkeeping. At the mapping time the reverse shock
+    # has already swept most of the ejecta MASS into the thin dense shell
+    # between r_RS and r_CD -- 2.3 of 3.0 Msun at 150 yr, in 0.08 pc of radius --
+    # and that shell is what the X-rays come from. Clumping only ``inside``
+    # therefore hands the solver a perfectly smooth contact discontinuity, so
+    # the Rayleigh-Taylor fingers that make the observed structure have nothing
+    # to grow from but grid noise, which is both unphysical and
+    # resolution-dependent. The ejecta was clumpy BEFORE the reverse shock
+    # reached it, so the perturbation belongs to the whole ejecta.
+    #
+    # The amplitude is not re-tuned for the larger region: the same log-normal
+    # goes into the shocked shell as into the unshocked ejecta, which is the
+    # conservative choice (a strong shock would if anything amplify the contrast
+    # it sweeps up).
+    clump_region = (1.0 - _smoothstep((r - r_cd) / (2.0 * dx))
+                    if args.clump_region == "ejecta" else inside)
     ejecta_mult = jnp.ones_like(r)
     velocity_mult = jnp.ones_like(r)
 
@@ -321,9 +355,11 @@ def build(args, sharding=None):
         # a 7 pc box that is right at the grid scale, so it is clamped and the
         # achieved clump size reported.
         k_clump = args.box / (CLUMP_SIZE_FRACTION * r_fs)
-        k_hi = int(min(k_clump, num_cells // 6))
+        k_hi = int(args.clump_kmax or min(k_clump, num_cells // 6))
         k_lo = max(4, int(k_hi / 3))
-        g = turbulent_field(num_cells, keys[1], kmin=k_lo, kmax=k_hi, slope=CLUMP_SLOPE)
+        g = turbulent_field_on(num_cells, keys[1], kmin=k_lo, kmax=k_hi,
+                               slope=CLUMP_SLOPE,
+                               seed_cells=args.clump_seed_grid or None)
         # log-normal so the perturbation is strictly positive (a linear
         # 1 + sigma*g clips to vacuum in the tail and speckles the ejecta), with
         # sigma set so the ~3-sigma peak reaches the Orlando maximum contrast
@@ -333,12 +369,21 @@ def build(args, sharding=None):
               f"(size {args.box / k_hi:.4f} pc = {100 * args.box / k_hi / r_fs:.1f}% of "
               f"r_FS, target {100 * CLUMP_SIZE_FRACTION:.0f}%; "
               f"{args.box / k_hi / dx:.1f} cells), sigma_ln = {sigma:.3f}")
+        if not args.clump_kmax and num_cells // 6 < k_clump:
+            print(f"[orlando]   the clump size is GRID-CLAMPED: k_hi = "
+                  f"{num_cells // 6} < {k_clump:.0f}, so the seeded clumps are "
+                  f"{k_clump / k_hi:.1f}x larger than the 2% target. This is a "
+                  f"resolution statement, not a choice.")
+        if args.clump_seed_grid:
+            print(f"[orlando]   seeded on a fixed {args.clump_seed_grid}^3 "
+                  f"spectral grid, so this realisation is grid-independent: "
+                  f"another resolution gets the SAME clumps, not another draw")
 
-    piston_info = piston_species = None
+    piston_mult = piston_info = piston_species = None
     if args.pistons:
         d_mult, v_mult, piston_species, piston_info = orlando_piston_fields(
             X, Y, Z, r_fs, rho, dx ** 3, smoothing_cells=2.0, dx=dx)
-        ejecta_mult = ejecta_mult * d_mult
+        piston_mult = d_mult
         velocity_mult = velocity_mult * v_mult
         for k in piston_info:
             print(f"[orlando]   knot {k['name']:12s} {k['m_knot']:.4f} Msun of "
@@ -348,27 +393,33 @@ def build(args, sharding=None):
                   f"0.02-0.10; solved to hold chi_n = {k['chi_n']:.0f}), "
                   f"{k['cells_across']:.1f} cells across")
 
-    # apply, conserving the ejecta mass under the CLUMPING (which only
-    # redistributes) while letting the PISTONS add mass, as Orlando's do
+    # Apply. The two perturbations act on different regions and have different
+    # mass budgets, so they are applied separately rather than as one product:
+    # the CLUMPING only redistributes ejecta mass (renormalised to be exactly
+    # mass-neutral over its own region) while the PISTONS add mass, as
+    # Orlando's do. Written as rho * [(1 - w) + w * mult * c], the
+    # renormalisation c touches ONLY the perturbed region, so rescaling the
+    # clumping cannot quietly rescale the circumstellar medium as well.
     cell_vol = dx ** 3
-    if args.clump_sigma > 0 or args.pistons:
-        w = inside
-        # write the perturbation as rho * [(1 - w) + w * mult * c]; the
-        # renormalisation c then touches ONLY the perturbed interior, so
-        # rescaling the clumping cannot quietly rescale the circumstellar
-        # medium as well.
+    if args.clump_sigma > 0:
+        w = clump_region
         m_smooth = float(jnp.sum(rho * w) * cell_vol)
         m_clumped = float(jnp.sum(rho * w * ejecta_mult) * cell_vol)
-        c = 1.0 if args.pistons else m_smooth / m_clumped
+        c = m_smooth / m_clumped
         rho = rho * ((1.0 - w) + w * ejecta_mult * c)
-        added = c * m_clumped - m_smooth
-        if args.pistons:
-            print(f"[orlando] pistons + clumping add {added:.4f} Msun "
-                  f"({100 * added / m_smooth:.1f}% of the mapped interior mass; "
-                  f"Orlando's five knots total 0.25 Msun = 5% of M_ej)")
-        else:
-            print(f"[orlando] clumping is mass-neutral (renormalised by "
-                  f"{c:.5f}; it only redistributes ejecta mass)")
+        print(f"[orlando] clumping applied out to "
+              f"{'r_CD' if args.clump_region == 'ejecta' else 'r_RS'} = "
+              f"{r_cd if args.clump_region == 'ejecta' else r_rs:.3f} pc over "
+              f"{m_smooth:.3f} Msun, mass-neutral (renormalised by {c:.5f}; it "
+              f"only redistributes ejecta mass)")
+    if args.pistons:
+        w = inside
+        m_before = float(jnp.sum(rho * w) * cell_vol)
+        rho = rho * ((1.0 - w) + w * piston_mult)
+        added = float(jnp.sum(rho * w) * cell_vol) - m_before
+        print(f"[orlando] pistons add {added:.4f} Msun "
+              f"({100 * added / m_before:.1f}% of the unshocked ejecta mass; "
+              f"Orlando's five knots total 0.25 Msun = 5% of M_ej)")
 
     # velocity: radial, from the mapped profile, boosted inside the pistons
     v_r = v_r * (1.0 + inside * (velocity_mult - 1.0))
@@ -384,11 +435,8 @@ def build(args, sharding=None):
         # The enclosed-mass coordinate of the 1D profile IS the Lagrangian label
         # (1D spherical flow preserves the ordering exactly), so the chemical
         # stratification can be laid down at the mapping time without the 1D
-        # stage having carried any composition itself.
-        m_ej = float((meta.get("cfg_ejecta_mass_msun", 3.0) * u.Msun).to(code_units.code_mass).value)
-        m_coord, C_ej, r_cd = ejecta_mass_coordinate(
-            r, args.profile, ejecta_mass=m_ej,
-            interior_wind_mass=meta.get("M_wind_inside_r0", 0.0))
+        # stage having carried any composition itself. It was computed in stage
+        # 2c, which needs the same contact-discontinuity radius.
         comp = layered_composition(m_coord, C_ej)
         if piston_species is not None:
             # The knots carry their OWN composition -- this is what produces the
@@ -682,6 +730,28 @@ def main():
                     help="cooling resolution-limiter alpha (default: fixed 0.109 pc cutoff)")
     ap.add_argument("--clump-sigma", type=float, default=1.0,
                     help="scale factor on the Orlando clumping amplitude (0 = smooth)")
+    ap.add_argument("--clump-region", choices=("ejecta", "unshocked"),
+                    default="ejecta",
+                    help="where the ejecta clumping is imposed. EJECTA (default) "
+                         "perturbs everything inside the contact discontinuity, "
+                         "which is where the ejecta mass is and which seeds the "
+                         "Rayleigh-Taylor-unstable interface; UNSHOCKED restores "
+                         "the earlier r < r_RS window, in which the dense shocked "
+                         "shell -- most of the emitting mass -- was handed to the "
+                         "solver perfectly smooth. Kept as a flag so the two can "
+                         "be compared with nothing else changed")
+    ap.add_argument("--clump-seed-grid", type=int, default=0,
+                    help="draw the clumping realisation on THIS grid and sample "
+                         "it exactly onto the run grid (0 = draw on the run "
+                         "grid). Without it a resolution ladder re-rolls every "
+                         "phase at each rung, so it measures realisation "
+                         "scatter on top of the grid effect and cannot separate "
+                         "them; set it to the ladder's coarsest rung")
+    ap.add_argument("--clump-kmax", type=int, default=0,
+                    help="pin the upper clumping wavenumber (0 = the 2%%-of-r_FS "
+                         "target, clamped to num_cells // 6). Pinning it is the "
+                         "other half of a controlled ladder: the seed SCALE "
+                         "otherwise moves with the grid because of that clamp")
     ap.add_argument("--csm-sigma", type=float, default=CSM_SIGMA, help="wind clumping sigma")
     ap.add_argument("--shell", action="store_true", help="add the Orlando et al. (2022) CSM shell")
     ap.add_argument("--shell-radius", type=float, default=SHELL_RADIUS, help="r_sh (pc)")

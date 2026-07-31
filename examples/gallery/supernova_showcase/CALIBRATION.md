@@ -494,3 +494,147 @@ knot, so the unresolved mass is sitting as smooth warm gas instead of cool dense
 knots — which is exactly the residual spectral error (0.70x soft, 1.6x hard
 continuum). Resolving the structure should move both at once, and if it moves
 only one they are separate problems.
+
+**Result 10 tested all three of those claims and two of them are wrong.** Read on
+before quoting anything above about resolution.
+
+## Result 10 — the structure deficit is not a resolution problem
+
+Result 9 diagnosed the 4.4″ smoothness as a resolution statement and predicted
+that resolving it would fix the residual spectral hardness too. Both halves were
+measured. The diagnosis does not survive; the prediction is falsified in the
+direction that matters.
+
+### First, the measurement is real and not a noise artefact
+
+The 20 ks numbers were regenerated at Cas A's actual 143.5 ks exposure. Nothing
+moved, and two more scales became quotable:
+
+| scale | 20 ks | 143.5 ks | S/N of the subtraction |
+|---|---|---|---|
+| 1.5″ | 3.59x | **3.64x** | 0.4 → **3.1** |
+| 2.5″ | 2.94x | **2.97x** | 2.7 → **19** |
+| 4.4″ | 1.83x | 1.84x | 33 → 235 |
+| 8.4″ | 1.14x | 1.14x | 388 → 2784 |
+| 16.2″ | 0.89x | 0.89x | 2932 → 21123 |
+
+Count rate and all six band ratios are identical between the two exposures, so
+this is the same model observed longer. The deficit therefore steepens
+continuously inward: ~1.8x at 4.4″, ~3x at 2.5″, ~3.6x at 1.5″. The 1.0″ band
+stays meaningless even at 143 ks, and for a *physical* reason rather than an
+exposure one — the model has almost no 1″ structure, so its variance there is
+essentially all Poisson and the subtraction has nothing left.
+
+### A resolution ladder has to hold the seed fixed, and the first one did not
+
+`turbulent_field` draws its Fourier coefficients on the run grid, so every rung
+of a ladder gets a *different realisation* of the clumping, and `k_hi = N/6`
+moves the seed *scale* with the grid as well. A ladder built that way varies
+three things at once. `turbulent_field_on(..., seed_cells=)` now draws the
+coefficients once and samples that same continuous field onto any grid — for a
+field band-limited below the seed grid's Nyquist this is exact, not
+interpolation (verified: subsampling the fine field reproduces the coarse one to
+6e-19), and `--clump-seed-grid` / `--clump-kmax` expose it.
+
+With the clumps held *literally identical* and only the grid changing:
+
+| N | dx | 2.5″ | 4.4″ | 8.4″ | 16.2″ | rate |
+|---|---|---|---|---|---|---|
+| 128 | 3.3″ | 2.50x | 1.96x | 1.08x | 0.75x | 0.85 |
+| 192 | 2.2″ | 2.40x | **1.46x** | 0.91x | 0.69x | 0.90 |
+| 256 | 1.66″ | 2.67x | 1.63x | 0.97x | 0.73x | 0.89 |
+
+**Non-monotone, with the realisation controlled.** 192³ develops more
+small-scale texture than 256³ from the same initial condition. Doubling the
+resolution moves the 4.4″ number by ±30 % in an unordered way, against a gap of
+1.5–2x. Whatever sets the texture, it is not the cell size.
+
+### Seeding smaller clumps makes the image smoother, not sharper
+
+Result 9's second fact — that the grid clamps the seed 6x coarser than Orlando's
+2 % target — was read as a limitation. Tested directly at fixed 256³, varying
+only the seed band:
+
+| seed `k_hi` | clump size | 2.5″ | 4.4″ | 8.4″ | rate |
+|---|---|---|---|---|---|
+| 21 | 25.4 % of r_FS | 2.67x | **1.63x** | 0.97x | 0.89 |
+| 42 (grid-clamped default) | 12.7 % | 2.76x | 1.73x | 1.07x | 0.88 |
+| 63 | 8.5 % | 3.01x | **1.95x** | 1.18x | 0.85 |
+
+Monotone and backwards from the prediction. The 4.4″ structure is not seeded at
+4.4″; it is produced by the nonlinear evolution — Rayleigh-Taylor fingering and
+shock-clump interaction — of the *largest* seeded structures, while small seeded
+clumps are damped by the scheme and smeared by the reverse shock before they can
+grow. Removing the grid clamp would make the image worse.
+
+This is also the point where the temptation to fit shows up, so it is worth
+naming: the configuration that scores best on texture (`k_hi = 21`) is the one
+furthest from Orlando's 2 % literature value, and it overshoots at 8.4″ and
+16.2″. That is a reason to distrust it, not to adopt it. `CLUMP_SIZE_FRACTION`
+stays at 0.02.
+
+### The spectral coupling prediction is falsified
+
+Result 9 predicted that more structure would raise the soft bands and lower the
+hard continuum together, because isobaric dense knots are cool knots. Across the
+same runs, ordered by how much 4.4″ texture they have:
+
+| run | 4.4″ | rate | 0.5–1.5 | 4.2–6.0 | 6.0–7.0 |
+|---|---|---|---|---|---|
+| n256 k63 | 1.95x | 0.85 | 0.70 | 1.60 | 2.32 |
+| n256 (default seed) | 1.73x | 0.88 | 0.71 | 1.64 | 2.45 |
+| n256 k21 | 1.63x | 0.89 | 0.71 | 1.68 | 2.58 |
+| n192 k21 | 1.46x | 0.90 | 0.72 | 1.65 | 2.64 |
+
+More texture buys +0.02 in the soft band and costs +0.32 in Fe-K. Structure adds
+emission everywhere and slightly *harder*, so the band ratios get worse, not
+better. The two defects are separate.
+
+By Result 9's own decision rule that puts the residual spectral error on the
+electron temperature — the Ghavamian post-shock value is calibrated on
+H-dominated ISM shocks and is being extrapolated to a reverse shock in metal
+ejecta. **That, not resolution, is the next thing to work on.**
+
+### Seeding the contact discontinuity: right physics, small effect
+
+The clumping used to be imposed only inside the reverse shock. At the 150 yr
+mapping time the reverse shock has already swept 2.3 of the 3.0 M☉ of ejecta
+into the thin dense shell between r_RS and r_CD, so the interface that is
+actually Rayleigh-Taylor unstable — and the material that produces essentially
+all of the X-ray emission — was being handed to the solver perfectly smooth,
+leaving the fingers to grow out of grid noise. The clumping now spans the whole
+ejecta out to the contact discontinuity (`--clump-region`, default `ejecta`);
+the perturbed mass goes from 1.17 to 2.79 M☉ at 256³, with the amplitude and
+spectrum untouched.
+
+Measured, at matched resolution and matched realisation:
+
+| N | 4.4″ (r_RS window) | 4.4″ (r_CD window) | rate |
+|---|---|---|---|
+| 128 | 1.97x | 1.96x | 0.85 → 0.85 |
+| 192 | 1.66x | 1.61x | 0.94 → 0.96 |
+| 256 | 1.83x | 1.73x | 0.86 → 0.88 |
+
+Real, in the right direction, growing with resolution as the shocked shell goes
+from 1.4 to 2.8 cells thick — and worth about 5 % at 256³. It is a correctness
+fix, not a solution. The 256³ control reproduces the previous `orl_n256_final`
+exactly (0.86 rate, 1.83x at 4.4″), which confirms the refactor is otherwise a
+no-op.
+
+### 512³ is stable again, but only with the old seeding
+
+[[handoff-casa-orlando-calibrated]] recorded 512³ as dead. That was measured
+with `POSITIVITY_HARD_FLOOR`. With `redistribute` the Orlando-route 512³ run
+**completes to 350 yr** — the first one that ever has — with mass conserved to
+6e-5 (17.3224 → 17.3214 M☉), r_FS = 2.465 pc and r_RS = 1.706 pc, both still
+inside the observed 2.52 ± 0.20 / 1.58 ± 0.16.
+
+The contact-discontinuity variant does *not*: it dies at t = 0.0215 (≈171 yr),
+before the shell encounter, in a dt collapse with the mass still conserved to
+1e-5 — so a genuine timestep collapse, not the old mass pump. The same
+resolution with the old r_RS window passes that point and runs to completion.
+The mechanism is already documented in `nickel_bubble_field`: at 512³ the
+reverse shock meets a *fully resolved* dense cold structure at r ≈ 1.02 pc and
+runs away radiatively, where at 256³ the same perturbation is grid-smeared and
+survives. Seeding the contact discontinuity is exactly the change that puts a
+resolved cold structure there.

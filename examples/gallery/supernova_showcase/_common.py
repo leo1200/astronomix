@@ -522,6 +522,56 @@ def turbulent_field(num_cells, key, kmin=4, kmax=16, slope=-1.0):
     return f / (jnp.std(f) + 1e-30)
 
 
+def turbulent_field_on(num_cells, key, kmin, kmax, slope=-1.0, seed_cells=None):
+    """The SAME band-limited random field, sampled on a grid of any size.
+
+    :func:`turbulent_field` draws its Fourier coefficients on the run grid, so
+    doubling ``num_cells`` re-rolls every phase: two resolutions of "the same"
+    initial condition are then two different realisations, and a resolution
+    ladder built from them measures the scatter between realisations on top of
+    whatever the grid is doing. That is fatal for a ladder whose whole purpose
+    is to separate the two.
+
+    With ``seed_cells`` the coefficients are drawn once on an ``seed_cells``
+    grid and the field is then evaluated on the ``num_cells`` one. For a field
+    band-limited to ``kmax < seed_cells / 2`` this is EXACT, not interpolation:
+    zero-padding a spectrum and inverse-transforming samples the identical
+    continuous function more finely. Every rung of a ladder then carries
+    literally the same clumps, and any change in the outcome is the grid.
+    """
+    if seed_cells is None or seed_cells == num_cells:
+        return turbulent_field(num_cells, key, kmin=kmin, kmax=kmax, slope=slope)
+    if 2 * kmax >= seed_cells:
+        raise SystemExit(
+            f"the clumping seed grid ({seed_cells}^3) cannot carry k up to "
+            f"{kmax}: it Nyquist-aliases above {seed_cells // 2}. Use a larger "
+            f"--clump-seed-grid or a smaller --clump-kmax.")
+    if num_cells < seed_cells:
+        raise SystemExit(
+            f"the clumping seed grid ({seed_cells}^3) is finer than the run "
+            f"grid ({num_cells}^3); the field cannot be sampled DOWN this way "
+            f"without aliasing. Seed on the coarsest rung of the ladder.")
+
+    coarse = turbulent_field(seed_cells, key, kmin=kmin, kmax=kmax, slope=slope)
+    spectrum = jnp.fft.fftn(coarse)
+    # Copy the coefficients into the larger cube at MATCHING integer
+    # wavenumbers. In FFT order that is the leading block (k = 0..h) and the
+    # trailing block (k = -h+1..-1) along every axis; the Nyquist row k = h
+    # carries no power here (kmax < h) and is left at zero, which is what keeps
+    # the embedding exact and the field real.
+    h = seed_cells // 2
+    big = jnp.zeros((num_cells,) * 3, dtype=spectrum.dtype)
+    lo, hi = slice(0, h), slice(-h + 1, None)
+    for i in (lo, hi):
+        for j in (lo, hi):
+            for k in (lo, hi):
+                big = big.at[i, j, k].set(spectrum[i, j, k])
+    # ifftn divides by the number of points, so undo the change of grid size
+    f = jnp.real(jnp.fft.ifftn(big)) * (num_cells / seed_cells) ** 3
+    f = f - jnp.mean(f)
+    return f / (jnp.std(f) + 1e-30)
+
+
 def nickel_bubble_field(X, Y, Z, key, ejecta_radius, n_bubbles=5,
                         bubble_radius_frac=(0.15, 0.35), center_max_frac=0.6,
                         depth=0.5, wall_boost=0.5, wall_width_frac=0.3):
