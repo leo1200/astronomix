@@ -257,6 +257,91 @@ def _find_shock_surface_2d(
     return shock_surface & jnp.any(shock_zones)
 
 
+# ============================================================================
+# 3D RAYCASTING
+# ============================================================================
+
+def _find_shock_surface_3d(
+    div_v: FIELD_TYPE,
+    shock_zones: BOOL_FIELD_TYPE,
+    shock_direction: FIELD_TYPE,
+) -> BOOL_FIELD_TYPE:
+    """
+    3D raycasting: same logic as 2D but with three axes.
+
+    Args:
+        div_v:           velocity divergence, shape (nx, ny, nz)
+        shock_zones:     boolean field, shape (nx, ny, nz)
+        shock_direction: unit vector field, shape (3, nx, ny, nz)
+
+    Returns:
+        boolean field, shape (nx, ny, nz)
+    """
+    nx, ny, nz = shock_zones.shape
+
+    abs_ds = jnp.abs(shock_direction)           # (3, nx, ny, nz)
+    dominant_axis = jnp.argmax(abs_ds, axis=0)  # (nx, ny, nz)
+
+    ds_x = shock_direction[0]
+    ds_y = shock_direction[1]
+    ds_z = shock_direction[2]
+
+    step_x = jnp.where(dominant_axis == 0, jnp.sign(ds_x).astype(jnp.int32), 0)
+    step_y = jnp.where(dominant_axis == 1, jnp.sign(ds_y).astype(jnp.int32), 0)
+    step_z = jnp.where(dominant_axis == 2, jnp.sign(ds_z).astype(jnp.int32), 0)
+
+    def is_surface_cell(i, j, k):
+        my_div = div_v[i, j, k]
+        sx = step_x[i, j, k]
+        sy = step_y[i, j, k]
+        sz = step_z[i, j, k]
+
+        # static Python int, like the 2D version — required by lax.scan's `length`
+        max_steps = int(max(nx, ny, nz))
+
+        def ray_step(carry, _):
+            ci, cj, ck, found_smaller = carry
+            ni = jnp.clip(ci + sx, 0, nx - 1)
+            nj = jnp.clip(cj + sy, 0, ny - 1)
+            nk = jnp.clip(ck + sz, 0, nz - 1)
+
+            still_in_zone = shock_zones[ni, nj, nk]
+            moved = (ni != ci) | (nj != cj) | (nk != ck)
+            active = still_in_zone & moved
+
+            neighbor_div = jnp.where(active, div_v[ni, nj, nk], jnp.inf)
+            found_smaller = found_smaller | (neighbor_div < my_div)
+
+            next_i = jnp.where(active, ni, ci)
+            next_j = jnp.where(active, nj, cj)
+            next_k = jnp.where(active, nk, ck)
+            return (next_i, next_j, next_k, found_smaller), None
+
+        (_, _, _, found_smaller), _ = jax.lax.scan(
+            ray_step,
+            (i, j, k, jnp.bool_(False)),
+            None,
+            length=max_steps,
+        )
+
+        return shock_zones[i, j, k] & ~found_smaller
+
+    i_idx = jnp.arange(nx)
+    j_idx = jnp.arange(ny)
+    k_idx = jnp.arange(nz)
+    ii, jj, kk = jnp.meshgrid(i_idx, j_idx, k_idx, indexing="ij")
+
+    shock_surface = jax.vmap(
+        jax.vmap(
+            jax.vmap(is_surface_cell, in_axes=(0, 0, 0)),
+            in_axes=(0, 0, 0),
+        ),
+        in_axes=(0, 0, 0),
+    )(ii, jj, kk)
+
+    return shock_surface & jnp.any(shock_zones)
+
+
 
 
 @partial(jax.jit, static_argnames=["config", "registered_variables"])
@@ -275,6 +360,9 @@ def identify_shock_surface(
 
     elif config.dimensionality == 2:
         return _find_shock_surface_2d(div_v, shock_zones, shock_direction)
+
+    elif config.dimensionality == 3:
+        return _find_shock_surface_3d(div_v, shock_zones, shock_direction)
 
     else:
         raise NotImplementedError(
