@@ -336,3 +336,97 @@ Two caveats, both load-bearing:
   crush threshold — the same mechanism that killed the tabulated-radius and
   capped-radius piston variants. Until that is bisected, **δ = 0 is the working
   configuration** and the Si / `r_RS` discrepancy stands.
+
+## Result 8 — the plasma the X-rays actually see
+
+Results 1–7 are hydrodynamics: radii, masses, deceleration. What a telescope
+records is set by three quantities the solver does *not* evolve — the electron
+temperature, the electron density, and the ionization state — and every one of
+them depends on the composition. Reconstructing them (`_plasma.py`, `_nei.py`,
+shared by `casa_plasma.py` and `casa_observe.py`) changes the predicted
+observation by factors, not percents.
+
+### The mean molecular weight is not 0.61
+
+Fully ionized cosmic gas has `mu = 0.61` and `mu_e = 1.18`. The fully ionized
+oxygen layer that carries most of Cas A's ejecta mass has `mu = 16/9 = 1.78` and
+`mu_e = 2.0`. Three consequences, all measured on `orl_n256_final`:
+
+| quantity | cosmic `mu` | composition-aware | note |
+|---|---|---|---|
+| EM-weighted single-fluid `kT` | 4.5 keV | **13.0 keV** | `= (3/16) mu m_p v^2` at a ~1900 km/s reverse shock |
+| EM-weighted `n_e t` | 3.3e11 | **2.3e11** | against ~1e11 observed — 1.7x fewer electrons per gram |
+| EM-weighted `kT_e` | 2.60 keV | **3.05 keV** | see below |
+
+The 13 keV is not an error: heavy ions at a fast shock really are heated to tens
+of keV, and it is the *electrons* that are cold.
+
+### Electron-ion equilibration, and why the present snapshot is enough
+
+The electrons take `kT_e ~ 0.3 keV` at the shock (Ghavamian et al. 2007) and
+relax by Coulomb collisions. Two things were wrong before:
+
+* the temperature DIFFERENCE decays on `t_eq n_i/(n_e + n_i)`, not on `t_eq` —
+  a factor 2.1 in cosmic gas, 9 in fully ionized oxygen, because the electrons
+  hold most of the heat capacity there;
+* the rate scales with `sum n_i Z_i^2/m_i`, which per gram is 4x smaller in
+  oxygen than in hydrogen.
+
+The integration uses the parcel's *present* density and temperature, and for an
+adiabatic parcel that is exact, not approximate: `t_eq ~ T^{3/2}/n_e` and
+adiabatic expansion carries `T ~ rho^{2/3}`, so `T^{3/2}/n_e` is invariant along
+the trajectory. (Integrating instead in the electron column `int n_e dt`, which
+the solver happens to carry, assumes `t_eq n_e` is the invariant — that needs
+constant temperature, and it over-equilibrates the ejecta by 40 %.) The result
+is `T_e/T = 0.32` EM-weighted: equilibration is a third complete at 350 yr.
+
+### The spectral comparison, which is the real test
+
+`casa_observe.py --compare` now extracts a spectrum from the synthetic event
+file and from the real `evt2` events in the *same* aperture, through the *same*
+response (with the ACIS cycle matched to the epoch — the filter contamination
+absorbs most of the sub-keV flux by cycle 20, so comparing a cycle-0 model with
+a cycle-20 observation is a soft-band error, not a model error).
+
+Count rates in 0.5–7 keV against the real 295 counts/s, and band ratios
+(synthetic/real) inside r < 200″:
+
+| model | rate | 0.5–1.5 | 1.5–2.1 | 2.1–2.8 | 4.2–6.0 | 6.0–7.0 |
+|---|---|---|---|---|---|---|
+| single-fluid `T` (CIE) | 113.5 (0.39x) | 0.20 | — | — | — | 3.00 |
+| **`T_e` (CIE)** | 137.3 (**0.47x**) | 0.30 | 0.34 | 0.58 | 1.70 | 2.88 |
+
+Using `T_e` rather than the single-fluid temperature is worth 21 % in total rate
+and 50 % in the soft band — hotter gas puts more of its power outside the ACIS
+band and produces fewer line photons inside it.
+
+The remaining shape error is unambiguous and one-sided: **too hard**. That is
+the signature of collisional ionization equilibrium standing in for a plasma
+that has not reached it. Measured directly with AtomDB (NEI/CIE, at
+`kT_e ~ 2–3 keV`, `n_e t ~ 1e11`):
+
+| | 0.5–1.5 | 1.5–2.1 | 2.1–2.8 | 6.0–7.0 |
+|---|---|---|---|---|
+| O | 3.1x | 1.0 | 1.0 | 1.0 |
+| Si | 2.4x | **5.0x** | 4.2x | 0.38x |
+| Fe | **6.5x** | 2.0x | 0.7x | 0.38x |
+
+Every entry moves the model toward the observation — the two bands where it was
+3x low go up by 3–6x, and Fe-K, where it was 2.9x high, comes down by a factor
+2.6. That agreement in *sign and rough size across six independent bands* is the
+reason to believe the diagnosis, and `--nei` implements it.
+
+### What is assumed rather than simulated
+
+* **four tracers, nine elements.** `_plasma.TRACER_SPLIT` divides the carried
+  "O" layer into O/Ne/Mg and the "Si" layer into Si/S/Ar/Ca by Hwang & Laming's
+  measured mass ratios. Comparing the raw "Si" tracer against measured Si read
+  1.6x high; per element the model is now uniformly ~0.6x the observed shocked
+  masses, which is an ejecta-composition input (`IIB_LAYERS`), not a
+  hydrodynamic result.
+* **full ionization in `mu_e`**, which is 10–20 % optimistic in Fe-rich cells.
+* **single-shock ionization history**, and `T_e` held at its present value over
+  that history.
+* the reference hydrogen density that keeps APEC's `el/H` ratios finite in
+  hydrogen-free ejecta — chosen per cell so that every metal density is exact,
+  at the cost of 0.05 % of the free-free emission.
