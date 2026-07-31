@@ -452,3 +452,45 @@ in the order they are worth testing:
 * the reference hydrogen density that keeps APEC's `el/H` ratios finite in
   hydrogen-free ejecta — chosen per cell so that every metal density is exact,
   at the cost of 0.05 % of the free-free emission.
+
+## Result 9 — how structured the remnant is, scale by scale
+
+The image is the weakest part of the model, and "it looks too smooth" is not a
+result until it is a number. `casa_morphology.py` band-passes the counts image
+between `theta` and `2 theta`, takes the RMS in a 60–140″ annulus, subtracts the
+Poisson variance analytically (for nested boxcars over `A1 < A2` pixels the
+covariance is `m/A2`, so the noise variance of the difference is exactly
+`m (1/A1 − 1/A2)` — nothing fitted), and divides by the local mean. That makes a
+20 ks synthetic image comparable with a 143 ks observation.
+
+| scale | synthetic | Chandra 2004 | real/syn | S/N of the subtraction |
+|---|---|---|---|---|
+| 1.0″ | 0.020 | 0.091 | 4.7x | 0.0 — meaningless |
+| 1.5″ | 0.042 | 0.149 | 3.6x | 0.4 — meaningless |
+| 2.5″ | 0.062 | 0.183 | 2.9x | 2.7 — marginal |
+| 4.4″ | 0.120 | 0.219 | **1.83x** | 33 |
+| 8.4″ | 0.218 | 0.248 | **1.14x** | 388 |
+| 16.2″ | 0.308 | 0.273 | **0.89x** | 2932 |
+
+**The model already matches Cas A's structure at ≥ 8″** and slightly exceeds it
+at 16″ — the shell arcs and the pistons are, if anything, a touch too strong. It
+is 1.83x too smooth at 4.4″. Below 2.5″ the synthetic image is Poisson-dominated
+at 20 ks and the numbers mean nothing until it is regenerated at the real
+exposure. Both the Chandra PSF (~0.5″) and the dust halo suppress the *real*
+column, so the measured gap is a lower bound.
+
+This is a resolution statement, and three independent facts say so:
+
+1. one cell at 256³ in a 7 pc box is 0.0273 pc = **1.66″**, and WENO5 damps
+   structure below ~3 cells, i.e. below ~5″;
+2. the clump *seed* is grid-clamped, not physics-set —
+   `k_hi = min(box/(0.02 r_FS), N/6)` is `min(273, 42)` at 256³, so the seeded
+   clumps are 6 cells = **10″** against the intended 1.6″, a factor 6;
+3. the measured deficit sets in at 4.4″ and is gone by 8.4″.
+
+There is no evidence here for a missing large-scale mechanism. It also predicts
+something checkable: in a roughly isobaric medium a denser knot is a *cooler*
+knot, so the unresolved mass is sitting as smooth warm gas instead of cool dense
+knots — which is exactly the residual spectral error (0.70x soft, 1.6x hard
+continuum). Resolving the structure should move both at once, and if it moves
+only one they are separate problems.
