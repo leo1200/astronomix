@@ -336,3 +336,43 @@ axes[0].legend(
 plt.show()
 
 # %%
+#%%
+# 3D SCATTER PLOT OF SHOCK SURFACE
+# ============================================================================
+
+from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 (enables 3d projection)
+
+fig = plt.figure(figsize=(9, 8))
+ax = fig.add_subplot(111, projection="3d")
+
+xs = geometry_x_np[surface_mask]
+ys = geometry_y_np[surface_mask]
+zs = geometry_z_np[surface_mask]
+mach_surf = np.array(result.mach_numbers)[surface_mask]
+
+sc = ax.scatter(
+    xs, ys, zs,
+    c=mach_surf,
+    cmap="hot",
+    s=8,
+    alpha=0.8,
+)
+
+# mark explosion center
+ax.scatter(
+    [center_x], [center_y], [center_z],
+    color="cyan", marker="+", s=150, linewidths=2, label="explosion center"
+)
+
+fig.colorbar(sc, ax=ax, shrink=0.6, label="Shock Mach number")
+
+ax.set_xlabel("x")
+ax.set_ylabel("y")
+ax.set_zlabel("z")
+ax.set_title("3D Shock Surface — Sedov-Taylor blast wave")
+ax.set_xlim(0, box_size)
+ax.set_ylim(0, box_size)
+ax.set_zlim(0, box_size)
+ax.legend(loc="upper right")
+
+plt.show()
