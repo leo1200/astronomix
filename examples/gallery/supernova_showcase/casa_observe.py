@@ -37,6 +37,13 @@ What is faithful here:
     not with an assumed uniform metallicity. Cas A's X-ray emission is
     line-dominated ejecta emission, so this is the difference between a plausible
     picture and a comparable one.
+  * **the electron temperature**, not the single-fluid one. Behind a collisionless
+    shock the electrons are heated to ~0.3 keV while the ions take the rest, and
+    Coulomb equilibration takes thousands of years at Cas A's density; the
+    spectrum is set by T_e. See :mod:`_plasma`.
+  * **the electron density**, from the same composition: fully ionized ejecta
+    carry ~1.7x fewer electrons per gram than cosmic gas, and both the emission
+    measure and the ionization age scale with it.
 
 What is still approximate, and must be stated with any figure:
   * **collisional ionization equilibrium.** Cas A's bulk plasma sits at
@@ -44,11 +51,19 @@ What is still approximate, and must be stated with any figure:
     are wrong. The ingredients for the fix now exist — the shock history gives
     the ionization age per cell (``casa_plasma.py`` turns it into the observable
     EM(kT, n_e t) distribution) — but pyXSIM's ``NEISourceModel`` wants per-ion
-    fields rather than an ionization age, so the swap is not a one-liner.
-  * **hydrogen-free ejecta.** APEC normalises emission to hydrogen (``n_e n_H``
-    and el/H abundance ratios), which formally diverges in the Fe layer. A
-    hydrogen floor and an abundance cap keep it finite; both are reported per
-    run. See :func:`abundance_fields`.
+    fields rather than an ionization age, so the swap is not a one-liner. It is
+    the largest remaining spectral error.
+  * **hydrogen-free ejecta.** APEC normalises to hydrogen, which formally
+    diverges when there is none. :func:`emission_fields` sets a per-cell
+    reference hydrogen density so that every METAL density is exact and only the
+    hydrogen continuum is affected; the run reports what that costs (0.05 % of
+    the free-free emission at the default ``--max-abundance``).
+  * **four tracers, nine elements.** The carried species stand for whole
+    nucleosynthetic layers, and are divided into elements by the fixed mass
+    ratios in ``_plasma.TRACER_SPLIT``. Relative abundances WITHIN a layer are
+    therefore assumed, not simulated.
+  * **full ionization** in the mean molecular weights (see :mod:`_plasma`);
+    ~10-20 % in ``mu_e`` for the Fe-rich cells only.
   * no non-thermal (synchrotron) component: the blast-wave rim will be fainter
     relative to the ejecta than in the real image.
   * states written before the passive scalars existed have no composition; for
@@ -71,9 +86,17 @@ from pathlib import Path
 # numerics
 import numpy as np
 
-# units and constants
-from astropy import constants as const
-from astropy import units as u
+# the shared plasma physics (also used by casa_plasma.py)
+from _plasma import (
+    ATOMIC,
+    CODE_DENSITY,
+    CODE_LENGTH,
+    CODE_VELOCITY,
+    KEV_IN_K,
+    M_P,
+    SOLAR_NUMBER_RATIO_TO_H,
+    plasma_state,
+)
 
 FIGURES_DIR = Path(__file__).resolve().parent / "figures"
 FIGURES_DIR.mkdir(exist_ok=True)
@@ -88,120 +111,161 @@ PIXEL_ARCSEC = 0.492                 # native ACIS pixel
 NPIX_COMPARE = 1024                  # same grid as make_epoch_images.py
 REAL_EPOCH_DIR = Path("/export/data/lstorcks/chandra_casa/epoch_images")
 
-# the showcase code units: pc / Msun / 1000 km s^-1
-CODE_LENGTH = (1.0 * u.pc).to(u.cm).value
-CODE_MASS = (1.0 * u.Msun).to(u.g).value
-CODE_VELOCITY = (1000.0 * u.km / u.s).to(u.cm / u.s).value
-CODE_DENSITY = CODE_MASS / CODE_LENGTH ** 3
-CODE_PRESSURE = CODE_DENSITY * CODE_VELOCITY ** 2
-MU_PARTICLE = 0.61                   # matches _common.temperature_K
 # =============================================================================
 # ============ ↑ Cas A on the sky ↑ ===========================================
 # =============================================================================
 
-
-# Solar (Anders & Grevesse, the "angr" table SOXS/pyXSIM default) abundances
-# expressed as MASS fractions relative to hydrogen, which is what converts a
-# simulated mass fraction into the "in solar units" abundance pyXSIM wants.
-SOLAR_MASS_RATIO_TO_H = {"He": 0.3911, "O": 0.01362, "Si": 9.97e-4, "Fe": 2.613e-3}
 
 #: species carried by ``casa_orlando.py --composition``
 TRACKED_SPECIES = ("Fe", "Si", "O", "He")
 
 
 def load_state(path):
-    """Read a showcase ``--save-state`` npz into cgs physical fields."""
-    d = np.load(path)
-    rho = np.asarray(d["rho"], dtype=np.float64) * CODE_DENSITY          # g/cm^3
-    press = np.asarray(d["press"], dtype=np.float64) * CODE_PRESSURE     # erg/cm^3
-    temp = (MU_PARTICLE * const.m_p.cgs.value / const.k_B.cgs.value) * press / rho
-    vel = None
-    if "vx" in d:
-        vel = tuple(np.asarray(d[k], dtype=np.float64) * CODE_VELOCITY
-                    for k in ("vx", "vy", "vz"))
-    box_pc = float(d["box"]) if "box" in d else 7.0
-    age_yr = float(d["age"]) if "age" in d else np.nan
+    """Read a showcase ``--save-state`` npz, keeping the fields in code units.
 
-    # passive scalars, when the run carried them
-    composition = None
-    if "C_ej" in d:
-        composition = {s: np.asarray(d[f"C_{s}"], dtype=np.float64)
-                       for s in TRACKED_SPECIES if f"C_{s}" in d}
-        composition["ejecta"] = np.asarray(d["C_ej"], dtype=np.float64)
-    shock = None
-    if "density_time" in d:
-        shock = dict(
-            density_time=np.asarray(d["density_time"], dtype=np.float64),
-            time_since_shock=np.asarray(d["time_since_shock"], dtype=np.float64),
-        )
-    return dict(density=rho, temperature=temp, velocity=vel,
-                box_pc=box_pc, age_yr=age_yr, num_cells=rho.shape[0],
-                composition=composition, shock=shock)
-
-
-def abundance_fields(composition, *, max_abundance, h_floor):
-    """Turn simulated mass fractions into pyXSIM abundances (solar units).
-
-    pyXSIM, like every APEC-based model, normalises emission to hydrogen: the
-    emission measure is ``n_e n_H`` and abundances are ratios to solar
-    ``el/H``. Supernova ejecta are the pathological case for that convention —
-    the Fe layer is essentially hydrogen-free, so the abundance ratio diverges
-    while ``n_H`` goes to zero, and only their product is well behaved.
-
-    Two explicit, reported approximations keep this numerically sane:
-    a floor on the hydrogen mass fraction and a cap on the abundance
-    enhancement. The result is not a pure-metal plasma calculation, but it is a
-    great deal closer than assuming one metallicity everywhere, which is what
-    left the synthetic image ~3.5x under-luminous and peaking at the wrong
-    radius.
-
-    Returns ``(h_fraction, {element: abundance in solar units}, info)``.
+    The conversion to physical quantities is deliberately NOT done here: the
+    temperature, the electron density and the ionization age all depend on the
+    composition the run carried, and that physics lives in :mod:`_plasma` so
+    that this script and ``casa_plasma.py`` cannot disagree about the same cell.
     """
-    metals = {s: composition[s] for s in TRACKED_SPECIES if s in composition}
-    x_h = np.clip(1.0 - sum(metals.values()), h_floor, 1.0)
-
-    abund, info = {}, {}
-    for el, x_el in metals.items():
-        a = (x_el / x_h) / SOLAR_MASS_RATIO_TO_H[el]
-        capped = np.minimum(a, max_abundance)
-        info[el] = dict(median=float(np.median(a)), p99=float(np.percentile(a, 99)),
-                        capped_fraction=float(np.mean(a > max_abundance)))
-        abund[el] = capped
-    return x_h, abund, info
+    d = np.load(path)
+    fields = {k: np.asarray(d[k], dtype=np.float64) for k in d.files
+              if np.asarray(d[k]).ndim == 3}
+    return dict(fields=fields,
+                box_pc=float(d["box"]) if "box" in d else 7.0,
+                age_yr=float(d["age"]) if "age" in d else np.nan,
+                num_cells=fields["rho"].shape[0],
+                has_velocity="vx" in fields)
 
 
-def make_yt_dataset(state, *, zmet, ejecta_zmet, ejecta_temperature_K,
-                    max_abundance=50.0, h_floor=1e-3):
-    """Wrap the state in a yt uniform grid with the fields pyXSIM needs."""
+def emission_fields(state, *, max_abundance, two_temperature=True):
+    """The self-consistent set pyXSIM needs: ``n_e``, ``n_H``, abundances, ``T_e``.
+
+    APEC -- like every X-ray plasma code -- normalises to hydrogen: the emission
+    measure is ``n_e n_H V`` and an element enters as ``A_el``, its abundance
+    relative to solar, so the modelled emission from element ``el`` is
+    proportional to ``n_e * (A_el r_sun,el n_H)``. Supernova ejecta are the
+    pathological case, because ``n_H`` there is essentially zero and the ratio
+    diverges.
+
+    The resolution is to notice that only the PRODUCT is physical. Writing
+    ``n_el = A_el r_sun,el n_H``, any positive ``n_H`` reproduces the true
+    ``n_el`` provided ``A_el`` is set to match, and the only quantity that
+    depends on the choice is the emission of hydrogen itself. So instead of
+    flooring the hydrogen mass fraction (which silently CHANGES the plasma) this
+    picks, per cell, the smallest reference hydrogen density that keeps every
+    abundance inside ``max_abundance``:
+
+        ``n_H,ref = max(n_H,true, max_el n_el / (A_max r_sun,el))``
+
+    and then sets ``A_el = n_el / (r_sun,el n_H,ref)`` exactly. Every metal
+    density is then correct by construction, at the cost of a spurious hydrogen
+    continuum in the hydrogen-free cells -- which is bounded by
+    ``1 / (A_max r_sun,el Z_el^2)`` relative to that element's own free-free
+    emission, i.e. 0.2 % for oxygen and 1.4 % for silicon at ``A_max = 1e4``.
+    That is a far smaller error than a factor-of-ten deficit in the Fe and Si
+    line emission, which is what the old cap of 50 was producing: it left the
+    iron knots with a tenth of their iron and the silicon layer with a
+    twenty-sixth of its silicon.
+
+    Returns a dict of cgs fields plus a report of what was done.
+    """
+    ps = plasma_state(state["fields"], two_temperature=two_temperature)
+    X, n_e = ps["X"], ps["n_e"]                 # X is per ELEMENT (TRACER_SPLIT)
+    rho = state["fields"]["rho"] * CODE_DENSITY
+
+    n_el = {el: rho * x / (ATOMIC[el][0] * M_P)
+            for el, x in X.items() if el != "H"}
+    n_H_true = rho * X["H"] / (ATOMIC["H"][0] * M_P)
+    n_H_ref = n_H_true.copy() if np.ndim(n_H_true) else np.full_like(n_e, n_H_true)
+    for el, n in n_el.items():
+        n_H_ref = np.maximum(n_H_ref, n / (max_abundance * SOLAR_NUMBER_RATIO_TO_H[el]))
+
+    abund = {el: n / (SOLAR_NUMBER_RATIO_TO_H[el] * np.maximum(n_H_ref, 1e-30))
+             for el, n in n_el.items()}
+
+    # What the invented hydrogen costs, as a fraction of the whole remnant's
+    # free-free emission: the spurious part is n_e (n_H,ref - n_H,true) against
+    # the real n_e (n_H,true + sum_el n_el Z_el^2). Weighting by n_e makes this
+    # the number that actually matters -- a large relative error in a cell that
+    # emits nothing is not an error in the observation.
+    z2 = sum(n * ATOMIC[el][1] ** 2 for el, n in n_el.items())
+    excess = np.maximum(n_H_ref - n_H_true, 0.0)
+    ff_spurious = float(np.sum(n_e * excess))
+    ff_real = float(np.sum(n_e * (n_H_true + z2)))
+    report = dict(
+        invented_fraction=float(np.mean(n_H_ref > 1.0000001 * n_H_true)),
+        spurious_ff=ff_spurious / max(ff_real, 1e-30),
+        abundance_max=float(max(np.max(a) for a in abund.values())),
+    )
+    return dict(n_e=n_e, n_H=n_H_ref, abundances=abund, T_e=ps["T_e"], T=ps["T"],
+                info=ps["info"], report=report, moments=ps["moments"])
+
+
+def describe_emission(em):
+    """Print what the plasma model did, so no figure is produced silently."""
+    i, r = em["info"], em["report"]
+    if not i["composition_tracked"]:
+        print("[casa-obs] NOTE: no composition scalars -- cosmic abundances "
+              "everywhere, and the ejecta temperature is understated ~3x")
+        return
+    if i["two_temperature"]:
+        w = (em["n_e"] ** 2) * (em["T_e"] > 1e6)
+        ratio = float(np.average(em["T_e"] / em["T"], weights=w))
+        kt = float(np.average(em["T_e"], weights=w)) / KEV_IN_K
+        print(f"[casa-obs] electron temperature: EM-weighted T_e/T = {ratio:.3f} "
+              f"(1 = full equilibration), kT_e = {kt:.2f} keV; the spectrum is "
+              f"computed from T_e")
+    else:
+        print("[casa-obs] NOTE: single-temperature plasma (T_e = T_i = T), "
+              "which over-predicts the hard emission of recently shocked gas")
+    print(f"[casa-obs] hydrogen reference: invented in "
+          f"{100 * r['invented_fraction']:.1f}% of cells, costing "
+          f"{100 * r['spurious_ff']:.2f}% of the total free-free emission; "
+          f"peak abundance {r['abundance_max']:.3g} solar")
+
+
+def make_yt_dataset(state, em, *, zmet, ejecta_zmet, ejecta_temperature_K):
+    """Wrap the state in a yt uniform grid with the fields pyXSIM needs.
+
+    The emission measure is supplied EXPLICITLY rather than left to yt. yt's
+    ``("gas", "emission_measure")`` is ``n_e n_H dV`` with ``n_e`` and ``n_H``
+    derived from the density under ``default_species_fields="ionized"``, i.e.
+    from a cosmic composition -- which is wrong by 1.8x in ``n_e`` and by orders
+    of magnitude in ``n_H`` in the ejecta, and was inconsistent with the
+    per-element abundances handed to the same source model.
+    """
     import yt
 
     n = state["num_cells"]
+    f = state["fields"]
     half = 0.5 * state["box_pc"] * CODE_LENGTH
     bbox = np.array([[-half, half]] * 3)
+    dv = (state["box_pc"] * CODE_LENGTH / n) ** 3
 
     # use explicit ("gas", ...) field tuples: with bare names yt registers them
     # under ("stream", ...) and does not alias the velocities, which pyXSIM
     # then cannot find
     data = {
-        ("gas", "density"): (state["density"], "g/cm**3"),
-        ("gas", "temperature"): (state["temperature"], "K"),
+        ("gas", "density"): (f["rho"] * CODE_DENSITY, "g/cm**3"),
+        # THE ELECTRON temperature: it is the electrons that excite the lines
+        # and radiate the continuum, and behind a fast collisionless shock they
+        # are far colder than the ions (see _plasma.electron_ion_temperatures).
+        # Using the single-fluid temperature here over-predicted the hard
+        # emission of the youngest-shocked gas.
+        ("gas", "temperature"): (em["T_e"], "K"),
+        ("gas", "emission_measure_neneh"): (em["n_e"] * em["n_H"] * dv, "cm**-3"),
     }
     # Always register velocities, even for the older states that were saved
     # before ``--save-state`` kept them: pyXSIM's default is to look for
     # ("gas", "velocity_*") whether or not we ask for Doppler shifts, so a
     # missing field is a hard error rather than "no shifting".
-    vel = state["velocity"] or (np.zeros_like(state["density"]),) * 3
-    for name, arr in zip(("velocity_x", "velocity_y", "velocity_z"), vel):
-        data[("gas", name)] = (arr, "cm/s")
+    zero = np.zeros_like(f["rho"])
+    for name, key in (("velocity_x", "vx"), ("velocity_y", "vy"), ("velocity_z", "vz")):
+        data[("gas", name)] = ((f[key] * CODE_VELOCITY) if key in f else zero, "cm/s")
 
-    # Composition. With passive scalars the abundances are the SIMULATED ones,
-    # per cell and per element; the two fallbacks below exist only for states
-    # written before the scalars existed.
-    if state["composition"] is not None:
-        x_h, abund, info = abundance_fields(
-            state["composition"], max_abundance=max_abundance, h_floor=h_floor)
-        data[("gas", "H_fraction")] = (x_h, "dimensionless")
-        for el, a in abund.items():
+    if em["abundances"]:
+        for el, a in em["abundances"].items():
             # units MUST be "Zsun" (they are solar-unit abundances, so this is
             # also the honest label). pyXSIM masks the hydrogen fraction to the
             # emitting cells before using it, then for any var_elem field NOT in
@@ -211,16 +275,11 @@ def make_yt_dataset(state, *, zmet, ejecta_zmet, ejecta_temperature_K,
             # h_fraction is supplied as a field. Declaring Zsun takes that
             # branch out.
             data[("gas", f"{el}_abundance")] = (a, "Zsun")
-        for el, i in info.items():
-            print(f"[casa-obs] {el}: median {i['median']:.2f} solar, "
-                  f"p99 {i['p99']:.1f}, {100 * i['capped_fraction']:.2f}% of cells "
-                  f"capped at {max_abundance}x")
     elif ejecta_zmet is not None:
         # legacy stand-in: no ejecta tracer, so select by the only thing
         # available -- dense, hot material interior to the blast wave
-        rho_med = np.median(state["density"])
-        is_ejecta = ((state["density"] > 3.0 * rho_med)
-                     & (state["temperature"] > ejecta_temperature_K))
+        rho_med = np.median(f["rho"])
+        is_ejecta = (f["rho"] > 3.0 * rho_med) & (em["T"] > ejecta_temperature_K)
         data[("gas", "metallicity")] = (np.where(is_ejecta, ejecta_zmet, zmet), "Zsun")
 
     ds = yt.load_uniform_grid(
@@ -235,29 +294,34 @@ def make_events(state, args):
     import pyxsim
     import soxs
 
-    ds = make_yt_dataset(state, zmet=args.zmet, ejecta_zmet=args.ejecta_zmet,
-                         ejecta_temperature_K=args.ejecta_temperature,
-                         max_abundance=args.max_abundance, h_floor=args.h_floor)
+    em = emission_fields(state, max_abundance=args.max_abundance,
+                         two_temperature=not args.single_temperature)
+    describe_emission(em)
+    ds = make_yt_dataset(state, em, zmet=args.zmet, ejecta_zmet=args.ejecta_zmet,
+                         ejecta_temperature_K=args.ejecta_temperature)
     sp = ds.all_data()
 
-    # With the simulated composition available, every element pyXSIM knows about
-    # varies per cell and hydrogen is a field too; otherwise fall back to a
-    # single metallicity.
-    var_elem = h_fraction = None
-    if state["composition"] is not None:
-        var_elem = {el: ("gas", f"{el}_abundance") for el in TRACKED_SPECIES
-                    if el in state["composition"]}
-        h_fraction = ("gas", "H_fraction")
-        Zmet = args.zmet          # the un-tracked trace metals
+    # With the simulated composition available every element varies per cell and
+    # the emission measure carries the true electron and metal densities, so the
+    # remaining ``Zmet`` covers only the elements no tracer stands for (C, N, Ni).
+    var_elem = None
+    if em["abundances"]:
+        var_elem = {el: ("gas", f"{el}_abundance") for el in em["abundances"]}
+        Zmet = args.zmet
     else:
         Zmet = ("gas", "metallicity") if args.ejecta_zmet is not None else args.zmet
     source = pyxsim.CIESourceModel(
         "apec", args.emin, args.emax, args.nbins, Zmet,
-        var_elem=var_elem, h_fraction=h_fraction,
+        var_elem=var_elem,
+        # our own n_e n_H dV, from the simulated composition
+        emission_measure_field=("gas", "emission_measure_neneh"),
         # do not let the cold, unshocked ejecta (which is at the pressure floor
         # and whose float32 temperature is meaningless) contribute
         kT_min=args.kt_min,
         binscale="log",
+        # thermal broadening uses the single temperature it is given, i.e. T_e;
+        # the ions are hotter, but even at kT_i = 30 keV the Fe-K line broadens
+        # by ~5 eV against ACIS's ~120 eV resolution, so it does not matter here
         thermal_broad=True,
         abund_table="angr",
     )
@@ -279,7 +343,7 @@ def make_events(state, args):
         velocity_fields=[("gas", "velocity_x"), ("gas", "velocity_y"),
                          ("gas", "velocity_z")],
     )
-    if state["velocity"] is None:
+    if not state["has_velocity"]:
         print("[casa-obs] NOTE: this state carries no velocities -- the line "
               "emission is unshifted (no Doppler structure)")
     print(f"[casa-obs] {n_ph:.3e} photons from {n_cell:.3e} cells")
@@ -324,22 +388,40 @@ def bin_events_to_grid(evtfile, *, emin=0.5, emax=7.0, npix=NPIX_COMPARE,
     real data -- synthetic and real go through identical code onto an identical
     grid, which is the point of the exercise.
     """
+    px, py, energy, _ = read_events(evtfile, npix=npix, scale_arcsec=scale_arcsec)
+    sel = (energy > emin) & (energy < emax)
+    img, _, _ = np.histogram2d(py[sel], px[sel], bins=npix, range=[[0, npix], [0, npix]])
+    return img
+
+
+def read_events(evtfile, *, npix=NPIX_COMPARE, scale_arcsec=PIXEL_ARCSEC):
+    """Event sky coordinates -> pixels on the common grid, plus energies in keV.
+
+    Works on both a SOXS event file and a real Chandra ``evt2``: they have the
+    same structure (sky ``X``/``Y`` with the tangent-plane WCS in the
+    ``TCRVL``/``TCRPX``/``TCDLT`` keywords, and an energy column in eV), only
+    the column-name case differs. Deliberately the same inverse-gnomonic
+    conversion followed by the same forward projection that
+    ``/export/data/lstorcks/chandra_casa/make_epoch_images.py`` applies to the
+    real data, so synthetic and real land on an identical grid through identical
+    code -- which is the point of the exercise.
+
+    Returns ``(px, py, energy_keV, exposure_s)``.
+    """
     from astropy.io import fits
 
     with fits.open(evtfile) as f:
         hdu = f["EVENTS"]
-        names = [c.name for c in hdu.columns]
-        ix = names.index("X") + 1
-        iy = names.index("Y") + 1
+        names = {c.name.upper(): c.name for c in hdu.columns}
+        order = [c.name.upper() for c in hdu.columns]
+        ix, iy = order.index("X") + 1, order.index("Y") + 1
         h = hdu.header
-        x = np.asarray(hdu.data["X"], dtype=np.float64)
-        y = np.asarray(hdu.data["Y"], dtype=np.float64)
-        energy = np.asarray(hdu.data["ENERGY"], dtype=np.float64)   # eV
+        x = np.asarray(hdu.data[names["X"]], dtype=np.float64)
+        y = np.asarray(hdu.data[names["Y"]], dtype=np.float64)
+        energy = np.asarray(hdu.data[names["ENERGY"]], dtype=np.float64) * 1e-3  # keV
+        exposure = float(h.get("EXPOSURE", h.get("ONTIME", np.nan)))
         crvx, crpx, cdlx = h[f"TCRVL{ix}"], h[f"TCRPX{ix}"], h[f"TCDLT{ix}"]
         crvy, crpy, cdly = h[f"TCRVL{iy}"], h[f"TCRPX{iy}"], h[f"TCDLT{iy}"]
-
-    sel = (energy > emin * 1e3) & (energy < emax * 1e3)
-    x, y = x[sel], y[sel]
 
     # inverse gnomonic (TAN) projection: sky pixels -> RA, Dec
     xi = np.deg2rad((x - crpx) * cdlx)
@@ -366,8 +448,33 @@ def bin_events_to_grid(evtfile, *, emin=0.5, emax=7.0, npix=NPIX_COMPARE,
            - np.sin(dec0) * np.cos(dec_r) * np.cos(ra_r - ra0)) / cosc
     px = npix / 2 - np.rad2deg(xi) / scale        # RA increases to the left
     py = npix / 2 + np.rad2deg(eta) / scale
-    img, _, _ = np.histogram2d(py, px, bins=npix, range=[[0, npix], [0, npix]])
-    return img
+    return px, py, energy, exposure
+
+
+#: ACIS-S responses SOXS ships, by Chandra cycle. Cycle n was observed in
+#: 1999 + n, and what changes between them is chiefly the molecular
+#: contamination on the optical blocking filter, which by cycle 20 absorbs most
+#: of the flux below ~1 keV. Matching the cycle to the epoch is therefore not a
+#: detail: it is the difference between comparing plasma models and comparing
+#: filter thicknesses.
+ACIS_S_CYCLES = (0, 10, 22, 28)
+
+
+def instrument_for_epoch(label):
+    """The SOXS ACIS-S response closest in Chandra cycle to a data epoch."""
+    if label is None:
+        return "chandra_aciss_cy0"
+    try:
+        year = int(str(label)[:4])
+    except ValueError:
+        return "chandra_aciss_cy0"
+    cycle = min(ACIS_S_CYCLES, key=lambda c: abs(1999 + c - year))
+    name = f"chandra_aciss_cy{cycle}"
+    off = abs(1999 + cycle - year)
+    print(f"[casa-obs] instrument {name} for epoch {label}"
+          + (f" (nearest available cycle; {off} yr of contamination buildup "
+             f"unaccounted for)" if off else " (exact match)"))
+    return name
 
 
 def load_real_epoch(label):
@@ -378,6 +485,134 @@ def load_real_epoch(label):
                          f"{sorted(p.stem[6:] for p in REAL_EPOCH_DIR.glob('epoch_*.npz'))}")
     d = np.load(path, allow_pickle=True)
     return np.asarray(d["counts"], dtype=np.float64), float(d["exposure"])
+
+
+# =============================================================================
+# ============ ↓ The spectral comparison ↓ ====================================
+# =============================================================================
+#: Energy bins for the spectral comparison (keV). 50 eV is about half the ACIS
+#: resolution, so the He-alpha complexes are resolved without over-binning.
+SPECTRUM_EBINS = np.arange(0.4, 8.001, 0.05)
+
+#: Bands worth quoting separately, each dominated by one thing.
+SPECTRAL_BANDS = (
+    ("0.5-1.5 (O, Ne, Fe-L)", 0.5, 1.5),
+    ("1.5-2.1 (Si He-a)", 1.5, 2.1),
+    ("2.1-2.8 (S He-a)", 2.1, 2.8),
+    ("2.8-4.2 (Ar, Ca)", 2.8, 4.2),
+    ("4.2-6.0 (continuum)", 4.2, 6.0),
+    ("6.0-7.0 (Fe-K)", 6.0, 7.0),
+)
+
+
+def event_spectrum(px, py, energy, *, radius_arcsec, ebins=SPECTRUM_EBINS):
+    """Counts per energy bin inside a circular aperture on the common grid."""
+    c = NPIX_COMPARE / 2
+    rr = np.hypot(px - c, py - c) * PIXEL_ARCSEC
+    return np.histogram(energy[rr < radius_arcsec], bins=ebins)[0].astype(float)
+
+
+def real_epoch_spectrum(label, *, radius_arcsec, ebins=SPECTRUM_EBINS):
+    """Spectrum of the real epoch, from the raw ``evt2`` files, on the same grid.
+
+    Cached next to the epoch images, because it means re-reading tens of
+    millions of events. The obsids belonging to an epoch are identified by the
+    year in ``DATE-OBS``, and the summed exposure is checked against the one
+    ``make_epoch_images.py`` recorded -- if they disagree the epoch definitions
+    have drifted apart and the comparison would be silently wrong.
+    """
+    from astropy.io import fits
+
+    cache = REAL_EPOCH_DIR / f"epoch_{label}_spectrum.npz"
+    if cache.exists():
+        d = np.load(cache)
+        if d["ebins"].shape == ebins.shape and np.allclose(d["ebins"], ebins) \
+                and float(d["radius"]) == radius_arcsec:
+            return np.asarray(d["counts"], dtype=np.float64), float(d["exposure"])
+
+    evt_dir = REAL_EPOCH_DIR.parent / "evt2"
+    counts, exposure, used = np.zeros(len(ebins) - 1), 0.0, []
+    for path in sorted(evt_dir.glob("acisf*_evt2.fits.gz")):
+        with fits.open(path) as f:
+            date = f["EVENTS"].header.get("DATE-OBS", "")
+        if not date.startswith(str(label)):
+            continue
+        px, py, energy, exp = read_events(path)
+        counts += event_spectrum(px, py, energy, radius_arcsec=radius_arcsec,
+                                 ebins=ebins)
+        exposure += exp
+        used.append(path.name)
+    if not used:
+        raise SystemExit(f"no evt2 file with DATE-OBS in {label} under {evt_dir}")
+
+    _, exp_ref = load_real_epoch(label)
+    if abs(exposure - exp_ref) > 0.02 * exp_ref:
+        print(f"[casa-obs] WARNING: epoch {label} exposure from evt2 "
+              f"{exposure / 1e3:.1f} ks but the binned image says "
+              f"{exp_ref / 1e3:.1f} ks -- different obsid sets, so the spectrum "
+              f"and the image are not of the same data")
+    print(f"[casa-obs] real spectrum from {', '.join(used)} "
+          f"({exposure / 1e3:.1f} ks)")
+    np.savez_compressed(cache, counts=counts, exposure=exposure, ebins=ebins,
+                        radius=radius_arcsec)
+    return counts, exposure
+
+
+def spectrum_figure(syn, syn_exp, real, real_exp, *, out_path, label,
+                    ebins=SPECTRUM_EBINS):
+    """Synthetic and real Chandra spectra of the same sky region, in counts/s/keV.
+
+    This is the test the images cannot do. The morphology is set by the
+    hydrodynamics; the SPECTRUM is set by the plasma model -- the electron
+    temperature, the composition and (still missing) the non-equilibrium
+    ionization -- so this is where those show up. Both sides are folded through
+    the ACIS response and are absorbed by the same column, so no unfolding is
+    involved and nothing here is fitted.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    e = 0.5 * (ebins[:-1] + ebins[1:])
+    de = np.diff(ebins)
+    fig, axes = plt.subplots(2, 1, figsize=(8.2, 7.4), sharex=True,
+                             gridspec_kw=dict(height_ratios=[3, 1.2]),
+                             constrained_layout=True)
+    ax = axes[0]
+    ax.step(e, real / real_exp / de, where="mid", color="k", lw=1.1,
+            label=f"Chandra {label}")
+    ax.step(e, syn / syn_exp / de, where="mid", color="tab:red", lw=1.1,
+            label="astronomix (synthetic)")
+    for name, lo, hi in (("O/Ne/Fe-L", 0.5, 1.5), ("Si", 1.78, 1.94),
+                         ("S", 2.38, 2.52), ("Ar", 3.06, 3.20),
+                         ("Ca", 3.83, 3.97), ("Fe-K", 6.4, 6.75)):
+        ax.axvspan(lo, hi, color="0.85", zorder=0)
+        ax.text(0.5 * (lo + hi), 1.4, name, ha="center", fontsize=7, color="0.4")
+    ax.set(yscale="log", ylabel="counts s$^{-1}$ keV$^{-1}$", xlim=(0.4, 8.0))
+    ax.legend(fontsize=9)
+    ax.set_title("spectrum inside the same aperture, through the same response")
+
+    ax = axes[1]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ratio = (syn / syn_exp) / (real / real_exp)
+    ax.step(e, ratio, where="mid", color="tab:red", lw=1.0)
+    ax.axhline(1.0, color="k", lw=0.8, ls=":")
+    ax.set(xlabel="energy [keV]", ylabel="synthetic / real", yscale="log",
+           ylim=(0.02, 50.0))
+    fig.savefig(out_path, dpi=150)
+    print(f"[casa-obs] saved {out_path}")
+
+
+def report_bands(syn, syn_exp, real, real_exp, ebins=SPECTRUM_EBINS):
+    """Print band count rates for both, which is the comparison in numbers."""
+    print(f"    {'band [keV]':<24}{'synthetic':>12}{'real':>10}{'ratio':>8}")
+    for name, lo, hi in SPECTRAL_BANDS:
+        sel = (0.5 * (ebins[:-1] + ebins[1:]) > lo) & (0.5 * (ebins[:-1] + ebins[1:]) < hi)
+        s, r = syn[sel].sum() / syn_exp, real[sel].sum() / real_exp
+        print(f"    {name:<24}{s:>12.2f}{r:>10.2f}{s / max(r, 1e-30):>8.2f}")
+# =============================================================================
+# ============ ↑ The spectral comparison ↑ ====================================
+# =============================================================================
 
 
 def comparison_figure(syn, real, *, out_path, syn_exposure_ks, real_exposure_ks,
@@ -487,8 +722,17 @@ def main():
                          "20 ks already gives 6e6 counts -- photon statistics are "
                          "never the limitation, and the photon list stays small. The "
                          "comparison is done in counts/s, not raw counts.")
-    ap.add_argument("--instrument", default="chandra_aciss_cy0",
-                    help="soxs instrument (the real Cas A observations are ACIS-7 = S3)")
+    ap.add_argument("--instrument", default=None,
+                    help="soxs instrument (the real Cas A observations are "
+                         "ACIS-7 = S3). Default: the ACIS-S response of the "
+                         "cycle closest to --compare, because the contamination "
+                         "layer on the optical blocking filter thickens by the "
+                         "year and mostly absorbs BELOW 1.5 keV -- comparing a "
+                         "cycle-0 synthetic spectrum with a cycle-20 "
+                         "observation is a soft-band error, not a model error")
+    ap.add_argument("--aperture", type=float, default=200.0,
+                    help="radius (arcsec) of the aperture the spectra are "
+                         "extracted in, for both synthetic and real")
     ap.add_argument("--nh", type=float, default=NH_CASA, help="N_H / 1e22 cm^-2")
     ap.add_argument("--zmet", type=float, default=1.0, help="ambient metallicity (Zsun)")
     ap.add_argument("--ejecta-zmet", type=float, default=None,
@@ -507,12 +751,20 @@ def main():
     ap.add_argument("--area", type=float, default=800.0,
                     help="photon-generation collecting area (cm^2); must exceed "
                          "Chandra's peak effective area (~600 cm^2 for ACIS-S at 1 keV)")
-    ap.add_argument("--max-abundance", type=float, default=50.0,
-                    help="cap on the per-element abundance enhancement (solar units); "
-                         "the Fe layer is hydrogen-free, so the el/H ratio APEC "
-                         "works in formally diverges there")
-    ap.add_argument("--h-floor", type=float, default=1e-3,
-                    help="floor on the hydrogen mass fraction, for the same reason")
+    ap.add_argument("--max-abundance", type=float, default=1.0e4,
+                    help="largest per-element abundance (solar units) the model "
+                         "will express. This is NOT a cap on the plasma: it sets "
+                         "the reference hydrogen density that keeps the el/H "
+                         "ratios finite in hydrogen-free ejecta, and the metal "
+                         "densities are exact for any value (see "
+                         ":func:`emission_fields`). Lowering it re-introduces the "
+                         "old error -- at 50 the iron knots emit as if they held "
+                         "a tenth of their iron")
+    ap.add_argument("--single-temperature", action="store_true",
+                    help="use the single-fluid temperature instead of T_e. Only "
+                         "for showing what the two-temperature model changes: "
+                         "Coulomb equilibration is far from complete at 350 yr, "
+                         "so T_e = T is not a defensible approximation here")
     ap.add_argument("--no-background", action="store_true", help="no instrumental/sky background")
     ap.add_argument("--scratch", default="/export/data/lstorcks/supernova_showcase/xray_scratch",
                     help="where the (large) photon/event/SIMPUT intermediates go")
@@ -525,11 +777,13 @@ def main():
 
     if args.out is None:
         args.out = str(FIGURES_DIR.parent / Path(args.state).stem)
+    if args.instrument is None:
+        args.instrument = instrument_for_epoch(args.compare)
 
     state = load_state(args.state)
     print(f"[casa-obs] {args.state}: {state['num_cells']}^3, box {state['box_pc']} pc, "
           f"age {state['age_yr']:.0f} yr, "
-          f"T [{state['temperature'].min():.2e}, {state['temperature'].max():.2e}] K")
+          f"scalars {sorted(k for k in state['fields'] if k.startswith('C_') or k in ('shocked_fraction', 'time_since_shock', 'density_time'))}")
 
     evtfile = args.events or make_events(state, args)
 
@@ -557,6 +811,17 @@ def main():
         radial_profile_figure(syn, real,
                               out_path=FIGURES_DIR / f"{Path(args.out).name}_radial_{args.compare}.png",
                               label=args.compare)
+
+        # ---- the spectral comparison ----------------------------------------
+        px, py, energy, _ = read_events(evtfile)
+        syn_spec = event_spectrum(px, py, energy, radius_arcsec=args.aperture)
+        real_spec, real_spec_exp = real_epoch_spectrum(
+            args.compare, radius_arcsec=args.aperture)
+        print(f"[casa-obs] band count rates inside r < {args.aperture:.0f}\":")
+        report_bands(syn_spec, syn_exp, real_spec, real_spec_exp)
+        spectrum_figure(syn_spec, syn_exp, real_spec, real_spec_exp,
+                        out_path=FIGURES_DIR / f"{Path(args.out).name}_spectrum_{args.compare}.png",
+                        label=args.compare)
 
 
 if __name__ == "__main__":

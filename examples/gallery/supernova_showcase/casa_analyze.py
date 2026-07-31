@@ -90,8 +90,22 @@ def main():
     ap.add_argument("--n-w", type=float, default=0.928, help="wind density at r_fs_ref")
     ap.add_argument("--r-fs-ref", type=float, default=2.5)
     ap.add_argument("--n-c", type=float, default=0.1)
+    ap.add_argument("--profile-rmax", type=float, default=None,
+                    help="radius beyond which the mapped 1D profile was HELD "
+                         "constant (default: read from --profile). The shock "
+                         "detector compares against an analytic r^-2 wind; "
+                         "outside this radius the grid does not follow one, and "
+                         "without this the corners read as a shock")
     ap.add_argument("--out", default="casa_analysis", help="figure name stem")
     args = ap.parse_args()
+
+    profile_rmax = args.profile_rmax
+    if profile_rmax is None and args.profile is not None:
+        profile_rmax = float(np.load(args.profile)["r"][-1])
+    if profile_rmax is None:
+        print("[analyze] NOTE: no --profile/--profile-rmax, so the ambient "
+              "reference is the pure r^-2 wind everywhere. Radii near the box "
+              "edge should be distrusted.")
 
     cu = snr_code_units()
     rho_per_n = float((MASS_PER_NUCLEUS * const.m_p / u.cm ** 3).to(cu.code_density).value)
@@ -116,10 +130,12 @@ def main():
         m = measure_shocks_3d(st["rho"], v_r, r, age_yr=st["age"], code_units=cu,
                               n_w=args.n_w, r_fs_ref=args.r_fs_ref, n_c=args.n_c,
                               rho_per_n=rho_per_n, shocked_fraction=f_sh,
-                              ejecta_fraction=f_ej)
+                              ejecta_fraction=f_ej, r_max=0.5 * st["box"],
+                              ambient_flat_beyond=profile_rmax)
         angles, r_pa = shock_speed_vs_position_angle(
             st["rho"], r, X, Y, Z, n_w=args.n_w, r_fs_ref=args.r_fs_ref,
-            n_c=args.n_c, rho_per_n=rho_per_n)
+            n_c=args.n_c, rho_per_n=rho_per_n, r_max=0.5 * st["box"],
+            ambient_flat_beyond=profile_rmax)
 
         T = temperature_K(st["rho"], st["press"], cu)
         summary.append(dict(label=label, age=st["age"], r_fs=m["r_fs"], r_rs=m["r_rs"],

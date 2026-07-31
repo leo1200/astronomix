@@ -637,6 +637,12 @@ def map_1d_profile(r3d, profile_npz, *, floor_density=None):
 
     meta = {k: float(data[k]) for k in data.files
             if data[k].ndim == 0 and k not in ("r", "rho", "v", "press")}
+    # the radius beyond which the profile is HELD rather than followed. Any
+    # diagnostic that compares the grid against an analytic ambient needs this:
+    # outside it the medium on the grid is constant, so an r^-2 reference drifts
+    # below the actual density and reads as a shock (see
+    # ``casa_orlando.ambient_number_density``).
+    meta["r_profile_max"] = float(r1[-1])
     return rho, v_r, p, meta
 
 

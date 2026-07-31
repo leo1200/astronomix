@@ -463,15 +463,42 @@ def build(args, sharding=None):
     return (initial_state, config, params, registered_variables, code_units,
             helper_data, dict(map_age=map_age, r_fs=r_fs, r_rs=r_rs,
                               n_w=n_w, r_fs_ref=r_fs_ref, n_c=n_c,
+                              r_profile_max=meta.get("r_profile_max"),
                               shell=shell_info, pistons=piston_info))
 
 
 # =============================================================================
 # ============ ↓ Shock diagnostics on the 3D state ↓ ==========================
 # =============================================================================
+def ambient_number_density(rc, *, n_w, r_fs_ref, n_c, flat_beyond=None):
+    """The pre-shock ambient (cm^-3) the forward-shock contrast is measured against.
+
+    The calibrated wind plus the constant ISM term. ``flat_beyond`` is the outer
+    radius of the 1D profile that was mapped onto the grid: ``map_1d_profile``
+    HOLDS the outermost value outside its domain, so beyond that radius the
+    ambient on the grid is constant while this analytic ``r^-2`` law keeps
+    falling. In a 7 pc box mapped from a 4 pc profile the mismatch reaches a
+    factor 1.8 at the corners -- just under the contrast threshold, so the
+    log-normal circumstellar clumping tips it over and the detector reports the
+    box half-diagonal (6.005 pc) as the forward shock. Passing ``flat_beyond``
+    makes the reference match the medium that is actually there.
+    """
+    rc_eff = np.asarray(rc) if flat_beyond is None else np.minimum(rc, flat_beyond)
+    return n_w * (r_fs_ref / np.maximum(rc_eff, 1e-6)) ** 2 + n_c
+
+
+def _outermost_contiguous(above, seed):
+    """Outermost index of the run of ``True`` in ``above`` that contains ``seed``."""
+    i = int(seed)
+    while i + 1 < len(above) and above[i + 1]:
+        i += 1
+    return i
+
+
 def measure_shocks_3d(rho, v_r, r, *, age_yr, code_units, n_w, r_fs_ref, n_c,
                       rho_per_n, nbins=120, homology_tol=0.08, fs_contrast=2.0,
-                      shocked_fraction=None, ejecta_fraction=None):
+                      shocked_fraction=None, ejecta_fraction=None,
+                      r_max=None, ambient_flat_beyond=None):
     """Angle-averaged r_FS and r_RS from a 3D state, using the 1D definitions.
 
     The showcase's old estimator read the reverse shock off a median-temperature
@@ -481,6 +508,18 @@ def measure_shocks_3d(rho, v_r, r, *, age_yr, code_units, n_w, r_fs_ref, n_c,
     calibration uses -- a density contrast against the KNOWN analytic wind for
     the forward shock, and the departure from homologous expansion for the
     reverse shock -- so 1D and 3D are measured identically and can be compared.
+
+    Two things make the forward-shock criterion robust rather than merely
+    plausible, both learned from it reporting the box diagonal on healthy states:
+
+    * the search stops at ``r_max`` (the caller passes the inscribed sphere).
+      Outside it a spherical shell samples only the eight corners, so its mean
+      is neither an angle average nor a measurement;
+    * the shock is the outer edge of the CONTIGUOUS over-contrast region that
+      contains the density peak, not the outermost bin that happens to be over
+      threshold. Shocked material is continuous from the interior out to the
+      blast wave, so anything detached from it is an artefact -- a clump, or the
+      ambient mismatch :func:`ambient_number_density` documents.
 
     When the run carried the shock-history scalars, the reverse shock is taken
     straight from them instead: it is the inner edge of the SHOCKED EJECTA, and
@@ -495,25 +534,30 @@ def measure_shocks_3d(rho, v_r, r, *, age_yr, code_units, n_w, r_fs_ref, n_c,
     r = np.asarray(r); rho = np.asarray(rho); v_r = np.asarray(v_r)
     t_code = float((age_yr * u.yr).to(code_units.code_time).value)
 
-    edges = np.linspace(0.0, float(r.max()), nbins + 1)
-    idx = np.clip(np.digitize(r.ravel(), edges) - 1, 0, nbins - 1)
+    r_out = float(r.max()) if r_max is None else float(min(r_max, r.max()))
+    keep = r.ravel() <= r_out
+    edges = np.linspace(0.0, r_out, nbins + 1)
+    idx = np.clip(np.digitize(r.ravel()[keep], edges) - 1, 0, nbins - 1)
     cnt = np.bincount(idx, minlength=nbins).astype(float)
     rc = 0.5 * (edges[:-1] + edges[1:])
 
-    rho_mean = np.bincount(idx, weights=rho.ravel(), minlength=nbins) / np.maximum(cnt, 1)
+    rho_mean = np.bincount(idx, weights=rho.ravel()[keep], minlength=nbins) / np.maximum(cnt, 1)
     # fraction of each shell that is still expanding homologously
-    v_hom = np.maximum(r.ravel(), 1e-12) / t_code
-    hom = (np.abs(v_r.ravel() - v_hom) < homology_tol * v_hom).astype(float)
+    v_hom = np.maximum(r.ravel()[keep], 1e-12) / t_code
+    hom = (np.abs(v_r.ravel()[keep] - v_hom) < homology_tol * v_hom).astype(float)
     hom_frac = np.bincount(idx, weights=hom, minlength=nbins) / np.maximum(cnt, 1)
 
-    n_amb = n_w * (r_fs_ref / np.maximum(rc, 1e-6)) ** 2 + n_c
-    shocked = (rho_mean > fs_contrast * n_amb * rho_per_n) & (cnt > 0)
-    r_fs = float(rc[shocked].max()) if np.any(shocked) else np.nan
+    n_amb = ambient_number_density(rc, n_w=n_w, r_fs_ref=r_fs_ref, n_c=n_c,
+                                   flat_beyond=ambient_flat_beyond)
+    contrast = np.where(cnt > 0, rho_mean / (n_amb * rho_per_n), 0.0)
+    above = contrast > fs_contrast
+    r_fs = (float(rc[_outermost_contiguous(above, np.argmax(contrast))])
+            if np.any(above) else np.nan)
     # reverse shock
     if shocked_fraction is not None and ejecta_fraction is not None:
         # the inner edge of the shocked ejecta, straight from the tracer
-        w_ej = np.asarray(ejecta_fraction).ravel()
-        f_sh = np.asarray(shocked_fraction).ravel()
+        w_ej = np.asarray(ejecta_fraction).ravel()[keep]
+        f_sh = np.asarray(shocked_fraction).ravel()[keep]
         num = np.bincount(idx, weights=(f_sh * w_ej), minlength=nbins)
         den = np.bincount(idx, weights=w_ej, minlength=nbins)
         shocked_frac_ej = np.where(den > 1e-12, num / np.maximum(den, 1e-30), np.nan)
@@ -531,7 +575,7 @@ def measure_shocks_3d(rho, v_r, r, *, age_yr, code_units, n_w, r_fs_ref, n_c,
 
 def shock_speed_vs_position_angle(rho, r, X, Y, Z, *, n_w, r_fs_ref, n_c,
                                   rho_per_n, n_angles=36, fs_contrast=2.0,
-                                  nbins=120):
+                                  nbins=120, r_max=None, ambient_flat_beyond=None):
     """Forward-shock radius as a function of position angle in the plane of the sky.
 
     Orlando et al. (2022) identify the shock radius/velocity versus position
@@ -557,9 +601,12 @@ def shock_speed_vs_position_angle(rho, r, X, Y, Z, *, n_w, r_fs_ref, n_c,
     pa = np.rad2deg(np.arctan2(Z, X)) % 360.0
     in_plane = np.abs(Y) / np.maximum(r, 1e-12) < np.sin(np.deg2rad(10.0))
 
-    edges = np.linspace(0.0, float(r.max()), nbins + 1)
+    r_out = float(r.max()) if r_max is None else float(min(r_max, r.max()))
+    in_plane = in_plane & (r <= r_out)
+    edges = np.linspace(0.0, r_out, nbins + 1)
     rc = 0.5 * (edges[:-1] + edges[1:])
-    n_amb = n_w * (r_fs_ref / np.maximum(rc, 1e-6)) ** 2 + n_c
+    n_amb = ambient_number_density(rc, n_w=n_w, r_fs_ref=r_fs_ref, n_c=n_c,
+                                   flat_beyond=ambient_flat_beyond)
     idx = np.clip(np.digitize(r, edges) - 1, 0, nbins - 1)
 
     angles = np.linspace(0.0, 360.0, n_angles, endpoint=False)
@@ -572,9 +619,12 @@ def shock_speed_vs_position_angle(rho, r, X, Y, Z, *, n_w, r_fs_ref, n_c,
         cnt = np.bincount(idx[sel], minlength=nbins).astype(float)
         tot = np.bincount(idx[sel], weights=rho[sel], minlength=nbins)
         mean = np.divide(tot, cnt, out=np.zeros(nbins), where=cnt > 0)
-        hit = (cnt > 0) & (mean > fs_contrast * n_amb * rho_per_n)
+        contrast = np.divide(mean, n_amb * rho_per_n, out=np.zeros(nbins), where=cnt > 0)
+        hit = contrast > fs_contrast
         if np.any(hit):
-            out[i] = rc[hit].max()
+            # same contiguity rule as the angle-averaged estimator: the outer
+            # edge of the over-contrast region that contains this cone's peak
+            out[i] = rc[_outermost_contiguous(hit, np.argmax(contrast))]
     return angles, out
 # =============================================================================
 # ============ ↑ Shock diagnostics on the 3D state ↑ ==========================
@@ -596,11 +646,17 @@ def main():
     ap.add_argument("--nsnap", type=int, default=21, help="number of snapshots")
     ap.add_argument("--gpus", type=int, default=1, help="number of GPUs (x-axis sharding)")
     ap.add_argument("--cooling", action="store_true", help="radiative cooling (+ limiter + tfloor)")
-    ap.add_argument("--positivity", choices=("floor", "redistribute", "conservative"),
-                    default="floor",
-                    help="positivity enforcement. The default hard floor is "
-                         "NON-CONSERVATIVE and is how the failing runs create "
-                         "mass (17 Msun -> 1e12 Msun)")
+    ap.add_argument("--positivity", choices=("redistribute", "floor", "conservative"),
+                    default="redistribute",
+                    help="positivity enforcement. REDISTRIBUTE is the default "
+                         "because it is the only one of the three that conserves "
+                         "MASS: 'floor' clamps a would-be-negative cell up from "
+                         "nothing, which beside a compressed cell becomes a pump "
+                         "(17 Msun -> 1e12 Msun, with the total ENERGY still "
+                         "conserved to 0.02% throughout), and 'conservative' "
+                         "conserves energy but keeps a density floor for the "
+                         "voids, so it cannot fix a mass problem (rho_max 1e23). "
+                         "Keep the run's mass report honest either way")
     ap.add_argument("--conduction", action="store_true",
                     help="isotropic thermal conduction; sets a PHYSICAL layer "
                          "thickness (Field length) for the radiative shell, "
@@ -739,26 +795,29 @@ def main():
         i0 = rv.passive_scalar_index
         f_ej = fs[i0]                                   # C_ej
         f_sh = fs[i0 + rv.num_passive_scalars - 3]      # shocked_fraction
+    # The detector is confined to the inscribed sphere and told where the mapped
+    # profile stops falling: outside the inscribed sphere a "shell" is eight
+    # corners, and outside the 1D domain the ambient is held constant while an
+    # r^-2 reference keeps dropping. Between them those two facts are what made
+    # N = 192 and 224 report r_FS = 6.005 pc (the box half-diagonal) from
+    # entirely healthy states.
     m = measure_shocks_3d(rho, v_r, r_np, age_yr=args.age, code_units=cu,
                           rho_per_n=rho_per_n, shocked_fraction=f_sh,
-                          ejecta_fraction=f_ej, **wind)
-    # A radius beyond the inscribed sphere is not a shock: the detector has
-    # flagged the domain corners, where the 1/r^2 ambient it compares against
-    # has fallen below the local density. Seen at N = 192 and 224, which report
-    # r_FS = 6.005 pc -- the box DIAGONAL half-length -- from entirely healthy
-    # states. Say so rather than printing it next to the observed value.
-    if not np.isfinite(m["r_fs"]) or m["r_fs"] > 0.5 * args.box:
-        print(f"[orlando] r_FS = {m['r_fs']:.3f} pc is outside the inscribed "
-              f"sphere (half-box {0.5 * args.box:.3f} pc): the shock detector "
-              f"has locked onto the domain corners, NOT a measurement. The "
-              f"state itself may be fine -- check rho_max before concluding "
-              f"anything about the run.")
+                          ejecta_fraction=f_ej, r_max=0.5 * args.box,
+                          ambient_flat_beyond=meta.get("r_profile_max"), **wind)
+    if not np.isfinite(m["r_fs"]) or m["r_fs"] > 0.49 * args.box:
+        print(f"[orlando] WARNING: r_FS = {m['r_fs']:.3f} pc is at the edge of "
+              f"the measurable region (half-box {0.5 * args.box:.3f} pc). The "
+              f"blast wave has left the box, or the detector has locked onto "
+              f"something that is not a shock -- check rho_max and the ambient "
+              f"before using this number.")
     print(f"[orlando] measured at {args.age:.0f} yr: r_FS = {m['r_fs']:.3f} pc "
           f"(observed 2.52 +- 0.20), r_RS = {m['r_rs']:.3f} pc (observed 1.58 +- 0.16)")
 
     angles, r_pa = shock_speed_vs_position_angle(
         rho, r_np, np.asarray(X), np.asarray(Y), np.asarray(Z),
-        rho_per_n=rho_per_n, **wind)
+        rho_per_n=rho_per_n, r_max=0.5 * args.box,
+        ambient_flat_beyond=meta.get("r_profile_max"), **wind)
     print(f"[orlando] r_FS vs position angle: min {np.nanmin(r_pa):.3f}, "
           f"max {np.nanmax(r_pa):.3f}, spread {np.nanmax(r_pa) - np.nanmin(r_pa):.3f} pc")
 

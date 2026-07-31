@@ -15,6 +15,13 @@ Orlando et al. 2015):
   H-like line ratios wrong — which is the single largest remaining error in the
   synthetic spectra.
 
+* **composition.** Every one of these conversions depends on it, and supernova
+  ejecta are nothing like cosmic: the fully ionized oxygen layer that carries
+  most of Cas A's ejecta mass has ``mu = 1.78`` against cosmic 0.61 and
+  ``mu_e = 2.0`` against 1.18. The physics lives in :mod:`_plasma`, which
+  ``casa_observe.py`` shares, so the diagnostics and the forward model cannot
+  disagree about the temperature of the same cell.
+
 * **electron and ion temperatures.** Behind a > 1000 km/s shock the electrons
   are heated to only ``kT_e ~ 0.3 keV`` almost independently of Mach number
   (Ghavamian, Laming & Rakowski 2007), while the ions take nearly all of the
@@ -49,22 +56,18 @@ from matplotlib.colors import LogNorm
 
 # units and constants
 from astropy import constants as const
-from astropy import units as u
+
+# the shared plasma physics (also used by the X-ray forward model)
+from _plasma import (
+    CODE_DENSITY,
+    CODE_LENGTH,
+    KEV_IN_K,
+    _self_check,
+    plasma_state,
+)
 
 FIGURES_DIR = Path(__file__).resolve().parent / "figures"
 FIGURES_DIR.mkdir(exist_ok=True)
-
-# the showcase code units: pc / Msun / 1000 km s^-1
-CODE_LENGTH = (1.0 * u.pc).to(u.cm).value
-CODE_MASS = (1.0 * u.Msun).to(u.g).value
-CODE_VELOCITY = (1000.0 * u.km / u.s).to(u.cm / u.s).value
-CODE_TIME = CODE_LENGTH / CODE_VELOCITY
-CODE_DENSITY = CODE_MASS / CODE_LENGTH ** 3
-CODE_PRESSURE = CODE_DENSITY * CODE_VELOCITY ** 2
-
-MU_PARTICLE = 0.61          # mean mass per particle, ionized cosmic composition
-MU_ELECTRON = 1.18          # mean mass per electron, in m_p
-MASS_PER_NUCLEUS = 1.4
 
 # observational targets (Hwang & Laming 2003, 2012)
 TARGET_KT_KEV = 2.0
@@ -72,114 +75,19 @@ TARGET_NET_BULK = 1.0e11    # cm^-3 s, bulk shocked plasma
 TARGET_NET_FE = 1.0e12      # cm^-3 s, shocked Fe
 
 
-def ionization_age(density_time_code):
-    """``n_e t`` in cm^-3 s from the accumulated ``integral of rho dt`` (code units).
+def emission_measure_distribution(n_e, T_e, net, *, weight=None, bins=80):
+    """``EM`` binned in ``(kT_e, n_e t)`` -- the plane Hwang & Laming fit.
 
-    The solver accumulates ``rho dt`` in code units while a parcel is shocked;
-    converting to an electron column is one exact factor,
-    ``n_e = rho / (mu_e m_p)``.
+    The weight is ``n_e^2`` rather than the conventional ``n_e n_H``: in ejecta
+    that are hydrogen-free by construction ``n_H`` is not a measure of anything,
+    and both the free-free continuum and the line emission scale with the
+    electron density times the emitting-ion density, for which ``n_e`` is the
+    available proxy. (Hwang & Laming quote ``n_e n_H`` emission measures from
+    fits that assume a hydrogen-normalised APEC model, so the comparison is of
+    the DISTRIBUTION's location in the plane, not of the absolute normalisation.)
     """
-    return (density_time_code * CODE_DENSITY * CODE_TIME
-            / (MU_ELECTRON * const.m_p.cgs.value))
-
-
-def coulomb_equilibration_time(T_e, T_i, n_e, coulomb_log=31.0):
-    """Spitzer electron-ion equipartition time (s), for hydrogenic ions.
-
-    ``t_eq = 3 m_e m_p / (8 sqrt(2 pi) n_e e^4 lnLambda) * (kT_e/m_e + kT_i/m_p)^{3/2}``
-
-    Written out from the constants rather than quoted from a fitting formula, so
-    the units are checkable rather than remembered; :func:`_self_check` prints it
-    at benchmark points. It gives 8.2e3 yr at ``T = 1e7 K``, ``n_e = 1 cm^-3``,
-    and ~3e3 yr at Cas A's post-shock conditions — an order of magnitude longer
-    than the remnant's age.
-    """
-    m_e = const.m_e.cgs.value
-    m_p = const.m_p.cgs.value
-    e = const.e.esu.value
-    k = const.k_B.cgs.value
-    num = 3.0 * m_e * m_p
-    den = 8.0 * np.sqrt(2.0 * np.pi) * np.maximum(n_e, 1e-30) * e ** 4 * coulomb_log
-    return (num / den) * (k * T_e / m_e + k * T_i / m_p) ** 1.5
-
-
-def electron_ion_temperatures(temperature, density, time_since_shock_code,
-                              kT_e_shock_keV=0.3, n_substeps=8):
-    """Split the single-fluid temperature into ``(T_e, T_i)``.
-
-    The single-fluid solver evolves one temperature, which physically is the
-    mass-weighted mean: pressure balance requires
-    ``n_e T_e + n_i T_i = (n_e + n_i) T``. So ``T`` fixes one combination, and
-    the Coulomb relaxation started from the Ghavamian et al. (2007) initial
-    condition fixes the other:
-
-    * at the shock the electrons receive ``kT_e ~ 0.3 keV`` regardless of Mach
-      number (valid above ~1000 km/s), the ions the rest;
-    * downstream the two relax towards each other on
-      :func:`coulomb_equilibration_time`, integrated over the parcel's own time
-      since shocking.
-
-    The relaxation is integrated with a few explicit substeps in log time rather
-    than analytically, because ``t_eq`` depends on ``T_e`` itself.
-
-    Args:
-        temperature: The single-fluid temperature (K).
-        density: The density (code units).
-        time_since_shock_code: Time since shocking (code units).
-        kT_e_shock_keV: Post-shock electron temperature.
-        n_substeps: Substeps for the relaxation integral.
-
-    Returns:
-        ``(T_e, T_i)`` in K. Unshocked parcels (zero time since shock) are
-        returned with ``T_e = T_i = T``: they were never shocked, so there is no
-        two-temperature state to describe.
-    """
-    n_H = density * CODE_DENSITY / (MASS_PER_NUCLEUS * const.m_p.cgs.value)
-    n_e = 1.2 * n_H
-    n_i = n_H                        # one ion per nucleus, near enough
-    dt_total = time_since_shock_code * CODE_TIME
-
-    keV = (1.0 * u.keV / const.k_B).to(u.K).value
-    T_e = np.full_like(temperature, kT_e_shock_keV * keV)
-    # the ions carry the rest of the thermal energy at the shock
-    T_i = np.maximum(((n_e + n_i) * temperature - n_e * T_e) / np.maximum(n_i, 1e-30),
-                     T_e)
-
-    shocked = dt_total > 0.0
-    dt = dt_total / n_substeps
-    for _ in range(n_substeps):
-        t_eq = coulomb_equilibration_time(T_e, T_i, n_e)
-        # relax towards the common mean, conserving the total thermal energy
-        T_mean = (n_e * T_e + n_i * T_i) / (n_e + n_i)
-        f = np.where(shocked, 1.0 - np.exp(-np.clip(dt / t_eq, 0.0, 50.0)), 0.0)
-        T_e = T_e + f * (T_mean - T_e)
-        T_i = T_i + f * (T_mean - T_i)
-
-    T_e = np.where(shocked, T_e, temperature)
-    T_i = np.where(shocked, T_i, temperature)
-    return T_e, T_i
-
-
-def _self_check():
-    """Print the equipartition time at a benchmark point, so the units are visible."""
-    keV = (1.0 * u.keV / const.k_B).to(u.K).value
-    for T, n in ((1e7, 1.0), (1e7, 10.0), (2.0 * keV, 10.0)):
-        t = coulomb_equilibration_time(T, T, n)
-        print(f"    t_eq(T = {T:.2e} K, n_e = {n:g}) = {t:.3e} s "
-              f"= {t / 3.156e7:.3e} yr")
-    print("    At Cas A's post-shock density (n_e ~ 10) and kT_e ~ 2 keV this is "
-          "~3e3 yr,\n    an order of magnitude longer than the remnant's 350 yr "
-          "age: electron-ion\n    equilibration is far from complete, which is "
-          "why T_e must be modelled\n    rather than assumed equal to the "
-          "single-fluid temperature.")
-
-
-def emission_measure_distribution(state, T_e, net, *, weight=None, bins=80):
-    """``EM`` binned in ``(kT_e, n_e t)`` -- the plane Hwang & Laming fit."""
-    keV = (1.0 * u.keV / const.k_B).to(u.K).value
-    kT = T_e / keV
-    n_H = state["rho"] * CODE_DENSITY / (MASS_PER_NUCLEUS * const.m_p.cgs.value)
-    em = 1.2 * n_H ** 2                       # n_e n_H, per unit volume
+    kT = T_e / KEV_IN_K
+    em = n_e ** 2
     if weight is not None:
         em = em * weight
 
@@ -198,7 +106,6 @@ def main():
     ap.add_argument("--out", default="casa_plasma", help="figure name stem")
     args = ap.parse_args()
 
-    print("[plasma] Coulomb equilibration time, unit check:")
     _self_check()
 
     d = np.load(args.state)
@@ -215,7 +122,10 @@ def main():
     state["shocked_fraction"] = (np.asarray(d["shocked_fraction"], dtype=np.float64)
                                  if "shocked_fraction" in d else
                                  (state["time_since_shock"] > 0).astype(np.float64))
-    for k in ("C_ej", "C_Fe", "C_Si", "C_O"):
+    # C_He is needed as much as the others: it is a quarter of the ejecta mass,
+    # and leaving it out of the composition moments would put that mass into
+    # hydrogen and halve the local mean molecular weight
+    for k in ("C_ej", "C_Fe", "C_Si", "C_O", "C_He"):
         if k in d:
             state[k] = np.asarray(d[k], dtype=np.float64)
     # refuse a blown-up state: analysing one produces confident nonsense (a
@@ -244,13 +154,14 @@ def main():
     box = float(d["box"])
     n = int(d["num_cells"])
 
-    T = (MU_PARTICLE * const.m_p.cgs.value / const.k_B.cgs.value) * (
-        state["press"] * CODE_PRESSURE) / (state["rho"] * CODE_DENSITY)
-    net = ionization_age(state["density_time"])
-    T_e, T_i = electron_ion_temperatures(T, state["rho"], state["time_since_shock"])
-    keV = (1.0 * u.keV / const.k_B).to(u.K).value
-
-    shocked = state["shocked_fraction"] > 0.5
+    # all of the physics, with the composition the run actually carried
+    ps = plasma_state(state)
+    T, T_e, T_i, net = ps["T"], ps["T_e"], ps["T_i"], ps["net"]
+    n_e, shocked = ps["n_e"], ps["shocked"]
+    if not ps["info"]["composition_tracked"]:
+        print("[plasma] WARNING: no composition scalars in this state -- falling "
+              "back to cosmic abundances everywhere, which understates the "
+              "ejecta temperature by ~3x")
     cell_vol_cm3 = (box / n * CODE_LENGTH) ** 3
     m_sun = const.M_sun.cgs.value
     mass = state["rho"] * CODE_DENSITY * cell_vol_cm3 / m_sun
@@ -263,26 +174,36 @@ def main():
         print(f"    ejecta mass {m_ej_total:.3f} Msun, of which shocked "
               f"{m_ej_shocked:.3f} ({100 * m_ej_shocked / max(m_ej_total, 1e-30):.0f}%)"
               f"   [Hwang & Laming 2012: 2.8-3.7 Msun shocked, 0.3-0.4 unshocked]")
-        for el, target in (("Fe", 0.14), ("Si", 0.08)):
-            key = f"C_{el}"
-            if key in state:
-                m_el = float(np.sum(mass * state[key] * state["C_ej"] * shocked))
-                print(f"    shocked {el}: {m_el:.4f} Msun   [observed {target}]")
+        # per ELEMENT, with each tracer divided by _plasma.TRACER_SPLIT: the
+        # carried "Si" is the Si/S/Ar/Ca layer and the carried "O" the O/Ne/Mg
+        # layer, so comparing the raw tracer against a single measured element
+        # over-counts it (it read 1.6x high for Si that way)
+        for el, target in (("O", 2.0), ("Ne", 0.03), ("Mg", 0.03), ("Si", 0.08),
+                           ("S", 0.06), ("Ar", 0.02), ("Ca", 0.02), ("Fe", 0.14)):
+            if el not in ps["X"] or np.ndim(ps["X"][el]) == 0:
+                continue
+            m_el = float(np.sum(mass * ps["X"][el] * state["C_ej"] * shocked))
+            print(f"    shocked {el:2s}: {m_el:.4f} Msun   [Hwang & Laming "
+                  f"2012: {target}]")
 
     if np.any(shocked):
-        em_w = 1.2 * (state["rho"] * CODE_DENSITY
-                      / (MASS_PER_NUCLEUS * const.m_p.cgs.value)) ** 2 * shocked
-        kt_med = float(np.average((T_e / keV)[shocked], weights=em_w[shocked]))
-        net_med = float(np.average(net[shocked], weights=em_w[shocked]))
-        print(f"    EM-weighted kT_e = {kt_med:.2f} keV   [observed ~{TARGET_KT_KEV}]")
-        print(f"    EM-weighted n_e t = {net_med:.2e} cm^-3 s   "
+        em_w = (n_e ** 2)[shocked]
+        avg = lambda f: float(np.average(f[shocked], weights=em_w))    # noqa: E731
+        mom = ps["moments"]
+        print(f"    EM-weighted mu = {avg(mom['mu']):.3f}, mu_e = "
+              f"{avg(mom['mu_e']):.3f}   [cosmic 0.62 / 1.19; the shocked gas is "
+              "a mix of wind and metal ejecta]")
+        print(f"    EM-weighted kT_e = {avg(T_e) / KEV_IN_K:.2f} keV   "
+              f"[observed ~{TARGET_KT_KEV}]")
+        print(f"    EM-weighted kT_i = {avg(T_i) / KEV_IN_K:.2f} keV, single-fluid "
+              f"kT = {avg(T) / KEV_IN_K:.2f} keV")
+        print(f"    EM-weighted n_e t = {avg(net):.2e} cm^-3 s   "
               f"[observed ~{TARGET_NET_BULK:.0e}]")
-        print(f"    EM-weighted T_e/T = "
-              f"{float(np.average((T_e / T)[shocked], weights=em_w[shocked])):.3f} "
+        print(f"    EM-weighted T_e/T = {avg(T_e / T):.3f} "
               "(1 = full equilibration)")
 
     # ---- figure -----------------------------------------------------------
-    H, kt_bins, net_bins = emission_measure_distribution(state, T_e, net)
+    H, kt_bins, net_bins = emission_measure_distribution(n_e, T_e, net)
     fig, axes = plt.subplots(1, 2, figsize=(13, 5.2), constrained_layout=True)
 
     ax = axes[0]
@@ -308,13 +229,12 @@ def main():
     r = np.sqrt(X ** 2 + Y ** 2 + Z ** 2)
     edges = np.linspace(0, box / 2, 60)
     idx = np.clip(np.digitize(r.ravel(), edges) - 1, 0, len(edges) - 2)
-    w = (1.2 * (state["rho"] * CODE_DENSITY
-                / (MASS_PER_NUCLEUS * const.m_p.cgs.value)) ** 2).ravel()
+    w = (n_e ** 2).ravel()
     for field, lbl, style in ((T_e, "$T_e$", "-"), (T_i, "$T_i$", "--"),
                               (T, "single-fluid $T$", ":")):
         num = np.bincount(idx, weights=(field.ravel() * w), minlength=len(edges) - 1)
         den = np.bincount(idx, weights=w, minlength=len(edges) - 1)
-        prof = np.where(den > 0, num / np.maximum(den, 1e-30), np.nan) / keV
+        prof = np.where(den > 0, num / np.maximum(den, 1e-30), np.nan) / KEV_IN_K
         ax.semilogy(0.5 * (edges[:-1] + edges[1:]), prof, style, label=lbl)
     ax.axhline(TARGET_KT_KEV, color="0.5", lw=0.8)
     ax.text(0.05, TARGET_KT_KEV * 1.1, "observed bulk $kT_e$", fontsize=8, color="0.4")
