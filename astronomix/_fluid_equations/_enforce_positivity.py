@@ -41,10 +41,12 @@ def _enforce_positivity_native(
     minimum_pressure: Union[float, Float[Array, ""]],
     config: SimulationConfig,
     registered_variables: RegisteredVariables,
+    minimum_specific_pressure: Union[float, Float[Array, ""]] = 0.0,
 ) -> STATE_TYPE:
     return _enforce_positivity_native_impl(
         conserved_state, config, gamma,
         minimum_density, minimum_pressure, registered_variables,
+        minimum_specific_pressure=minimum_specific_pressure,
     )
 
 
@@ -58,21 +60,26 @@ def _enforce_positivity(
     minimum_density: Union[float, Float[Array, ""]],
     minimum_pressure: Union[float, Float[Array, ""]],
     registered_variables: RegisteredVariables,
+    minimum_specific_pressure: Union[float, Float[Array, ""]] = 0.0,
 ) -> STATE_TYPE:
     if _enforce_positivity_pallas_supported(conserved_state, config):
-        pallas = lambda s, g, mr, mp: _enforce_positivity_pallas(  # noqa: E731
+        pallas = lambda s, g, mr, mp, msp: _enforce_positivity_pallas(  # noqa: E731
             s, config, g, mr, mp, registered_variables,
+            minimum_specific_pressure=msp,
         )
-        native = lambda s, g, mr, mp: _enforce_positivity_native(  # noqa: E731
+        native = lambda s, g, mr, mp, msp: _enforce_positivity_native(  # noqa: E731
             s, g, mr, mp, config, registered_variables,
+            minimum_specific_pressure=msp,
         )
         return diffable_pallas_call_n(
-            (conserved_state, gamma, minimum_density, minimum_pressure),
+            (conserved_state, gamma, minimum_density, minimum_pressure,
+             minimum_specific_pressure),
             pallas_branch=pallas, native_branch=native,
         )
     return _enforce_positivity_native(
         conserved_state, gamma, minimum_density, minimum_pressure,
         config, registered_variables,
+        minimum_specific_pressure=minimum_specific_pressure,
     )
 
 
@@ -83,6 +90,7 @@ def _enforce_positivity_native_impl(
     minimum_density: Union[float, Float[Array, ""]],
     minimum_pressure: Union[float, Float[Array, ""]],
     registered_variables: RegisteredVariables,
+    minimum_specific_pressure: Union[float, Float[Array, ""]] = 0.0,
 ) -> STATE_TYPE:
     # Optional NaN/inf backstop: jnp.maximum(NaN, floor) = NaN, so a non-finite
     # cell would otherwise survive the floor and propagate. Reset any non-finite
@@ -153,7 +161,15 @@ def _enforce_positivity_native_impl(
         else:
             pressure = (gamma - 1.0) * (energy - 0.5 * rho * v2)
         
-        pressure = jnp.maximum(pressure, minimum_pressure)
+        # Constant floor plus the density-scaled (effective temperature) floor:
+        # p >= max(minimum_pressure, rho * minimum_specific_pressure). The
+        # scaled term stiffens with compression, so ram-pressure crushing of
+        # pressure-floored cooled gas stops at the isothermal jump instead of
+        # running away. A no-op when minimum_specific_pressure == 0.
+        pressure = jnp.maximum(
+            pressure,
+            jnp.maximum(minimum_pressure, rho * minimum_specific_pressure),
+        )
 
         # redefine energy with new pressure
         if config.mhd:
@@ -419,12 +435,19 @@ def _apply_stage_positivity(
     minimum_pressure: Union[float, Float[Array, ""]],
     positivity_max_velocity: Union[float, Float[Array, ""]],
     registered_variables: RegisteredVariables,
+    minimum_specific_pressure: Union[float, Float[Array, ""]] = 0.0,
 ) -> STATE_TYPE:
-    """Dispatch a positivity mode onto a conserved state (``mode`` is static)."""
+    """Dispatch a positivity mode onto a conserved state (``mode`` is static).
+
+    ``minimum_specific_pressure`` (the density-scaled pressure floor) is only
+    wired into the HARD_FLOOR mode — the other modes have their own recovery
+    semantics and keep the constant floor.
+    """
     if mode == POSITIVITY_HARD_FLOOR:
         return _enforce_positivity(
             conserved_state, config, gamma,
             minimum_density, minimum_pressure, registered_variables,
+            minimum_specific_pressure=minimum_specific_pressure,
         )
     if mode == POSITIVITY_REDISTRIBUTE:
         return _redistribute_positivity(

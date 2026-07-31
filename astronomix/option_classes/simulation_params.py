@@ -85,10 +85,21 @@ class SimulationParams(NamedTuple):
     minimum_density: float = 1e-14
 
     #: Minimum allowed pressure.
-    #: NOTE: CURRENTLY ONLY USED IN 
+    #: NOTE: CURRENTLY ONLY USED IN
     #: FINITE DIFFERENCE MODE IF
     #: positivity protection is active.
     minimum_pressure: float = 1e-14
+
+    #: Effective temperature-floor SCALE ``p/rho`` (``= k_B T_floor / (mu m_p)``
+    #: in code units). Used by the ``coldcrush_blend`` flux-blending activation
+    #: path as the temperature that defines "radiatively crushed" interfaces —
+    #: NOT applied as a hard state floor by default: enforcing
+    #: ``p >= rho * minimum_specific_pressure`` per stage was tried and its
+    #: per-stage energy injection (proportional to rho in dense cells)
+    #: destabilized otherwise-clean runs (N=128/256 blast tests, 2026-07-25).
+    #: The plumbing to pass it into ``_enforce_positivity`` exists for
+    #: experiments but no call site uses it. 0.0 disables the cold-crush path.
+    minimum_specific_pressure: float = 0.0
 
     #: Velocity ceiling applied to cells fixed by the REDISTRIBUTE positivity
     #: mode (mirrors HOW-MHD ``velpmx1``). Only used when a positivity mode is

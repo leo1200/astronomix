@@ -230,10 +230,20 @@ def _iteration_level_updates(
             )
         )
         if config.equation_of_state == IDEAL_GAS:
+            pressure_floor = params.minimum_pressure
+            if config.positivity_config.per_step_specific_floor:
+                # density-scaled temperature floor (tfloor): keep radiatively
+                # cooled dense layers at isothermal pressure support instead of
+                # the (relatively) zero constant floor
+                pressure_floor = jnp.maximum(
+                    pressure_floor,
+                    primitive_state[registered_variables.density_index]
+                    * params.minimum_specific_pressure,
+                )
             primitive_state = primitive_state.at[registered_variables.pressure_index].set(
                 jnp.maximum(
                     primitive_state[registered_variables.pressure_index],
-                    params.minimum_pressure,
+                    pressure_floor,
                 )
             )
     elif config.positivity_config.per_step_mode == POSITIVITY_REDISTRIBUTE:

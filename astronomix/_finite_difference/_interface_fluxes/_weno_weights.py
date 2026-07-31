@@ -45,6 +45,37 @@ def _weno_omega_weights(IS0, IS1, IS2, epsilon, tiny):
     return alpha0 / alpha_sum, alpha2 / alpha_sum
 
 
+def _weno_omega_weights_z(IS0, IS1, IS2, epsilon, tiny):
+    """WENO-Z weights ``(omega_0, omega_2)`` (Borges et al. 2008, p = 1).
+
+    ``alpha_k = c_k (1 + tau_5 / (epsilon + IS_k))`` with the global smoothness
+    indicator ``tau_5 = |IS_0 - IS_2|``. Two properties matter here:
+
+    * **Scale invariance.** The nonlinearity is driven by the RATIO
+      ``tau_5 / IS_k``, so it does not depend on the magnitude of the
+      characteristic variables. The classic JS form
+      ``alpha_k = c_k / (epsilon + IS_k)^2`` instead compares ``IS_k`` against
+      an ABSOLUTE ``epsilon``, so with O(100) code variables it is always in
+      the fully-nonlinear regime and discriminates between stencils even in
+      perfectly smooth flow.
+    * **Accuracy at smooth extrema.** In smooth regions ``tau_5`` is a higher
+      order small quantity than ``IS_k``, so ``alpha_k -> c_k`` and the scheme
+      recovers its optimal (5th-order) linear weights — including at critical
+      points, where JS drops order and adds dissipation. That dissipation
+      preferentially erases small-amplitude extrema (e.g. the incipient cold
+      condensations of a thermal instability).
+    """
+    t0 = epsilon + IS0
+    t1 = epsilon + IS1
+    t2 = epsilon + IS2
+    tau = jnp.abs(IS0 - IS2)
+    alpha0 = 1.0 * (1.0 + tau / t0)
+    alpha1 = 6.0 * (1.0 + tau / t1)
+    alpha2 = 3.0 * (1.0 + tau / t2)
+    alpha_sum = jnp.maximum(alpha0 + alpha1 + alpha2, tiny)
+    return alpha0 / alpha_sum, alpha2 / alpha_sum
+
+
 def _weno_omega_weights_adjoint(IS0, IS1, IS2, omega0_bar, omega2_bar, epsilon, tiny):
     """Hand transpose of :func:`_weno_omega_weights`.
 

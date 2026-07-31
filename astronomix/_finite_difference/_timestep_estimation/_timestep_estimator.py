@@ -35,6 +35,11 @@ from astronomix.data_classes.simulation_helper_data import HelperData
 from astronomix.option_classes.simulation_config import SimulationConfig
 from astronomix.option_classes.simulation_params import SimulationParams
 from astronomix.variable_registry.registered_variables import RegisteredVariables
+from astronomix._modules._cooling._cooling import (
+    dtemperature_dt,
+    get_temperature_from_pressure,
+)
+from astronomix._modules._cooling.cooling_options import EXPLICIT_COOLING
 
 # astronomix functions
 from astronomix._fluid_equations._eigen_hydro import _eigen_all_lambdas_hydro
@@ -138,16 +143,45 @@ def _cfl_time_step_fd_mhd_fast(
         dt_cfl = jnp.minimum(dt_cfl, dt_visc)
 
     # conductive (parabolic) time step constraint
+    # Explicit-cooling (thermal) time-step constraint, mirroring AthenaK's
+    # ``srcterms_newdt``: dt <= min(e_int / |de/dt|), which for an ideal gas is
+    # the temperature relaxation time min(T / |dT/dt|). Only needed for the
+    # explicit update — the implicit one is unconditionally stable.
+    if (config.cooling_config.cooling
+            and config.cooling_config.cooling_method == EXPLICIT_COOLING
+            and config.equation_of_state == IDEAL_GAS):
+        _cp = params.cooling_params
+        _rho = primitive_state[registered_variables.density_index]
+        _p = primitive_state[registered_variables.pressure_index]
+        _T = get_temperature_from_pressure(
+            _rho, _p, _cp.hydrogen_mass_fraction, _cp.metal_mass_fraction)
+        # Clamp to the cooling floor before forming the thermal time. Below the
+        # floor the cooling update REVERTS the cell (it applies no cooling at
+        # all), so its thermal time is INFINITE, not zero — without this clamp a
+        # single cell driven toward T -> 0 sends dt -> 0 and stalls the whole
+        # run, which is not a physical CFL limit at all.
+        _T = jnp.maximum(_T, _cp.floor_temperature)
+        _dTdt = dtemperature_dt(
+            _rho, _T, _cp.hydrogen_mass_fraction, _cp.metal_mass_fraction,
+            gamma, config.cooling_config.cooling_curve_config,
+            _cp.cooling_curve_params, heating_rate=_cp.heating_rate)
+        dt_cool = C_CFL * jnp.min(_T / (jnp.abs(_dTdt) + jnp.finfo(_T.dtype).tiny))
+        dt_cfl = jnp.minimum(dt_cfl, dt_cool)
+
     if config.thermal_conduction:
-        if config.positivity_config.clamp_in_estimates:
-            rho_min_c = jnp.maximum(
-                jnp.min(primitive_state[registered_variables.density_index]),
-                params.minimum_density,
-            )
+        if config.conduction_density_weighted:
+            # kappa = rho * alpha: the temperature diffusivity is uniform
+            chi_max = (gamma - 1.0) * params.thermal_conductivity
         else:
-            rho_min_c = jnp.min(primitive_state[registered_variables.density_index])
-        # thermal diffusivity of the internal energy: chi = (gamma - 1) kappa / rho
-        chi_max = (gamma - 1.0) * params.thermal_conductivity / rho_min_c
+            if config.positivity_config.clamp_in_estimates:
+                rho_min_c = jnp.maximum(
+                    jnp.min(primitive_state[registered_variables.density_index]),
+                    params.minimum_density,
+                )
+            else:
+                rho_min_c = jnp.min(primitive_state[registered_variables.density_index])
+            # thermal diffusivity of the internal energy: chi = (gamma - 1) kappa / rho
+            chi_max = (gamma - 1.0) * params.thermal_conductivity / rho_min_c
         dt_cond = C_CFL * grid_spacing**2 / (2.0 * config.dimensionality * chi_max)
         dt_cfl = jnp.minimum(dt_cfl, dt_cond)
 
@@ -286,16 +320,45 @@ def _cfl_time_step_fd(
         dt_cfl = jnp.minimum(dt_cfl, dt_visc)
 
     # conductive (parabolic) time step constraint
+    # Explicit-cooling (thermal) time-step constraint, mirroring AthenaK's
+    # ``srcterms_newdt``: dt <= min(e_int / |de/dt|), which for an ideal gas is
+    # the temperature relaxation time min(T / |dT/dt|). Only needed for the
+    # explicit update — the implicit one is unconditionally stable.
+    if (config.cooling_config.cooling
+            and config.cooling_config.cooling_method == EXPLICIT_COOLING
+            and config.equation_of_state == IDEAL_GAS):
+        _cp = params.cooling_params
+        _rho = primitive_state[registered_variables.density_index]
+        _p = primitive_state[registered_variables.pressure_index]
+        _T = get_temperature_from_pressure(
+            _rho, _p, _cp.hydrogen_mass_fraction, _cp.metal_mass_fraction)
+        # Clamp to the cooling floor before forming the thermal time. Below the
+        # floor the cooling update REVERTS the cell (it applies no cooling at
+        # all), so its thermal time is INFINITE, not zero — without this clamp a
+        # single cell driven toward T -> 0 sends dt -> 0 and stalls the whole
+        # run, which is not a physical CFL limit at all.
+        _T = jnp.maximum(_T, _cp.floor_temperature)
+        _dTdt = dtemperature_dt(
+            _rho, _T, _cp.hydrogen_mass_fraction, _cp.metal_mass_fraction,
+            gamma, config.cooling_config.cooling_curve_config,
+            _cp.cooling_curve_params, heating_rate=_cp.heating_rate)
+        dt_cool = C_CFL * jnp.min(_T / (jnp.abs(_dTdt) + jnp.finfo(_T.dtype).tiny))
+        dt_cfl = jnp.minimum(dt_cfl, dt_cool)
+
     if config.thermal_conduction:
-        if config.positivity_config.clamp_in_estimates:
-            rho_min_c = jnp.maximum(
-                jnp.min(primitive_state[registered_variables.density_index]),
-                params.minimum_density,
-            )
+        if config.conduction_density_weighted:
+            # kappa = rho * alpha: the temperature diffusivity is uniform
+            chi_max = (gamma - 1.0) * params.thermal_conductivity
         else:
-            rho_min_c = jnp.min(primitive_state[registered_variables.density_index])
-        # thermal diffusivity of the internal energy: chi = (gamma - 1) kappa / rho
-        chi_max = (gamma - 1.0) * params.thermal_conductivity / rho_min_c
+            if config.positivity_config.clamp_in_estimates:
+                rho_min_c = jnp.maximum(
+                    jnp.min(primitive_state[registered_variables.density_index]),
+                    params.minimum_density,
+                )
+            else:
+                rho_min_c = jnp.min(primitive_state[registered_variables.density_index])
+            # thermal diffusivity of the internal energy: chi = (gamma - 1) kappa / rho
+            chi_max = (gamma - 1.0) * params.thermal_conductivity / rho_min_c
         dt_cond = C_CFL * grid_spacing**2 / (2.0 * config.dimensionality * chi_max)
         dt_cfl = jnp.minimum(dt_cfl, dt_cond)
 
@@ -425,16 +488,45 @@ def _cfl_time_step_fd_hydro_native(
         dt_cfl = jnp.minimum(dt_cfl, dt_visc)
 
     # conductive (parabolic) time step constraint
+    # Explicit-cooling (thermal) time-step constraint, mirroring AthenaK's
+    # ``srcterms_newdt``: dt <= min(e_int / |de/dt|), which for an ideal gas is
+    # the temperature relaxation time min(T / |dT/dt|). Only needed for the
+    # explicit update — the implicit one is unconditionally stable.
+    if (config.cooling_config.cooling
+            and config.cooling_config.cooling_method == EXPLICIT_COOLING
+            and config.equation_of_state == IDEAL_GAS):
+        _cp = params.cooling_params
+        _rho = primitive_state[registered_variables.density_index]
+        _p = primitive_state[registered_variables.pressure_index]
+        _T = get_temperature_from_pressure(
+            _rho, _p, _cp.hydrogen_mass_fraction, _cp.metal_mass_fraction)
+        # Clamp to the cooling floor before forming the thermal time. Below the
+        # floor the cooling update REVERTS the cell (it applies no cooling at
+        # all), so its thermal time is INFINITE, not zero — without this clamp a
+        # single cell driven toward T -> 0 sends dt -> 0 and stalls the whole
+        # run, which is not a physical CFL limit at all.
+        _T = jnp.maximum(_T, _cp.floor_temperature)
+        _dTdt = dtemperature_dt(
+            _rho, _T, _cp.hydrogen_mass_fraction, _cp.metal_mass_fraction,
+            gamma, config.cooling_config.cooling_curve_config,
+            _cp.cooling_curve_params, heating_rate=_cp.heating_rate)
+        dt_cool = C_CFL * jnp.min(_T / (jnp.abs(_dTdt) + jnp.finfo(_T.dtype).tiny))
+        dt_cfl = jnp.minimum(dt_cfl, dt_cool)
+
     if config.thermal_conduction:
-        if config.positivity_config.clamp_in_estimates:
-            rho_min_c = jnp.maximum(
-                jnp.min(primitive_state[registered_variables.density_index]),
-                params.minimum_density,
-            )
+        if config.conduction_density_weighted:
+            # kappa = rho * alpha: the temperature diffusivity is uniform
+            chi_max = (gamma - 1.0) * params.thermal_conductivity
         else:
-            rho_min_c = jnp.min(primitive_state[registered_variables.density_index])
-        # thermal diffusivity of the internal energy: chi = (gamma - 1) kappa / rho
-        chi_max = (gamma - 1.0) * params.thermal_conductivity / rho_min_c
+            if config.positivity_config.clamp_in_estimates:
+                rho_min_c = jnp.maximum(
+                    jnp.min(primitive_state[registered_variables.density_index]),
+                    params.minimum_density,
+                )
+            else:
+                rho_min_c = jnp.min(primitive_state[registered_variables.density_index])
+            # thermal diffusivity of the internal energy: chi = (gamma - 1) kappa / rho
+            chi_max = (gamma - 1.0) * params.thermal_conductivity / rho_min_c
         dt_cond = C_CFL * grid_spacing**2 / (2.0 * config.dimensionality * chi_max)
         dt_cfl = jnp.minimum(dt_cfl, dt_cond)
 
@@ -551,16 +643,45 @@ def _cfl_time_step_fd_hydro_fast(
         dt_cfl = jnp.minimum(dt_cfl, dt_visc)
 
     # conductive (parabolic) time step constraint
+    # Explicit-cooling (thermal) time-step constraint, mirroring AthenaK's
+    # ``srcterms_newdt``: dt <= min(e_int / |de/dt|), which for an ideal gas is
+    # the temperature relaxation time min(T / |dT/dt|). Only needed for the
+    # explicit update — the implicit one is unconditionally stable.
+    if (config.cooling_config.cooling
+            and config.cooling_config.cooling_method == EXPLICIT_COOLING
+            and config.equation_of_state == IDEAL_GAS):
+        _cp = params.cooling_params
+        _rho = primitive_state[registered_variables.density_index]
+        _p = primitive_state[registered_variables.pressure_index]
+        _T = get_temperature_from_pressure(
+            _rho, _p, _cp.hydrogen_mass_fraction, _cp.metal_mass_fraction)
+        # Clamp to the cooling floor before forming the thermal time. Below the
+        # floor the cooling update REVERTS the cell (it applies no cooling at
+        # all), so its thermal time is INFINITE, not zero — without this clamp a
+        # single cell driven toward T -> 0 sends dt -> 0 and stalls the whole
+        # run, which is not a physical CFL limit at all.
+        _T = jnp.maximum(_T, _cp.floor_temperature)
+        _dTdt = dtemperature_dt(
+            _rho, _T, _cp.hydrogen_mass_fraction, _cp.metal_mass_fraction,
+            gamma, config.cooling_config.cooling_curve_config,
+            _cp.cooling_curve_params, heating_rate=_cp.heating_rate)
+        dt_cool = C_CFL * jnp.min(_T / (jnp.abs(_dTdt) + jnp.finfo(_T.dtype).tiny))
+        dt_cfl = jnp.minimum(dt_cfl, dt_cool)
+
     if config.thermal_conduction:
-        if config.positivity_config.clamp_in_estimates:
-            rho_min_c = jnp.maximum(
-                jnp.min(primitive_state[registered_variables.density_index]),
-                params.minimum_density,
-            )
+        if config.conduction_density_weighted:
+            # kappa = rho * alpha: the temperature diffusivity is uniform
+            chi_max = (gamma - 1.0) * params.thermal_conductivity
         else:
-            rho_min_c = jnp.min(primitive_state[registered_variables.density_index])
-        # thermal diffusivity of the internal energy: chi = (gamma - 1) kappa / rho
-        chi_max = (gamma - 1.0) * params.thermal_conductivity / rho_min_c
+            if config.positivity_config.clamp_in_estimates:
+                rho_min_c = jnp.maximum(
+                    jnp.min(primitive_state[registered_variables.density_index]),
+                    params.minimum_density,
+                )
+            else:
+                rho_min_c = jnp.min(primitive_state[registered_variables.density_index])
+            # thermal diffusivity of the internal energy: chi = (gamma - 1) kappa / rho
+            chi_max = (gamma - 1.0) * params.thermal_conductivity / rho_min_c
         dt_cond = C_CFL * grid_spacing**2 / (2.0 * config.dimensionality * chi_max)
         dt_cfl = jnp.minimum(dt_cfl, dt_cond)
 

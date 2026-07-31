@@ -72,6 +72,7 @@ def _ssprk4_with_ct(
     helper_data: HelperData,
     config: SimulationConfig,
     registered_variables: RegisteredVariables,
+    internal_energy_density=None,
 ):
     """
     Integrates the MHD equations for one time step using a 5-stage, 4th-order
@@ -128,12 +129,14 @@ def _ssprk4_with_ct(
         # slices are extracted, so CT consumes the blended (locally-diffusive)
         # induction flux. CT stays div(B)=0 by construction (single-valued edge
         # EMFs from consistent face fluxes).
-        blend = config.positivity_config.deepvoid_blend or config.positivity_config.preserving_flux
+        blend = (config.positivity_config.deepvoid_blend
+                 or config.positivity_config.preserving_flux
+                 or config.positivity_config.coldcrush_blend)
 
         # x-axis
-        dF_x = _weno_flux_x(current_q, params, config, registered_variables)
+        dF_x = _weno_flux_x(current_q, params, config, registered_variables, internal_energy_density=internal_energy_density)
         if blend:
-            dF_x = _blend_interface_flux(dF_x, current_q, 0, dtdx, params, config, registered_variables)
+            dF_x = _blend_interface_flux(dF_x, current_q, 0, dtdx, params, config, registered_variables, internal_energy_density=internal_energy_density)
         By_flux_x = dF_x[my]
         Bz_flux_x = dF_x[mz]
         density_flux_x = dF_x[di]
@@ -146,9 +149,9 @@ def _ssprk4_with_ct(
         # y-axis
         if config.dimensionality >= 2:
             mx = registered_variables.magnetic_index.x
-            dF_y = _weno_flux_y(current_q, params, config, registered_variables)
+            dF_y = _weno_flux_y(current_q, params, config, registered_variables, internal_energy_density=internal_energy_density)
             if blend:
-                dF_y = _blend_interface_flux(dF_y, current_q, 1, dtdy, params, config, registered_variables)
+                dF_y = _blend_interface_flux(dF_y, current_q, 1, dtdy, params, config, registered_variables, internal_energy_density=internal_energy_density)
             Bx_flux_y = dF_y[mx]
             Bz_flux_y = dF_y[mz]
             density_flux_y = dF_y[di]
@@ -166,9 +169,9 @@ def _ssprk4_with_ct(
         # z-axis
         if config.dimensionality == 3:
             mx = registered_variables.magnetic_index.x
-            dF_z = _weno_flux_z(current_q, params, config, registered_variables)
+            dF_z = _weno_flux_z(current_q, params, config, registered_variables, internal_energy_density=internal_energy_density)
             if blend:
-                dF_z = _blend_interface_flux(dF_z, current_q, 2, dtdz, params, config, registered_variables)
+                dF_z = _blend_interface_flux(dF_z, current_q, 2, dtdz, params, config, registered_variables, internal_energy_density=internal_energy_density)
             Bx_flux_z = dF_z[mx]
             By_flux_z = dF_z[my]
             density_flux_z = dF_z[di]
@@ -223,6 +226,10 @@ def _ssprk4_with_ct(
             q, config.positivity_config.per_stage_mode, config, gamma,
             params.minimum_density, params.minimum_pressure,
             params.positivity_max_velocity, registered_variables,
+            minimum_specific_pressure=(
+                params.minimum_specific_pressure
+                if config.positivity_config.per_stage_specific_floor else 0.0
+            ),
         )
         if config.boundary_handling == GHOST_CELLS:
             q = _boundary_handler(
@@ -246,6 +253,10 @@ def _ssprk4_with_ct(
             q, config.positivity_config.per_stage_mode, config, gamma,
             params.minimum_density, params.minimum_pressure,
             params.positivity_max_velocity, registered_variables,
+            minimum_specific_pressure=(
+                params.minimum_specific_pressure
+                if config.positivity_config.per_stage_specific_floor else 0.0
+            ),
         )
         return (q, bx, by, bz)
 
@@ -277,6 +288,7 @@ def _hydro_step_rhs(
     grid_spacing,
     helper_data,
     density_fluxes_needed: bool,
+    internal_energy_density=None,
 ):
     """RHS for one hydro WENO time-step stage (excluding RK coefficient logic).
 
@@ -307,6 +319,7 @@ def _hydro_step_rhs(
         and not density_fluxes_needed
         and not config.positivity_config.deepvoid_blend
         and not config.positivity_config.preserving_flux
+        and not config.positivity_config.coldcrush_blend
     )
 
     if use_fused_pallas:
@@ -317,19 +330,19 @@ def _hydro_step_rhs(
         # relative to the original Pallas path while ensuring all three
         # ``dF`` temporaries never coexist and the rhs lives in a single
         # physical buffer across axes.
-        dF_x = _weno_flux_x(current_q, params, config, registered_variables)
+        dF_x = _weno_flux_x(current_q, params, config, registered_variables, internal_energy_density=internal_energy_density)
         rhs_q = _hydro_flux_div_axis_pallas(dF_x, dtdx, config, axis=0)
         del dF_x
 
         if config.dimensionality >= 2:
-            dF_y = _weno_flux_y(current_q, params, config, registered_variables)
+            dF_y = _weno_flux_y(current_q, params, config, registered_variables, internal_energy_density=internal_energy_density)
             rhs_q = _hydro_flux_div_axis_pallas(
                 dF_y, dtdy, config, axis=1, rhs_accumulator=rhs_q
             )
             del dF_y
 
         if config.dimensionality == 3:
-            dF_z = _weno_flux_z(current_q, params, config, registered_variables)
+            dF_z = _weno_flux_z(current_q, params, config, registered_variables, internal_energy_density=internal_energy_density)
             rhs_q = _hydro_flux_div_axis_pallas(
                 dF_z, dtdz, config, axis=2, rhs_accumulator=rhs_q
             )
@@ -340,10 +353,12 @@ def _hydro_step_rhs(
         # Per-axis flux + divergence path.  Accumulate axis-by-axis rather
         # than holding all three flux arrays live simultaneously, so XLA
         # can reuse buffers between axes.
-        blend = config.positivity_config.deepvoid_blend or config.positivity_config.preserving_flux
-        dF_x = _weno_flux_x(current_q, params, config, registered_variables)
+        blend = (config.positivity_config.deepvoid_blend
+                 or config.positivity_config.preserving_flux
+                 or config.positivity_config.coldcrush_blend)
+        dF_x = _weno_flux_x(current_q, params, config, registered_variables, internal_energy_density=internal_energy_density)
         if blend:
-            dF_x = _blend_interface_flux(dF_x, current_q, 0, dtdx, params, config, registered_variables)
+            dF_x = _blend_interface_flux(dF_x, current_q, 0, dtdx, params, config, registered_variables, internal_energy_density=internal_energy_density)
         rhs_q = -dtdx * (dF_x - _shift(dF_x, 1, axis=1))
         if density_fluxes_needed:
             density_fluxes = [dF_x[registered_variables.density_index]]
@@ -352,18 +367,18 @@ def _hydro_step_rhs(
         del dF_x
 
         if config.dimensionality >= 2:
-            dF_y = _weno_flux_y(current_q, params, config, registered_variables)
+            dF_y = _weno_flux_y(current_q, params, config, registered_variables, internal_energy_density=internal_energy_density)
             if blend:
-                dF_y = _blend_interface_flux(dF_y, current_q, 1, dtdy, params, config, registered_variables)
+                dF_y = _blend_interface_flux(dF_y, current_q, 1, dtdy, params, config, registered_variables, internal_energy_density=internal_energy_density)
             rhs_q = rhs_q - dtdy * (dF_y - _shift(dF_y, 1, axis=2))
             if density_fluxes_needed:
                 density_fluxes.append(dF_y[registered_variables.density_index])
             del dF_y
 
         if config.dimensionality == 3:
-            dF_z = _weno_flux_z(current_q, params, config, registered_variables)
+            dF_z = _weno_flux_z(current_q, params, config, registered_variables, internal_energy_density=internal_energy_density)
             if blend:
-                dF_z = _blend_interface_flux(dF_z, current_q, 2, dtdz, params, config, registered_variables)
+                dF_z = _blend_interface_flux(dF_z, current_q, 2, dtdz, params, config, registered_variables, internal_energy_density=internal_energy_density)
             rhs_q = rhs_q - dtdz * (dF_z - _shift(dF_z, 1, axis=3))
             if density_fluxes_needed:
                 density_fluxes.append(dF_z[registered_variables.density_index])
@@ -398,6 +413,7 @@ def _ssprk4_hydro(
     helper_data, # Assuming HelperData type
     config, # Assuming SimulationConfig type
     registered_variables: RegisteredVariables,
+    internal_energy_density=None,
 ):
     """
     Integrates the Euler (hydrodynamics) equations for one time step using a
@@ -420,6 +436,10 @@ def _ssprk4_hydro(
             q, config.positivity_config.per_stage_mode, config, gamma,
             params.minimum_density, params.minimum_pressure,
             params.positivity_max_velocity, registered_variables,
+            minimum_specific_pressure=(
+                params.minimum_specific_pressure
+                if config.positivity_config.per_stage_specific_floor else 0.0
+            ),
         )
         if config.boundary_handling == GHOST_CELLS:
             q = _boundary_handler(
@@ -438,6 +458,7 @@ def _ssprk4_hydro(
             grid_spacing=grid_spacing,
             helper_data=helper_data,
             density_fluxes_needed=density_fluxes_needed,
+            internal_energy_density=internal_energy_density,
         )
 
     def finalize(q):
@@ -445,6 +466,10 @@ def _ssprk4_hydro(
             q, config.positivity_config.per_stage_mode, config, gamma,
             params.minimum_density, params.minimum_pressure,
             params.positivity_max_velocity, registered_variables,
+            minimum_specific_pressure=(
+                params.minimum_specific_pressure
+                if config.positivity_config.per_stage_specific_floor else 0.0
+            ),
         )
         return q
 
@@ -461,6 +486,7 @@ def _lsrk4_hydro(
     helper_data,
     config,
     registered_variables: RegisteredVariables,
+    internal_energy_density=None,
 ):
     """Carpenter-Kennedy 2N-storage, 5-stage, 4th-order low-storage RK4.
 
@@ -489,6 +515,10 @@ def _lsrk4_hydro(
             q, config.positivity_config.per_stage_mode, config, gamma,
             params.minimum_density, params.minimum_pressure,
             params.positivity_max_velocity, registered_variables,
+            minimum_specific_pressure=(
+                params.minimum_specific_pressure
+                if config.positivity_config.per_stage_specific_floor else 0.0
+            ),
         )
         if config.boundary_handling == GHOST_CELLS:
             q = _boundary_handler(
@@ -503,13 +533,21 @@ def _lsrk4_hydro(
         # rhs/``L(q)``-sized scratch register is never materialised, which is
         # what gets us below the 3-buffer floor of the explicit
         # rhs-then-update path.
+        # The fused divergence path never calls _blend_interface_flux, so any
+        # active flux-blending path (deep-void, positivity-preserving FCT,
+        # cold-crush) must force the explicit rhs route — omitting these
+        # exclusions silently DISABLED the positivity flux limiter under LSRK4,
+        # which is what actually blew up the --low-mem blast runs.
         use_fused_pallas = (
             _hydro_pallas_flux_supported(q, config)
             and not density_fluxes_needed
+            and not config.positivity_config.deepvoid_blend
+            and not config.positivity_config.preserving_flux
+            and not config.positivity_config.coldcrush_blend
         )
 
         if use_fused_pallas:
-            dF_x = _weno_flux_x(q, params, config, registered_variables)
+            dF_x = _weno_flux_x(q, params, config, registered_variables, internal_energy_density=internal_energy_density)
             dq = _hydro_flux_div_axis_pallas(
                 dF_x, dtdx, config, axis=0,
                 rhs_accumulator=dq, scale_in=a_coef,
@@ -517,7 +555,7 @@ def _lsrk4_hydro(
             del dF_x
 
             if config.dimensionality >= 2:
-                dF_y = _weno_flux_y(q, params, config, registered_variables)
+                dF_y = _weno_flux_y(q, params, config, registered_variables, internal_energy_density=internal_energy_density)
                 dq = _hydro_flux_div_axis_pallas(
                     dF_y, dtdy, config, axis=1,
                     rhs_accumulator=dq, scale_in=1.0,
@@ -525,7 +563,7 @@ def _lsrk4_hydro(
                 del dF_y
 
             if config.dimensionality == 3:
-                dF_z = _weno_flux_z(q, params, config, registered_variables)
+                dF_z = _weno_flux_z(q, params, config, registered_variables, internal_energy_density=internal_energy_density)
                 dq = _hydro_flux_div_axis_pallas(
                     dF_z, dtdz, config, axis=2,
                     rhs_accumulator=dq, scale_in=1.0,
@@ -562,6 +600,7 @@ def _lsrk4_hydro(
             grid_spacing=grid_spacing,
             helper_data=helper_data,
             density_fluxes_needed=density_fluxes_needed,
+            internal_energy_density=internal_energy_density,
         )
         return a_coef * dq + rhs
 
@@ -570,6 +609,10 @@ def _lsrk4_hydro(
             q, config.positivity_config.per_stage_mode, config, gamma,
             params.minimum_density, params.minimum_pressure,
             params.positivity_max_velocity, registered_variables,
+            minimum_specific_pressure=(
+                params.minimum_specific_pressure
+                if config.positivity_config.per_stage_specific_floor else 0.0
+            ),
         )
         return q
 
@@ -596,6 +639,7 @@ def _lsrk4_with_ct(
     helper_data: HelperData,
     config: SimulationConfig,
     registered_variables: RegisteredVariables,
+    internal_energy_density=None,
 ):
     """Carpenter-Kennedy 2N-storage 5-stage 4th-order LSRK4 for MHD-CT.
 
@@ -653,7 +697,7 @@ def _lsrk4_with_ct(
         # first axis's div kernel via ``scale_in`` so ``rhs_q`` is never
         # materialised; subsequent axes accumulate (scale_in = 1.0).  The
         # native fallback path keeps the explicit ``rhs_q`` register.
-        dF_x = _weno_flux_x(current_q, params, config, registered_variables)
+        dF_x = _weno_flux_x(current_q, params, config, registered_variables, internal_energy_density=internal_energy_density)
         By_flux_x = dF_x[my]
         Bz_flux_x = dF_x[mz]
         density_flux_x = dF_x[di]
@@ -687,7 +731,7 @@ def _lsrk4_with_ct(
 
         if config.dimensionality >= 2:
             mx = registered_variables.magnetic_index.x
-            dF_y = _weno_flux_y(current_q, params, config, registered_variables)
+            dF_y = _weno_flux_y(current_q, params, config, registered_variables, internal_energy_density=internal_energy_density)
             Bx_flux_y = dF_y[mx]
             Bz_flux_y = dF_y[mz]
             density_flux_y = dF_y[di]
@@ -712,7 +756,7 @@ def _lsrk4_with_ct(
 
         if config.dimensionality == 3:
             mx = registered_variables.magnetic_index.x
-            dF_z = _weno_flux_z(current_q, params, config, registered_variables)
+            dF_z = _weno_flux_z(current_q, params, config, registered_variables, internal_energy_density=internal_energy_density)
             Bx_flux_z = dF_z[mx]
             By_flux_z = dF_z[my]
             density_flux_z = dF_z[di]
@@ -783,6 +827,10 @@ def _lsrk4_with_ct(
             q, config.positivity_config.per_stage_mode, config, gamma,
             params.minimum_density, params.minimum_pressure,
             params.positivity_max_velocity, registered_variables,
+            minimum_specific_pressure=(
+                params.minimum_specific_pressure
+                if config.positivity_config.per_stage_specific_floor else 0.0
+            ),
         )
         if config.boundary_handling == GHOST_CELLS:
             q = _boundary_handler(
@@ -817,6 +865,10 @@ def _lsrk4_with_ct(
             q, config.positivity_config.per_stage_mode, config, gamma,
             params.minimum_density, params.minimum_pressure,
             params.positivity_max_velocity, registered_variables,
+            minimum_specific_pressure=(
+                params.minimum_specific_pressure
+                if config.positivity_config.per_stage_specific_floor else 0.0
+            ),
         )
         return (q, bx, by, bz)
 

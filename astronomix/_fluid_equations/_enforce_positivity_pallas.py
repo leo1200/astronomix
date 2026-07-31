@@ -62,6 +62,7 @@ def _enforce_positivity_pallas(
     minimum_density,
     minimum_pressure,
     registered_variables: RegisteredVariables,
+    minimum_specific_pressure=0.0,
 ):
     """In-place Pallas positivity floor.  Same arithmetic as the native
     ``_enforce_positivity``; the input buffer is donated via the
@@ -85,6 +86,7 @@ def _enforce_positivity_pallas(
             minimum_density,
             minimum_pressure,
             registered_variables,
+            minimum_specific_pressure=minimum_specific_pressure,
         )
 
     return _pallas_call_sharded(
@@ -102,6 +104,7 @@ def _enforce_positivity_pallas_local(
     minimum_density,
     minimum_pressure,
     registered_variables: RegisteredVariables,
+    minimum_specific_pressure=0.0,
 ):
     """Single-shard kernel build.  Called either directly (single device)
     or once per device from inside ``shard_map`` (multi-device).  The
@@ -157,7 +160,7 @@ def _enforce_positivity_pallas_local(
         in_spec = pl.BlockSpec(conserved_state.shape, lambda bi, bj, bk: (0, 0, 0, 0))
     scalar_spec = pl.BlockSpec((), lambda bi, bj, bk: ())
 
-    def kernel(q_in_ref, gamma_ref, rhomin_ref, pmin_ref, q_out_ref):
+    def kernel(q_in_ref, gamma_ref, rhomin_ref, pmin_ref, pmin_spec_ref, q_out_ref):
         bi = pl.program_id(0)
         bj = pl.program_id(1)
         bk = pl.program_id(2)
@@ -175,6 +178,7 @@ def _enforce_positivity_pallas_local(
         gm1 = gamma - 1.0
         rhomin = rhomin_ref[()]
         pmin = pmin_ref[()]
+        pmin_spec = pmin_spec_ref[()]
 
         nan_safe = bool(config.positivity_config.nan_safe)
 
@@ -223,7 +227,11 @@ def _enforce_positivity_pallas_local(
                 pressure = gm1 * (energy - 0.5 * rho_floored * v2 - 0.5 * b2)
             else:
                 pressure = gm1 * (energy - 0.5 * rho_floored * v2)
-            pressure_floored = jnp.maximum(pressure, pmin)
+            # constant + density-scaled (effective temperature) floor, matching
+            # the native impl: p >= max(pmin, rho * pmin_spec)
+            pressure_floored = jnp.maximum(
+                pressure, jnp.maximum(pmin, rho_floored * pmin_spec)
+            )
             if is_mhd:
                 energy_floored = pressure_floored / gm1 + 0.5 * rho_floored * v2 + 0.5 * b2
             else:
@@ -249,7 +257,7 @@ def _enforce_positivity_pallas_local(
         kernel,
         out_shape=jax.ShapeDtypeStruct(conserved_state.shape, conserved_state.dtype),
         grid=grid,
-        in_specs=[in_spec, scalar_spec, scalar_spec, scalar_spec],
+        in_specs=[in_spec, scalar_spec, scalar_spec, scalar_spec, scalar_spec],
         out_specs=out_spec,
         interpret=config.backend_config.pallas_interpret,
         name="enforce_positivity",
@@ -259,6 +267,7 @@ def _enforce_positivity_pallas_local(
         jnp.asarray(gamma, dtype=conserved_state.dtype),
         jnp.asarray(minimum_density, dtype=conserved_state.dtype),
         jnp.asarray(minimum_pressure, dtype=conserved_state.dtype),
+        jnp.asarray(minimum_specific_pressure, dtype=conserved_state.dtype),
     )
 
 

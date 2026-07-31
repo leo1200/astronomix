@@ -108,9 +108,14 @@ def _create_forcing_field(
 
 
 @partial(jax.jit, static_argnames=["config"])
-def _create_solenoidal_field(key, config, k_f):
-    """A fresh solenoidal (divergence-free) random velocity field peaked at
-    wavenumber ``k_f`` and normalised to unit rms (mean(|w|^2) = 1)."""
+def _create_solenoidal_field(key, config, k_f, band=None):
+    """A fresh solenoidal (divergence-free) random velocity field, unit rms.
+
+    ``band=None`` uses the legacy smooth ``k^6 exp(-8k/kpk)`` spectrum peaked at
+    ``k_f``. ``band=(nlow, nhigh, expo)`` instead reproduces AthenaK's
+    ``turb_driver``: power confined to the discrete mode-number shell
+    ``nlow <= n <= nhigh`` with an isotropic ``k^-(expo+2)/2`` envelope.
+    """
     nx = config.num_cells.x + 2 * config.num_ghost_cells
     ny = config.num_cells.y + 2 * config.num_ghost_cells
     nz = config.num_cells.z + 2 * config.num_ghost_cells
@@ -124,10 +129,25 @@ def _create_solenoidal_field(key, config, k_f):
     k_squared = kx_3d ** 2 + ky_3d ** 2 + kz_3d ** 2
     kk = jnp.sqrt(k_squared)
 
-    # The spectrum k^6 exp(-8 k / kpk) peaks at k = 0.75 kpk, so set kpk = k_f /
-    # 0.75 to place the peak at the requested forcing wavenumber k_f.
-    kpk = k_f / 0.75
-    Pk = kk ** 6 * jnp.exp(-8.0 * kk / kpk)
+    if band is None:
+        # The spectrum k^6 exp(-8 k / kpk) peaks at k = 0.75 kpk, so set kpk =
+        # k_f / 0.75 to place the peak at the requested forcing wavenumber k_f.
+        kpk = k_f / 0.75
+        Pk = kk ** 6 * jnp.exp(-8.0 * kk / kpk)
+    else:
+        # AthenaK ``turb_driver`` spectrum: power ONLY on the discrete mode-number
+        # band nlow <= n <= nhigh (n = k L / 2pi), with the isotropic power-law
+        # envelope |F(k)| ~ k^-(expo+2)/2. Sharp band edges (not a smooth
+        # envelope with a high-k tail) are what AthenaK actually drives.
+        nlow, nhigh, expo = band
+        n_x = kx_3d * config.box_size.x / (2.0 * jnp.pi)
+        n_y = ky_3d * config.box_size.y / (2.0 * jnp.pi)
+        n_z = kz_3d * config.box_size.z / (2.0 * jnp.pi)
+        n_sq = n_x ** 2 + n_y ** 2 + n_z ** 2
+        in_band = (n_sq >= nlow ** 2 - 1e-6) & (n_sq <= nhigh ** 2 + 1e-6)
+        kk_safe = jnp.where(kk > 0.0, kk, 1.0)
+        amp = kk_safe ** (-(expo + 2.0) / 2.0)
+        Pk = jnp.where(in_band, amp ** 2, 0.0)
 
     key, sk1, sk2 = jax.random.split(key, 3)
     raw = jax.random.normal(sk1, shape=(3, nx, ny, nz)) + \
@@ -158,11 +178,41 @@ def _create_solenoidal_field(key, config, k_f):
     return key, field
 
 
+@partial(jax.jit, static_argnames=["config", "registered_variables"])
+def _exact_injection_amplitude(primitive_state, wx, wy, wz, dt, Edot,
+                              config, registered_variables):
+    """Amplitude ``a`` with ``v -> v + a w`` injecting exactly ``Edot * dt``.
+
+    Solves ``a^2 * sum(rho|w|^2)/2 + a * sum(rho v.w) - Edot dt / dV = 0`` for
+    the positive root — the normalisation AthenaK's ``turb_driver`` applies via
+    its ``dedt`` parameter, shared here by the white and OU paths.
+    """
+    rho = primitive_state[registered_variables.density_index]
+    u = primitive_state[registered_variables.velocity_index.x]
+    v = primitive_state[registered_variables.velocity_index.y]
+    w = primitive_state[registered_variables.velocity_index.z]
+    dV = config.grid_spacing ** 3
+    tempa = 0.5 * jnp.sum(rho * (wx ** 2 + wy ** 2 + wz ** 2))
+    tempb = jnp.sum(rho * u * wx + rho * v * wy + rho * w * wz)
+    tempc = -Edot * dt / dV
+    disc = tempb ** 2 - 4.0 * tempa * tempc
+    return jax.lax.cond(
+        (disc >= 0) & (jnp.abs(tempa) > 1e-10),
+        lambda: (-tempb + jnp.sqrt(disc)) / (2.0 * tempa),
+        lambda: 0.0,
+    )
+
+
 @partial(jax.jit, static_argnames=["config"])
 def _init_ou_forcing_state(key, config, turbulent_forcing_params):
     """Initial OU forcing state ``(key, f0)`` with f0 a stationary draw."""
+    band = None
+    if config.turbulent_forcing_config.banded_spectrum:
+        band = (turbulent_forcing_params.forcing_nlow,
+                turbulent_forcing_params.forcing_nhigh,
+                turbulent_forcing_params.forcing_expo)
     key, field = _create_solenoidal_field(
-        key, config, turbulent_forcing_params.forcing_wavenumber
+        key, config, turbulent_forcing_params.forcing_wavenumber, band=band
     )
     return (key, field)
 
@@ -188,18 +238,32 @@ def _apply_ou_forcing(
     key, f = forcing_state
     tau_f = turbulent_forcing_params.correlation_time
     a = jnp.exp(-dt / tau_f)
+    band = None
+    if config.turbulent_forcing_config.banded_spectrum:
+        band = (turbulent_forcing_params.forcing_nlow,
+                turbulent_forcing_params.forcing_nhigh,
+                turbulent_forcing_params.forcing_expo)
     key, xi = _create_solenoidal_field(
-        key, config, turbulent_forcing_params.forcing_wavenumber
+        key, config, turbulent_forcing_params.forcing_wavenumber, band=band
     )
     f = a * f + jnp.sqrt(jnp.maximum(1.0 - a ** 2, 0.0)) * xi
 
-    F0 = turbulent_forcing_params.forcing_amplitude
     vx_i = registered_variables.velocity_index.x
     vy_i = registered_variables.velocity_index.y
     vz_i = registered_variables.velocity_index.z
-    primitive_state = primitive_state.at[vx_i].add(F0 * f[0] * dt)
-    primitive_state = primitive_state.at[vy_i].add(F0 * f[1] * dt)
-    primitive_state = primitive_state.at[vz_i].add(F0 * f[2] * dt)
+    if config.turbulent_forcing_config.ou_exact_injection:
+        # AthenaK ``dedt`` normalisation: scale the (unit-rms) OU field so the
+        # box gains exactly Edot*dt of kinetic energy this step.
+        amp = _exact_injection_amplitude(
+            primitive_state, f[0], f[1], f[2], dt,
+            turbulent_forcing_params.energy_injection_rate,
+            config, registered_variables,
+        )
+    else:
+        amp = turbulent_forcing_params.forcing_amplitude * dt
+    primitive_state = primitive_state.at[vx_i].add(amp * f[0])
+    primitive_state = primitive_state.at[vy_i].add(amp * f[1])
+    primitive_state = primitive_state.at[vz_i].add(amp * f[2])
 
     # Conservative vacuum protection (HOW-MHD `prot`, called after forcing every
     # step in forc.f): neighbour-redistribute sub-threshold (vacuum) cells. This
@@ -344,6 +408,18 @@ def _apply_forcing(
     """
 
     key, wx_real, wy_real, wz_real = _create_forcing_field(key, config)
+
+    # Normalise the drawn field to unit rms before the amplitude solve. The
+    # raw spectrum k^6 exp(-8k/kpk) is dimensional (kpk = 4 pi / L), so the
+    # field amplitude scales as L^-3 — in float32 a large box (e.g. 64 pc)
+    # underflows the quadratic's coefficients and the forcing silently turns
+    # off. The energy-injection quadratic rescales the amplitude exactly, so
+    # this is statistically a no-op at any box size.
+    w_rms = jnp.sqrt(jnp.mean(wx_real**2 + wy_real**2 + wz_real**2) / 3.0)
+    w_rms = jnp.maximum(w_rms, 1e-30)
+    wx_real = wx_real / w_rms
+    wy_real = wy_real / w_rms
+    wz_real = wz_real / w_rms
 
     Edot = turbulent_forcing_params.energy_injection_rate
     dtforc = dt

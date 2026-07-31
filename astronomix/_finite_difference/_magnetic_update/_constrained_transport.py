@@ -158,8 +158,10 @@ def _constrained_transport_rhs_from_slices(
     if config.dimensionality == 1:
         By_vx = By * vx
         By_vz = By * vz
-        Bx_flux_y_interface_mod = Bx_flux_y_interface + By_vx
-        Bz_flux_y_interface_mod = Bz_flux_y_interface + By_vz
+        # Bx_flux_y_interface_mod = Bx_flux_y_interface + By_vx
+        # Bz_flux_y_interface_mod = Bz_flux_y_interface + By_vz
+        Bx_flux_y_interface_mod = Bx_flux_y_interface + Bx * vy   # was By*vx
+        Bz_flux_y_interface_mod = Bz_flux_y_interface + Bz * vy   # was By*vz
     else:
         By_vx = By * vx
         By_vz = By * vz
@@ -170,8 +172,10 @@ def _constrained_transport_rhs_from_slices(
     if config.dimensionality <= 2:
         Bz_vx = Bz * vx
         Bz_vy = Bz * vy
-        Bx_flux_z_interface_mod = Bx_flux_z_interface + Bz_vx
-        By_flux_z_interface_mod = By_flux_z_interface + Bz_vy
+        # Bx_flux_z_interface_mod = Bx_flux_z_interface + Bz_vx
+        # By_flux_z_interface_mod = By_flux_z_interface + Bz_vy
+        Bx_flux_z_interface_mod = Bx_flux_z_interface + Bx * vz   # was Bz*vx
+        By_flux_z_interface_mod = By_flux_z_interface + By * vz   # was Bz*vy
     else:
         Bz_vx = Bz * vx
         Bz_vy = Bz * vy

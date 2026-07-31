@@ -69,6 +69,23 @@ def thermal_pressure_from_energy_mhd(E, rho, u_squared, b_squared, gamma):
     return (gamma - 1) * (E - 0.5 * rho * u_squared - 0.5 * b_squared)
 
 
+def dual_switched_pressure(E, rho, u_squared, b_squared, gamma, internal_energy_density, eta):
+    """Gas pressure with the dual-energy switch (Bryan et al. 1995).
+
+    The total-energy internal energy ``e_E = E - KE - ME`` is trustworthy only
+    when it is a non-negligible fraction of E; otherwise (high Mach / low beta)
+    float cancellation destroys it and the separately-advected internal-energy
+    density ``g`` is used instead. Returns the switched thermal pressure
+    ``(gamma-1) e_int``. This is the coupled-recovery primitive used *inside* the
+    WENO flux + eigenstructure so the scheme never sees the corrupted pressure.
+    """
+    e_E = E - 0.5 * (rho * u_squared + b_squared)
+    E_safe = jnp.maximum(E, 1e-30)
+    reliable = (e_E > eta * E_safe) & (e_E == e_E)
+    e_int = jnp.where(reliable, e_E, internal_energy_density)
+    return (gamma - 1.0) * e_int
+
+
 @jax.jit
 def total_energy_from_primitives_mhd(rho, u_squared, p, b_squared, gamma):
     """Calculate the total energy from the primitive variables in MHD.
@@ -142,10 +159,15 @@ def primitive_state_from_conserved_mhd(
     gamma: Union[float, Float[Array, ""]],
     config: SimulationConfig,
     registered_variables: RegisteredVariables,
+    internal_energy_density=None,
 ) -> STATE_TYPE:
     """Convert the conserved state to the primitive state for ideal-gas MHD.
 
     Currently only the 3D case is supported.
+
+    ``internal_energy_density`` (the separately-advected dual-energy ``g``), when
+    given, switches the pressure recovery so the corrupted total-energy value is
+    not used in the catastrophic-cancellation regime (coupled dual-energy).
 
     Args:
         conserved_state: The conserved MHD state.
@@ -170,7 +192,13 @@ def primitive_state_from_conserved_mhd(
 
     b_squared = _b_squared3D(conserved_state, registered_variables)
 
-    p = thermal_pressure_from_energy_mhd(E, rho, u_squared, b_squared, gamma)
+    if internal_energy_density is None:
+        p = thermal_pressure_from_energy_mhd(E, rho, u_squared, b_squared, gamma)
+    else:
+        p = dual_switched_pressure(
+            E, rho, u_squared, b_squared, gamma,
+            internal_energy_density, config.dual_energy_eta,
+        )
 
     # Write the recovered thermal pressure and velocities into the primitive state.
     primitive_state = conserved_state.at[registered_variables.pressure_index].set(p)

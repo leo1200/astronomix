@@ -23,6 +23,19 @@ class TurbulentForcingConfig(NamedTuple):
     #: forcing -- lets rotation organise coherent structures (columns).
     ou_forcing: bool = False
 
+    #: Normalise the OU field to inject exactly ``energy_injection_rate * dt``
+    #: each step (the same quadratic the white forcing solves) instead of
+    #: applying the constant amplitude ``forcing_amplitude``. This is what
+    #: AthenaK's ``turb_driver`` does (``<turb_driving> dedt``); the constant-F0
+    #: default is kept so existing F0 calibrations are untouched.
+    ou_exact_injection: bool = False
+
+    #: Use the AthenaK-style DISCRETE driving band (static switch; the band
+    #: edges and exponent themselves live in ``TurbulentForcingParams`` so they
+    #: stay traceable). Selecting the spectrum must be a static choice because
+    #: the params are jit-traced.
+    banded_spectrum: bool = False
+
 
 class TurbulentForcingParams(NamedTuple):
     protection_density_threshold: float = 0.02
@@ -39,5 +52,14 @@ class TurbulentForcingParams(NamedTuple):
     forcing_wavenumber: float = 4.0
 
     #: OU forcing amplitude F0 (acceleration scale); tunes the stationary
-    #: u_rms. Only used when ou_forcing is True.
+    #: u_rms. Only used when ou_forcing is True and ou_exact_injection is False.
     forcing_amplitude: float = 1.0
+
+    #: AthenaK-style DISCRETE driving band in mode number n = k L / 2pi. When
+    #: ``forcing_nhigh > 0`` the OU spectrum is confined to
+    #: ``forcing_nlow <= n <= forcing_nhigh`` with an isotropic
+    #: ``k^-(forcing_expo+2)/2`` envelope (``<turb_driving> nlow/nhigh/expo``),
+    #: replacing the smooth peaked spectrum selected by ``forcing_wavenumber``.
+    forcing_nlow: int = 0
+    forcing_nhigh: int = 0
+    forcing_expo: float = 5.0 / 3.0

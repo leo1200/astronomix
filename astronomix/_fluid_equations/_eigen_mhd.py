@@ -52,6 +52,8 @@ def _eigenvalue_building_blocks(
     rhomin,
     pgmin,
     registered_variables: RegisteredVariables,
+    internal_energy_density=None,
+    dual_eta=1e-3,
 ):
     # unpack the conserved variables
     density = conserved_state[registered_variables.density_index]
@@ -77,6 +79,15 @@ def _eigenvalue_building_blocks(
     gas_pressure = (gamma - 1.0) * (
         energy - 0.5 * (rho * velocity_squared + magnetic_field_squared)
     )
+
+    # dual-energy switch: in the catastrophic-cancellation regime the
+    # total-energy internal energy is replaced by the advected ``g`` so the
+    # fast/slow/Alfven speeds are computed from a trustworthy pressure.
+    if internal_energy_density is not None:
+        e_E = gas_pressure / (gamma - 1.0)
+        E_safe = jnp.maximum(energy, 1e-30)
+        reliable = (e_E > dual_eta * E_safe) & (e_E == e_E)
+        gas_pressure = (gamma - 1.0) * jnp.where(reliable, e_E, internal_energy_density)
 
     # redefine the density and pressure, and energy based on floors
     rho = jnp.where(
@@ -141,6 +152,8 @@ def _eigenvector_building_blocks(
     rhomin,
     pgmin,
     registered_variables: RegisteredVariables,
+    internal_energy_density=None,
+    dual_eta=1e-3,
 ):
 
     if jax.config.jax_enable_x64:
@@ -169,6 +182,13 @@ def _eigenvector_building_blocks(
         magnetic_x * magnetic_x + magnetic_y * magnetic_y + magnetic_z * magnetic_z
     )
     gas_pressure = (gamma - 1.0) * (energy - 0.5 * (rho * velocity_sq + magnetic_sq))
+
+    # dual-energy switch (see _eigenvalue_building_blocks)
+    if internal_energy_density is not None:
+        e_E = gas_pressure / (gamma - 1.0)
+        E_safe = jnp.maximum(energy, 1e-30)
+        reliable = (e_E > dual_eta * E_safe) & (e_E == e_E)
+        gas_pressure = (gamma - 1.0) * jnp.where(reliable, e_E, internal_energy_density)
 
     # redefine the density and pressure, and energy based on floors
     rho = jnp.where(
@@ -376,6 +396,8 @@ def _eigen_R_col(
     gamma: Union[float, jnp.ndarray],
     registered_variables: RegisteredVariables,
     col: int,
+    internal_energy_density=None,
+    dual_eta=1e-3,
 ):
     (
         rho_interface,
@@ -409,6 +431,8 @@ def _eigen_R_col(
         rhomin,
         pgmin,
         registered_variables,
+        internal_energy_density,
+        dual_eta,
     )
 
     # shorter names for registry indices
@@ -661,6 +685,8 @@ def _eigen_L_row(
     gamma: Union[float, jnp.ndarray],
     registered_variables: RegisteredVariables,
     row: int,
+    internal_energy_density=None,
+    dual_eta=1e-3,
 ):
     (
         rho_interface,
@@ -694,6 +720,8 @@ def _eigen_L_row(
         rhomin,
         pgmin,
         registered_variables,
+        internal_energy_density,
+        dual_eta,
     )
 
     # shorter names for registry indices
@@ -949,6 +977,8 @@ def _eigen_all_lambdas(
     pgmin: Union[float, jnp.ndarray],
     gamma: Union[float, jnp.ndarray],
     registered_variables: RegisteredVariables,
+    internal_energy_density=None,
+    dual_eta=1e-3,
 ):
     (
         velocity_x,
@@ -961,6 +991,8 @@ def _eigen_all_lambdas(
         rhomin,
         pgmin,
         registered_variables,
+        internal_energy_density,
+        dual_eta,
     )
 
     return jnp.stack(
@@ -984,6 +1016,8 @@ def _eigen_lambdas(
     gamma: Union[float, jnp.ndarray],
     registered_variables: RegisteredVariables,
     mode: int,
+    internal_energy_density=None,
+    dual_eta=1e-3,
 ):
     (
         velocity_x,
@@ -996,6 +1030,8 @@ def _eigen_lambdas(
         rhomin,
         pgmin,
         registered_variables,
+        internal_energy_density,
+        dual_eta,
     )
 
     def mode_0():

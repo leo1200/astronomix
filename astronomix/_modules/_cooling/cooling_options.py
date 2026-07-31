@@ -99,4 +99,24 @@ class CoolingParams(NamedTuple):
 
     floor_temperature: float = 1e4
 
+    #: Cooling-resolution limiter (0 = off). Where the cooling length
+    #: ``l_cool = c_s * t_cool`` is unresolved (below ``alpha`` grid cells) the
+    #: cooling rate is suppressed by ``min(1, (l_cool / (alpha*dx))^2)``. An
+    #: unresolved radiative shock otherwise collapses into a cell-scale cold
+    #: dense layer with no pressure support (the ram-pressure crush runaway
+    #: that killed the 512^3 SNR runs); suppressing the un-representable
+    #: cooling keeps such layers at the resolved adiabatic solution, while
+    #: resolved cooling regions are untouched.
+    resolution_limiter_alpha: float = 0.0
+
+    #: Constant volumetric ISM heating (0 = off), as the EFFECTIVE rescaled-
+    #: temperature rate: dT~/dt = (gamma - 1) * heating_rate. Physically this
+    #: represents Gamma per particle (e.g. photoelectric heating,
+    #: de/dt = n * Gamma), whose T~ rate is density-independent; the
+    #: conversion from a cgs Gamma [erg/s] belongs in the setup helper (see
+    #: the showcase ``ism_ti_cooling_setup``). Together with a cooling curve
+    #: that extends below 1e4 K (``athenak_ism_cooling``) this enables the
+    #: classic two-phase thermal-instability equilibrium (Lambda = Gamma).
+    heating_rate: float = 0.0
+
     cooling_curve_params: COOLING_CURVE_TYPE = SimplePowerLawParams()

@@ -689,6 +689,42 @@ variant. `pallas_ct=True` saves the extra 2 MB and is the right
 choice when working memory is the binding constraint, at the cost of
 ~11 s extra compile.
 
+### 4.6 FD dual-energy (Bryan+95 ``g``) — DONE (hydro + MHD)
+
+`config.dual_energy` threads the separately-advected internal-energy
+density ``g`` into the WENO flux + eigenstructure so the pressure
+recovery never sees the float32 cancellation-corrupted ``E − KE``
+(the cold-ejecta / high-Mach regime). The Pallas kernels carry ``g``
+natively — no fallback to the native backend:
+
+- ``_weno_flux_hydro_pallas`` / ``_weno_flux_mhd_pallas`` accept
+  ``internal_energy_density``; the field enters as a ``(1, *spatial)``
+  extra state input, **rides the same shard_map halo exchange as the
+  conserved state** (``extra_state_inputs`` in ``_weno5_shard_wrap``),
+  and is gathered at all six stencil offsets.
+- Inside the kernel the Bryan+95 switch mirrors
+  ``dual_switched_pressure_hydro`` exactly:
+  ``reliable = (e_E > eta·max(E, 1e-30)) & (e_E == e_E)``,
+  ``p = (γ−1)·where(reliable, e_E, g)`` — applied in the physical
+  flux, the per-cell floors, and the interface eigenstructure.
+  ``eta`` and the ``1e-30`` floor are typed scalars (x64/Triton dtype
+  hygiene, §4.4).
+- The dispatcher (``_weno_flux_axis_dispatch``) wraps the dual path in
+  ``diffable_pallas_call_n`` with primals ``(state, params, g)``, so
+  both AD modes work and ``grad`` w.r.t. ``g`` is non-zero.
+- The advection of ``g`` itself (upwind ``div(gv) − p·div v``,
+  ``_fluid_equations/_dual_energy.py``) stays native JAX — pointwise +
+  radius-1 stencil, not worth a kernel (§ "Decide first").
+
+Validated on GPU (2026-07-25, ``tests/dual_energy/pallas_dual_validate.py``,
+N=32 blast-like switch-active state, x32): dual PALLAS vs NATIVE rel
+max diff 5.5e-05 (hydro) / 1.5e-05 (MHD) — the same order as the
+non-dual control diffs (2.3e-05 / 1.3e-05), i.e. single-precision
+rounding; ``jax.grad`` w.r.t. state and ``g`` matches native to
+≤3.5e-05. Multi-GPU: the N=256 dual production run gives an energy
+series identical between 1 GPU and 2 GPUs (x-axis decomposition);
+a dedicated dual strong-scaling sweep has not been run.
+
 ---
 
 ## 4.4 The x64 / Triton fix (was a real bug, now resolved)

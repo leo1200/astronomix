@@ -47,10 +47,12 @@ from astronomix._pallas_helpers import (
 from astronomix._finite_difference._interface_fluxes._weno_weights import (
     _weno_omega_weights,
     _weno_omega_weights_adjoint,
+    _weno_omega_weights_z,
 )
 
 
-def _weno5_shard_wrap(kernel_local, conserved_state, config, axis):
+def _weno5_shard_wrap(kernel_local, conserved_state, config, axis,
+                      extra_state_inputs=()):
     """Multi-GPU wrap for a per-axis 5th-order WENO Pallas kernel.
 
     The WENO5 stencil reads offsets ``-2..+3`` along the *active* axis only —
@@ -62,6 +64,12 @@ def _weno5_shard_wrap(kernel_local, conserved_state, config, axis):
     same per-axis stencil reach, so all of them funnel through this single
     helper.  When ``pallas_mesh_context`` is not active the helper just
     forwards to ``kernel_local`` — single-device runs are unaffected.
+
+    ``extra_state_inputs`` are additional state-shaped arrays (leading
+    variable axis, same spatial shape and sharding as the state — e.g. the
+    dual-energy internal-energy field as ``g[None]``) that must ride the
+    same halo exchange; they are forwarded to ``kernel_local`` after the
+    state, each halo-padded identically.
     """
     ndim = int(config.dimensionality)
     block_shape = _as_3tuple_block_shape(config.backend_config.pallas_block_shape, ndim, spatial_shape=conserved_state.shape[1:])
@@ -70,12 +78,12 @@ def _weno5_shard_wrap(kernel_local, conserved_state, config, axis):
         halo_list[int(axis)] = 3
     halo = tuple(halo_list[:ndim])
 
-    def _call(state_local):
-        return kernel_local(state_local)
+    def _call(state_local, *extra_local):
+        return kernel_local(state_local, *extra_local)
 
     return _pallas_call_sharded(
         _call,
-        state_inputs=(conserved_state,),
+        state_inputs=(conserved_state,) + tuple(extra_state_inputs),
         halo=halo,
         block_shape=block_shape[:ndim],
     )
@@ -189,6 +197,7 @@ def _weno_flux_hydro_pallas(
     registered_variables: RegisteredVariables,
     *,
     axis: int,
+    internal_energy_density=None,
 ):
     """Pallas implementation of the ideal-gas hydrodynamic WENO flux.
 
@@ -197,23 +206,39 @@ def _weno_flux_hydro_pallas(
     ``_weno_flux_hydro_pallas_local`` so the same kernel build runs on
     either the global state (single device) or a local halo-padded shard
     (multi device) without changes.
+
+    ``internal_energy_density`` (dual-energy ``g``, cell-centred scalar
+    field with the state's spatial shape, UNTRANSPOSED — the kernel is
+    axis-aware) switches the pressure recovery in the flux and
+    eigenstructure wherever ``e_E/E < config.dual_energy_eta``.  It rides
+    the same halo exchange as the state on a multi-device mesh.
     """
     if not _hydro_pallas_flux_supported(conserved_state, config):
         # Lazy import to break the circular dependency with _weno.py.
         from astronomix._finite_difference._interface_fluxes._weno import (
             _weno_flux_x_native, _weno_flux_y_native, _weno_flux_z_native,
         )
-        if axis == 0:
-            return _weno_flux_x_native(conserved_state, params, config, registered_variables)
-        if axis == 1:
-            return _weno_flux_y_native(conserved_state, params, config, registered_variables)
-        return _weno_flux_z_native(conserved_state, params, config, registered_variables)
+        native = [_weno_flux_x_native, _weno_flux_y_native, _weno_flux_z_native][axis]
+        return native(conserved_state, params, config, registered_variables,
+                      internal_energy_density=internal_energy_density)
 
-    def _local(state_local):
+    if internal_energy_density is None:
+        def _local(state_local):
+            return _weno_flux_hydro_pallas_local(
+                state_local, params, config, registered_variables, axis=axis
+            )
+        return _weno5_shard_wrap(_local, conserved_state, config, axis)
+
+    # Dual energy: g rides the halo exchange as a state-shaped (1, ...) array.
+    g4 = internal_energy_density[None]
+
+    def _local_dual(state_local, g_local):
         return _weno_flux_hydro_pallas_local(
-            state_local, params, config, registered_variables, axis=axis
+            state_local, params, config, registered_variables, axis=axis,
+            internal_energy_density=g_local,
         )
-    return _weno5_shard_wrap(_local, conserved_state, config, axis)
+    return _weno5_shard_wrap(_local_dual, conserved_state, config, axis,
+                             extra_state_inputs=(g4,))
 
 
 def _weno_hydro_flux_from_window(q_stencil, gamma, rhomin, pgmin, ncomp, num_modes):
@@ -879,11 +904,19 @@ def _weno_flux_hydro_pallas_local(
     registered_variables: RegisteredVariables,
     *,
     axis: int,
+    internal_energy_density=None,
 ):
     """Single-shard hydro-WENO kernel build.  When called from inside a
     ``shard_map`` body, ``conserved_state.shape`` is the local halo-padded
     shape and the kernel's grid / modular indexing wrap within that shape.
-    Outside ``shard_map`` (single-device path) the shape is global."""
+    Outside ``shard_map`` (single-device path) the shape is global.
+
+    ``internal_energy_density`` (dual-energy ``g``), when given, is a
+    ``(1, *spatial)`` array matching the (possibly halo-padded) state's
+    spatial shape; the kernel applies the Bryan+95 switch to the pressure
+    recovery in both the physical flux and the eigenstructure, mirroring
+    the native ``dual_switched_pressure_hydro`` / eigen threading."""
+    has_g = internal_energy_density is not None
     ndim = int(config.dimensionality)
     nvars = int(conserved_state.shape[0])
     spatial_shape = tuple(int(x) for x in conserved_state.shape[1:])
@@ -896,7 +929,10 @@ def _weno_flux_hydro_pallas_local(
     local_indices = _hydro_indices_for_axis(config, registered_variables, axis)
     ncomp = len(local_indices)
     num_modes = ndim + 2
-    epsilon = 1e-7
+    epsilon = config.weno_epsilon
+    # WENO-Z is a static config choice, so the weight function can be bound
+    # here and inlined into the Pallas kernel body below.
+    omega_weights = _weno_omega_weights_z if config.weno_z else _weno_omega_weights
     tiny = 1e-14
 
     # Output block specs keep the conserved-variable axis complete and block only
@@ -916,7 +952,11 @@ def _weno_flux_hydro_pallas_local(
 
     scalar_spec = pl.BlockSpec((), lambda bi, bj, bk: ())
 
-    def kernel(q_ref, gamma_ref, rhomin_ref, pgmin_ref, flux_out_ref):
+    def kernel(*refs):
+        if has_g:
+            q_ref, g_ref, gamma_ref, rhomin_ref, pgmin_ref, eta_ref, flux_out_ref = refs
+        else:
+            q_ref, gamma_ref, rhomin_ref, pgmin_ref, flux_out_ref = refs
         bi = pl.program_id(0)
         bj = pl.program_id(1)
         bk = pl.program_id(2)
@@ -935,6 +975,10 @@ def _weno_flux_hydro_pallas_local(
         gm1 = gamma - 1.0
         rhomin = rhomin_ref[()]
         pgmin = pgmin_ref[()]
+        if has_g:
+            dual_eta = eta_ref[()]
+            # typed tiny floor for the reliability test (x64/Triton dtype hygiene)
+            e_floor = (gamma - gamma) + 1e-30
 
         def q_at(var_index: int, offset: int):
             if ndim == 1:
@@ -949,10 +993,23 @@ def _weno_flux_hydro_pallas_local(
                 return q_ref[var_index, ii, (jj + offset) % ny, kk]
             return q_ref[var_index, ii, jj, (kk + offset) % nz]
 
+        def g_at(offset: int):
+            if ndim == 1:
+                return g_ref[0, (ii + offset) % nx]
+            if ndim == 2:
+                if axis == 0:
+                    return g_ref[0, (ii + offset) % nx, jj]
+                return g_ref[0, ii, (jj + offset) % ny]
+            if axis == 0:
+                return g_ref[0, (ii + offset) % nx, jj, kk]
+            if axis == 1:
+                return g_ref[0, ii, (jj + offset) % ny, kk]
+            return g_ref[0, ii, jj, (kk + offset) % nz]
+
         def q_local(offset: int):
             return tuple(q_at(idx, offset) for idx in local_indices)
 
-        def primitive_from_q(q):
+        def primitive_from_q(q, g=None):
             rho = q[0]
             mn = q[1]
             if ncomp == 3:
@@ -973,11 +1030,18 @@ def _weno_flux_hydro_pallas_local(
             vt1 = mt1 * inv_rho
             vt2 = mt2 * inv_rho
             v2 = vn * vn + vt1 * vt1 + vt2 * vt2
-            pressure = gm1 * (energy - 0.5 * rho * v2)
+            e_E = energy - 0.5 * rho * v2
+            if g is None:
+                pressure = gm1 * e_E
+            else:
+                # Dual-energy switch (Bryan+95): use the advected g where the
+                # total-energy internal energy is cancellation-unreliable.
+                reliable = (e_E > dual_eta * jnp.maximum(energy, e_floor)) & (e_E == e_E)
+                pressure = gm1 * jnp.where(reliable, e_E, g)
             return rho, mn, mt1, mt2, energy, vn, vt1, vt2, v2, pressure
 
-        def floored_cell(q):
-            rho, mn, mt1, mt2, energy, vn, vt1, vt2, v2, pressure = primitive_from_q(q)
+        def floored_cell(q, g=None):
+            rho, mn, mt1, mt2, energy, vn, vt1, vt2, v2, pressure = primitive_from_q(q, g)
             troubled = (rho < rhomin) | (pressure < pgmin)
             rho_f = jnp.where(troubled, jnp.maximum(rho, rhomin), rho)
             pressure_f = jnp.where(troubled, jnp.maximum(pressure, pgmin), pressure)
@@ -986,8 +1050,8 @@ def _weno_flux_hydro_pallas_local(
             sound_speed = jnp.sqrt(jnp.maximum(gamma * jnp.abs(pressure_f / rho_f), 1e-12))
             return rho_f, mn, mt1, mt2, energy_f, vn, vt1, vt2, v2, pressure_f, specific_enthalpy, sound_speed
 
-        def flux_from_q(q):
-            rho, mn, mt1, mt2, energy, vn, vt1, vt2, v2, pressure = primitive_from_q(q)
+        def flux_from_q(q, g=None):
+            rho, mn, mt1, mt2, energy, vn, vt1, vt2, v2, pressure = primitive_from_q(q, g)
             if ncomp == 3:
                 return (mn, mn * vn + pressure, (energy + pressure) * vn)
             if ncomp == 4:
@@ -1001,13 +1065,17 @@ def _weno_flux_hydro_pallas_local(
         qp2 = q_local(2)
         qp3 = q_local(3)
         q_stencil = (qm2, qm1, q0, qp1, qp2, qp3)
-        f_stencil = tuple(flux_from_q(q) for q in q_stencil)
+        if has_g:
+            g_stencil = tuple(g_at(off) for off in range(-2, 4))
+        else:
+            g_stencil = (None,) * 6
+        f_stencil = tuple(flux_from_q(q, g) for q, g in zip(q_stencil, g_stencil))
 
         # Compute floored primitive/eigenvalue data once for the six cells used
         # by the local Lax-Friedrichs alpha.  The earlier version recomputed this
         # data inside every characteristic mode; keeping it local here avoids both
         # global eigenvalue arrays and repeated per-mode work.
-        floored_stencil = tuple(floored_cell(q) for q in q_stencil)
+        floored_stencil = tuple(floored_cell(q, g) for q, g in zip(q_stencil, g_stencil))
 
         # Interface eigenvector building blocks at i + 1/2, following
         # _eigenvector_building_blocks in _eigen_hydro.py.
@@ -1174,7 +1242,7 @@ def _weno_flux_hydro_pallas_local(
             IS0_p = 13.0 * (aterm_p - bterm_p) ** 2 + 3.0 * (aterm_p - 3.0 * bterm_p) ** 2
             IS1_p = 13.0 * (bterm_p - cterm_p) ** 2 + 3.0 * (bterm_p + cterm_p) ** 2
             IS2_p = 13.0 * (cterm_p - dterm_p) ** 2 + 3.0 * (3.0 * cterm_p - dterm_p) ** 2
-            omega0_p, omega2_p = _weno_omega_weights(IS0_p, IS1_p, IS2_p, epsilon, tiny)
+            omega0_p, omega2_p = omega_weights(IS0_p, IS1_p, IS2_p, epsilon, tiny)
             second = (
                 omega0_p * (aterm_p - 2.0 * bterm_p + cterm_p) * (1.0 / 3.0)
                 + (omega2_p - 0.5) * (bterm_p - 2.0 * cterm_p + dterm_p) * (1.0 / 6.0)
@@ -1188,7 +1256,7 @@ def _weno_flux_hydro_pallas_local(
             IS0_m = 13.0 * (aterm_m - bterm_m) ** 2 + 3.0 * (aterm_m - 3.0 * bterm_m) ** 2
             IS1_m = 13.0 * (bterm_m - cterm_m) ** 2 + 3.0 * (bterm_m + cterm_m) ** 2
             IS2_m = 13.0 * (cterm_m - dterm_m) ** 2 + 3.0 * (3.0 * cterm_m - dterm_m) ** 2
-            omega0_m, omega2_m = _weno_omega_weights(IS0_m, IS1_m, IS2_m, epsilon, tiny)
+            omega0_m, omega2_m = omega_weights(IS0_m, IS1_m, IS2_m, epsilon, tiny)
             third = (
                 omega0_m * (aterm_m - 2.0 * bterm_m + cterm_m) * (1.0 / 3.0)
                 + (omega2_m - 0.5) * (bterm_m - 2.0 * cterm_m + dterm_m) * (1.0 / 6.0)
@@ -1210,21 +1278,41 @@ def _weno_flux_hydro_pallas_local(
     if compiler_params is not None:
         kwargs["compiler_params"] = compiler_params
 
+    if has_g:
+        if ndim == 1:
+            in_g_spec = pl.BlockSpec(internal_energy_density.shape, lambda bi, bj, bk: (0, 0))
+        elif ndim == 2:
+            in_g_spec = pl.BlockSpec(internal_energy_density.shape, lambda bi, bj, bk: (0, 0, 0))
+        else:
+            in_g_spec = pl.BlockSpec(internal_energy_density.shape, lambda bi, bj, bk: (0, 0, 0, 0))
+        in_specs = [in_state_spec, in_g_spec, scalar_spec, scalar_spec, scalar_spec, scalar_spec]
+        args = (
+            conserved_state,
+            internal_energy_density,
+            jnp.asarray(params.gamma, dtype=conserved_state.dtype),
+            jnp.asarray(params.minimum_density, dtype=conserved_state.dtype),
+            jnp.asarray(params.minimum_pressure, dtype=conserved_state.dtype),
+            jnp.asarray(config.dual_energy_eta, dtype=conserved_state.dtype),
+        )
+    else:
+        in_specs = [in_state_spec, scalar_spec, scalar_spec, scalar_spec]
+        args = (
+            conserved_state,
+            jnp.asarray(params.gamma, dtype=conserved_state.dtype),
+            jnp.asarray(params.minimum_density, dtype=conserved_state.dtype),
+            jnp.asarray(params.minimum_pressure, dtype=conserved_state.dtype),
+        )
+
     return pl.pallas_call(
         kernel,
         out_shape=jax.ShapeDtypeStruct(conserved_state.shape, conserved_state.dtype),
         grid=grid,
-        in_specs=[in_state_spec, scalar_spec, scalar_spec, scalar_spec],
+        in_specs=in_specs,
         out_specs=out_spec,
         interpret=config.backend_config.pallas_interpret,
-        name=f"hydro_weno_flux_axis_{axis}",
+        name=f"hydro_weno_flux_axis_{axis}" + ("_dual" if has_g else ""),
         **kwargs,
-    )(
-        conserved_state,
-        jnp.asarray(params.gamma, dtype=conserved_state.dtype),
-        jnp.asarray(params.minimum_density, dtype=conserved_state.dtype),
-        jnp.asarray(params.minimum_pressure, dtype=conserved_state.dtype),
-    )
+    )(*args)
 
 
 def _weno_flux_hydro_pallas_vjp_local(
@@ -1458,23 +1546,37 @@ def _weno_flux_mhd_pallas(
     registered_variables: RegisteredVariables,
     *,
     axis: int,
+    internal_energy_density=None,
 ):
     """Pallas implementation of the ideal-gas MHD WENO interface flux.
 
     Public entry point: dispatches the supported-predicate check and the
     multi-GPU ``shard_map`` + halo wrap.  Kernel arithmetic in
     ``_weno_flux_mhd_pallas_local``.
+
+    ``internal_energy_density`` (dual-energy ``g``, cell-centred scalar
+    field, UNTRANSPOSED) switches the pressure recovery in the flux and
+    eigenstructure; it rides the same halo exchange as the state.
     """
     if not _mhd_pallas_flux_supported(conserved_state, config):
         # Lazy import to break the circular dependency with _weno.py.
         from astronomix._finite_difference._interface_fluxes._weno import (
             _weno_flux_x_native, _weno_flux_y_native, _weno_flux_z_native,
         )
-        if axis == 0:
-            return _weno_flux_x_native(conserved_state, params, config, registered_variables)
-        if axis == 1:
-            return _weno_flux_y_native(conserved_state, params, config, registered_variables)
-        return _weno_flux_z_native(conserved_state, params, config, registered_variables)
+        native = [_weno_flux_x_native, _weno_flux_y_native, _weno_flux_z_native][axis]
+        return native(conserved_state, params, config, registered_variables,
+                      internal_energy_density=internal_energy_density)
+
+    if internal_energy_density is not None:
+        g4 = internal_energy_density[None]
+
+        def _local_dual(state_local, g_local):
+            return _weno_flux_mhd_pallas_local(
+                state_local, params, config, registered_variables, axis=axis,
+                internal_energy_density=g_local,
+            )
+        return _weno5_shard_wrap(_local_dual, conserved_state, config, axis,
+                                 extra_state_inputs=(g4,))
 
     def _local(state_local):
         return _weno_flux_mhd_pallas_local(
@@ -1484,7 +1586,8 @@ def _weno_flux_mhd_pallas(
 
 
 def _weno_mhd_flux_from_window(q_stencil, gamma, rhomin, pgmin, b_eps, sqrt_floor,
-                              ncomp, num_modes, use_approx_rsqrt=False):
+                              ncomp, num_modes, use_approx_rsqrt=False,
+                              g_stencil=None, dual_eta=None):
     """Pure per-interface ideal-gas MHD WENO flux from a gathered 6-cell stencil.
 
     ``q_stencil`` is the tuple ``(q[-2], q[-1], q[0], q[+1], q[+2], q[+3])`` where
@@ -1536,7 +1639,17 @@ def _weno_mhd_flux_from_window(q_stencil, gamma, rhomin, pgmin, b_eps, sqrt_floo
         s = jnp.maximum(x, sqrt_eps)
         return s * jax.lax.rsqrt(s) if use_approx_rsqrt else jnp.sqrt(s)
 
-    def primitive_from_q(q):
+    # Dual-energy (Bryan+95): ``g_stencil`` pairs each stencil cell with its
+    # advected internal-energy density; the switch replaces the total-energy
+    # internal energy where it is cancellation-unreliable, mirroring the
+    # native ``dual_switched_pressure`` / ``_eigen_mhd`` threading.
+    has_g = g_stencil is not None
+    if has_g:
+        e_floor = zero_typed + 1e-30
+    else:
+        g_stencil = (None,) * len(q_stencil)
+
+    def primitive_from_q(q, g=None):
         rho, mn, mt1, mt2, Bn, Bt1, Bt2, energy = q
         inv_rho = 1.0 / rho
         vn = mn * inv_rho
@@ -1544,11 +1657,16 @@ def _weno_mhd_flux_from_window(q_stencil, gamma, rhomin, pgmin, b_eps, sqrt_floo
         vt2 = mt2 * inv_rho
         v2 = vn * vn + vt1 * vt1 + vt2 * vt2
         b2 = Bn * Bn + Bt1 * Bt1 + Bt2 * Bt2
-        p = gm1 * (energy - 0.5 * (rho * v2 + b2))
+        e_E = energy - 0.5 * (rho * v2 + b2)
+        if g is None:
+            p = gm1 * e_E
+        else:
+            reliable = (e_E > dual_eta * jnp.maximum(energy, e_floor)) & (e_E == e_E)
+            p = gm1 * jnp.where(reliable, e_E, g)
         return rho, mn, mt1, mt2, Bn, Bt1, Bt2, energy, vn, vt1, vt2, v2, b2, p
 
-    def floored_cell(q):
-        rho, mn, mt1, mt2, Bn, Bt1, Bt2, energy, vn, vt1, vt2, v2, b2, p = primitive_from_q(q)
+    def floored_cell(q, g=None):
+        rho, mn, mt1, mt2, Bn, Bt1, Bt2, energy, vn, vt1, vt2, v2, b2, p = primitive_from_q(q, g)
         troubled = (rho < rhomin) | (p < pgmin)
         rho_f = jnp.where(troubled, jnp.maximum(rho, rhomin), rho)
         p_f = jnp.where(troubled, jnp.maximum(p, pgmin), p)
@@ -1572,10 +1690,10 @@ def _weno_mhd_flux_from_window(q_stencil, gamma, rhomin, pgmin, b_eps, sqrt_floo
                 vn, vt1, vt2, v2, b2, p_f, specific_enthalpy,
                 sound_speed, sound_speed_sq, c_fast, c_alfven, c_slow)
 
-    def flux_from_q(q):
+    def flux_from_q(q, g=None):
         """MHD flux along the normal direction (local x).  B_normal flux
         is identically zero (see ``_mhd_flux_x``)."""
-        rho, mn, mt1, mt2, Bn, Bt1, Bt2, energy, vn, vt1, vt2, v2, b2, p = primitive_from_q(q)
+        rho, mn, mt1, mt2, Bn, Bt1, Bt2, energy, vn, vt1, vt2, v2, b2, p = primitive_from_q(q, g)
         p_total = p + 0.5 * b2
         v_dot_B = vn * Bn + vt1 * Bt1 + vt2 * Bt2
         return (
@@ -1605,8 +1723,8 @@ def _weno_mhd_flux_from_window(q_stencil, gamma, rhomin, pgmin, b_eps, sqrt_floo
             return vn + c_alfven
         return vn + c_fast
 
-    f_stencil = tuple(flux_from_q(q) for q in q_stencil)
-    floored_stencil = tuple(floored_cell(q) for q in q_stencil)
+    f_stencil = tuple(flux_from_q(q, g) for q, g in zip(q_stencil, g_stencil))
+    floored_stencil = tuple(floored_cell(q, g) for q, g in zip(q_stencil, g_stencil))
     cell_l = floored_stencil[2]  # offset 0  (cell i)
     cell_r = floored_stencil[3]  # offset 1  (cell i+1)
 
@@ -3172,6 +3290,7 @@ def _weno_flux_mhd_pallas_local(
     registered_variables: RegisteredVariables,
     *,
     axis: int,
+    internal_energy_density=None,
 ):
     """Single-shard ideal-gas MHD WENO build.  Mirrors
     ``_weno_flux_hydro_pallas`` but with 8 conserved variables and 7
@@ -3185,6 +3304,7 @@ def _weno_flux_mhd_pallas_local(
     the :func:`_weno_flux_mhd_pallas_vjp_local` adjoint (which ``jax.vjp``\\s the
     same window).  No full-domain projection matrices are ever materialised —
     every component is computed per-tile in registers."""
+    has_g = internal_energy_density is not None
     ndim = 3
     nvars = int(conserved_state.shape[0])
     spatial_shape = tuple(int(x) for x in conserved_state.shape[1:])
@@ -3210,8 +3330,13 @@ def _weno_flux_mhd_pallas_local(
     b_eps_value = 1e-20
     sqrt_floor_value = 1e-12
 
-    def kernel(q_ref, gamma_ref, rhomin_ref, pgmin_ref, b_eps_ref,
-               sqrt_floor_ref, flux_out_ref):
+    def kernel(*refs):
+        if has_g:
+            (q_ref, g_ref, gamma_ref, rhomin_ref, pgmin_ref, b_eps_ref,
+             sqrt_floor_ref, eta_ref, flux_out_ref) = refs
+        else:
+            (q_ref, gamma_ref, rhomin_ref, pgmin_ref, b_eps_ref,
+             sqrt_floor_ref, flux_out_ref) = refs
         bi = pl.program_id(0)
         bj = pl.program_id(1)
         bk = pl.program_id(2)
@@ -3243,10 +3368,23 @@ def _weno_flux_mhd_pallas_local(
 
         q_stencil = tuple(q_local(off) for off in range(-2, 4))     # offsets -2..3
 
+        window_kwargs = {}
+        if has_g:
+            def g_at(offset: int):
+                if axis == 0:
+                    return g_ref[0, (ii + offset) % nx, jj, kk]
+                if axis == 1:
+                    return g_ref[0, ii, (jj + offset) % ny, kk]
+                return g_ref[0, ii, jj, (kk + offset) % nz]
+
+            window_kwargs["g_stencil"] = tuple(g_at(off) for off in range(-2, 4))
+            window_kwargs["dual_eta"] = eta_ref[()]
+
         flux_acc = _weno_mhd_flux_from_window(
             q_stencil, gamma, rhomin, pgmin, b_eps, sqrt_floor,
             ncomp, num_modes,
             use_approx_rsqrt=config.backend_config.use_approximate_rsqrt,
+            **window_kwargs,
         )
 
         # Write every output component.  Hydro/MHD covers all conserved
@@ -3272,16 +3410,26 @@ def _weno_flux_mhd_pallas_local(
         jnp.asarray(sqrt_floor_value, dtype=conserved_state.dtype),
     )
 
+    if has_g:
+        in_g_spec = pl.BlockSpec(internal_energy_density.shape, lambda bi, bj, bk: (0, 0, 0, 0))
+        in_specs = [in_state_spec, in_g_spec] + [scalar_spec] * 6
+        args = (conserved_state, internal_energy_density) + scalars + (
+            jnp.asarray(config.dual_energy_eta, dtype=conserved_state.dtype),
+        )
+    else:
+        in_specs = [in_state_spec] + [scalar_spec] * 5
+        args = (conserved_state,) + scalars
+
     flux = pl.pallas_call(
         kernel,
         out_shape=out_shape,
         grid=grid,
-        in_specs=[in_state_spec, scalar_spec, scalar_spec, scalar_spec, scalar_spec, scalar_spec],
+        in_specs=in_specs,
         out_specs=out_spec,
         interpret=config.backend_config.pallas_interpret,
-        name=f"mhd_weno_flux_axis_{axis}",
+        name=f"mhd_weno_flux_axis_{axis}" + ("_dual" if has_g else ""),
         **kwargs,
-    )(conserved_state, *scalars)
+    )(*args)
 
     return flux
 
@@ -3563,7 +3711,10 @@ def _weno_flux_mhd_iso_pallas_local(
     local_indices = _mhd_iso_indices_for_axis(config, registered_variables, axis)
     ncomp = 7
     num_modes = 6
-    epsilon = 1e-7
+    epsilon = config.weno_epsilon
+    # WENO-Z is a static config choice, so the weight function can be bound
+    # here and inlined into the Pallas kernel body below.
+    omega_weights = _weno_omega_weights_z if config.weno_z else _weno_omega_weights
     tiny = 1e-14
     b_eps_value = 1e-20
 
@@ -3891,7 +4042,7 @@ def _weno_flux_mhd_iso_pallas_local(
             IS0_p = 13.0 * (aterm_p - bterm_p) ** 2 + 3.0 * (aterm_p - 3.0 * bterm_p) ** 2
             IS1_p = 13.0 * (bterm_p - cterm_p) ** 2 + 3.0 * (bterm_p + cterm_p) ** 2
             IS2_p = 13.0 * (cterm_p - dterm_p) ** 2 + 3.0 * (3.0 * cterm_p - dterm_p) ** 2
-            omega0_p, omega2_p = _weno_omega_weights(IS0_p, IS1_p, IS2_p, epsilon, tiny)
+            omega0_p, omega2_p = omega_weights(IS0_p, IS1_p, IS2_p, epsilon, tiny)
             second = (omega0_p * (aterm_p - 2.0 * bterm_p + cterm_p) * (1.0 / 3.0)
                       + (omega2_p - 0.5) * (bterm_p - 2.0 * cterm_p + dterm_p) * (1.0 / 6.0))
 
@@ -3900,7 +4051,7 @@ def _weno_flux_mhd_iso_pallas_local(
             IS0_m = 13.0 * (aterm_m - bterm_m) ** 2 + 3.0 * (aterm_m - 3.0 * bterm_m) ** 2
             IS1_m = 13.0 * (bterm_m - cterm_m) ** 2 + 3.0 * (bterm_m + cterm_m) ** 2
             IS2_m = 13.0 * (cterm_m - dterm_m) ** 2 + 3.0 * (3.0 * cterm_m - dterm_m) ** 2
-            omega0_m, omega2_m = _weno_omega_weights(IS0_m, IS1_m, IS2_m, epsilon, tiny)
+            omega0_m, omega2_m = omega_weights(IS0_m, IS1_m, IS2_m, epsilon, tiny)
             third = (omega0_m * (aterm_m - 2.0 * bterm_m + cterm_m) * (1.0 / 3.0)
                      + (omega2_m - 0.5) * (bterm_m - 2.0 * cterm_m + dterm_m) * (1.0 / 6.0))
 
@@ -4035,7 +4186,10 @@ def _weno_flux_hydro_pallas_rhs_local(
     local_indices = _hydro_indices_for_axis(config, registered_variables, axis)
     ncomp = len(local_indices)
     num_modes = ndim + 2
-    epsilon = 1e-7
+    epsilon = config.weno_epsilon
+    # WENO-Z is a static config choice, so the weight function can be bound
+    # here and inlined into the Pallas kernel body below.
+    omega_weights = _weno_omega_weights_z if config.weno_z else _weno_omega_weights
     tiny = 1e-14
 
     if ndim == 1:
@@ -4327,7 +4481,7 @@ def _weno_flux_hydro_pallas_rhs_local(
                 IS0_p = 13.0 * (aterm_p - bterm_p) ** 2 + 3.0 * (aterm_p - 3.0 * bterm_p) ** 2
                 IS1_p = 13.0 * (bterm_p - cterm_p) ** 2 + 3.0 * (bterm_p + cterm_p) ** 2
                 IS2_p = 13.0 * (cterm_p - dterm_p) ** 2 + 3.0 * (3.0 * cterm_p - dterm_p) ** 2
-                omega0_p, omega2_p = _weno_omega_weights(IS0_p, IS1_p, IS2_p, epsilon, tiny)
+                omega0_p, omega2_p = omega_weights(IS0_p, IS1_p, IS2_p, epsilon, tiny)
                 second = (
                     omega0_p * (aterm_p - 2.0 * bterm_p + cterm_p) * (1.0 / 3.0)
                     + (omega2_p - 0.5) * (bterm_p - 2.0 * cterm_p + dterm_p) * (1.0 / 6.0)
@@ -4341,7 +4495,7 @@ def _weno_flux_hydro_pallas_rhs_local(
                 IS0_m = 13.0 * (aterm_m - bterm_m) ** 2 + 3.0 * (aterm_m - 3.0 * bterm_m) ** 2
                 IS1_m = 13.0 * (bterm_m - cterm_m) ** 2 + 3.0 * (bterm_m + cterm_m) ** 2
                 IS2_m = 13.0 * (cterm_m - dterm_m) ** 2 + 3.0 * (3.0 * cterm_m - dterm_m) ** 2
-                omega0_m, omega2_m = _weno_omega_weights(IS0_m, IS1_m, IS2_m, epsilon, tiny)
+                omega0_m, omega2_m = omega_weights(IS0_m, IS1_m, IS2_m, epsilon, tiny)
                 third = (
                     omega0_m * (aterm_m - 2.0 * bterm_m + cterm_m) * (1.0 / 3.0)
                     + (omega2_m - 0.5) * (bterm_m - 2.0 * cterm_m + dterm_m) * (1.0 / 6.0)

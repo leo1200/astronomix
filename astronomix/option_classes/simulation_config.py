@@ -322,12 +322,43 @@ class PositivityConfig(NamedTuple):
     #: per-step REDISTRIBUTE here is redundant and is auto-skipped.
     per_step_mode: int = POSITIVITY_NONE
 
+    #: Upgrade the per-step HARD_FLOOR pressure clamp to the density-scaled
+    #: temperature floor ``p >= max(minimum_pressure,
+    #: rho * params.minimum_specific_pressure)`` (Athena-style tfloor). Meant
+    #: for RADIATIVE runs: a radiatively cooled shock layer compresses to the
+    #: isothermal jump, and without isothermal pressure support (p ∝ rho) the
+    #: constant floor leaves it effectively pressureless and it ram-crushes
+    #: without bound. Applied ONCE per step (the per-STAGE variant pumps
+    #: energy and destabilized adiabatic runs, 2026-07-25); with cooling
+    #: active the floor's energy input is radiated away (the isothermal
+    #: balance). No-op when ``params.minimum_specific_pressure == 0``.
+    per_step_specific_floor: bool = False
+
+    #: Additionally apply the density-scaled temperature floor inside EVERY
+    #: RK stage's HARD_FLOOR positivity pass (p >= rho * msp on the conserved
+    #: state). A radiative crush can complete within the stages between
+    #: per-step floors; this closes that window. CAUTION: in ADIABATIC runs
+    #: the per-stage injection was a proven destabilizer (2026-07-25) — use
+    #: only with real cooling, which radiates the injected energy away.
+    per_stage_specific_floor: bool = False
+
     #: Read-only density/pressure clamp in the flux / eigenvalue / timestep
     #: estimates (NaN-safety; does NOT modify the evolved state). This is the
     #: role the old ``enforce_positivity`` bool played in those estimators.
     #: DECOUPLED from ``default_positivity_protection`` and ON by default --
     #: cheap insurance that never touches the conserved solution.
     clamp_in_estimates: bool = True
+
+    #: Blend the WENO flux toward HLLC instead of first-order Lax-Friedrichs
+    #: in the positivity/FCT limiter (ideal-gas hydro only; MHD and isothermal
+    #: keep LLF). Both are positivity preserving under the CFL condition, but
+    #: LLF smears the CONTACT wave at first order, so blending toward it
+    #: dissolves cold dense condensations — a two-phase medium imported from
+    #: AthenaK was fully evaporated in 10 Myr through that path, while the same
+    #: run with the limiter disabled kept (and grew) its cold phase but went
+    #: numerically unstable. HLLC resolves the contact exactly, so positivity
+    #: can be enforced without erasing the structure.
+    blend_fallback_hllc: bool = False
 
     #: Vacuum-rest velocity recovery: zero the momentum in below-floor (vacuum)
     #: cells so the recovered velocity is 0 rather than ``momentum/rho_floored``
@@ -359,6 +390,25 @@ class PositivityConfig(NamedTuple):
     #: infrastructure with ``deepvoid_blend`` (different activation path; both may
     #: be on, the stronger blend wins). Forces the non-fused WENO+divergence path.
     preserving_flux: bool = False
+
+    #: Cold-crush first-order flux blending (the FD counterpart of Athena's
+    #: FOFC for radiatively cooled gas): blend the WENO interface flux toward
+    #: LLF at interfaces with a COLD side under COMPRESSION. The weight is a
+    #: temperature ramp on the COLDER adjacent cell's recovered ``p/rho``
+    #: (1 at the effective temperature floor
+    #: ``params.minimum_specific_pressure``, 0 at ``coldcrush_blend_factor``
+    #: times it) times a compressive-velocity gate (so the freely-expanding
+    #: cold ejecta core and the static ambient never activate). Catches both
+    #: cold-cold isothermal collapse and the crushing of a cold dense clump
+    #: by hot surroundings; the trade is locally first-order shock fronts
+    #: into cold gas (classic FOFC behavior). Radiatively cooled,
+    #: ram-pressure-crushed cells otherwise collapse without bound once the
+    #: grid resolves the cooling layer (the 512^3 blast/shell and jet-cone
+    #: blow-ups): the local first-order diffusion saturates the collapse the
+    #: way coarse-grid numerical diffusion does at lower resolution. Inert
+    #: unless ``params.minimum_specific_pressure > 0``.
+    coldcrush_blend: bool = False
+    coldcrush_blend_factor: float = 8.0
 
 
 class BackendConfig(NamedTuple):
@@ -480,6 +530,86 @@ class SimulationConfig(NamedTuple):
     #: Density/pressure positivity-enforcement configuration (see PositivityConfig).
     positivity_config: PositivityConfig = PositivityConfig()
 
+    #: Dual-energy formalism (Bryan et al. 1995 switch) for adiabatic FD
+    #: hydro and MHD. When True a separately-advected internal-energy density
+    #: ``g`` is carried through the time loop and used in the WENO pressure
+    #: recovery wherever ``e_E/E < dual_energy_eta``, so high-Mach / low-beta
+    #: float32 cancellation of ``e_int = E - KE - ME`` does not corrupt the
+    #: pressure.
+    dual_energy: bool = False
+
+    #: Switch threshold for the dual-energy formalism: the fraction of total
+    #: energy below which the total-energy internal energy is deemed
+    #: cancellation-unreliable and the advected ``g`` is used instead.
+    dual_energy_eta: float = 1e-3
+
+    #: Number of user-defined passive scalars: per-parcel labels advected with
+    #: the flow (``dC/dt + v.grad C = 0``) that do not act back on it —
+    #: composition mass fractions, an ejecta/circumstellar discriminator, and so
+    #: on. Finite-difference solver only; they are carried as the last variables
+    #: of the state and advected operator-split (WENO5 + SSP-RK3) in
+    #: ``_passive_scalars.py``.
+    num_passive_scalars: int = 0
+
+    #: Physical bounds for the user's passive scalars, one ``(lo, hi)`` pair per
+    #: scalar (``None`` for an unbounded one). Declaring them is strongly
+    #: recommended for anything that is a mass fraction: the recovered label is
+    #: a ratio ``s / rho~``, and in the near-vacuum interior of a blast wave the
+    #: denominator can collapse and the ratio run away (measured: an ejecta
+    #: fraction reaching -87 where radiative cooling and a fast ejecta piston
+    #: compress the same cells).
+    #:
+    #: Note this is NOT the same as clipping a scalar to its own current range,
+    #: which is destructive: that clips smooth extrema every step and cost a
+    #: factor of three in convergence order when tried. A *physical* bound never
+    #: activates on smooth data that respects it, so it is free.
+    passive_scalar_bounds: tuple = ()
+
+    #: CFL number for the passive-scalar sub-steps. The scalar advection is
+    #: operator-split, so it does not inherit the hydro timestep's safety: the
+    #: hydro CFL is set by ``|u| + c``, while what constrains this is ``|u|`` and
+    #: — the binding one — positivity of the companion density under
+    #: ``h |div v| <= 0.5``. The number of sub-steps is derived from the flow at
+    #: every step, so a benign step takes exactly one and costs nothing.
+    passive_scalar_cfl: float = 0.4
+
+    #: Cap on the derived sub-step count, so a single pathological cell cannot
+    #: stall a run. Hitting the cap means the scalars are being integrated
+    #: outside their stability limit in some cells; the physical bounds in
+    #: ``passive_scalar_bounds`` are the backstop for that.
+    max_passive_scalar_substeps: int = 8
+
+    #: Track when each parcel was shocked, adding three further library-managed
+    #: scalars (``entropy_initial``, ``time_since_shock``, ``density_time``)
+    #: after the user's. ``density_time`` is the ionization age up to a unit
+    #: conversion, and ``time_since_shock`` drives electron/ion temperature
+    #: relaxation — the Dwarkadas, Dewey & Bauer (2010) proxy that makes
+    #: non-equilibrium-ionization spectral synthesis possible without an
+    #: ionization network.
+    track_shock_history: bool = False
+
+    #: Entropy rise (in nats, above the parcel's own ``t = 0`` value) that counts
+    #: as having been shocked. Because the Rankine-Hugoniot jump fixes the
+    #: entropy rise as a function of Mach number alone, this threshold is
+    #: equivalent to a minimum shock strength; for ``gamma = 5/3``:
+    #:
+    #: ===========  ==========
+    #: Mach number  rise [nats]
+    #: ===========  ==========
+    #: 2            0.18
+    #: 3            0.57
+    #: **3.3**      **0.69**
+    #: 5            1.31
+    #: 10           2.57
+    #: 100          7.12
+    #: ===========  ==========
+    #:
+    #: The default ``log(2)`` therefore flags everything above Mach ~3.3 —
+    #: comfortably below a supernova remnant's Mach ~100 forward and reverse
+    #: shocks, while ignoring the weak compressions and sound waves that carry
+    #: no ionization. Lower it if weak shocks matter for the problem at hand.
+    shock_entropy_jump: float = 0.6931471805599453
+
     #: Self-gravity / external-potential configuration (see GravityConfig).
     gravity_config: GravityConfig = GravityConfig()
 
@@ -494,6 +624,27 @@ class SimulationConfig(NamedTuple):
     #: equation (constant conductivity params.thermal_conductivity,
     #: explicit integration). Currently only for finite difference mode.
     thermal_conduction: bool = False
+
+    #: Interpret ``params.thermal_conductivity`` as the Athena-style
+    #: DIFFUSIVITY ``alpha`` instead of a constant conductivity, i.e. use
+    #: ``kappa = rho * alpha`` so the heat flux is ``-rho alpha grad T``
+    #: (conservative face-flux form). This keeps the TEMPERATURE diffusivity
+    #: ``chi = (gamma - 1) alpha`` density-INDEPENDENT — the convention used
+    #: for thermal-instability / Field-length studies (AthenaK
+    #: ``<hydro> alpha_iso``), where the constant-kappa form would instead
+    #: suppress conduction exactly inside the cold dense clumps.
+    conduction_density_weighted: bool = False
+
+    #: Formal order of the conduction discretisation: 2 (legacy) or 4. In a
+    #: FINITE-DIFFERENCE scheme the state IS the pointwise value, so evaluating
+    #: ``T = p/rho`` (and ``kappa = rho*alpha``) pointwise is already exact --
+    #: the order is set purely by the derivative stencils. Order 4 uses the
+    #: 4th-order central first derivative for the pointwise heat flux and the
+    #: 4th-order conservative face interpolation
+    #: ``(-F_{i-1} + 7F_i + 7F_{i+1} - F_{i+2})/12`` for its divergence (the
+    #: same linear flux the WENO kernel uses), so it is consistent with the
+    #: 5th-order hydro rather than throttling it to 2nd order.
+    conduction_order: int = 2
 
     #: The size of the simulation box.
     box_size: Union[float, StaticFloatVector] = 1.0
@@ -610,6 +761,27 @@ class SimulationConfig(NamedTuple):
     #: Fallback to the first order Godunov scheme.
     first_order_fallback: bool = False
 
+    #: WENO nonlinear weights: ``False`` = classic Jiang-Shu
+    #: ``alpha_k = c_k/(eps+IS_k)^2``, ``True`` = WENO-Z (Borges et al. 2008)
+    #: ``alpha_k = c_k (1 + tau_5/(eps+IS_k))``. WENO-Z is scale invariant (the
+    #: nonlinearity is a ratio of smoothness indicators, not a comparison
+    #: against an absolute epsilon) and keeps the optimal linear weights at
+    #: smooth extrema, where JS drops order and damps small-amplitude features.
+    #: NOTE: currently implemented for the NATIVE backend only.
+    weno_z: bool = False
+
+    #: Absolute floor in the WENO smoothness denominators (JS and Z).
+    weno_epsilon: float = 1e-7
+
+    #: If > 0, ADD a relative contribution ``weno_epsilon_relative * (amx*|q|)^2``
+    #: to the WENO epsilon, where ``q`` is the local characteristic variable and
+    #: ``amx`` the family's dissipation coefficient — i.e. compare the
+    #: smoothness indicators against the local DATA SCALE instead of an
+    #: absolute constant. With ``weno_epsilon`` alone the weights are fully
+    #: nonlinear whenever the variables are O(10) or larger, regardless of how
+    #: smooth the solution is. NATIVE backend only.
+    weno_epsilon_relative: float = 0.0
+
     # physical modules
 
     #: Turbulent forcing configuration.
@@ -697,6 +869,23 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
         else:
             print("OPTIMAL_BACKEND: using the NATIVE_JAX backend (no compute capability >= 8.0 GPU found).")
             config = config._replace(backend_config=config.backend_config._replace(backend=NATIVE_JAX))
+
+    # weno_z is implemented in the FORWARD Pallas kernels; their hand-written
+    # adjoints still hard-code Jiang-Shu, so reverse-mode gradients would not
+    # match the forward pass. weno_epsilon_relative is native-only.
+    if config.weno_epsilon_relative > 0.0 and \
+            config.backend_config.backend == PALLAS:
+        raise ValueError(
+            "weno_epsilon_relative is implemented for the NATIVE_JAX backend "
+            "only; pass BackendConfig(backend=NATIVE_JAX)."
+        )
+    if config.weno_z and config.backend_config.backend == PALLAS:
+        print(
+            "NOTE: weno_z runs the Pallas FORWARD kernels; the hand-written "
+            "Pallas adjoints are still Jiang-Shu, so reverse-mode gradients "
+            "would be inconsistent with the forward pass. Forward-only runs "
+            "(evolution, convergence, timing) are unaffected."
+        )
 
     # Approximate-rsqrt fast path: the forward MHD WENO kernel is switched to the
     # refined approximate rsqrt, but the hand-written Pallas adjoints still use

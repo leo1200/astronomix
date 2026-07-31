@@ -123,10 +123,24 @@ def integrate(
     """
     has_snapshots = snapshots is not None
 
+    def _warn_stall(t_stall):
+        print(
+            f"[astronomix] ABORT: the timestep can no longer advance the clock "
+            f"at t = {float(t_stall):.6g} (dt collapsed to zero or below the "
+            f"float resolution of t). The run has become unstable — stopping "
+            f"instead of looping forever.",
+            flush=True,
+        )
+
     def body(carry):
         # The carry has an extra snapshot-store slot only when snapshots are
         # collected; the snapshot index is carried either way (and stays 0 when
         # snapshots are disabled) so ``step`` always receives a valid counter.
+        # The trailing ``advanced`` flag records whether the previous step
+        # moved the clock; the adaptive predicates stop when it goes False
+        # (a collapsed dt would otherwise spin the while loop forever, since
+        # in float arithmetic ``t + dt == t`` once dt is small enough).
+        carry, _advanced = carry[:-1], carry[-1]
         if has_snapshots:
             t, state, snapshot_index, num_iterations, store = carry
 
@@ -150,20 +164,28 @@ def integrate(
             t, state, snapshot_index, num_iterations = carry
 
         dt, state = step(t, state, snapshot_index)
-        t = t + dt
+        t_new = t + dt
+        advanced = t_new > t
+        jax.lax.cond(
+            advanced,
+            lambda _: None,
+            lambda t_: jax.debug.callback(_warn_stall, t_),
+            t_new,
+        )
+        t = t_new
         num_iterations = num_iterations + 1
 
         if progress is not None:
             jax.debug.callback(progress, t, t_end)
 
         if has_snapshots:
-            return (t, state, snapshot_index, num_iterations, store)
-        return (t, state, snapshot_index, num_iterations)
+            return (t, state, snapshot_index, num_iterations, store, advanced)
+        return (t, state, snapshot_index, num_iterations, advanced)
 
     if has_snapshots:
-        carry = (t_start, state, 0, 0, snapshots.store)
+        carry = (t_start, state, 0, 0, snapshots.store, jnp.asarray(True))
     else:
-        carry = (t_start, state, 0, 0)
+        carry = (t_start, state, 0, 0, jnp.asarray(True))
 
     # Fixed-step runs use a plain ``fori_loop``; adaptive runs use a while loop
     # whose predicate runs until the clock reaches ``t_end``, optionally in the
@@ -171,14 +193,18 @@ def integrate(
     if backend == FIXED_STEP:
         carry = jax.lax.fori_loop(0, num_steps, lambda _i, c: body(c), carry)
     elif backend == ADAPTIVE_WHILE:
-        carry = jax.lax.while_loop(lambda c: c[0] < t_end, body, carry)
+        carry = jax.lax.while_loop(
+            lambda c: (c[0] < t_end) & c[-1], body, carry
+        )
     elif backend == ADAPTIVE_CHECKPOINTED:
         carry = checkpointed_while_loop(
-            lambda c: c[0] < t_end, body, carry, checkpoints=num_checkpoints
+            lambda c: (c[0] < t_end) & c[-1], body, carry,
+            checkpoints=num_checkpoints,
         )
     else:
         raise ValueError(f"Unknown loop backend: {backend}")
 
+    carry = carry[:-1]
     if has_snapshots:
         t, state, snapshot_index, num_iterations, store = carry
         # The evenly spaced ``should_record`` grid never lands exactly on

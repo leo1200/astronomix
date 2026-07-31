@@ -33,6 +33,24 @@ from astronomix._modules._cosmic_rays.cr_fluid_equations import (
     total_pressure_from_conserved_with_crs,
 )
 
+def dual_switched_pressure_hydro(E, rho, u, gamma, internal_energy_density, eta):
+    """Gas pressure with the dual-energy switch (Bryan et al. 1995), hydro.
+
+    The total-energy internal energy ``e_E = E - KE`` is trustworthy only when
+    it is a non-negligible fraction of E; otherwise (high Mach) float
+    cancellation destroys it and the separately-advected internal-energy
+    density ``g`` is used instead. Returns the switched thermal pressure
+    ``(gamma-1) e_int``. This is the coupled-recovery primitive used *inside*
+    the WENO flux + eigenstructure so the scheme never sees the corrupted
+    pressure.
+    """
+    e_E = E - 0.5 * rho * u * u
+    E_safe = jnp.maximum(E, 1e-30)
+    reliable = (e_E > eta * E_safe) & (e_E == e_E)
+    e_int = jnp.where(reliable, e_E, internal_energy_density)
+    return (gamma - 1.0) * e_int
+
+
 # @jaxtyped(typechecker=typechecker)
 @partial(jax.jit, static_argnames=["config", "registered_variables"])
 def primitive_state_from_conserved(
@@ -40,8 +58,14 @@ def primitive_state_from_conserved(
     gamma: Union[float, Float[Array, ""]],
     config: SimulationConfig,
     registered_variables: RegisteredVariables,
+    internal_energy_density=None,
 ) -> STATE_TYPE:
     """Convert the conserved state to the primitive state.
+
+    ``internal_energy_density`` (the separately-advected dual-energy ``g``),
+    when given, switches the pressure recovery so the corrupted total-energy
+    value is not used in the catastrophic-cancellation regime (coupled
+    dual-energy).
 
     Args:
         conserved_state: The conserved state.
@@ -70,11 +94,13 @@ def primitive_state_from_conserved(
         uz = conserved_state[registered_variables.velocity_index.z] / rho
         u = jnp.sqrt(ux**2 + uy**2 + uz**2 + 1e-20)
 
-    p = pressure_from_energy(E, rho, u, gamma)
-
     if registered_variables.cosmic_ray_n_active:
         p = total_pressure_from_conserved_with_crs(
             conserved_state, registered_variables
+        )
+    elif internal_energy_density is not None:
+        p = dual_switched_pressure_hydro(
+            E, rho, u, gamma, internal_energy_density, config.dual_energy_eta
         )
     else:
         p = pressure_from_energy(E, rho, u, gamma)

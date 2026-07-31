@@ -485,6 +485,25 @@ def _prepare_padded_state(primitive_state, config, params, registered_variables)
     from disk reproduces the ghost cells the loop would have held — keeping a
     disk restart consistent with an uninterrupted run.
     """
+    # Dual-energy: initialise the internal-energy density ``g = p/(gamma-1)`` as
+    # the last variable. Accept either a g-less state (append ``g``) or a full
+    # state with the slot present (overwrite it). This is restart-safe: ``g`` is
+    # re-synced to ``p/(gamma-1)`` at the end of every step, so a checkpointed
+    # ``g`` already equals ``p/(gamma-1)`` and re-deriving it reproduces it.
+    if registered_variables.internal_energy_active:
+        gidx = registered_variables.internal_energy_index
+        g0 = primitive_state[registered_variables.pressure_index] / (params.gamma - 1.0)
+        if primitive_state.shape[0] == gidx:
+            primitive_state = jnp.concatenate([primitive_state, g0[None, ...]], axis=0)
+        else:
+            primitive_state = primitive_state.at[gidx].set(g0)
+
+    # NOTE the shock-history scalars are deliberately NOT touched here. Unlike
+    # the dual-energy ``g``, which is a function of the current state and so can
+    # be re-derived on every restart, they are genuine history variables:
+    # ``entropy_initial`` is seeded once in ``construct_primitive_state`` and a
+    # checkpointed value must be restored as-is.
+
     if config.boundary_handling != PERIODIC_ROLL:
         primitive_state = _pad(primitive_state, config)
 

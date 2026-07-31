@@ -34,6 +34,7 @@ from astronomix.option_classes.simulation_config import (
 from astronomix.option_classes.simulation_config import (
     SimulationConfig,
     StaticIntVector,
+    solver_mode_to_string,
 )
 
 
@@ -44,6 +45,14 @@ from astronomix.option_classes.simulation_config import (
 # that axis (e.g. the x-velocity or the x-component of the magnetic field). A
 # common pattern is a loop over the spatial dimensions that needs exactly this
 # mapping, which ``AxisInfo`` bundles together.
+
+
+#: Number of library-managed scalars appended when ``config.track_shock_history``
+#: is set, in order: ``entropy_initial``, ``shocked_fraction``,
+#: ``time_since_shock``, ``density_time``. Defined here rather than in
+#: ``_passive_scalars`` because that module imports :class:`RegisteredVariables`
+#: from this one.
+NUM_SHOCK_HISTORY_SCALARS = 4
 
 
 class AxisInfo(NamedTuple):
@@ -117,6 +126,31 @@ class RegisteredVariables(NamedTuple):
     # This is the cosmic_ray_n, the index below points to.
     cosmic_ray_n_index: int = -1
     cosmic_ray_n_active: bool = False
+
+    #: dual-energy internal-energy density ``g = rho e`` (Bryan et al. 1995).
+    #: Stored as the LAST variable in the state array (for MHD after the
+    #: interface magnetic field, so the ``[:-3]`` interface-B convention is
+    #: unaffected); ``_evolve_state_fd`` splits it off, advects it and uses it
+    #: in the coupled pressure recovery. Active only for finite-difference
+    #: ideal-gas (hydro or MHD) with ``config.dual_energy``.
+    internal_energy_index: int = -1
+    internal_energy_active: bool = False
+
+    #: Passive scalars: per-parcel labels advected with the flow without acting
+    #: back on it (composition mass fractions, an ejecta/CSM discriminator, the
+    #: shock-history bookkeeping). Stored as a contiguous block at the very END
+    #: of the state array — after the dual-energy ``g``, and therefore after the
+    #: MHD interface magnetic field — so every existing slicing convention
+    #: (``[:-3]`` for interface B, ``[:g_index]`` for ``g``) keeps working once
+    #: the block has been split off. ``_evolve_state_fd`` strips them before the
+    #: hydro update, advects them operator-split, and reattaches them.
+    #: ``num_passive_scalars`` counts the user's scalars plus, when
+    #: ``config.track_shock_history`` is set, the three library-managed
+    #: shock-history scalars, which occupy the LAST three slots.
+    passive_scalar_index: int = -1
+    num_passive_scalars: int = 0
+    passive_scalars_active: bool = False
+    shock_history_active: bool = False
 
     # here you can add more variables
 
@@ -274,6 +308,41 @@ def get_registered_variables(config: SimulationConfig) -> RegisteredVariables:
                 registered_variables = registered_variables._replace(
                     num_vars=registered_variables.num_vars - 1
                 )
+
+    # dual-energy formalism: append the internal-energy density ``g`` as the
+    # LAST variable so the MHD interface-B "last three" convention is preserved
+    # (for hydro g simply lands behind the pressure).
+    if (config.solver_mode == FINITE_DIFFERENCE
+            and config.equation_of_state == IDEAL_GAS and config.dual_energy):
+        registered_variables = registered_variables._replace(
+            internal_energy_index=registered_variables.num_vars,
+            num_vars=registered_variables.num_vars + 1,
+            internal_energy_active=True,
+        )
+
+    # passive scalars: a contiguous block after everything else, so that
+    # stripping it off leaves a state the hydro/MHD machinery already
+    # understands. The library-managed shock-history scalars sit at the end of
+    # the block, behind the user's.
+    if config.solver_mode == FINITE_DIFFERENCE:
+        n_scalars = int(config.num_passive_scalars)
+        if config.track_shock_history:
+            n_scalars += NUM_SHOCK_HISTORY_SCALARS
+        if n_scalars > 0:
+            registered_variables = registered_variables._replace(
+                passive_scalar_index=registered_variables.num_vars,
+                num_passive_scalars=n_scalars,
+                num_vars=registered_variables.num_vars + n_scalars,
+                passive_scalars_active=True,
+                shock_history_active=bool(config.track_shock_history),
+            )
+    elif config.num_passive_scalars > 0 or config.track_shock_history:
+        raise NotImplementedError(
+            "passive scalars are implemented for the finite-difference solver "
+            "only (the finite-volume Riemann solvers would each need a scalar "
+            "flux); got solver_mode = "
+            f"{solver_mode_to_string(config.solver_mode)}"
+        )
 
     # shorthands
     registered_variables = registered_variables._replace(

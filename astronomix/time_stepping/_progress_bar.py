@@ -9,6 +9,20 @@ the simulation time, so the bar tracks progress towards ``t_end``.
 # general
 import math
 import shutil
+import sys
+import time
+
+# Non-interactive (redirected-log) mode state: last progress step (in 0.5%
+# increments), the wall time of the last emitted line, and the previous
+# callback's simulation time. The callback fires once per solver step, so the
+# difference between consecutive simulation times IS the current ``dt`` — a
+# collapsing ``dt`` (the classic blast-run failure mode) is visible directly
+# in the log, and the wall-time heartbeat keeps emitting lines even when the
+# percentage stalls, so a stalled run can never look identical to a slow one.
+_last_logged_step = None
+_last_logged_wall = None
+_last_sim_time = None
+_HEARTBEAT_SECONDS = 60.0
 
 
 def _show_progress(
@@ -34,6 +48,33 @@ def _show_progress(
             iteration = total
     except (TypeError, ValueError):
         iteration = total
+
+    # When stdout is not a terminal (queued/redirected runs) a carriage-return
+    # bar would flood the log with full-width frames. Emit a plain, throttled
+    # progress line instead: one line per 0.5% of progress, plus a heartbeat
+    # line at least every _HEARTBEAT_SECONDS that includes the current per-step
+    # dt (inferred from consecutive callback times).
+    if not sys.stdout.isatty():
+        global _last_logged_step, _last_logged_wall, _last_sim_time
+        t_now = float(iteration)
+        dt = None if _last_sim_time is None else t_now - _last_sim_time
+        _last_sim_time = t_now
+        percent = 100.0 * t_now / float(total)
+        step = int(percent * 2)
+        wall = time.monotonic()
+        due = (_last_logged_wall is None
+               or wall - _last_logged_wall >= _HEARTBEAT_SECONDS)
+        if step == _last_logged_step and not due:
+            return
+        _last_logged_step = step
+        _last_logged_wall = wall
+        dt_note = "" if dt is None else f"  dt = {dt:.3e}"
+        print(
+            f"{prefix}progress {percent:5.1f}%  "
+            f"t = {t_now:.6g} / {float(total):.6g}{dt_note} {suffix}".rstrip(),
+            flush=True,
+        )
+        return
 
     # Recompute the terminal width every frame so the bar keeps filling the
     # line correctly even if the terminal is resized mid-run.
