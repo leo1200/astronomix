@@ -407,7 +407,8 @@ def temperature_K(rho, p, code_units):
 def schure_cooling_setup(code_units, floor_temperature_K=1e4,
                          hydrogen_mass_fraction=0.7, metal_mass_fraction=0.02,
                          resolution_limiter_alpha=4.0, explicit=False,
-                         max_cooling_fraction=0.0, clamp_to_floor=False):
+                         max_cooling_fraction=0.0, clamp_to_floor=False,
+                         lambda_boost=1.0):
     """(CoolingConfig, CoolingParams) for the Schure et al. (2009) ISM cooling curve.
 
     Radiative cooling Lambda(T) applied with the unconditionally-stable implicit
@@ -448,9 +449,33 @@ def schure_cooling_setup(code_units, floor_temperature_K=1e4,
         resolution_limiter_alpha=float(resolution_limiter_alpha),
         max_cooling_fraction=float(max_cooling_fraction),
         clamp_to_floor=bool(clamp_to_floor),
-        cooling_curve_params=schure_cooling(code_units),
+        cooling_curve_params=_boost_lambda(schure_cooling(code_units), lambda_boost),
     )
     return config, params
+
+
+def _boost_lambda(curve, factor):
+    """Multiply a piecewise-power-law cooling curve by a constant factor.
+
+    The honest way to ask "what if this plasma cooled much faster than the
+    cosmic-abundance curve says?". It cannot be asked by raising the metal mass
+    fraction: this cooling module is normalised to hydrogen (``Phi = n_H Gamma
+    - n_H^2 Lambda``, ``mu_H = 1/X``), so raising Z lowers X, lowers n_H and
+    makes the gas cool *less* -- the opposite of the intent -- while the
+    tabulated Lambda never changes at all. For metal-DOMINATED ejecta the n_H^2
+    normalisation is simply the wrong parameterisation, exactly as it is for
+    APEC in the X-ray forward model, and this is the workaround: state the
+    boost explicitly rather than smuggle it in through an abundance.
+
+    Only the curve VALUES move. ``alpha_table`` is a set of log-log slopes and
+    the Townsend ``Y_table`` depends on Lambda only through the ratio
+    ``Lambda_N / Lambda_k``, so both are invariant under a uniform scaling and
+    the exact Townsend integration stays consistent.
+    """
+    if factor == 1.0:
+        return curve
+    return curve._replace(
+        log10_Lambda_table=curve.log10_Lambda_table + float(np.log10(factor)))
 
 
 def ism_ti_cooling_setup(code_units, hrate_cgs=5.0e-26, mu_athena=0.618,

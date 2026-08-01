@@ -114,6 +114,7 @@ from _common import (
     layered_composition,
     make_fd_config,
     map_1d_profile,
+    nickel_bubble_field,
     prior_shock_history,
     orlando_csm_shell,
     orlando_piston_fields,
@@ -181,8 +182,15 @@ def build(args, sharding=None):
         alpha = args.limiter_alpha
         if alpha is None:
             alpha = 0.109 / dx
+        # The curve is COSMIC (X = 0.70, Z = 0.02), which is the wrong plasma
+        # for the object: Cas A's X-rays come from metal-DOMINATED ejecta.
+        # --cooling-boost scales Lambda directly; see _boost_lambda for why
+        # raising Z instead would move the cooling the wrong way.
+        if args.cooling_boost != 1.0:
+            print(f"[orlando] cooling curve: Lambda x {args.cooling_boost:g} "
+                  f"(bounding the metal-rich ejecta against the cosmic curve)")
         cooling_config, cooling_params = schure_cooling_setup(
-            code_units, floor_temperature_K=1e4,
+            code_units, floor_temperature_K=1e4, lambda_boost=args.cooling_boost,
             hydrogen_mass_fraction=1.0 - 0.28 - 0.02, metal_mass_fraction=0.02,
             resolution_limiter_alpha=float(alpha),
             explicit=args.explicit_cooling,
@@ -232,7 +240,7 @@ def build(args, sharding=None):
         mode={"floor": POSITIVITY_HARD_FLOOR,
               "redistribute": POSITIVITY_REDISTRIBUTE,
               "conservative": POSITIVITY_CONSERVATIVE}[args.positivity])
-    config = make_fd_config(args.box, num_cells, mhd=False,
+    config = make_fd_config(args.box, num_cells, mhd=args.mhd_b0 > 0,
                             cooling_config=cooling_config,
                             snapshot_settings=snaps, num_snapshots=args.nsnap,
                             **extra)
@@ -379,6 +387,26 @@ def build(args, sharding=None):
                   f"spectral grid, so this realisation is grid-independent: "
                   f"another resolution gets the SAME clumps, not another draw")
 
+    if args.ni_bubbles:
+        # Radioactive 56Ni inflates low-density bubbles in the first weeks and
+        # their compressed walls are what light up as the RING-shaped interior
+        # emission Chandra and JWST both see. This is real ejecta physics that
+        # the Orlando route has been missing entirely -- the smooth stratified
+        # sphere has no cavities in it -- and it acts on the same multiplicative
+        # ejecta field as the clumping, so the mass renormalisation below makes
+        # it a pure redistribution.
+        # The library defaults are deliberately GENTLE because sharp walls once
+        # crushed a 512^3 reverse shock -- but that was a RADIATIVE crush, and
+        # an adiabatic run is not exposed to it. --ni-sharp restores the
+        # physically realistic contrast; with gentle walls the bubbles are a
+        # factor-2 density modulation against the clumping's factor 5, which is
+        # not a fair test of the mechanism.
+        sharp = dict(depth=0.7, wall_boost=1.2, wall_width_frac=0.18) if args.ni_sharp else {}
+        ejecta_mult = ejecta_mult * nickel_bubble_field(
+            X, Y, Z, keys[2], ejecta_radius=r_cd, n_bubbles=args.ni_bubbles, **sharp)
+        print(f"[orlando] {args.ni_bubbles} Ni bubbles inside r_CD = {r_cd:.3f} pc "
+              f"(gentle walls: sharp ones crushed the 512^3 reverse shock)")
+
     piston_mult = piston_info = piston_species = None
     if args.pistons:
         d_mult, v_mult, piston_species, piston_info = orlando_piston_fields(
@@ -464,6 +492,49 @@ def build(args, sharding=None):
 
     fields = dict(density=rho, velocity_x=vx, velocity_y=vy, velocity_z=vz,
                   gas_pressure=p)
+    if args.mhd_b0 > 0:
+        # A UNIFORM ambient field, inclined in the x-z plane. Uniform is chosen
+        # deliberately for the first magnetized run: it is divergence-free
+        # analytically (cell-centred and interface values are the same
+        # constant, so there is nothing for the constrained transport to fix),
+        # it has one parameter, and it is the configuration Orlando et al.
+        # (2007) showed produces the bilateral/barrel SNR morphology.
+        #
+        # The point is NOT the dynamics -- at a few tens of microgauss the
+        # plasma beta in the shocked shell is ~50, so the field cannot push the
+        # blast around. It is the TOPOLOGY of the Rayleigh-Taylor fingering:
+        # hydrodynamic RT makes mushrooms and blobs, and the observed remnant is
+        # made of sheets and filaments. Field lines stretched along a growing
+        # finger resist its break-up across them even when beta is large, so the
+        # fingers elongate instead of fragmenting isotropically. That is a
+        # morphology hypothesis this run is meant to test, not an assumption.
+        # The code stores B / sqrt(mu_0), so magnetic pressure is B_code^2 / 2
+        # and `code_magnetic_field` is sqrt(code_pressure). Gauss is
+        # dimensionally the same thing but astropy will not equate the two, and
+        # the conversion carries a 4 pi that is easy to drop -- so go through
+        # the pressure explicitly, which is the quantity the convention is
+        # defined by: p_mag = B_G^2 / 8 pi [erg/cm^3] = B_code^2 / 2 [code].
+        p_mag_cgs = (args.mhd_b0 * 1e-6) ** 2 / (8.0 * np.pi)
+        p_code_cgs = float((1.0 * code_units.code_pressure).to(u.erg / u.cm ** 3).value)
+        b0 = float(np.sqrt(2.0 * p_mag_cgs / p_code_cgs))
+        th = np.deg2rad(args.mhd_theta)
+        bx, by, bz = b0 * np.sin(th), 0.0, b0 * np.cos(th)
+        ones = jnp.ones_like(rho)
+        fields.update(
+            magnetic_field_x=bx * ones, magnetic_field_y=by * ones,
+            magnetic_field_z=bz * ones,
+            interface_magnetic_field_x=bx * ones,
+            interface_magnetic_field_y=by * ones,
+            interface_magnetic_field_z=bz * ones,
+        )
+        # plasma beta reported against the MAPPED post-shock pressure, so the
+        # log says up front how weak (or not) the field is where it matters
+        p_shock = float(jnp.max(p))
+        beta = p_shock / (0.5 * b0 ** 2 + 1e-30)
+        print(f"[orlando] uniform ambient B = {args.mhd_b0:.1f} uG at "
+              f"{args.mhd_theta:.0f} deg from z; peak-pressure plasma beta = "
+              f"{beta:.3g} (>> 1 means this is a morphology experiment, not a "
+              f"dynamical one)")
     initial_state = construct_primitive_state(
         config=config, registered_variables=registered_variables,
         sharding=sharding, passive_scalars=scalars, gamma=GAMMA, **fields)
@@ -727,7 +798,19 @@ def main():
                     help="width of the first-order LLF blend at crushed cells, "
                          "in multiples of the floor temperature (PositivityConfig)")
     ap.add_argument("--limiter-alpha", type=float, default=None,
-                    help="cooling resolution-limiter alpha (default: fixed 0.109 pc cutoff)")
+                    help="cooling resolution-limiter alpha (default: fixed 0.109 pc "
+                         "cutoff). Set 0 to DISABLE it: the limiter suppresses "
+                         "cooling exactly in the dense unresolved cells where "
+                         "thermal instability would operate, so 'cooling changes "
+                         "nothing' measured with it on is a statement about the "
+                         "guard, not about the physics")
+    ap.add_argument("--cooling-boost", type=float, default=1.0, metavar="F",
+                    help="multiply the cooling curve Lambda by F (1 = the cosmic "
+                         "Schure curve). The ejecta are metal-DOMINATED and cool "
+                         "far faster per unit n_H^2 than cosmic gas; this bounds "
+                         "that without a per-cell Lambda. Raising the metal mass "
+                         "fraction does NOT do it -- the module is normalised to "
+                         "hydrogen, so that moves the cooling the wrong way")
     ap.add_argument("--clump-sigma", type=float, default=1.0,
                     help="scale factor on the Orlando clumping amplitude (0 = smooth)")
     ap.add_argument("--clump-region", choices=("ejecta", "unshocked"),
@@ -763,6 +846,26 @@ def main():
                          "ionization age and the electron/ion relaxation. Costs "
                          "~9 extra state variables plus advection working arrays, "
                          "so it roughly doubles the memory at a given resolution")
+    ap.add_argument("--mhd-b0", type=float, default=0.0, metavar="uG",
+                    help="uniform ambient magnetic field strength in microgauss "
+                         "(0 = pure hydro). A magnetized run tests whether the "
+                         "Rayleigh-Taylor structure becomes SHEETS and FILAMENTS "
+                         "like the real remnant instead of the isotropic blobs "
+                         "hydro produces; the field is far too weak to be "
+                         "dynamically important, which is the point")
+    ap.add_argument("--mhd-theta", type=float, default=30.0, metavar="deg",
+                    help="inclination of the ambient field from the z axis, in "
+                         "the x-z plane")
+    ap.add_argument("--ni-bubbles", type=int, default=0, metavar="N",
+                    help="N radioactive-56Ni bubbles in the ejecta (0 = off). The "
+                         "decay-inflated cavities and their compressed walls are "
+                         "the observed RING-shaped interior structure; the smooth "
+                         "stratified sphere has none")
+    ap.add_argument("--ni-sharp", action="store_true",
+                    help="realistic (sharp-walled) Ni bubbles instead of the "
+                         "library's gentle defaults. The gentle values exist to "
+                         "survive a RADIATIVE crush; adiabatic runs are not "
+                         "exposed to it")
     ap.add_argument("--pistons", action="store_true",
                     help="add the five Orlando et al. (2016) Table 4 anisotropies. NOTE: "
                          "cold dense ejecta substructure has repeatedly crossed the "

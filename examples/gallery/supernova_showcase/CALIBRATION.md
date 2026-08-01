@@ -679,9 +679,43 @@ the remnant's age — but that was an estimate. Measured on the observables at
 | adiabatic | 0.88 | 0.71 | 0.75 | 1.16 | 1.65 | 1.64 | 2.49 | 1.77x |
 
 Identical to the third digit in the rate, within 0.04 in every band, 2 % in
-texture, and the same r_FS and r_RS to the last digit. Cooling is *dynamically
-and observationally irrelevant for Cas A*, and it is the only thing preventing
-the contact-discontinuity seeding from running at 512³. **Adiabatic + CD is
-therefore the configuration for the top rung**, and the radiative machinery
-(resolution limiter, temperature floor, cold-crush blend, `--clamp-floor`) can
-be left off for this object rather than fought with.
+texture, and the same r_FS and r_RS to the last digit. **Adiabatic + CD is
+therefore the configuration for the top rung.**
+
+### …but "cooling is irrelevant" holds only for the COSMIC curve
+
+That comparison ran with `--clamp-floor`, the temperature floor, the cold-crush
+LLF blend **and** the resolution limiter — and the limiter's entire job is to
+switch cooling off in cells where the cooling length is unresolved, which is
+exactly where thermal instability lives. It also used a cosmic-abundance curve
+(X = 0.70, Z = 0.02) on metal-*dominated* ejecta. So what it measured was
+suppressed cooling of the wrong plasma. Re-posed at 256³ with the guards off
+(`--limiter-alpha 0`, no `--clamp-floor`) and Λ scaled directly:
+
+| Λ | outcome | total energy | 4.4″ |
+|---|---|---|---|
+| ×1 (cosmic) | completes | 115.06 → 115.13 (*rises*) | 1.77x |
+| **×10** | **destroyed: dt collapse to NaN at t = 0.0114 (≈161 yr)** | — | — |
+| ×100 | completes | 115.06 → 114.92 (real loss) | 1.72x |
+
+**At Λ×10 the shell undergoes a radiative crush runaway that kills the run.**
+Cooling at a plausibly metal-enhanced rate is therefore *not* benign; the
+resolution limiter was hiding it. The non-monotonicity is coherent rather than
+suspicious: at ×100 cells cool straight through to the 10⁴ K floor where the
+cooling gate switches them off, while at ×10 they linger in the thermally
+unstable regime long enough for the shell to compress catastrophically —
+intermediate rates are the most destabilising.
+
+Whether that crush is physical fragmentation (the mechanism Orlando et al.
+2025 invoke for the filamentary ejecta network) or an unresolved-radiative-shock
+numerical runaway **cannot be settled by refining the grid** — refining makes it
+worse. It needs a physical length scale for the cooling layer, i.e. the Field
+length from `--conduction`, which has never been run on this configuration.
+Until that is done, the honest statement is: *cosmic-abundance cooling is
+irrelevant for Cas A; metal-enhanced cooling is an open question and the
+radiative machinery must not be described as free.*
+
+Note also that raising the metal mass fraction is **not** a way to ask this
+question — the module is normalised to hydrogen (`Φ = n_H Γ − n_H² Λ`,
+`mu_H = 1/X`), so raising Z lowers n_H and makes the gas cool *less* while the
+tabulated Λ never moves. Use `--cooling-boost`; see `_boost_lambda`.
