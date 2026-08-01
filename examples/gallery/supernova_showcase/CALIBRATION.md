@@ -632,17 +632,22 @@ spectrum untouched.
 
 Measured, at matched resolution and matched realisation:
 
-| N | 4.4″ (r_RS window) | 4.4″ (r_CD window) | rate |
-|---|---|---|---|
-| 128 | 1.97x | 1.96x | 0.85 → 0.85 |
-| 192 | 1.66x | 1.61x | 0.94 → 0.96 |
-| 256 | 1.83x | 1.73x | 0.86 → 0.88 |
+| N | shell thickness | 4.4″ (r_RS window) | 4.4″ (r_CD window) | gain | rate |
+|---|---|---|---|---|---|
+| 128 | 1.4 cells | 1.97x | 1.96x | 0 % | 0.85 → 0.85 |
+| 192 | 2.1 cells | 1.66x | 1.61x | 3 % | 0.94 → 0.96 |
+| 256 | 2.8 cells | 1.83x | 1.73x | 5 % | 0.86 → 0.88 |
+| 512 | 5.6 cells | 2.29x | 1.80x | **21 %** | 0.77 → 0.79 |
 
-Real, in the right direction, growing with resolution as the shocked shell goes
-from 1.4 to 2.8 cells thick — and worth about 5 % at 256³. It is a correctness
-fix, not a solution. The 256³ control reproduces the previous `orl_n256_final`
-exactly (0.86 rate, 1.83x at 4.4″), which confirms the refactor is otherwise a
-no-op.
+Real, in the right direction, and **the one change in this study whose benefit
+grows cleanly with resolution** — precisely as the mechanism predicts, since
+what is being perturbed is a shell that goes from 1.4 to 5.6 cells thick across
+that range. (The 512³ pair is adiabatic, which the control above shows is worth
+about 2 % on its own.) It is a correctness fix, not a solution: even at 512³ the
+1.80x it reaches is no better than 256³'s old 1.83x, because the finer seed
+costs more than the better-resolved shell wins back. The 256³ control reproduces
+the previous `orl_n256_final` exactly (0.86 rate, 1.83x at 4.4″), which confirms
+the refactor is otherwise a no-op.
 
 ### 512³ is stable again, but only with the old seeding
 
