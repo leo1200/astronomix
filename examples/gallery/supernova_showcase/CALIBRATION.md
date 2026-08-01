@@ -638,3 +638,22 @@ reverse shock meets a *fully resolved* dense cold structure at r ≈ 1.02 pc and
 runs away radiatively, where at 256³ the same perturbation is grid-smeared and
 survives. Seeding the contact discontinuity is exactly the change that puts a
 resolved cold structure there.
+
+**Dropping the cooling fixes it, and costs nothing.** `--cooling` off, same CD
+seeding, 512³ runs to 350 yr: r_FS 2.465, r_RS 1.677, mass conserved. Result 8's
+audit had already put `t_cool` at 2.8 Myr in the shocked gas — 4 orders above
+the remnant's age — but that was an estimate. Measured on the observables at
+256³, adiabatic against radiative with everything else fixed:
+
+| | rate | 0.5–1.5 | 1.5–2.1 | 2.1–2.8 | 2.8–4.2 | 4.2–6.0 | 6.0–7.0 | 4.4″ |
+|---|---|---|---|---|---|---|---|---|
+| with cooling | 0.88 | 0.71 | 0.75 | 1.16 | 1.66 | 1.64 | 2.45 | 1.73x |
+| adiabatic | 0.88 | 0.71 | 0.75 | 1.16 | 1.65 | 1.64 | 2.49 | 1.77x |
+
+Identical to the third digit in the rate, within 0.04 in every band, 2 % in
+texture, and the same r_FS and r_RS to the last digit. Cooling is *dynamically
+and observationally irrelevant for Cas A*, and it is the only thing preventing
+the contact-discontinuity seeding from running at 512³. **Adiabatic + CD is
+therefore the configuration for the top rung**, and the radiative machinery
+(resolution limiter, temperature floor, cold-crush blend, `--clamp-floor`) can
+be left off for this object rather than fought with.
