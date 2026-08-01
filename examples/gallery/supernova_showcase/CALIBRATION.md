@@ -567,6 +567,29 @@ shock-clump interaction — of the *largest* seeded structures, while small seed
 clumps are damped by the scheme and smeared by the reverse shock before they can
 grow. Removing the grid clamp would make the image worse.
 
+**Confirmed out of sample at 512³.** That was predicted before the run was
+scored: the default `k_hi = N/6` puts 512³ at `k_hi = 85`, the finest seed in
+the whole study, so it should come out *smoother* than 256³ despite having half
+the cell size. It does, on every metric at once:
+
+| N | `k_hi` | dx | 4.4″ | 8.4″ | 16.2″ | rate | 0.5–1.5 |
+|---|---|---|---|---|---|---|---|
+| 128 | 21 | 3.3″ | 1.97x | 1.07x | 0.75x | 0.85 | 0.62 |
+| 192 | 32 | 2.2″ | **1.66x** | 1.03x | 0.73x | 0.94 | 0.75 |
+| 256 | 42 | 1.66″ | 1.83x | 1.14x | 0.88x | 0.86 | 0.70 |
+| 512 | 85 | 0.83″ | **2.29x** | 1.54x | 1.21x | 0.77 | 0.58 |
+
+**In the default configuration the image gets monotonically worse from 192³
+upward, and the best remnant in this study is the second-coarsest.** The two
+controlled experiments explain the whole curve: the seed-scale effect is
+monotone and strong (1.63 → 1.95 for 3x in `k` at fixed 256³, and 2.29 by 4x at
+512³), the pure-grid effect is non-monotone and weaker (1.96 / 1.46 / 1.63 with
+the seed held fixed, optimum near 192³), and the default ties the two together
+so that refining the grid also refines the seed and loses more than it gains.
+The count rate falls with it (0.86 → 0.77) and the soft band with it (0.70 →
+0.58), which is the `<n²>` signature of exactly this: less clumping, less dense
+cool gas, less soft line emission.
+
 This is also the point where the temptation to fit shows up, so it is worth
 naming: the configuration that scores best on texture (`k_hi = 21`) is the one
 furthest from Orlando's 2 % literature value, and it overshoots at 8.4″ and
