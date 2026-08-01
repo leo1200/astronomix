@@ -8,8 +8,32 @@ structure rather than fitted to the answer, which is the whole point: the inner
 slope, outer slope and core radius that ``casa_calibrate_1d.py`` currently takes
 as free parameters are all consequences of the shock crossing this star.
 
-Three things about this setup are worth stating up front, because each one is a
-place where a plausible-looking wrong answer is easy to produce.
+**BLOCKED, and the reason is physical rather than numerical.** A presupernova
+core is held up by ELECTRON DEGENERACY, and this solver has an ideal-gas
+equation of state. Measured on s16.0, the fraction of KEPLER's pressure that
+ideal gas plus radiation can account for is:
+
+    m = 0.002 Msun   2.7 %       m = 1.40 Msun   22 %
+    m = 0.70  Msun   6.0 %       m = 2.32 Msun   53 %
+    m = 3.98  Msun   80 %
+
+so in the iron core 97 % of the support is degeneracy. Handing those (rho, p)
+to a gamma = 5/3 solver describes a different star: the implied ideal-gas
+temperature is 2.7e11 K against KEPLER's 7.3e9 K, a factor 37, and the model is
+nowhere near hydrostatic equilibrium under the EOS it is being integrated with.
+It disassembles on the first steps whatever the bomb does, which is exactly the
+NaN this script produced. The bomb is not the problem and no amount of
+resolution, bomb mass or bomb geometry fixes it.
+
+The gas only becomes ideal-dominated outside ~3 Msun, so the options are: add a
+degenerate-electron EOS (the correct fix, a solver project); or start the
+calculation above the degenerate region and inject an already-established shock
+there, accepting that the innermost ~2 Msun of Si/O/Fe ejecta is imposed rather
+than computed. Everything below is written and verified and waits on that
+decision.
+
+Three further things about this setup are worth stating up front, because each
+one is a place where a plausible-looking wrong answer is easy to produce.
 
 **The bomb energy is not the explosion energy.** The material above the mass cut
 is bound by 5.3e50 erg, a quarter of Cas A's calibrated 2.09e51 erg kinetic
@@ -73,7 +97,6 @@ from astronomix import (
 )
 from astronomix import SPHERICAL, FINITE_VOLUME
 from astronomix.option_classes.simulation_config import (
-    BoundarySettings,
     BoundarySettings1D,
     GravityConfig,
     PositivityConfig,
@@ -108,18 +131,32 @@ def map_star(star, r_grid, code_units, floor_density_cgs):
     rho = np.exp(np.interp(lr, lrs, np.log(rho_star)))
     p = np.exp(np.interp(lr, lrs, np.log(p_star)))
 
+    # Outside the star: floor material standing in for the wind. The blast
+    # breaks out into it, which is what it is there for.
     outside = r_grid > r_star[-1]
+    rho = np.where(outside, floor_density_cgs, rho)
+    p = np.where(outside, float(p_star[-1]) * 1e-6, p)
+
+    # Inside the mass cut: CONTINUE the innermost stellar zone rather than
+    # filling with floor. The cavity is tiny (~1e-4 Msun at these densities) so
+    # the added mass is irrelevant, but the alternative is a vacuum sitting
+    # directly against the bomb -- a pressure ratio of ~1e30 across one
+    # interface, which NaNs the Riemann solve on the first step. A smooth
+    # continuation costs nothing and removes the discontinuity entirely.
     inside = r_grid < r_star[0]
-    # the floor material stands in for the wind outside and for the collapsed
-    # core's cavity inside; both are dynamically irrelevant but must not be zero
-    rho = np.where(outside | inside, floor_density_cgs, rho)
-    p = np.where(outside | inside, p[np.argmin(np.abs(r_grid - r_star[-1]))]
-                 * 1e-6 + 1e-30, p)
+    rho = np.where(inside, float(rho_star[0]), rho)
+    p = np.where(inside, float(p_star[0]), p)
     return rho, p
 
 
-def enclosed_mass(r_grid, rho_cgs, mass_cut_g):
-    """M(<r) on the grid: the collapsed core plus the fluid interior to r."""
+def enclosed_mass(r_grid, rho_cgs, mass_cut_g=0.0):
+    """M(<r) from the fluid on the grid.
+
+    ``mass_cut_g`` is kept at zero: the whole star is on the grid, so its own
+    mass is the whole potential. Adding the cut mass on top would double-count
+    the core and leave the star out of the hydrostatic equilibrium KEPLER
+    handed us.
+    """
     dr = r_grid[1] - r_grid[0]
     shell = 4.0 * np.pi * r_grid ** 2 * rho_cgs * dr
     return mass_cut_g + np.cumsum(shell)
@@ -155,7 +192,7 @@ def main():
                     help="KINETIC energy at infinity in 1e51 erg (Cas A's "
                          "calibrated value). The binding energy is added to the "
                          "bomb on top of this")
-    ap.add_argument("--bomb-mass", type=float, default=0.05, metavar="MSUN",
+    ap.add_argument("--bomb-mass", type=float, default=0.2, metavar="MSUN",
                     help="mass of the shell the bomb heats, just above the mass cut")
     ap.add_argument("--t-end", type=float, default=None, metavar="S",
                     help="stop time (default: 3x the shock crossing estimate)")
@@ -202,8 +239,7 @@ def main():
         # r = 0 is reflecting because it is the centre of a sphere, not a wall;
         # the outer edge is open so the blast can leave without reflecting back
         # into the ejecta once it breaks out.
-        boundary_settings=BoundarySettings(
-            BoundarySettings1D(REFLECTIVE_BOUNDARY, OPEN_BOUNDARY)),
+        boundary_settings=BoundarySettings1D(REFLECTIVE_BOUNDARY, OPEN_BOUNDARY),
         # same two requirements as casa_calibrate_1d: the steep envelope breaks
         # plain MUSCL reconstruction, and the evacuating origin needs the
         # per-step floor
@@ -223,7 +259,7 @@ def main():
     rho_floor_cgs = float(star["density"][-1]) * 1e-3
     rho_cgs, p_cgs = map_star(star, r_cgs, code_units, rho_floor_cgs)
 
-    m_enc = enclosed_mass(r_cgs, rho_cgs, mass_cut_g)
+    m_enc = enclosed_mass(r_cgs, rho_cgs)
     phi = monopole_potential(r_cgs, m_enc, code_units)
     print(f"[boom] mapped mass on the grid: "
           f"{(m_enc[-1] - mass_cut_g) / MSUN:.3f} Msun "
@@ -236,19 +272,25 @@ def main():
     # from r = 0 below the target" silently returns an EMPTY shell whenever a
     # single cell already outweighs it, which is the normal case at the base of
     # a presupernova core -- the density there is 1e7 g/cm^3.
-    above = np.where(r_cgs >= float(star["radius"][0]))[0]
+    r_cut = float(np.interp(mass_cut_g, star["mass"], star["radius"]))
+    above = np.where(r_cgs >= r_cut)[0]
     if above.size == 0:
         raise SystemExit("no grid cell lies outside the mass cut: raise --n")
     n_take = max(1, int(np.searchsorted(np.cumsum(dm_grid[above]),
                                         args.bomb_mass * MSUN)))
     bomb = np.zeros_like(r_cgs, dtype=bool)
     bomb[above[:n_take]] = True
+    if n_take < 8:
+        print(f"[boom] WARNING: the bomb spans only {n_take} cell(s). A thermal "
+              f"bomb concentrated into one cell is a delta function in pressure "
+              f"against its neighbour and NaNs the first Riemann solve; raise "
+              f"--n (the cells are Eulerian, so resolution is what spreads it).")
     vol = 4.0 * np.pi * r_cgs ** 2 * dr_cgs
     p_bomb = (GAMMA - 1.0) * e_bomb / float(np.sum(vol[bomb]))
     p_cgs = np.where(bomb, p_cgs + p_bomb, p_cgs)
     print(f"[boom] bomb: {np.sum(bomb)} cells, "
           f"{np.sum(dm_grid[bomb]) / MSUN:.4f} Msun, "
-          f"r < {r_cgs[bomb][-1]:.3e} cm, p = {p_bomb:.3e} erg/cm^3")
+          f"r = {r_cut:.3e} to {r_cgs[bomb][-1]:.3e} cm, p = {p_bomb:.3e} erg/cm^3")
 
     # ---- to code units and go ---------------------------------------------
     rho = jnp.asarray(rho_cgs / float((1.0 * code_units.code_density).to(u.g / u.cm ** 3).value))
@@ -291,7 +333,7 @@ def main():
 
     fs = np.asarray(result.final_state)
     rho_f = fs[rv.density_index]
-    v_f = fs[rv.velocity_index.x]
+    v_f = fs[rv.velocity_index]
     p_f = fs[rv.pressure_index]
     if not np.all(np.isfinite(rho_f)) or not np.all(np.isfinite(p_f)):
         print("[boom] REFUSING to report: the final state carries non-finite cells")

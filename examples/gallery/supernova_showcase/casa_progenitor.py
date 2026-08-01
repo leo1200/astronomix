@@ -295,7 +295,15 @@ def main():
 
     if args.save:
         cut = iron_core_mass(star) if args.mass_cut is None else args.mass_cut
-        ej = excise_core(star, cut)
+        # Save the WHOLE star, recording the mass cut as metadata rather than
+        # applying it. The iron core is not ejected, but it must stay on the
+        # hydrodynamic grid: KEPLER's structure is in hydrostatic equilibrium
+        # with its OWN gravity, so removing the core's fluid while keeping its
+        # mass in the potential leaves whatever fills the cavity unsupported,
+        # and it collapses on a 2 ms free-fall time and takes the timestep with
+        # it. The bomb goes just above the cut instead; the core simply sits
+        # there, held up by the pressure it was already holding itself up with.
+        ej = star
         np.savez_compressed(
             args.save, model=star["model"], mass_cut=cut,
             **{k: ej[k] for k in SCALAR_COLUMNS},
