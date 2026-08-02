@@ -44,6 +44,7 @@ from pathlib import Path
 
 # numerics
 import numpy as np
+from scipy import ndimage
 from scipy.ndimage import uniform_filter
 
 # plotting
@@ -78,6 +79,113 @@ def texture(counts, mask, box):
     var_noise = m * (1.0 / a1 - 1.0 / a2)
     var = d[mask].var() - var_noise
     return np.sqrt(max(var, 0.0)) / m, max(var, 0.0) / var_noise
+
+
+# =============================================================================
+# ============ ↓ Topology: is it a web, or a few sharp edges? ↓ ===============
+# =============================================================================
+# The band-pass RMS above measures HOW MUCH fluctuation there is at a scale. It
+# cannot say what SHAPE it has, and that turned out to matter: an edge is
+# scale-free, so a handful of large features with sharp boundaries puts power
+# into every octave and scores like a filamentary web. Measured, the 192^3 model
+# scores BEST on sigma_I/I (1.46x) while looking like a smooth blob with two
+# arcs across it, and the 512^3 contact-discontinuity model scores worse (1.80x)
+# while carrying the fine cellular texture Cas A actually shows. A statistic
+# that inverts the visual ordering is not measuring the thing we are chasing.
+#
+# These two add the missing axis. Both are pure topology/shape and carry no
+# amplitude information, so they are complementary to the RMS rather than a
+# replacement for it.
+
+
+def poisson_match(real, syn, mask, seed=0):
+    """Thin ``real`` so it carries the same counts -- and noise -- as ``syn``.
+
+    Binomially thinning a Poisson image with probability ``p`` gives EXACTLY a
+    Poisson image of mean ``p * lambda``, so matching the total counts in the
+    annulus makes the two images statistically identical in their noise. That
+    is what lets the statistics below be compared at all: unlike the band-pass
+    RMS, a threshold count or an Euler characteristic has no analytic Poisson
+    correction to subtract, and comparing a 143 ks image with a 20 ks one
+    without matching would measure the exposure difference, not the remnant.
+    """
+    n_real, n_syn = float(real[mask].sum()), float(syn[mask].sum())
+    if n_real <= n_syn:
+        return real, 1.0
+    p = n_syn / n_real
+    rng = np.random.default_rng(seed)
+    return rng.binomial(np.rint(real).astype(np.int64), p).astype(np.float64), p
+
+
+def contrast_map(counts, box):
+    """Local contrast at scale ``box``: the image over its own background."""
+    band = uniform_filter(counts, box)
+    bg = uniform_filter(counts, 4 * box)
+    return band / np.maximum(bg, 1e-12) - 1.0
+
+
+def euler_density(counts, mask, box, area_fraction=0.25):
+    """Euler characteristic (components - holes) of the brightest ``area_fraction``.
+
+    Thresholding at a fixed AREA FRACTION rather than a fixed contrast is what
+    makes this a pure topology measure: both images light up the same number of
+    pixels, so the only thing left to differ is how those pixels are connected.
+    A web of filaments encircles voids and is dominated by holes (chi < 0); a
+    few compact blobs or arcs are dominated by components (chi > 0).
+
+    Returned per 1000 mask pixels, so it does not scale with the aperture.
+    """
+    c = contrast_map(counts, box)
+    thr = np.quantile(c[mask], 1.0 - area_fraction)
+    binary = (c > thr) & mask
+
+    n_obj = ndimage.label(binary)[1]
+    lab, n_comp = ndimage.label((~binary) & mask)
+    # a hole is a background component that does not touch the outside of the
+    # annulus; anything reaching the rim is the surrounding field, not a hole
+    rim = ndimage.binary_dilation(~mask) & (lab > 0)
+    n_holes = n_comp - len(np.unique(lab[rim]))
+    return 1000.0 * (n_obj - n_holes) / float(mask.sum())
+
+
+def filamentarity(counts, mask, box):
+    """Mean structure-tensor coherence: how ORDERED the structure is locally.
+
+    The gradient structure tensor of a single ridge has one large and one small
+    eigenvalue; the coherence ``((l1 - l2) / (l1 + l2))^2`` is 1 for a clean
+    ridge and 0 when several orientations meet inside the smoothing window. It
+    is weighted by gradient power so flat, noise-dominated regions do not vote.
+
+    **Read the direction carefully: HIGHER IS NOT MORE CAS A-LIKE.** Chandra
+    measures 0.54 at 4.4 arcsec and every model here sits at 0.65-0.92. A few
+    big clean arcs are locally very coherent; a dense tangle of filaments
+    crossing at all orientations is not. So this discriminates in the same
+    direction as the Euler characteristic -- towards the real remnant being
+    made of many crossing structures rather than a few smooth ones -- and the
+    model to prefer is the one with the LOWEST coherence, not the highest.
+    """
+    img = uniform_filter(counts, box)
+    gy, gx = np.gradient(img)
+    w = max(box, 2)
+    jxx = uniform_filter(gx * gx, w)
+    jyy = uniform_filter(gy * gy, w)
+    jxy = uniform_filter(gx * gy, w)
+    tr = jxx + jyy
+    det = jxx * jyy - jxy ** 2
+    disc = np.sqrt(np.maximum(tr ** 2 - 4.0 * det, 0.0))
+    # Guard against the flat regions, where both eigenvalues vanish and the
+    # ratio is 0/0. An absolute floor is not enough: with tr ~ 1e-20 and a
+    # 1e-30 clamp the "coherence" comes out at 1e20 and the weighted mean
+    # returns -4.8e13, which is what this guard exists to stop. The floor has
+    # to be RELATIVE to the image's own gradient power.
+    eps = 1e-6 * float(np.median(tr[mask]) + 1e-30)
+    coh = np.where(tr > eps, (disc / np.maximum(tr, eps)) ** 2, 0.0)
+    return float(np.average(coh[mask], weights=tr[mask]))
+
+
+# =============================================================================
+# ============ ↑ Topology: is it a web, or a few sharp edges? ↑ ===============
+# =============================================================================
 
 
 def annulus(shape, lo, hi):
@@ -116,6 +224,22 @@ def main():
         flag = "  <- noise-dominated" if min(s_snr, r_snr) < 3.0 else ""
         print(f"    {box * PIXEL_ARCSEC:6.1f}\" {s:10.3f} {s_snr:6.1f} {r:9.3f} "
               f"{r_snr:6.1f} {r / max(s, 1e-9):9.2f}{flag}")
+
+    # ---- topology, on a Poisson-matched pair -------------------------------
+    real_m, p_thin = poisson_match(real, syn, mask)
+    print(f"\n[morph] topology (real thinned by {p_thin:.3f} to match the "
+          f"synthetic's {syn[mask].sum():.3g} counts, so the noise is identical)")
+    print(f"    {'scale':>7} {'chi_syn':>9} {'chi_real':>9} "
+          f"{'filam_syn':>10} {'filam_real':>11}")
+    for box in (3, 5, 9, 17):
+        cs = euler_density(syn, mask, box)
+        cr = euler_density(real_m, mask, box)
+        fs = filamentarity(syn, mask, box)
+        fr = filamentarity(real_m, mask, box)
+        print(f"    {box * PIXEL_ARCSEC:6.1f}\" {cs:9.2f} {cr:9.2f} "
+              f"{fs:10.3f} {fr:11.3f}")
+    print("    chi < 0 means holes dominate (a web); chi > 0 means components "
+          "dominate (blobs/arcs)")
 
     fig, ax = plt.subplots(figsize=(7.0, 4.6), constrained_layout=True)
     ax.loglog(scales, [x[0] for x in rows], "o-", color="tab:red",

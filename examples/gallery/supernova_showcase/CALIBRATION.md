@@ -780,3 +780,80 @@ degenerate region (~3 M☉) would run today, but would impose the innermost ~2
 M☉ of Si/O/Fe ejecta rather than computing it — and that is precisely the
 material the reverse shock is processing at 350 yr, so it would concede the
 point of the exercise.
+
+## Result 12 — the metric was the problem, and Result 10 needs revising
+
+Result 10's statistic is the band-pass RMS `sigma_I/I`. **An edge is scale-free**,
+so a handful of large features with sharp boundaries deposits power into every
+octave and scores exactly like a filamentary web. The symptom was visible and
+was noted at the time: the 192³ model scores *best* on `sigma_I/I` (1.46x) while
+looking like a smooth blob with two arcs across it, and the 512³
+contact-discontinuity model scores *worse* (1.80x) while carrying the fine
+cellular texture Cas A actually shows. A statistic that inverts the visual
+ordering is not measuring the thing being chased.
+
+`casa_morphology.py` now adds two statistics that carry **no amplitude
+information at all**, so they are orthogonal to `sigma_I/I` rather than a
+replacement:
+
+* **Euler characteristic `chi`** (components − holes) of the brightest 25 % by
+  *area*. Thresholding at fixed area fraction is what makes it pure topology:
+  both images light up the same number of pixels, so only the connectivity can
+  differ. A smooth image thresholded this way selects noise peaks — many small
+  disconnected components, large `chi`; a genuinely structured one selects
+  coherent structures — fewer, larger, lower `chi`.
+* **Structure-tensor coherence.** Higher is *not* more Cas A-like: Chandra
+  measures 0.54 at 4.4″ and every model sits at 0.65–0.92, because a few big
+  clean arcs are locally coherent while a dense tangle of crossing filaments is
+  not.
+
+Both require the noise to be identical, which the analytic Poisson subtraction
+cannot deliver for a threshold count. So the real image is **binomially thinned**
+to the synthetic's counts: thinning a Poisson image with probability `p` gives
+exactly a Poisson image of mean `p·lambda`, making the two statistically
+indistinguishable in noise. (Consequence: `chi` is only comparable at matched
+exposure — the 143.5 ks synthetic is not on the same scale as the 20 ks ones.)
+
+### What changes
+
+`chi` at 2.5″, synthetic/real, all at 20 ks:
+
+| model | `sigma_I/I` at 4.4″ | **`chi` ratio at 2.5″** |
+|---|---|---|
+| 128³ CD | 1.96x | 2.42 |
+| 192³ fixed seed | **1.46x — best** | 2.01 |
+| 256³ seed k=21 | 1.63x | 1.76 |
+| 256³ seed k=42 (default) | 1.73x | 1.29 |
+| 256³ seed k=63 | 1.95x — worst | **1.25** |
+| 512³ old r_RS window | 2.29x — worst | 1.49 |
+| 512³ CD window | 1.80x | **0.84 — best** |
+
+**Three of Result 10's conclusions reverse, and they now all point the same
+way:**
+
+1. **Resolution does help, monotonically.** 2.42 → 2.01 → 1.29 → 0.84 across
+   128/192/256/512. Result 10's non-monotonic ladder was the RMS metric
+   scrambling the ordering.
+2. **Finer seeds are better, not worse.** At fixed 256³, `chi` goes 1.76 → 1.29
+   → 1.25 for k_hi = 21 → 42 → 63, the exact opposite of the RMS result that
+   "seeding smaller clumps makes the image smoother". Coarse-seed models score
+   well on RMS *because* their few large sharp features are edge-rich, which is
+   precisely the failure mode. **Result 10's headline on seed scale is
+   withdrawn.**
+3. **512³ CD is the best model in the study**, not merely "no better than
+   256³".
+
+### What does NOT change
+
+The mechanism closures survive the better statistic, which is the reassuring
+part. At 256³ against a 1.17 control: MHD at 500 µG gives 1.25, gentle Ni
+bubbles 1.30, sharp Ni bubbles 1.16 — null or marginally negative on topology
+exactly as on RMS. At 128³ the MHD trio is 2.40 / 2.28 / 2.57. So those
+conclusions were not artefacts.
+
+The synthesis the two statistics give together is more coherent than either
+alone: **the model carries roughly the right amount of fluctuation power at
+>= 8″ but the wrong organisation of it, and refining the grid adds little power
+while steadily improving the organisation.** That is a different — and more
+optimistic — statement than Result 10's, and it puts resolution back on the
+table.
