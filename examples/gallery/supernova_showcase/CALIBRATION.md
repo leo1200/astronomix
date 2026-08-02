@@ -719,3 +719,64 @@ Note also that raising the metal mass fraction is **not** a way to ask this
 question — the module is normalised to hydrogen (`Φ = n_H Γ − n_H² Λ`,
 `mu_H = 1/X`), so raising Z lowers n_H and makes the gas cool *less* while the
 tabulated Λ never moves. Use `--cooling-boost`; see `_boost_lambda`.
+
+## Result 11 — what a real progenitor says about the fitted ejecta
+
+Results 1–7 fitted the ejecta profile: its total mass, core radius, envelope
+slope and inner slope δ are all parameters tuned until the shock radii came out
+right. That is defensible as calibration but it means the profile is an input,
+not a prediction — and the δ table above exists only because we were guessing.
+
+The KEPLER solar-metallicity presupernova models of Sukhbold, Ertl, Woosley,
+Brown & Janka (2016) — 200 stars from 9 to 120 M☉, with per-zone mass, radius,
+velocity, density, temperature, pressure and 18 species — are distributed
+**openly** by the Garching core-collapse archive at
+`https://wwwmpa.mpa-garching.mpg.de/ccsnarchive/data/SEWBJ_2015/`. (The 3D
+*explosion* models Orlando maps from, in the same archive, are not: those need
+an access request.) `casa_progenitor.py` reads one, strips the hydrogen envelope
+to a Type IIb as Orlando's W15-IIb is, and excises the iron core.
+
+For **s16.0 stripped to 0.1 M☉ of hydrogen**:
+
+| | as evolved | stripped to IIb |
+|---|---|---|
+| mass | 13.15 M☉ | **4.93 M☉** |
+| radius | 887 R☉ (red supergiant) | **30.7 R☉ (compact)** |
+| cores Fe / Si / C-O / He | 1.377 / 1.987 / 3.295 / 4.726 M☉ | unchanged |
+| ejecta above the mass cut | — | **3.56 M☉** |
+
+Two numbers fall out that were never put in.
+
+**The fitted ejecta mass is nearly right.** We tuned `M_ej = 3.0` M☉ against the
+shock radii; a real 16 M☉ star, stripped to a IIb and with its iron core
+removed, gives **3.56 M☉** — within 18 %, and inside the observed 3–4 M☉. That
+is the first independent physical support for a parameter that was pure
+calibration.
+
+**The energy budget is missing a quarter.** The material above the mass cut is
+bound by **5.28e50 erg, 25 % of the calibrated 2.09e51 erg**. Route B's energy
+is the kinetic energy at infinity, which is the right thing to compare with
+observations — but any statement connecting it to an *explosion* energy has to
+add the binding energy, i.e. the engine must deposit ~2.6e51 erg. Stripping
+barely changes this (5.281 → 5.280e50): the binding energy lives in the deep
+layers near the mass cut, not in the loosely bound envelope, so the IIb surgery
+does not buy us out of it.
+
+### Why the explosion itself is not simulated here
+
+`casa_explode_1d.py` is written and its star maps correctly, but it cannot run:
+**presupernova cores are supported by electron degeneracy and this solver has an
+ideal-gas EOS.** The fraction of KEPLER's pressure that ideal gas plus radiation
+accounts for in s16.0 is 2.7 % at the centre, 6 % at 0.7 M☉, 22 % at the 1.4 M☉
+mass cut, 53 % at 2.3 M☉, and only reaches 80 % by 4 M☉. Handing those (ρ, p) to
+a γ = 5/3 solver therefore describes a different star — the implied ideal-gas
+central temperature is 2.7e11 K against KEPLER's 7.3e9 K — and it is not in
+hydrostatic equilibrium under the EOS it is being integrated with, so it
+disassembles on the first steps regardless of the bomb. Resolution, bomb mass
+and bomb geometry are all irrelevant to this.
+
+Closing it needs a degenerate-electron EOS. Starting instead above the
+degenerate region (~3 M☉) would run today, but would impose the innermost ~2
+M☉ of Si/O/Fe ejecta rather than computing it — and that is precisely the
+material the reverse shock is processing at 350 yr, so it would concede the
+point of the exercise.
