@@ -235,6 +235,23 @@ def build(args, sharding=None):
     # the isothermal jump and a CONSTANT pressure floor leaves it pressureless
     # against ram crushing, but for an adiabatic run the density-scaled floor
     # has nothing to do.
+    if args.low_mem:
+        # Two memory savings that cost NOTHING numerically, unlike switching to
+        # the low-storage LSRK4 integrator: donate_state lets the integrator
+        # reuse the input arrays, and host_helper_data keeps the 1024^3
+        # meshgrids (4.3 GB each in float32) off the accelerator unless a
+        # subsystem actually needs them. LSRK4 is deliberately NOT used here --
+        # its fused low-memory path is disabled whenever preserving_flux or
+        # coldcrush_blend is active (both are, in this recipe), so most of its
+        # saving is unavailable, and what remains costs half the CFL, the SSP
+        # property, and comparability with the RK4_SSP resolution ladder.
+        extra["donate_state"] = True
+        if args.gpus == 1:
+            # Sharded runs cannot use it: the helper meshgrids would be built on
+            # the host against an empty mesh and then referenced with P("x"),
+            # which fails with "Resource axis: x ... is not found in mesh: ()".
+            extra["host_helper_data"] = True
+
     extra["positivity_config"] = fd_positivity(
         tfloor=bool(args.cooling), coldcrush_factor=args.coldcrush_factor,
         mode={"floor": POSITIVITY_HARD_FLOOR,
@@ -366,7 +383,7 @@ def build(args, sharding=None):
         k_hi = int(args.clump_kmax or min(k_clump, num_cells // 6))
         k_lo = max(4, int(k_hi / 3))
         g = turbulent_field_on(num_cells, keys[1], kmin=k_lo, kmax=k_hi,
-                               slope=CLUMP_SLOPE,
+                               slope=args.clump_slope,
                                seed_cells=args.clump_seed_grid or None)
         # log-normal so the perturbation is strictly positive (a linear
         # 1 + sigma*g clips to vacuum in the tail and speckles the ejecta), with
@@ -823,6 +840,14 @@ def main():
                          "shell -- most of the emitting mass -- was handed to the "
                          "solver perfectly smooth. Kept as a flag so the two can "
                          "be compared with nothing else changed")
+    ap.add_argument("--clump-slope", type=float, default=CLUMP_SLOPE,
+                    metavar="XI",
+                    help="spectral index of the clumping power law (default "
+                         "-1.0, Orlando et al. 2012). VARYING THIS IS A "
+                         "SUFFICIENCY TEST, NOT A CALIBRATION: a value found by "
+                         "matching the morphology score is an existence proof "
+                         "about what clumping can do, not a measurement, and "
+                         "must not be adopted as the model's seed")
     ap.add_argument("--clump-seed-grid", type=int, default=0,
                     help="draw the clumping realisation on THIS grid and sample "
                          "it exactly onto the run grid (0 = draw on the run "
@@ -870,14 +895,22 @@ def main():
                     help="add the five Orlando et al. (2016) Table 4 anisotropies. NOTE: "
                          "cold dense ejecta substructure has repeatedly crossed the "
                          "512^3 stability threshold -- gate it at 256^3 first")
+    ap.add_argument("--low-mem", action="store_true",
+                    help="donate the state and keep helper meshgrids on the "
+                         "host. Numerically identical; needed at 1024^3")
     ap.add_argument("--save-state", type=str, default=None, help="write the final state npz")
     ap.add_argument("--ic-only", action="store_true", help="build and report the IC, do not run")
     args = ap.parse_args()
 
     sharding = None
     if args.gpus > 1:
-        from jax.sharding import PartitionSpec as P
-        mesh = jax.make_mesh((args.gpus,), ("x",))
+        from jax.sharding import PartitionSpec as P, AxisType
+        # jax 0.10 defaults mesh axes to Explicit, and the solver's helper data
+        # uses with_sharding_constraint, which accepts only AUTO axes -- so the
+        # default mesh fails with "can only refer to Auto axes of the mesh".
+        # This is what "multi-GPU is broken under jax 0.10.2" actually was: an
+        # API default drift, not a solver problem.
+        mesh = jax.make_mesh((args.gpus,), ("x",), axis_types=(AxisType.Auto,))
         sharding = jax.sharding.NamedSharding(mesh, P(None, "x"))
         jax.config.update("jax_use_shardy_partitioner", False)
 
