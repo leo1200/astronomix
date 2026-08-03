@@ -31,13 +31,14 @@ from astronomix import get_registered_variables, construct_primitive_state
 from astronomix import time_integration
 from astronomix.option_classes.simulation_config import HLLC, MINMOD
 from astronomix._physics_modules._shock_finder.pfrommer_shock_finder import find_shocks_pfrommer
+from astronomix.option_classes.simulation_config import AM_HLLC, CARTESIAN, HLLC, HLLC_LM, HYBRID_HLLC, MUSCL, SPHERICAL, HLL, MINMOD, SPLIT
 
 from matplotlib.patches import Patch
 from matplotlib.lines import Line2D
-
+from astronomix._physics_modules._shock_finder.plot_helper import plot_shock_surface_3d
+from astronomix._physics_modules._shock_finder.plot_helper import plot_shock_projections_3d
 #%%
 # CONFIGURATION
-
 num_cells = 64          # per-axis resolution (3D is expensive: 64^3 cells)
 box_size  = 1.0
 
@@ -61,58 +62,91 @@ geometry_x = geometric_centers[..., 0]  # (nx, ny, nz)
 geometry_y = geometric_centers[..., 1]  # (nx, ny, nz)
 geometry_z = geometric_centers[..., 2]  # (nx, ny, nz)
 
-
+#%%
 # ============================================================================
 # INITIAL CONDITIONS — point explosion (single outward-propagating shock)
 # ============================================================================
+config = SimulationConfig(
+    geometry = CARTESIAN,
+    progress_bar = True,
+    runtime_debugging = False,
+    riemann_solver = HYBRID_HLLC,
+    dimensionality = 3,
+    exact_end_time = True,
+    num_cells = 64,
+    return_snapshots = False,
+)
 
-TARGET_CENTER = (0.5, 0.5, 0.5)
-center_x, center_y, center_z = TARGET_CENTER
 
+params = SimulationParams(
+    t_end = 0.1
+)
+
+helper_data = get_helper_data(config)
+registered_variables = get_registered_variables(config)
+
+# total explosion energy
 E_explosion = 1.0
 
-rho_ambient = 1.0
-p_ambient   = 1e-4
+E_gas = E_explosion
 
-r_explosion = 0.08   # a bit larger than the 2D case since 3D volume shrinks faster
+# Ambient (background) physical conditions (adjust as needed)
+rho_ambient  = 1.0         # typical ISM density
+p_ambient    = 1e-4          # low gas pressure
 
-dx_from_center = geometry_x - center_x
-dy_from_center = geometry_y - center_y
-dz_from_center = geometry_z - center_z
+# Pressures in code units
+p_ambient = p_ambient
 
-r = jnp.sqrt(dx_from_center**2 + dy_from_center**2 + dz_from_center**2)
+# --- Set Up the Explosion Injection Region ---
 
-# injection volume (3D analog of the 2D injection_area)
-injection_volume = (4.0 / 3.0) * jnp.pi * r_explosion**3
+rho = jnp.ones((config.num_cells, config.num_cells, config.num_cells)) * rho_ambient
 
-gamma_gas = params.gamma
+u_x = jnp.zeros((config.num_cells, config.num_cells, config.num_cells))
+u_y = jnp.zeros((config.num_cells, config.num_cells, config.num_cells))
+u_z = jnp.zeros((config.num_cells, config.num_cells, config.num_cells))
 
-# E = p * V / (gamma - 1)  =>  p = E * (gamma - 1) / V
-p_explosion_gas = E_explosion * (gamma_gas - 1) / injection_volume
+# currently, we take 10 injection cells
+r_explosion = 0.02
 
-p   = jnp.where(r < r_explosion, p_explosion_gas, p_ambient)
-rho = jnp.ones_like(geometry_x) * rho_ambient
-u_x = jnp.zeros_like(geometry_x)
-u_y = jnp.zeros_like(geometry_y)
-u_z = jnp.zeros_like(geometry_z)
+# Compute the injection volume (spherical volume in code units)
+injection_volume = (4/3) * jnp.pi * r_explosion**3
 
+# Adiabatic indices:
+gamma_gas = params.gamma   # for the thermal gas
+gamma_cr  = 4/3   # for cosmic rays
+
+# The energy contained in a uniform pressure region is related by:
+#   E = p * V / (gamma - 1)
+# Hence, the effective explosion pressure in the injection region (in code units)
+p_explosion_gas = E_gas * (gamma_gas - 1) / injection_volume
+
+# Convert to code units
+p_explosion_gas = p_explosion_gas
+
+# --- Define the Radial Profiles ---
+# Get the radial coordinate array (assumed already available)
+r = helper_data.r
+
+# Gas pressure: high within the explosion region, ambient elsewhere
+p_gas = jnp.where(r < r_explosion, p_explosion_gas, p_ambient)
+
+# construct primitive state
 initial_state = construct_primitive_state(
-    config=config,
+    config = config,
     registered_variables=registered_variables,
-    density=rho,
-    velocity_x=u_x,
-    velocity_y=u_y,
-    velocity_z=u_z,
-    gas_pressure=p,
+    density = rho,
+    velocity_x = u_x,
+    velocity_y = u_y,
+    velocity_z = u_z,
+    gas_pressure = p_gas
 )
+
 config = finalize_config(config, initial_state.shape)
 
-
+#%%
 # ============================================================================
 # RUN SIMULATION
 # ============================================================================
-
-#%%
 final_state = time_integration(initial_state, config, params, registered_variables)
 
 rho_final = final_state[registered_variables.density_index]
@@ -138,7 +172,6 @@ surface_mask = np.array(result.shock_surface_cells).astype(bool)
 
 #%%
 # DIAGNOSTICS
-
 print(f"=== 3D Point Explosion at center {TARGET_CENTER} ===")
 print(f"num_shocks (surface cells): {result.num_shocks}")
 
@@ -192,187 +225,35 @@ if not np.isnan(r_measured_mean):
 
 
 #%%
-# PLOTS — three orthogonal mid-plane projections
-# ============================================================================
-# For each projection plane, take the mid-plane slice index along the
-# orthogonal axis, then overlay: background field, shock zone, shock
-# surface, and shock direction arrows (projected onto that plane).
-# ============================================================================
-
-def mid_index(coord_1d, target):
-    return int(np.argmin(np.abs(coord_1d - target)))
-
-# 1D coordinate arrays along each axis (assumes a regular grid)
-x_1d = geometry_x_np[:, 0, 0]
-y_1d = geometry_y_np[0, :, 0]
-z_1d = geometry_z_np[0, 0, :]
-
-ix_mid = mid_index(x_1d, center_x)
-iy_mid = mid_index(y_1d, center_y)
-iz_mid = mid_index(z_1d, center_z)
-
-rho_final_np = np.array(rho_final)
-zones_np     = np.array(result.shock_zones).astype(bool)
-
-shock_dir_x_np = np.array(shock_dir_x)
-shock_dir_y_np = np.array(shock_dir_y)
-shock_dir_z_np = np.array(shock_dir_z)
-
-
-def plot_projection(ax, plane, slice_idx, axis0_label, axis1_label):
-    """
-    plane: one of 'xy', 'xz', 'yz'
-    slice_idx: index along the orthogonal (sliced-out) axis
-    """
-    if plane == "xy":
-        A = geometry_x_np[:, :, slice_idx]
-        B = geometry_y_np[:, :, slice_idx]
-        field = rho_final_np[:, :, slice_idx]
-        zone_slice = zones_np[:, :, slice_idx]
-        surf_slice = surface_mask[:, :, slice_idx]
-        da = shock_dir_x_np[:, :, slice_idx]
-        db = shock_dir_y_np[:, :, slice_idx]
-        c0, c1 = center_x, center_y
-    elif plane == "xz":
-        A = geometry_x_np[:, slice_idx, :]
-        B = geometry_z_np[:, slice_idx, :]
-        field = rho_final_np[:, slice_idx, :]
-        zone_slice = zones_np[:, slice_idx, :]
-        surf_slice = surface_mask[:, slice_idx, :]
-        da = shock_dir_x_np[:, slice_idx, :]
-        db = shock_dir_z_np[:, slice_idx, :]
-        c0, c1 = center_x, center_z
-    elif plane == "yz":
-        A = geometry_y_np[slice_idx, :, :]
-        B = geometry_z_np[slice_idx, :, :]
-        field = rho_final_np[slice_idx, :, :]
-        zone_slice = zones_np[slice_idx, :, :]
-        surf_slice = surface_mask[slice_idx, :, :]
-        da = shock_dir_y_np[slice_idx, :, :]
-        db = shock_dir_z_np[slice_idx, :, :]
-        c0, c1 = center_y, center_z
-    else:
-        raise ValueError(plane)
-
-    ax.pcolormesh(A, B, field, cmap="plasma", shading="auto", alpha=0.85)
-
-    ax.contourf(
-        A, B, zone_slice.astype(float),
-        levels=[0.5, 1.5], colors=["green"], alpha=0.22,
+# PLOTS
+if not np.isnan(r_measured_mean):
+    rel_err = 100.0 * (r_measured_mean - r_analytic) / r_analytic
+    proj_title = (
+        f"3D Point Explosion (Sedov-Taylor) — mid-plane projections at t={params.t_end}\n"
+        f"measured shock radius = {r_measured_mean:.4f}  |  analytic = {r_analytic:.4f}  "
+        f"({rel_err:+.2f}%)"
     )
+else:
+    proj_title = f"3D Point Explosion (Sedov-Taylor) — mid-plane projections at t={params.t_end}"
 
-    ax.contour(
-        A, B, surf_slice.astype(float),
-        levels=[0.5], colors="red", linewidths=1.5,
-    )
-
-    # shock direction arrows at surface cells in this slice
-    Af = A[surf_slice]
-    Bf = B[surf_slice]
-    daf = da[surf_slice]
-    dbf = db[surf_slice]
-
-    mag = np.sqrt(daf**2 + dbf**2)
-    valid = mag > 0
-    Af, Bf, daf, dbf = Af[valid], Bf[valid], daf[valid], dbf[valid]
-    mag = mag[valid]
-
-    if len(Af) > 0:
-        daf_u = daf / mag
-        dbf_u = dbf / mag
-
-        n_arrows = 60
-        if len(Af) > n_arrows:
-            idx = np.linspace(0, len(Af) - 1, n_arrows).astype(int)
-            Af, Bf, daf_u, dbf_u = Af[idx], Bf[idx], daf_u[idx], dbf_u[idx]
-
-        ax.quiver(
-            Af, Bf, daf_u, dbf_u,
-            angles="xy", scale_units="xy", scale=20,
-            color="white", width=0.004, headwidth=4, headlength=5,
-            pivot="middle", zorder=20,
-        )
-
-    # mark explosion center
-    ax.plot(c0, c1, marker="+", color="cyan", markersize=10, mew=2, zorder=25)
-
-    ax.set_xlabel(axis0_label)
-    ax.set_ylabel(axis1_label)
-    ax.set_aspect("equal", adjustable="box")
-    ax.set_xlim(0, box_size)
-    ax.set_ylim(0, box_size)
-
-
-fig, axes = plt.subplots(1, 3, figsize=(18, 6), constrained_layout=True)
-
-fig.suptitle(
-    f"3D Point Explosion (Sedov-Taylor) — mid-plane projections at t={params.t_end}\n"
-    f"measured shock radius = {r_measured_mean:.4f}  |  analytic = {r_analytic:.4f}  "
-    f"({100*(r_measured_mean - r_analytic)/r_analytic:+.2f}%)"
-    if not np.isnan(r_measured_mean) else
-    f"3D Point Explosion (Sedov-Taylor) — mid-plane projections at t={params.t_end}",
-    fontsize=12,
+fig, axes = plot_shock_projections_3d(
+    rho_final, result,
+    geometry_x, geometry_y, geometry_z,
+    center=TARGET_CENTER,
+    box_size=box_size,
+    suptitle=proj_title,
 )
-
-plot_projection(axes[0], "xy", iz_mid, "x", "y")
-axes[0].set_title(f"xy plane (z ≈ {z_1d[iz_mid]:.3f})")
-
-plot_projection(axes[1], "xz", iy_mid, "x", "z")
-axes[1].set_title(f"xz plane (y ≈ {y_1d[iy_mid]:.3f})")
-
-plot_projection(axes[2], "yz", ix_mid, "y", "z")
-axes[2].set_title(f"yz plane (x ≈ {x_1d[ix_mid]:.3f})")
-
-axes[0].legend(
-    handles=[
-        Patch(facecolor="green", edgecolor="green", alpha=0.22, label="shock zone"),
-        Line2D([0], [0], color="red", lw=1.5, label="shock surface"),
-        Line2D([0], [0], color="white", lw=0, marker=r"$\rightarrow$",
-               markersize=12, label="shock direction"),
-    ],
-    loc="upper right", fontsize=8,
-)
-
 plt.show()
 
-# %%
-#%%
-# 3D SCATTER PLOT OF SHOCK SURFACE
-# ============================================================================
-
-from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 (enables 3d projection)
-
-fig = plt.figure(figsize=(9, 8))
-ax = fig.add_subplot(111, projection="3d")
-
-xs = geometry_x_np[surface_mask]
-ys = geometry_y_np[surface_mask]
-zs = geometry_z_np[surface_mask]
+# ----------------------------------------------------------------------
+# 3D shock surface (smoothed)
+# ----------------------------------------------------------------------
 mach_surf = np.array(result.mach_numbers)[surface_mask]
-
-sc = ax.scatter(
-    xs, ys, zs,
-    c=mach_surf,
-    cmap="hot",
-    s=8,
-    alpha=0.8,
+fig3d, ax3d = plot_shock_surface_3d(
+    geometry_x_np[surface_mask], geometry_y_np[surface_mask], geometry_z_np[surface_mask],
+    mach_surf,
+    center=TARGET_CENTER,
+    box_size=box_size,
+    title=f"3D Shock Surface — Sedov-Taylor at t={params.t_end}",
 )
-
-# mark explosion center
-ax.scatter(
-    [center_x], [center_y], [center_z],
-    color="cyan", marker="+", s=150, linewidths=2, label="explosion center"
-)
-
-fig.colorbar(sc, ax=ax, shrink=0.6, label="Shock Mach number")
-
-ax.set_xlabel("x")
-ax.set_ylabel("y")
-ax.set_zlabel("z")
-ax.set_title("3D Shock Surface — Sedov-Taylor blast wave")
-ax.set_xlim(0, box_size)
-ax.set_ylim(0, box_size)
-ax.set_zlim(0, box_size)
-ax.legend(loc="upper right")
-
 plt.show()
