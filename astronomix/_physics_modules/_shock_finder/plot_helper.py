@@ -2,6 +2,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 from matplotlib.lines import Line2D
+from scipy.spatial import ConvexHull
+from mpl_toolkits.mplot3d import Axes3D
 
 def plot_shock_diagnostics_2d(
     p_final, rho_final, result,
@@ -179,3 +181,82 @@ def plot_shock_diagnostics_2d(
     # problem-specific 6th panel (or leave blank / call fig.delaxes)
 
     return fig, axes
+
+def plot_shock_surface_3d(
+    xs, ys, zs, mach,
+    center=(0.5, 0.5, 0.5),
+    box_size=1.0,
+    cmap="hot",
+    title="3D Shock Surface (smoothed)",
+    ax=None,
+):
+    """
+    Render a smoothed 3D shock surface from a point cloud 
+    colored by per-triangle mean Mach number.
+
+    Args:
+        xs, ys, zs: 1D arrays of surface-cell coordinates
+        mach:       1D array of Mach numbers at those same points
+        center:     explosion center, marked with a '+' 
+        box_size:   domain size, used to set axis limits
+        cmap:       matplotlib colormap name
+        title:      plot title
+        ax:         optional existing 3D axis to draw into; creates one if None
+
+    Returns:
+        (fig, ax) — the figure and axis used
+    """
+
+    xs = np.asarray(xs)
+    ys = np.asarray(ys)
+    zs = np.asarray(zs)
+    mach = np.asarray(mach)
+
+    if ax is None:
+        fig = plt.figure(figsize=(9, 8))
+        ax = fig.add_subplot(111, projection="3d")
+    else:
+        fig = ax.figure
+
+    if len(xs) < 4:
+        # not enough points to triangulate a hull; fall back to plain scatter
+        sc = ax.scatter(xs, ys, zs, c=mach, cmap=cmap, s=15, alpha=0.8)
+        fig.colorbar(sc, ax=ax, shrink=0.6, label="Shock Mach number")
+    else:
+        hull = ConvexHull(np.column_stack([xs, ys, zs]))
+        triangles = hull.simplices
+
+        # per-triangle color = mean Mach of its 3 vertices
+        tri_mach = mach[triangles].mean(axis=1)
+        norm = plt.Normalize(vmin=tri_mach.min(), vmax=tri_mach.max())
+        face_colors = plt.get_cmap(cmap)(norm(tri_mach))
+
+        surf = ax.plot_trisurf(
+            xs, ys, zs,
+            triangles=triangles,
+            linewidth=0,
+            antialiased=True,
+            shade=False,
+        )
+        surf.set_fc(face_colors)
+
+        mappable = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+        mappable.set_array(tri_mach)
+        fig.colorbar(mappable, ax=ax, shrink=0.6, label="Shock Mach number")
+
+    ax.scatter(
+        [center[0]], [center[1]], [center[2]],
+        color="cyan", marker="+", s=150, linewidths=2, label="explosion center",
+    )
+
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.set_zlabel("z")
+    ax.set_title(title)
+    ax.set_xlim(0, box_size)
+    ax.set_ylim(0, box_size)
+    ax.set_zlim(0, box_size)
+    ax.set_box_aspect([1, 1, 1])
+    ax.legend(loc="upper right")
+
+    return fig, ax
