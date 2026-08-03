@@ -27,10 +27,8 @@ from astronomix import get_registered_variables, construct_primitive_state
 from astronomix import time_integration
 from astronomix.option_classes.simulation_config import HLLC, MINMOD
 from astronomix._physics_modules._shock_finder.pfrommer_shock_finder import find_shocks_pfrommer
-from astronomix.option_classes.simulation_config import (
-    GEOMETRY_TYPE,
-    FIELD_TYPE,
-)
+from astronomix._physics_modules._shock_finder.plot_helper import plot_shock_diagnostics_2d
+
 
 #%%
 # CONFIGURATION
@@ -164,195 +162,42 @@ print(f"Alignment check for overall shock direction |via dot with normal|    : {
 
 #%%
 # PLOTS
-fig, axes = plt.subplots(
-    2, 3,
-    figsize=(15, 10),
-    constrained_layout=True
-)
-fig.suptitle(
-    f"2D Rotated Sod Shock Tube ({float(FRONT_NORMAL_ANGLE):.2f}°) — Shock Finder Validation",
-    fontsize=13
+
+fig, axes = plot_shock_diagnostics_2d(
+    p_final, rho_final, result,
+    geometry_x, geometry_y,
+    box_size=box_size,
+    mach_vmin=1.0,
+    mach_vmax=2.0,
+    suptitle=f"2D Rotated Sod Shock Tube ({float(FRONT_NORMAL_ANGLE):.2f}°) — Shock Finder Validation",
 )
 
+# ----------------------------------------------------------------------
+# 6. Problem-specific panel: diagonal slice along shock normal through center
+# ----------------------------------------------------------------------
 geometry_x_np = np.array(geometry_x)
 geometry_y_np = np.array(geometry_y)
 
-# 1. Pressure
-im0 = axes[0, 0].pcolormesh(geometry_x_np, geometry_y_np, np.array(p_final), cmap="viridis")
-axes[0, 0].set_title("Pressure")
-axes[0, 0].set_xlabel("x"); axes[0, 0].set_ylabel("y")
-plt.colorbar(im0, ax=axes[0, 0])
-
-# 2. Density
-im1 = axes[0, 1].pcolormesh(geometry_x_np, geometry_y_np, np.array(rho_final), cmap="plasma")
-axes[0, 1].set_title("Density")
-axes[0, 1].set_xlabel("x"); axes[0, 1].set_ylabel("y")
-plt.colorbar(im1, ax=axes[0, 1])
-
-# 3. Shock surface + zone overlaid on pressure
-
-# pressure sketch
-axes[0, 2].pcolormesh(geometry_x_np, geometry_y_np, np.array(p_final), cmap="viridis", alpha=0.8)
-
-# draw zone
-axes[0, 2].contourf(
-    geometry_x_np, geometry_y_np,
-    np.array(result.shock_zones).astype(float),
-    levels=[0.5, 1.5],
-    colors=["green"],
-    alpha=0.25
-)
-
-# draw surface on top
-axes[0, 2].contour(
-    geometry_x_np, geometry_y_np,
-    np.array(result.shock_surface_cells).astype(float),
-    levels=[0.5],
-    colors="red",
-    linewidths=0.5
-)
-
-axes[0, 2].set_title("Shock surface and shock zone")
-axes[0, 2].set_xlabel("x")
-axes[0, 2].set_ylabel("y")
-
-# 4. Mach number at surface cells
-mach_surface_only = np.array(result.mach_numbers)
-
-im3 = axes[1, 0].pcolormesh(
-    geometry_x_np, geometry_y_np,
-    mach_surface_only,
-    cmap="hot",
-    vmin=1.0,
-    vmax=2.0,
-    shading="auto"
-)
-
-axes[1, 0].set_title("Shock Mach number at surface cells")
-axes[1, 0].set_xlabel("x")
-axes[1, 0].set_ylabel("y")
-plt.colorbar(im3, ax=axes[1, 0], label="Shock Mach number")
-
-# --------------------------------------------------------------------------
-# 5. Shock direction at surface cells
-# --------------------------------------------------------------------------
-
-# pressure sketch
-axes[1, 1].pcolormesh(
-    geometry_x_np, geometry_y_np,
-    np.array(p_final),
-    cmap="viridis",
-    shading="auto",
-    alpha=0.55
-)
-
-# Shock surface mask
-surface = np.array(result.shock_surface_cells)
-# Draw shock surface
-axes[1, 1].contour(
-    geometry_x_np, geometry_y_np,
-    surface.astype(float),
-    levels=[0.5],
-    colors="red",
-    linewidths=1.8
-)
-
-# Surface-cell coordinates and directions
-geometry_x_surface_np = geometry_x_np[surface]
-geometry_y_surface_np = geometry_y_np[surface]
-shock_dir_x_surface_np = np.array(shock_dir_x)[surface]
-shock_dir_y_surface_np = np.array(shock_dir_y)[surface]
-
-# remove 0 direction cells to avoid NaNs when normalizing
-mag_shock_dir_surface = np.sqrt(shock_dir_x_surface_np**2 + shock_dir_y_surface_np**2)
-valid = mag_shock_dir_surface > 0 # could be zero -> skip
-geometry_x_surface_np = geometry_x_surface_np[valid]
-geometry_y_surface_np = geometry_y_surface_np[valid]
-
-# Normalize arrows to unit length
-u_shock_dir_x_surface_np = shock_dir_x_surface_np[valid] / mag_shock_dir_surface[valid]
-u_shock_dir_y_surface_np = shock_dir_y_surface_np[valid] / mag_shock_dir_surface[valid]
-
-# For visualization only: orient all arrows toward the expected normal.
-# The raw shock finder direction may be n or -n; both represent the same normal line.
-dot = u_shock_dir_x_surface_np * float(target_nx_hat) + u_shock_dir_y_surface_np * float(target_ny_hat)
-flip = dot < 0
-u_shock_dir_x_surface_np[flip] *= -1
-u_shock_dir_y_surface_np[flip] *= -1
-
-
-# Draw only 10 arrows, evenly spaced
-n_arrows = 10
-if len(geometry_x_surface_np) > n_arrows:
-    idx = np.linspace(0, len(geometry_x_surface_np) - 1, n_arrows).astype(int)
-    xs_plot = geometry_x_surface_np[idx]
-    ys_plot = geometry_y_surface_np[idx]
-    ux_plot = u_shock_dir_x_surface_np[idx]
-    uy_plot = u_shock_dir_y_surface_np[idx]
-else:
-    xs_plot = geometry_x_surface_np
-    ys_plot = geometry_y_surface_np
-    ux_plot = u_shock_dir_x_surface_np
-    uy_plot = u_shock_dir_y_surface_np
-
-axes[1, 1].quiver(
-    xs_plot,
-    ys_plot,
-    ux_plot,
-    uy_plot,
-    angles="xy",
-    scale_units="xy",
-    scale=25,
-    color="white",
-    width=0.004,
-    headwidth=4,
-    headlength=5,
-    pivot="middle",
-    zorder=20
-)
-
-# Add one expected-normal arrow from the center
-axes[1, 1].annotate(
-    "expected normal",
-    xy=(0.5 + 0.15 * float(target_nx_hat), 0.5 + 0.15 * float(target_ny_hat)),
-    xytext=(0.5, 0.5),
-    textcoords="data",
-    arrowprops=dict(arrowstyle="->", color="black", lw=2),
-    ha="center",
-    va="center",
-    color="black"
-)
-
-axes[1, 1].set_title(
-    f"Shock direction at surface cells\nexpected normal ≈ ({float(target_nx_hat):.2f}, {float(target_ny_hat):.2f})"
-)
-axes[1, 1].set_xlabel("x")
-axes[1, 1].set_ylabel("y")
-axes[1, 1].set_aspect("equal")
-
-
-# 6. Diagonal slice along shock normal through the center
 t_vals   = np.linspace(-0.5, 0.5, 300)
 x_sample = np.clip(0.5 + t_vals * float(target_nx_hat), geometry_x_np.min(), geometry_x_np.max())
 y_sample = np.clip(0.5 + t_vals * float(target_ny_hat), geometry_y_np.min(), geometry_y_np.max())
 
-# nearest-cell lookup using geometry
 geometry_x_nearest_np = np.argmin(np.abs(geometry_x_np[:, 0:1] - x_sample[np.newaxis, :]), axis=0)
 geometry_y_nearest_np = np.argmin(np.abs(geometry_y_np[0:1, :] - y_sample[:, np.newaxis]), axis=1)
 
-p_arr      = np.array(p_final)
-surf_arr   = np.array(result.shock_surface_cells)
-zone_arr   = np.array(result.shock_zones)
+p_arr    = np.array(p_final)
+surf_arr = np.array(result.shock_surface_cells)
+zone_arr = np.array(result.shock_zones)
 
 p_nearest    = p_arr[geometry_x_nearest_np, geometry_y_nearest_np]
 surf_nearest = surf_arr[geometry_x_nearest_np, geometry_y_nearest_np]
 zone_nearest = zone_arr[geometry_x_nearest_np, geometry_y_nearest_np]
 
-# pressure slice
-axes[1, 2].plot(t_vals, p_nearest, label="pressure")
+ax6 = axes[1, 2]
 
-# zone
-axes[1, 2].fill_between(
+ax6.plot(t_vals, p_nearest, label="pressure")
+
+ax6.fill_between(
     t_vals, 0, 1,
     where=zone_nearest,
     alpha=0.20,
@@ -361,11 +206,9 @@ axes[1, 2].fill_between(
     label="shock zone"
 )
 
-# labeling
-# no need duplicate label
 first = True
 for ti in t_vals[surf_nearest]:
-    axes[1, 2].axvline(
+    ax6.axvline(
         ti,
         color="red",
         linestyle="--",
@@ -374,7 +217,7 @@ for ti in t_vals[surf_nearest]:
     )
     first = False
 
-axes[1, 2].axvline(
+ax6.axvline(
     0.37,
     color="gray",
     linestyle=":",
@@ -382,26 +225,11 @@ axes[1, 2].axvline(
     label="expected shock distance ≈ 0.37"
 )
 
-axes[1, 2].set_title(f"Pressure slice along shock normal, θ={float(FRONT_NORMAL_ANGLE):.2f}°")
-axes[1, 2].set_xlabel("Signed distance along normal")
-axes[1, 2].set_ylabel("P")
-axes[1, 2].legend(fontsize=8)
-
-for ax in axes.flat:
-    ax.set_box_aspect(1)
-
-spatial_axes = [
-    axes[0, 0],
-    axes[0, 1],
-    axes[0, 2],
-    axes[1, 0],
-    axes[1, 1],
-]
-
-for ax in spatial_axes:
-    ax.set_aspect("equal", adjustable="box")
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
+ax6.set_title(f"Pressure slice along shock normal, θ={float(FRONT_NORMAL_ANGLE):.2f}°")
+ax6.set_xlabel("Signed distance along normal")
+ax6.set_ylabel("P")
+ax6.set_box_aspect(1)
+ax6.legend(fontsize=8)
 
 plt.show()
 

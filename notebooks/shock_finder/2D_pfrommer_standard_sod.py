@@ -30,6 +30,8 @@ from astronomix.option_classes.simulation_config import (
     GEOMETRY_TYPE,
     FIELD_TYPE,
 )
+from astronomix._physics_modules._shock_finder.plot_helper import plot_shock_diagnostics_2d
+
 
 #%%
 # CONFIGURATION

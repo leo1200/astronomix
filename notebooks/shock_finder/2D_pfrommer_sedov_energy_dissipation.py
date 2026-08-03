@@ -20,6 +20,7 @@
 # ============================================================================
 
 #%%
+from astronomix._physics_modules._shock_finder.plot_helper import plot_shock_diagnostics_2d
 import jax.numpy as jnp
 import numpy as np
 import matplotlib.pyplot as plt
@@ -31,8 +32,8 @@ from astronomix import time_integration
 from astronomix.option_classes.simulation_config import HLLC, MINMOD
 from astronomix._physics_modules._shock_finder.pfrommer_shock_finder import find_shocks_pfrommer
 
-from matplotlib.patches import Patch
-from matplotlib.lines import Line2D
+from astronomix._physics_modules._shock_finder.plot_helper import plot_shock_diagnostics_2d
+
 
 #%%
 # CONFIGURATION
@@ -159,89 +160,41 @@ print(
     "max =", float(thermal_flux[valid_flux].max()),
     "mean =", float(thermal_flux[valid_flux].mean()),
 )
+
 #%%
 # PLOTS
-geometry_x_np = np.array(geometry_x)
-geometry_y_np = np.array(geometry_y)
 
-surface_np = np.array(result.shock_surface_cells).astype(bool)
+fig, axes = plot_shock_diagnostics_2d(
+    p_final, rho_final, result,
+    geometry_x, geometry_y,
+    box_size=box_size,
+    suptitle="2D Sedov Blast — Thermal-Energy Dissipation Validation",
+)
+
+# ----------------------------------------------------------------------
+# 6. Problem-specific panel: thermal-energy flux at surface cells
+# ----------------------------------------------------------------------
 thermal_flux_np = np.array(result.thermal_energy_flux)
-
 valid_flux_mask = thermal_flux_np > 0.0
-thermal_flux_plot = np.where(
-    valid_flux_mask,
-    thermal_flux_np,
-    np.nan,
-)
+thermal_flux_plot = np.where(valid_flux_mask, thermal_flux_np, np.nan)
 
-fig, axes = plt.subplots(
-    1, 3,
-    figsize=(15, 5),
-    constrained_layout=True,
-)
-
-fig.suptitle(
-    "2D Sedov Blast — Thermal-Energy Dissipation Validation",
-    fontsize=14,
-)
-
-# 1. Pressure
-im0 = axes[0].pcolormesh(
-    geometry_x_np,
-    geometry_y_np,
-    np.array(p_final),
-    cmap="viridis",
-    shading="auto",
-)
-axes[0].set_title("Pressure")
-plt.colorbar(im0, ax=axes[0], label="Pressure")
-
-# 2. Shock surface and shock zone
-axes[1].pcolormesh(
-    geometry_x_np,
-    geometry_y_np,
-    np.array(p_final),
-    cmap="viridis",
-    shading="auto",
-    alpha=0.75,
-)
-axes[1].contourf(
-    geometry_x_np,
-    geometry_y_np,
-    np.array(result.shock_zones).astype(float),
-    levels=[0.5, 1.5],
-    colors=["green"],
-    alpha=0.25,
-)
-axes[1].contour(
-    geometry_x_np,
-    geometry_y_np,
-    surface_np.astype(float),
-    levels=[0.5],
-    colors="red",
-    linewidths=1.2,
-)
-axes[1].set_title("Shock surface and shock zone")
-
-# 3. Thermal-energy flux
-im2 = axes[2].pcolormesh(
-    geometry_x_np,
-    geometry_y_np,
+ax6 = axes[1, 2]
+im6 = ax6.pcolormesh(
+    np.array(geometry_x), np.array(geometry_y),
     thermal_flux_plot,
     cmap="inferno",
     shading="auto",
     vmin=0.0,
     vmax=float(thermal_flux_np[valid_flux_mask].max()),
 )
-axes[2].set_title("Thermal-energy flux")
-plt.colorbar(im2, ax=axes[2], label="Thermal-energy flux")
-
-for ax in axes:
-    ax.set_xlabel("x")
-    ax.set_ylabel("y")
-    ax.set_aspect("equal", adjustable="box")
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
+ax6.set_title("Thermal-energy flux")
+ax6.set_xlabel("x")
+ax6.set_ylabel("y")
+ax6.set_aspect("equal", adjustable="box")
+ax6.set_xlim(0, box_size)
+ax6.set_ylim(0, box_size)
+plt.colorbar(im6, ax=ax6, label="Thermal-energy flux")
 
 plt.show()
+
 # %%
