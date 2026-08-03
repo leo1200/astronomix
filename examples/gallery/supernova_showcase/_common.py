@@ -534,7 +534,7 @@ def ism_ti_cooling_setup(code_units, hrate_cgs=5.0e-26, mu_athena=0.618,
     return config, params
 
 
-def turbulent_field(num_cells, key, kmin=4, kmax=16, slope=-1.0):
+def turbulent_field(num_cells, key, kmin=4, kmax=16, slope=-1.0, sharding=None):
     """A zero-mean, unit-standard-deviation band-limited random field (N, N, N).
 
     Thin wrapper over ``create_turb_field`` used to seed turbulent velocity or
@@ -542,12 +542,20 @@ def turbulent_field(num_cells, key, kmin=4, kmax=16, slope=-1.0):
     Power is carried in wavenumbers ``kmin..kmax`` with amplitude ~ k^slope. The
     caller scales it to the desired rms / fluctuation amplitude.
     """
-    f = create_turb_field(num_cells, A0=1.0, slope=slope, kmin=kmin, kmax=kmax, key=key)
+    # ``sharding`` MUST be threaded through on multi-GPU runs. Without it the
+    # field is a single-device array, and the first product with a sharded
+    # density replicates the whole cube onto one device -- at 1024^3 that is a
+    # 4.3 GB array and an 8 GB temporary, which OOMs no matter how many GPUs
+    # are added, because the allocation was never distributed in the first
+    # place.
+    f = create_turb_field(num_cells, A0=1.0, slope=slope, kmin=kmin, kmax=kmax,
+                          key=key, sharding=sharding)
     f = f - jnp.mean(f)
     return f / (jnp.std(f) + 1e-30)
 
 
-def turbulent_field_on(num_cells, key, kmin, kmax, slope=-1.0, seed_cells=None):
+def turbulent_field_on(num_cells, key, kmin, kmax, slope=-1.0, seed_cells=None,
+                       sharding=None):
     """The SAME band-limited random field, sampled on a grid of any size.
 
     :func:`turbulent_field` draws its Fourier coefficients on the run grid, so
@@ -565,7 +573,8 @@ def turbulent_field_on(num_cells, key, kmin, kmax, slope=-1.0, seed_cells=None):
     literally the same clumps, and any change in the outcome is the grid.
     """
     if seed_cells is None or seed_cells == num_cells:
-        return turbulent_field(num_cells, key, kmin=kmin, kmax=kmax, slope=slope)
+        return turbulent_field(num_cells, key, kmin=kmin, kmax=kmax,
+                               slope=slope, sharding=sharding)
     if 2 * kmax >= seed_cells:
         raise SystemExit(
             f"the clumping seed grid ({seed_cells}^3) cannot carry k up to "

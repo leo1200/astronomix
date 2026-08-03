@@ -301,7 +301,8 @@ def build(args, sharding=None):
     outside = _smoothstep((r - 1.02 * r_fs) / (2.0 * dx))
     csm_clump = 1.0
     if args.csm_sigma > 0:
-        g = turbulent_field(num_cells, keys[0], kmin=CSM_K_MIN, kmax=CSM_K_MAX, slope=-1.0)
+        g = turbulent_field(num_cells, keys[0], kmin=CSM_K_MIN, kmax=CSM_K_MAX,
+                            slope=-1.0, sharding=sharding)
         csm_clump = jnp.exp(args.csm_sigma * g - 0.5 * args.csm_sigma ** 2)
     modulation = 1.0 + outside * (csm_clump - 1.0)
     rho = rho * modulation
@@ -384,7 +385,8 @@ def build(args, sharding=None):
         k_lo = max(4, int(k_hi / 3))
         g = turbulent_field_on(num_cells, keys[1], kmin=k_lo, kmax=k_hi,
                                slope=args.clump_slope,
-                               seed_cells=args.clump_seed_grid or None)
+                               seed_cells=args.clump_seed_grid or None,
+                               sharding=sharding)
         # log-normal so the perturbation is strictly positive (a linear
         # 1 + sigma*g clips to vacuum in the tail and speckles the ejecta), with
         # sigma set so the ~3-sigma peak reaches the Orlando maximum contrast
