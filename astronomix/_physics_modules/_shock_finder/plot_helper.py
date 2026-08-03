@@ -17,6 +17,7 @@ This file contains helper functions for plotting shock-finder results in 2D and 
         2 modes: "SMOOTH" (ConvexHull triangulation) or "SCATTER" (scatter plot)
 * plot_shock_projections_3d: 3D shock-finder diagnostic plot
         Just very simple projections of the 3D volume onto the three mid-planes (xy, xz, yz)
+* plot_shock_surface_3d_interactive: interactive 3D shock surface viewer
 """
 
 def plot_shock_diagnostics_2d(
