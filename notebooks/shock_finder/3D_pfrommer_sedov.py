@@ -195,8 +195,6 @@ print(f"t_end:                      {t_end}")
 print(f"Injection radius:           {r_explosion:.6f}")
 print(f"Injection radius (cells):   {r_explosion/dx:.2f}")
 print(f"Expected shock radius:      {r_analytic:.6f}")
-print(f"Expected shock (cells):     {r_analytic/dx:.2f}")
-print(f"Expansion factor:           {r_analytic/r_explosion:.2f}")
 print(f"Distance to boundary:       {config.box_size[0]/2 - r_analytic:.6f}")
 
 ## Measured result
