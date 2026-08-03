@@ -52,7 +52,7 @@ config = SimulationConfig(
     box_size=box_size,
     return_snapshots = False,
 )
-params = SimulationParams(t_end = 0.1)
+params = SimulationParams(t_end = 0.06)
 
 helper_data = get_helper_data(config)
 registered_variables = get_registered_variables(config)
@@ -154,11 +154,10 @@ else:
 
 ## Compute measured shock radius
 # geometric centers of environment, this is also explosion center
-box_size = config.box_size
 TARGET_CENTER = (
-    float(box_size[0]) / 2,
-    float(box_size[1]) / 2,
-    float(box_size[2]) / 2,
+    float(config.box_size[0]) / 2,
+    float(config.box_size[1]) / 2,
+    float(config.box_size[2]) / 2,
 )
 center_x, center_y, center_z = TARGET_CENTER
 
@@ -231,13 +230,28 @@ fig, axes = plot_shock_projections_3d(
 )
 plt.show()
 
-# 3D shock surface (smoothed)
+# ----------------------------------------------------------------------
+# 3D shock surface
+# ----------------------------------------------------------------------
 mach_surf = np.array(result.mach_numbers)[surface_mask]
 fig3d, ax3d = plot_shock_surface_3d(
     geometry_x_np[surface_mask], geometry_y_np[surface_mask], geometry_z_np[surface_mask],
+    shock_dir_x[surface_mask], shock_dir_y[surface_mask], shock_dir_z[surface_mask],
     mach_surf,
     center=TARGET_CENTER,
     box_size=box_size,
     title=f"3D Shock Surface — Sedov-Taylor at t={params.t_end}",
+    mode="SCATTER"
+)
+plt.show()
+
+fig3d_2, ax3d_2 = plot_shock_surface_3d(
+    geometry_x_np[surface_mask], geometry_y_np[surface_mask], geometry_z_np[surface_mask],
+    shock_dir_x[surface_mask], shock_dir_y[surface_mask], shock_dir_z[surface_mask],
+    mach_surf,
+    center=TARGET_CENTER,
+    box_size=box_size,
+    title=f"3D Shock Surface — Sedov-Taylor at t={params.t_end}",
+    mode="SMOOTH"
 )
 plt.show()

@@ -180,12 +180,16 @@ def plot_shock_diagnostics_2d(
     return fig, axes
 
 def plot_shock_surface_3d(
-    xs, ys, zs, mach,
+    xs, ys, zs,
+    dxs, dys, dzs,
+    mach,
     center=(0.5, 0.5, 0.5),
     box_size=1.0,
     cmap="hot",
     title="3D Shock Surface (smoothed)",
     ax=None,
+    n_arrows=150,
+    mode="SMOOTH"
 ):
     """
     Render a smoothed 3D shock surface, colored by per-triangle mean Mach number
@@ -195,11 +199,16 @@ def plot_shock_surface_3d(
 
     Args:
         xs, ys, zs:     1D arrays of surface-cell coordinates
+        dxs, dys, dzs:  1D arrays of shock direction vectors at those same surface points
+
         mach:           1D array of Mach numbers at those same points
         box_size:       domain size, used to set axis limits
         cmap:           matplotlib colormap name
         title:          plot title
         ax:             optional existing 3D axis to draw into; creates one if None
+        n_arrows:       number of shock direction displayed
+        mode:           sketch mode, possible value is "SMOOTH" or "SCATTER"
+
 
         # optional arguments for Sedov case
         center:         optional explosion center
@@ -212,6 +221,9 @@ def plot_shock_surface_3d(
     ys = np.asarray(ys)
     zs = np.asarray(zs)
     mach = np.asarray(mach)
+    dxs = np.asarray(dxs)
+    dys = np.asarray(dys)
+    dzs = np.asarray(dzs)
 
     # create 3D base plot
     if ax is None:
@@ -232,32 +244,58 @@ def plot_shock_surface_3d(
         sc = ax.scatter(xs, ys, zs, c=mach, cmap=cmap, s=15, alpha=0.8)
         fig.colorbar(sc, ax=ax, shrink=0.6, label="Shock Mach number")
     else:
-        # triangulate the surface points using ConvexHull
-        hull = ConvexHull(np.column_stack([xs, ys, zs]))
-        
-        # each row is a triangle, given as 3 integer indices into (xs, ys, zs)
-        triangles = hull.simplices # shape (n_triangles, 3)
+        if mode == "SMOOTH":
+            # smooth
+            # triangulate the surface points using ConvexHull
+            hull = ConvexHull(np.column_stack([xs, ys, zs]))
+            
+            # each row is a triangle, given as 3 integer indices into (xs, ys, zs)
+            triangles = hull.simplices # shape (n_triangles, 3)
 
-        # get mean Mach number for each triangle
-        tri_mach = mach[triangles].mean(axis=1)
-        # instance of Normalize to map values to colors
-        norm = plt.Normalize(vmin=tri_mach.min(), vmax=tri_mach.max())
-        # get colors for each triangle based on mean Mach number and norm scale
-        face_colors = plt.get_cmap(cmap)(norm(tri_mach))
+            # get mean Mach number for each triangle
+            tri_mach = mach[triangles].mean(axis=1)
+            # instance of Normalize to map values to colors
+            norm = plt.Normalize(vmin=tri_mach.min(), vmax=tri_mach.max())
+            # get colors for each triangle based on mean Mach number and norm scale
+            face_colors = plt.get_cmap(cmap)(norm(tri_mach))
 
-        # use plot_trisurf to render the triangles with the computed face colors
-        surf = ax.plot_trisurf(
-            xs, ys, zs, # real coordinates of the surface points
-            triangles=triangles,
-            linewidth=0,
-            antialiased=True,
-            shade=False,
-        )
-        surf.set_fc(face_colors)
+            # use plot_trisurf to render the triangles with the computed face colors
+            surf = ax.plot_trisurf(
+                xs, ys, zs, # real coordinates of the surface points
+                triangles=triangles,
+                linewidth=0,
+                antialiased=True,
+                shade=False,
+            )
+            surf.set_fc(face_colors)
 
-        mappable = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
-        mappable.set_array(tri_mach)
-        fig.colorbar(mappable, ax=ax, shrink=0.6, label="Shock Mach number")
+            mappable = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+            mappable.set_array(tri_mach)
+            fig.colorbar(mappable, ax=ax, shrink=0.6, label="Shock Mach number")
+        else:
+            # scatter plot
+            sc = ax.scatter(xs, ys, zs, c=mach, cmap=cmap, s=15, alpha=0.8)
+            fig.colorbar(sc, ax=ax, shrink=0.6, label="Shock Mach number")
+
+    mag = np.sqrt(dxs**2 + dys**2 + dzs**2)
+    valid = mag > 0
+
+    xs_v, ys_v, zs_v = xs[valid], ys[valid], zs[valid]
+    dxs_v = dxs[valid] / mag[valid]
+    dys_v = dys[valid] / mag[valid]
+    dzs_v = dzs[valid] / mag[valid]
+
+    if len(xs_v) > n_arrows:
+        idx = np.random.choice(len(xs_v), n_arrows, replace=False)
+        xs_v, ys_v, zs_v = xs_v[idx], ys_v[idx], zs_v[idx]
+        dxs_v, dys_v, dzs_v = dxs_v[idx], dys_v[idx], dzs_v[idx]
+
+
+    ax.quiver(
+        xs_v, ys_v, zs_v,
+        dxs_v, dys_v, dzs_v,
+        length=0.04, color="cyan", normalize=True, linewidth=1.0,
+    )
 
     ax.scatter(
         [center[0]], [center[1]], [center[2]],
@@ -277,7 +315,8 @@ def plot_shock_surface_3d(
     return fig, ax
 
 def plot_shock_projections_3d(
-    field, result,
+    field, 
+    result,
     geometry_x, geometry_y, geometry_z,
     center,
     box_size=1.0,
@@ -287,7 +326,13 @@ def plot_shock_projections_3d(
     suptitle=None,
 ):
     """
-    Generic 3D shock-finder diagnostic
+    Takes a 3D simulation volume and shows 3 middle slices through it:
+    * XY plane: slice at the middle z
+        z≈z_center
+	* XZ plane: slice at the middle y
+        y≈y_center
+	* YZ plane: slice at the middle x
+        x≈x_center
 
     Args:
         field:      background scalar field to plot, shape (nx, ny, nz)
