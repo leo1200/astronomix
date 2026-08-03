@@ -235,6 +235,8 @@ def build(args, sharding=None):
     # the isothermal jump and a CONSTANT pressure floor leaves it pressureless
     # against ram crushing, but for an adiabatic run the density-scaled floor
     # has nothing to do.
+    if args.memory_analysis:
+        extra["memory_analysis"] = True
     if args.low_mem:
         # Two memory savings that cost NOTHING numerically, unlike switching to
         # the low-storage LSRK4 integrator: donate_state lets the integrator
@@ -897,6 +899,9 @@ def main():
                     help="add the five Orlando et al. (2016) Table 4 anisotropies. NOTE: "
                          "cold dense ejecta substructure has repeatedly crossed the "
                          "512^3 stability threshold -- gate it at 256^3 first")
+    ap.add_argument("--memory-analysis", action="store_true",
+                    help="print the solver's memory analysis of the main time "
+                         "integration function")
     ap.add_argument("--low-mem", action="store_true",
                     help="donate the state and keep helper meshgrids on the "
                          "host. Numerically identical; needed at 1024^3")
@@ -917,6 +922,16 @@ def main():
         jax.config.update("jax_use_shardy_partitioner", False)
 
     state, config, params, rv, cu, helper_data, meta = build(args, sharding=sharding)
+
+    if args.gpus > 1:
+        # A replicated array here is the whole diagnosis: an unsharded field
+        # multiplied into a sharded one silently gathers the cube onto one
+        # device, and no amount of extra GPUs fixes an allocation that was
+        # never distributed.
+        print(f"[orlando] state sharding: {state.sharding}")
+        print(f"[orlando] state shape {state.shape}, "
+              f"per-device shards: "
+              f"{[d.data.shape for d in state.addressable_shards][:2]} ...")
 
     if args.ic_only:
         rho = np.asarray(state[rv.density_index])
