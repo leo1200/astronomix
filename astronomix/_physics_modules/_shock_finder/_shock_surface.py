@@ -156,17 +156,17 @@ def _find_shock_surface_2d(
 
     """
     Compute the ray direction
+    
+    * walk along dominant axis
+        * -> return dominant_axis array for all cell 
+        * dominant_axis[cell] -> 0 then x dominant, 1 then y dominant
+    * assign step_x, step_y for each cell based on dominant axis
+        * step_x[cell] = +1 or -1 if x dominant, 0 if y dominant
+        * step_y[cell] = +1 or -1 if y dominant, 0 if x dominant
     """
-    # pick the dominant axis per cell 
-    # -> return dominant_axis array for all cell 
-    # dominant_axis[cell] -> 0 then x dominant, 1 then y dominant
     abs_ds = jnp.abs(shock_direction)  # shape (2, nx, ny)
-    # jnp.argmax(..., axis=0) means we get the max between dimension 0 (the 2 components) for each cell
     dominant_axis = jnp.argmax(abs_ds, axis=0)  # shape (nx, ny)
 
-    # get the step along dominant axis: +1 or -1
-    # shock_direction[axis, i, j] gives the component along that axis
-    # each cell gets its own (+1, 0) or (-1, 0) or (0, +1) or (0, -1)
     ds_x = shock_direction[0]
     ds_y = shock_direction[1]
     step_x = jnp.where(dominant_axis == 0, jnp.sign(ds_x).astype(jnp.int32), 0)
@@ -176,11 +176,11 @@ def _find_shock_surface_2d(
 
     """
     Given ray direction (step_x, step_y) for each cell, 
-    -> "walk along the ray" by per cell by ray direction
-    -> so we loop per cell
-        walk along the ray by step_x, step_y
-        check div_v of each cell we walk through
-        execute is_surface_cell logic to check if current cell is surface cell by comparing div_v along the ray
+        * -> "walk along the ray" by per cell by ray direction
+        * -> so we loop per cell
+            * walk along the ray by step_x, step_y
+            * check div_v of each cell we walk through
+            * execute is_surface_cell logic to check if current cell is surface cell by comparing div_v along the ray
 
     * Cell (i,j) is a surface cell if (in the shock zone) + (has smallest div_v along the ray in its shock zone segment)
     """
@@ -257,28 +257,28 @@ def _find_shock_surface_2d(
     return shock_surface & jnp.any(shock_zones)
 
 
-# ============================================================================
-# 3D RAYCASTING
-# ============================================================================
 
+"""
+3D raycasting: same logic as 2D but with three axes
+
+Args:
+    div_v:           velocity divergence, shape (nx, ny, nz)
+    shock_zones:     boolean field, shape (nx, ny, nz)
+    shock_direction: unit vector field, shape (3, nx, ny, nz)
+
+Returns:
+    boolean field, shape (nx, ny, nz)
+"""
 def _find_shock_surface_3d(
     div_v: FIELD_TYPE,
     shock_zones: BOOL_FIELD_TYPE,
     shock_direction: FIELD_TYPE,
 ) -> BOOL_FIELD_TYPE:
-    """
-    3D raycasting: same logic as 2D but with three axes.
-
-    Args:
-        div_v:           velocity divergence, shape (nx, ny, nz)
-        shock_zones:     boolean field, shape (nx, ny, nz)
-        shock_direction: unit vector field, shape (3, nx, ny, nz)
-
-    Returns:
-        boolean field, shape (nx, ny, nz)
-    """
     nx, ny, nz = shock_zones.shape
 
+    """
+    Compute the ray direction
+    """
     abs_ds = jnp.abs(shock_direction)           # (3, nx, ny, nz)
     dominant_axis = jnp.argmax(abs_ds, axis=0)  # (nx, ny, nz)
 
@@ -296,7 +296,6 @@ def _find_shock_surface_3d(
         sy = step_y[i, j, k]
         sz = step_z[i, j, k]
 
-        # static Python int, like the 2D version — required by lax.scan's `length`
         max_steps = int(max(nx, ny, nz))
 
         def ray_step(carry, _):
@@ -331,6 +330,7 @@ def _find_shock_surface_3d(
     k_idx = jnp.arange(nz)
     ii, jj, kk = jnp.meshgrid(i_idx, j_idx, k_idx, indexing="ij")
 
+    # only difference from 2D is the extra vmap for the third axis
     shock_surface = jax.vmap(
         jax.vmap(
             jax.vmap(is_surface_cell, in_axes=(0, 0, 0)),

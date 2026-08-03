@@ -12,29 +12,31 @@ def plot_shock_diagnostics_2d(
     mach_vmin=1.0,
     mach_vmax=100.0,
     suptitle=None,
+    n_arrows=100
 ):
     """
-    Generic 2D shock-finder diagnostic plot — works for ANY 2D simulation
-    result 
+    Generic 2D shock-finder diagnostic plot — works for 2D shock simulation
+
     Produces 5 panels:
         1. Pressure field
         2. Density field
         3. Shock zones + shock surface overlay on pressure
         4. Mach number field
-        5. Shock direction arrows at surface cells, overlaid on pressure
-           + shock zone/surface
+        5. Shock direction arrows at surface cells, overlaid on pressure + shock zone/surface
+    
+    6th panel (axes[1,2]) is left blank for the caller to fill in with a problem-specific plot.
 
     Args:
-        p_final, rho_final: final pressure/density fields, shape (nx, ny)
-        result:             ShockFinderResult from find_shocks_pfrommer
-        geometry_x, geometry_y: coordinate grids, shape (nx, ny)
-        box_size:           domain size, for axis limits
-        mach_vmin, mach_vmax: color scale bounds for the Mach panel
-        suptitle:           optional figure title
+        p_final, rho_final:         final pressure/density fields, shape (nx, ny)
+        result:                     ShockFinderResult from find_shocks_pfrommer
+        geometry_x, geometry_y:     coordinate grids, shape (nx, ny)
+        box_size:                   domain size, for axis limits
+        mach_vmin, mach_vmax:       color scale bounds for the Mach panel
+        suptitle:                   optional figure title
+        n_arrows:                   max number of shock direction arrows drawn in panel 5
 
     Returns:
-        (fig, axes) — figure and the 2x3 axes array (axes[1,2] left blank
-        for caller to fill with a problem-specific 6th panel)
+        (fig, axes) = figure and the 2x3 axes array 
     """
     geometry_x_np = np.array(geometry_x)
     geometry_y_np = np.array(geometry_y)
@@ -53,9 +55,8 @@ def plot_shock_diagnostics_2d(
     if suptitle:
         fig.suptitle(suptitle, fontsize=13)
 
-    # ------------------------------------------------------------------
+
     # 1. Pressure
-    # ------------------------------------------------------------------
     im0 = axes[0, 0].pcolormesh(
         geometry_x_np, geometry_y_np, p_final_np,
         cmap="viridis", shading="auto",
@@ -65,9 +66,8 @@ def plot_shock_diagnostics_2d(
     axes[0, 0].set_ylabel("y")
     plt.colorbar(im0, ax=axes[0, 0])
 
-    # ------------------------------------------------------------------
+
     # 2. Density
-    # ------------------------------------------------------------------
     im1 = axes[0, 1].pcolormesh(
         geometry_x_np, geometry_y_np, rho_final_np,
         cmap="plasma", shading="auto",
@@ -77,9 +77,8 @@ def plot_shock_diagnostics_2d(
     axes[0, 1].set_ylabel("y")
     plt.colorbar(im1, ax=axes[0, 1])
 
-    # ------------------------------------------------------------------
+
     # 3. Shock surface + shock zone on pressure
-    # ------------------------------------------------------------------
     axes[0, 2].pcolormesh(
         geometry_x_np, geometry_y_np, p_final_np,
         cmap="viridis", shading="auto", alpha=0.8,
@@ -103,9 +102,8 @@ def plot_shock_diagnostics_2d(
         loc="upper right", fontsize=8,
     )
 
-    # ------------------------------------------------------------------
+
     # 4. Mach number
-    # ------------------------------------------------------------------
     im3 = axes[1, 0].pcolormesh(
         geometry_x_np, geometry_y_np, mach_np,
         cmap="hot", vmin=mach_vmin, vmax=mach_vmax, shading="auto",
@@ -115,9 +113,9 @@ def plot_shock_diagnostics_2d(
     axes[1, 0].set_ylabel("y")
     plt.colorbar(im3, ax=axes[1, 0], label="Shock Mach number")
 
-    # ------------------------------------------------------------------
+
     # 5. Shock direction at surface cells
-    # ------------------------------------------------------------------
+    # draw pressure field in background, shock zone + surface overlay
     axes[1, 1].pcolormesh(
         geometry_x_np, geometry_y_np, p_final_np,
         cmap="viridis", shading="auto", alpha=0.55,
@@ -131,17 +129,19 @@ def plot_shock_diagnostics_2d(
         levels=[0.5], colors="red", linewidths=1.8,
     )
 
+    # extract surface-cell coordinates and shock directions
     gx_surf = geometry_x_np[surface_np]
     gy_surf = geometry_y_np[surface_np]
     dx_surf = shock_dir_x_np[surface_np]
     dy_surf = shock_dir_y_np[surface_np]
 
+    # normalize shock direction vectors for plotting
     mag = np.sqrt(dx_surf**2 + dy_surf**2)
     valid = mag > 0
     gx_surf, gy_surf = gx_surf[valid], gy_surf[valid]
     dx_surf, dy_surf = dx_surf[valid] / mag[valid], dy_surf[valid] / mag[valid]
 
-    n_arrows = 100
+    # pick a subset of arrows to plot -> gx_plot, gy_plot, dx_plot, dy_plot
     if len(gx_surf) > n_arrows:
         idx = np.linspace(0, len(gx_surf) - 1, n_arrows).astype(int)
         gx_plot, gy_plot = gx_surf[idx], gy_surf[idx]
@@ -150,6 +150,7 @@ def plot_shock_diagnostics_2d(
         gx_plot, gy_plot = gx_surf, gy_surf
         dx_plot, dy_plot = dx_surf, dy_surf
 
+    # plot the shock direction arrows
     axes[1, 1].quiver(
         gx_plot, gy_plot, dx_plot, dy_plot,
         angles="xy", scale_units="xy", scale=20,
@@ -169,16 +170,12 @@ def plot_shock_diagnostics_2d(
         loc="upper right", fontsize=8,
     )
 
-    # ------------------------------------------------------------------
-    # Common formatting for the 5 spatial panels
-    # ------------------------------------------------------------------
+
+    # Format
     for ax in [axes[0, 0], axes[0, 1], axes[0, 2], axes[1, 0], axes[1, 1]]:
         ax.set_aspect("equal", adjustable="box")
         ax.set_xlim(0, box_size)
         ax.set_ylim(0, box_size)
-
-    # axes[1, 2] intentionally left for caller to fill in with a
-    # problem-specific 6th panel (or leave blank / call fig.delaxes)
 
     return fig, axes
 
@@ -191,20 +188,24 @@ def plot_shock_surface_3d(
     ax=None,
 ):
     """
-    Render a smoothed 3D shock surface from a point cloud 
-    colored by per-triangle mean Mach number.
+    Render a smoothed 3D shock surface, colored by per-triangle mean Mach number
+    
+    We use scipy.spatial.ConvexHull to triangulate the surface
+    then color each triangle by the mean Mach number of its three vertices.
 
     Args:
-        xs, ys, zs: 1D arrays of surface-cell coordinates
-        mach:       1D array of Mach numbers at those same points
-        center:     explosion center, marked with a '+' 
-        box_size:   domain size, used to set axis limits
-        cmap:       matplotlib colormap name
-        title:      plot title
-        ax:         optional existing 3D axis to draw into; creates one if None
+        xs, ys, zs:     1D arrays of surface-cell coordinates
+        mach:           1D array of Mach numbers at those same points
+        box_size:       domain size, used to set axis limits
+        cmap:           matplotlib colormap name
+        title:          plot title
+        ax:             optional existing 3D axis to draw into; creates one if None
+
+        # optional arguments for Sedov case
+        center:         optional explosion center
 
     Returns:
-        (fig, ax) — the figure and axis used
+        (fig, ax)
     """
 
     xs = np.asarray(xs)
@@ -212,27 +213,41 @@ def plot_shock_surface_3d(
     zs = np.asarray(zs)
     mach = np.asarray(mach)
 
+    # create 3D base plot
     if ax is None:
         fig = plt.figure(figsize=(9, 8))
         ax = fig.add_subplot(111, projection="3d")
     else:
         fig = ax.figure
 
+    """
+    Render convex hull of the surface points, colored by mean Mach number per triangle.
+        * too few points -> just scatter plot
+        * enough points -> ConvexHull triangulation + plot triangles surfaces
+            * scipy.spatial.ConvexHull to get triangles
+            * compute mean Mach number per triangle + color by mean Mach number
+            * matplotlib.plot_trisurf to render the triangles
+    """
     if len(xs) < 4:
-        # not enough points to triangulate a hull; fall back to plain scatter
         sc = ax.scatter(xs, ys, zs, c=mach, cmap=cmap, s=15, alpha=0.8)
         fig.colorbar(sc, ax=ax, shrink=0.6, label="Shock Mach number")
     else:
+        # triangulate the surface points using ConvexHull
         hull = ConvexHull(np.column_stack([xs, ys, zs]))
-        triangles = hull.simplices
+        
+        # each row is a triangle, given as 3 integer indices into (xs, ys, zs)
+        triangles = hull.simplices # shape (n_triangles, 3)
 
-        # per-triangle color = mean Mach of its 3 vertices
+        # get mean Mach number for each triangle
         tri_mach = mach[triangles].mean(axis=1)
+        # instance of Normalize to map values to colors
         norm = plt.Normalize(vmin=tri_mach.min(), vmax=tri_mach.max())
+        # get colors for each triangle based on mean Mach number and norm scale
         face_colors = plt.get_cmap(cmap)(norm(tri_mach))
 
+        # use plot_trisurf to render the triangles with the computed face colors
         surf = ax.plot_trisurf(
-            xs, ys, zs,
+            xs, ys, zs, # real coordinates of the surface points
             triangles=triangles,
             linewidth=0,
             antialiased=True,
@@ -281,8 +296,8 @@ def plot_shock_projections_3d(
         geometry_x, geometry_y, geometry_z: coordinate grids, shape (nx, ny, nz)
         center:     (cx, cy, cz) — point through which the three mid-planes
                     are sliced, and where a marker is drawn
-        box_size:   domain size, for axis limits
-        field_cmap: colormap for the background field
+        box_size:   domain size
+        field_cmap: colormap
         zone_alpha: alpha for the shock-zone overlay
         n_arrows:   max number of direction arrows drawn per panel
         suptitle:   optional figure title
