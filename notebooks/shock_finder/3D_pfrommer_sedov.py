@@ -34,6 +34,7 @@ from astronomix.option_classes.simulation_config import CARTESIAN, HYBRID_HLLC
 
 from astronomix._physics_modules._shock_finder.plot_helper import plot_shock_surface_3d
 from astronomix._physics_modules._shock_finder.plot_helper import plot_shock_projections_3d
+from astronomix._physics_modules._shock_finder.plot_helper import plot_shock_surface_3d_interactive
 
 
 #%%
@@ -255,3 +256,18 @@ fig3d_2, ax3d_2 = plot_shock_surface_3d(
     mode="SMOOTH"
 )
 plt.show()
+
+#%%
+# FOR 3D INTERACTIVE PLOTTING
+# I am not sure if this can be run in local Jupyter Notebook, or from .py script
+# However it works on Colab
+fig = plot_shock_surface_3d_interactive(
+    geometry_x[surface_mask], geometry_y[surface_mask], geometry_z[surface_mask],
+    shock_dir_x[surface_mask], shock_dir_y[surface_mask], shock_dir_z[surface_mask],
+    mach_surf,
+    center=(0.5,0.5,0.5),
+    box_size=1.0,
+    title="3D Sedov Shock Surface",
+)
+
+fig.show()

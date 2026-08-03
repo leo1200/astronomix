@@ -1,9 +1,23 @@
 import numpy as np
+
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 from matplotlib.lines import Line2D
+
 from scipy.spatial import ConvexHull
 from mpl_toolkits.mplot3d import Axes3D
+
+import plotly.graph_objects as go
+
+"""
+This file contains helper functions for plotting shock-finder results in 2D and 3D.
+* plot_shock_diagnostics_2d: 2D shock-finder diagnostic plot (5 panels)
+* plot_shock_surface_3d: render a 3D shock surface, colored by Mach number,  
+        with optional shock direction arrows
+        2 modes: "SMOOTH" (ConvexHull triangulation) or "SCATTER" (scatter plot)
+* plot_shock_projections_3d: 3D shock-finder diagnostic plot
+        Just very simple projections of the 3D volume onto the three mid-planes (xy, xz, yz)
+"""
 
 def plot_shock_diagnostics_2d(
     p_final, rho_final, result,
@@ -314,6 +328,7 @@ def plot_shock_surface_3d(
 
     return fig, ax
 
+
 def plot_shock_projections_3d(
     field, 
     result,
@@ -476,3 +491,153 @@ def plot_shock_projections_3d(
     )
 
     return fig, axes
+
+def plot_shock_surface_3d_interactive(
+    xs, ys, zs,
+    dxs, dys, dzs,
+    mach,
+    center=(0.5, 0.5, 0.5),
+    box_size=1.0,
+    title="Interactive 3D Shock Surface",
+    n_arrows=200,
+    point_size=3,
+    show_arrows=True,
+):
+    """
+    Interactive 3D shock surface viewer using Plotly.
+
+    Args:
+        xs, ys, zs:     1D arrays of surface-cell coordinates
+        dxs, dys, dzs:  1D arrays of shock direction vectors at those same surface points
+        mach:           1D array of Mach numbers at those same points
+        center:         optional explosion center
+        box_size:       domain size, used to set axis limits
+        title:          plot title
+        n_arrows:       number of shock direction arrows displayed
+        point_size:     size of the scatter points for the shock surface
+        show_arrows:    whether to show shock direction arrows
+    """
+
+    xs = np.asarray(xs)
+    ys = np.asarray(ys)
+    zs = np.asarray(zs)
+    dxs = np.asarray(dxs)
+    dys = np.asarray(dys)
+    dzs = np.asarray(dzs)
+    mach = np.asarray(mach)
+
+    # create 3D interactive plot using Plotly
+    fig = go.Figure()
+    # Add shock surface scatter points, colored by Mach number
+    fig.add_trace(
+        go.Scatter3d(
+            x=xs,
+            y=ys,
+            z=zs,
+            mode="markers",
+            marker=dict(
+                size=point_size,
+                color=mach,
+                colorscale="Hot",
+                colorbar=dict(
+                    title="Mach"
+                ),
+                opacity=0.9,
+            ),
+            name="Shock surface",
+        )
+    )
+
+    # Add shock direction arrows if requested
+    if show_arrows:
+        mag = np.sqrt(
+            dxs**2 +
+            dys**2 +
+            dzs**2
+        )
+        valid = mag > 0
+
+        # normalize the direction vectors
+        xs_a = xs[valid]
+        ys_a = ys[valid]
+        zs_a = zs[valid]
+        dx_a = dxs[valid]/mag[valid]
+        dy_a = dys[valid]/mag[valid]
+        dz_a = dzs[valid]/mag[valid]
+
+        # choose a subset of arrows to plot
+        if len(xs_a) > n_arrows:
+            idx = np.linspace(
+                0,
+                len(xs_a)-1,
+                n_arrows
+            ).astype(int)
+
+            xs_a = xs_a[idx]
+            ys_a = ys_a[idx]
+            zs_a = zs_a[idx]
+            dx_a = dx_a[idx]
+            dy_a = dy_a[idx]
+            dz_a = dz_a[idx]
+
+        # Add shock direction arrows as cones in 3D
+        fig.add_trace(
+            go.Cone(
+                x=xs_a,
+                y=ys_a,
+                z=zs_a,
+                u=dx_a,
+                v=dy_a,
+                w=dz_a,
+
+                colorscale=[
+                    [0,"cyan"],
+                    [1,"cyan"]
+                ],
+                showscale=False,
+                sizemode="absolute",
+                sizeref=0.2, # scale factor for the size of the cones, increase for larger arrows of shock direction
+
+                name="Shock direction",
+            )
+        )
+
+    # Explosion center
+    fig.add_trace(
+        go.Scatter3d(
+            x=[center[0]],
+            y=[center[1]],
+            z=[center[2]],
+
+            mode="markers",
+            marker=dict(
+                size=8,
+                color="cyan",
+                symbol="cross",
+            ),
+            name="Explosion center",
+        )
+    )
+
+    # Layout
+    fig.update_layout(
+        title=title,
+        scene=dict(
+            xaxis=dict(
+                title="x",
+                range=[0,box_size],
+            ),
+            yaxis=dict(
+                title="y",
+                range=[0,box_size],
+            ),
+            zaxis=dict(
+                title="z",
+                range=[0,box_size],
+            ),
+            aspectmode="cube",
+        ),
+        width=900,
+        height=900,
+    )
+    return fig
