@@ -260,3 +260,159 @@ def plot_shock_surface_3d(
     ax.legend(loc="upper right")
 
     return fig, ax
+
+def plot_shock_projections_3d(
+    field, result,
+    geometry_x, geometry_y, geometry_z,
+    center,
+    box_size=1.0,
+    field_cmap="plasma",
+    zone_alpha=0.22,
+    n_arrows=60,
+    suptitle=None,
+):
+    """
+    Generic 3D shock-finder diagnostic
+
+    Args:
+        field:      background scalar field to plot, shape (nx, ny, nz)
+                    (e.g. density or pressure)
+        result:     ShockFinderResult from find_shocks_pfrommer
+        geometry_x, geometry_y, geometry_z: coordinate grids, shape (nx, ny, nz)
+        center:     (cx, cy, cz) — point through which the three mid-planes
+                    are sliced, and where a marker is drawn
+        box_size:   domain size, for axis limits
+        field_cmap: colormap for the background field
+        zone_alpha: alpha for the shock-zone overlay
+        n_arrows:   max number of direction arrows drawn per panel
+        suptitle:   optional figure title
+
+    Returns:
+        (fig, axes) — figure and the 1x3 axes array (xy, xz, yz)
+    """
+    cx, cy, cz = center
+
+    geometry_x_np = np.array(geometry_x)
+    geometry_y_np = np.array(geometry_y)
+    geometry_z_np = np.array(geometry_z)
+    field_np      = np.array(field)
+
+    zones_np   = np.array(result.shock_zones).astype(bool)
+    surface_np = np.array(result.shock_surface_cells).astype(bool)
+
+    shock_dir_x_np = np.array(result.shock_direction[0])
+    shock_dir_y_np = np.array(result.shock_direction[1])
+    shock_dir_z_np = np.array(result.shock_direction[2])
+
+    def mid_index(coord_1d, target):
+        return int(np.argmin(np.abs(coord_1d - target)))
+
+    x_1d = geometry_x_np[:, 0, 0]
+    y_1d = geometry_y_np[0, :, 0]
+    z_1d = geometry_z_np[0, 0, :]
+
+    ix_mid = mid_index(x_1d, cx)
+    iy_mid = mid_index(y_1d, cy)
+    iz_mid = mid_index(z_1d, cz)
+
+    def plot_projection(ax, plane, slice_idx, axis0_label, axis1_label):
+        if plane == "xy":
+            A = geometry_x_np[:, :, slice_idx]
+            B = geometry_y_np[:, :, slice_idx]
+            f = field_np[:, :, slice_idx]
+            zone_slice = zones_np[:, :, slice_idx]
+            surf_slice = surface_np[:, :, slice_idx]
+            da = shock_dir_x_np[:, :, slice_idx]
+            db = shock_dir_y_np[:, :, slice_idx]
+            c0, c1 = cx, cy
+        elif plane == "xz":
+            A = geometry_x_np[:, slice_idx, :]
+            B = geometry_z_np[:, slice_idx, :]
+            f = field_np[:, slice_idx, :]
+            zone_slice = zones_np[:, slice_idx, :]
+            surf_slice = surface_np[:, slice_idx, :]
+            da = shock_dir_x_np[:, slice_idx, :]
+            db = shock_dir_z_np[:, slice_idx, :]
+            c0, c1 = cx, cz
+        elif plane == "yz":
+            A = geometry_y_np[slice_idx, :, :]
+            B = geometry_z_np[slice_idx, :, :]
+            f = field_np[slice_idx, :, :]
+            zone_slice = zones_np[slice_idx, :, :]
+            surf_slice = surface_np[slice_idx, :, :]
+            da = shock_dir_y_np[slice_idx, :, :]
+            db = shock_dir_z_np[slice_idx, :, :]
+            c0, c1 = cy, cz
+        else:
+            raise ValueError(plane)
+
+        ax.pcolormesh(A, B, f, cmap=field_cmap, shading="auto", alpha=0.85)
+
+        ax.contourf(
+            A, B, zone_slice.astype(float),
+            levels=[0.5, 1.5], colors=["green"], alpha=zone_alpha,
+        )
+
+        ax.contour(
+            A, B, surf_slice.astype(float),
+            levels=[0.5], colors="red", linewidths=1.5,
+        )
+
+        Af = A[surf_slice]
+        Bf = B[surf_slice]
+        daf = da[surf_slice]
+        dbf = db[surf_slice]
+
+        mag = np.sqrt(daf**2 + dbf**2)
+        valid = mag > 0
+        Af, Bf, daf, dbf = Af[valid], Bf[valid], daf[valid], dbf[valid]
+        mag = mag[valid]
+
+        if len(Af) > 0:
+            daf_u = daf / mag
+            dbf_u = dbf / mag
+
+            if len(Af) > n_arrows:
+                idx = np.linspace(0, len(Af) - 1, n_arrows).astype(int)
+                Af, Bf, daf_u, dbf_u = Af[idx], Bf[idx], daf_u[idx], dbf_u[idx]
+
+            ax.quiver(
+                Af, Bf, daf_u, dbf_u,
+                angles="xy", scale_units="xy", scale=20,
+                color="white", width=0.004, headwidth=4, headlength=5,
+                pivot="middle", zorder=20,
+            )
+
+        ax.plot(c0, c1, marker="+", color="cyan", markersize=10, mew=2, zorder=25)
+
+        ax.set_xlabel(axis0_label)
+        ax.set_ylabel(axis1_label)
+        ax.set_aspect("equal", adjustable="box")
+        ax.set_xlim(0, box_size)
+        ax.set_ylim(0, box_size)
+
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6), constrained_layout=True)
+
+    if suptitle:
+        fig.suptitle(suptitle, fontsize=12)
+
+    plot_projection(axes[0], "xy", iz_mid, "x", "y")
+    axes[0].set_title(f"xy plane (z ≈ {z_1d[iz_mid]:.3f})")
+
+    plot_projection(axes[1], "xz", iy_mid, "x", "z")
+    axes[1].set_title(f"xz plane (y ≈ {y_1d[iy_mid]:.3f})")
+
+    plot_projection(axes[2], "yz", ix_mid, "y", "z")
+    axes[2].set_title(f"yz plane (x ≈ {x_1d[ix_mid]:.3f})")
+
+    axes[0].legend(
+        handles=[
+            Patch(facecolor="green", edgecolor="green", alpha=zone_alpha, label="shock zone"),
+            Line2D([0], [0], color="red", lw=1.5, label="shock surface"),
+            Line2D([0], [0], color="white", lw=0, marker=r"$\rightarrow$",
+                   markersize=12, label="shock direction"),
+        ],
+        loc="upper right", fontsize=8,
+    )
+
+    return fig, axes
