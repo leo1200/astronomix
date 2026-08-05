@@ -1,5 +1,16 @@
 # Supernova showcase
 
+> **If you came for the calibrated Cas A model, start with
+> [`OVERVIEW.md`](OVERVIEW.md), not here.** It maps the two-stage pipeline, what
+> physics each piece contains, where the model stands against Chandra and what
+> is missing; [`CALIBRATION.md`](CALIBRATION.md) holds the derivations
+> (Results 1–13). **This README covers the older *showcase* scripts**
+> (`cassiopeia*.py`, `snr_sedov.py`, `young_snr_ism.py`), which are tuned to
+> look right rather than to agree with data, plus the numerics and the pq
+> workflow that both tracks share. Where it says something is "not modelled",
+> that is a statement about the showcase scripts — the calibrated track has
+> since added composition, NEI, the electron temperature and the dust halo.
+
 Three supernova-remnant setups, all solved with the **same consistent
 high-order finite-difference scheme** (WENO reconstruction + RK4-SSP time
 integration), running in single precision (float32):
@@ -32,6 +43,10 @@ properly — calibrate, then predict, then observe:
 | `casa_analyze.py` | Scores a saved state: angle-averaged `r_FS`/`r_RS` (same criteria as the 1D run), `r_FS` versus position angle, radial profile against the 1D solution. | CPU |
 | `casa_plasma.py` | Non-equilibrium diagnostics from the shock history: ionization age `n_e t`, electron and ion temperatures, shocked ejecta/Fe/Si masses, and the EM(`kT_e`, `n_e t`) distribution Hwang & Laming fit the real data in. | CPU |
 | `casa_observe.py` | **Real synthetic observations.** pyXSIM (AtomDB/APEC, per-cell simulated abundances) → SIMPUT → SOXS with the actual ACIS ARF/RMF/PSF/backgrounds → a Chandra event file, binned onto the same sky grid as the real `evt2` data and compared in counts/s. | CPU, separate `xrayobs` venv |
+| `_plasma.py`, `_nei.py` | Composition → μ, μ_e and the electron temperature (Coulomb equilibration from the shock history), and (kT_e, n_e t) → non-equilibrium ion fractions. Shared by `casa_plasma.py` and `casa_observe.py`. | CPU |
+| `_dusthalo.py` | The interstellar dust-scattering halo, applied to the photon list between absorption and the telescope (`--halo`). Mie on an MRN grain population; the column follows the same N_H that absorbs, so nothing is fitted. Build the table once with `--rebuild`. | CPU |
+| `casa_morphology.py` | Structure vs scale against the real `evt2`: band-passed σ_I/I with the Poisson term subtracted analytically, plus Euler characteristic and structure-tensor coherence on a noise-matched pair. | CPU |
+| `casa_morph_null.py` | The phase-randomised null for those statistics — same power spectrum, no topology — so the *excess* separates real structure from "the same power spectrum". | CPU |
 
 ### Composition and shock history (`--composition`)
 
@@ -309,21 +324,32 @@ crossing the remnant's face in the IR panel. (The real GM is also pockmarked
 by round holes from ejecta knots punching through it — a resolution-limited
 effect to look for in the hero runs.)
 
-Not modelled: elemental abundances / NEI spectra (no passive scalars or
-nucleosynthesis network), so the Fe/Si vs CSM abundance distinction is only
-mimicked by the band proxies, and the radioactive Ti/Ni asymmetries that
-shaped the pristine debris are out of scope.
+Not modelled *by this script*: elemental abundances / NEI spectra (no passive
+scalars or nucleosynthesis network), so the Fe/Si vs CSM abundance distinction
+is only mimicked by the band proxies, and the radioactive Ti/Ni asymmetries that
+shaped the pristine debris are out of scope. **The calibrated track has since
+closed the first two**: `casa_orlando.py --composition` carries a four-element
+stratification as passive scalars and `casa_observe.py --nei` builds the
+non-equilibrium ion fractions from each parcel's (kT_e, n_e t) — see
+`OVERVIEW.md` §3.
 
 `--save-state <npz>` dumps the final density/pressure **and velocities** so
 all images can be recomposed offline (`reimage.py`: colour balance, bands,
 stretch, line of sight) without re-running; velocities also enable kinematic
 views (e.g. the GM's blueshift) later.
 
-What astronomix cannot represent (and the Orlando models include): a genuine 3D
-core-collapse ejecta structure, multiple chemical species / passive scalars,
+What this *showcase* cannot represent (and the Orlando models include): a genuine
+3D core-collapse ejecta structure, multiple chemical species / passive scalars,
 radioactive-decay heating, non-equilibrium-ionization cooling, and
 temperature-dependent/saturated conduction — so this is a gas-dynamics likeness,
 not a spectral synthetic observation.
+
+**Two of those are no longer library limitations.** Passive scalars and
+NEI post-processing both exist and are used by the calibrated track; conduction
+is implemented but costs ~15 days per run. What remains genuinely out of reach
+is the explosion-era ejecta structure — see `OVERVIEW.md` §5 and §6, which also
+records why an in-house explosion needs a degenerate EOS the solver does not
+have.
 
 ## Comparison with the real observations (`compare_real.py`)
 
@@ -338,6 +364,12 @@ ring/bubble interior morphology (no radioactive Ni-bubble structure in the
 ICs), a ~25 % undersized forward shock (CSM normalization / age mapping),
 global asymmetries from the explosion engine (Fe-outside-Si overturn), and
 observational forward-modelling (absorption, PSF, photon noise).
+
+Every gap in that list except the knot scale is closed on the calibrated track:
+`casa_calibrate_1d.py` fixes r_FS and r_RS against the measurements, the Table-4
+pistons produce the Fe-outside-Si inversion, and `casa_observe.py` does the
+forward modelling with the real ACIS response. Compare against `OVERVIEW.md` §4
+before quoting any number from this section.
 
 ## Source material
 
