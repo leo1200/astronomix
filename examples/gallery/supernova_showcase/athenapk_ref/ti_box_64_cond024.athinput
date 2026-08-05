@@ -1,0 +1,95 @@
+# Mainline-AthenaK translation of cassiopax/athena_inputs/ti.athinput
+# (Guo, Kim & Stone 2025 thermal-instability box) for the ti_box pgen
+# (build-a100-tibox: cmake -D PROBLEM=ti_box).
+# Fork features dropped/translated: <turb_init1>(turb_flag/turb_count) ->
+# mainline continuous <turb_driving>; mu_h (fork cooling density) -> mainline
+# uses n_p = rho/(mu m_u); passive scalars off; conduction OFF for the v1
+# cross-validation (both codes; the Field length can be added in v2).
+# Gate config: 128^3, tlim 5 Myr (TI onset); the spec is 256^3 / 50 Myr.
+# GATE DEVIATION: driving band k=4-8 instead of the spec 16-32 — the
+# mainline mode-sum driver costs O(modes x cells) and k=16-32 is ~240k
+# modes (4.4 s/cycle at 128^3); restore the spec band on multi-GPU later.
+
+<comment>
+problem   = thermal instability box (mainline translation)
+reference = Guo, Kim, & Stone, ApJ 990, 49 (2025)
+
+<job>
+basename  = Ti
+
+<mesh>
+nghost    = 4
+nx1       = 64
+x1min     = -32.0
+x1max     = 32.0
+ix1_bc    = periodic
+ox1_bc    = periodic
+nx2       = 64
+x2min     = -32.0
+x2max     = 32.0
+ix2_bc    = periodic
+ox2_bc    = periodic
+nx3       = 64
+x3min     = -32.0
+x3max     = 32.0
+ix3_bc    = periodic
+ox3_bc    = periodic
+
+<meshblock>
+nx1       = 64
+nx2       = 64
+nx3       = 64
+
+<time>
+evolution  = dynamic
+integrator = rk3
+cfl_number = 0.3
+nlim       = -1
+tlim       = 50.0
+ndiag      = 100
+
+<hydro>
+eos         = ideal
+reconstruct = ppm4
+rsolver     = hllc
+gamma       = 1.66666666667
+alpha_iso   = 0.24       # isotropic thermal DIFFUSIVITY (kappa = rho*alpha);
+                       # 0.24 = 1e7 cgs at n=1 (GKS ti.athinput spec)
+dfloor      = 1e-4
+pfloor      = 1e-2
+tfloor      = 7e-2
+
+<hydro_srcterms>
+ism_cooling = true
+hrate       = 5.0e-26
+
+<units>
+length_cgs  = 3.0856775809623245e+18 # pc
+mass_cgs    = 3.015012867156497e+31  # number density 1 cm^-3
+time_cgs    = 3.15576e+13            # 1 Myr
+mu          = 0.618
+
+<problem>
+d0          = 1.0          # n_p = 1 cm^-3
+p0          = 6.6296       # T = 471.233 K (temp_unit = 71.08 K)
+
+<turb_driving>
+type  = hydro
+tcorr = 0.5
+dedt  = 0.08     # lands urms ~ 8.4 km/s (GKS intent); 0.006 gave only ~2-3
+nlow  = 4
+nhigh = 8
+
+<output1>
+file_type   = hst
+data_format = %12.5e
+dt          = 0.01
+
+<output2>
+file_type   = rst
+dt          = 5.0
+
+<output3>
+file_type   = bin
+variable    = hydro_w
+dt          = 0.5
