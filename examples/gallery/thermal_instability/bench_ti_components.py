@@ -32,6 +32,7 @@ from astronomix._modules._conduction._conduction import fd_conduction_source
 from astronomix._finite_difference._interface_fluxes._weno import _weno_flux_x
 from astronomix._fluid_equations._equations import conserved_state_from_primitive
 
+import _tipaths  # noqa: F401  — puts the showcase's _common on sys.path
 from _common import GAMMA, make_fd_config, ism_ti_cooling_setup
 from casa_ti_phase import gks_code_units, MU_ATH, BOX_SIZE, HRATE_CGS, DFLOOR, PFLOOR
 

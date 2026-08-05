@@ -108,11 +108,15 @@ pq sub -t h200 -n 4 --name casa512 -- \
 
 (Preallocation matters at the memory edge: on-demand allocation fragments the
 cards and a run OOMs even though it fits.) Do NOT use `--low-mem` for the
-blast runs: the LSRK4 low-storage integrator is not SSP, the positivity-flux
-limiter's guarantee needs SSP stage convexity, and on this problem LSRK4
-demonstrably inflates the energy at N=64 and collapses `dt` to zero at the
-blast/shell interaction (t≈0.02) — pick GPUs the SSP integrator fits on
-instead (~58 GiB/GPU at 512³ across 4 GPUs). The queued-log progress lines
+blast runs without re-testing it: LSRK4 inflated the energy at N=64 and
+collapsed `dt` to zero at the blast/shell interaction (t≈0.02), which was
+attributed to the integrator not being SSP while the positivity-flux limiter's
+guarantee needs SSP stage convexity. **That diagnosis was only half right.** The
+fused Pallas path did not exclude the flux-blending flags, so every `--low-mem`
+run silently skipped the positivity limiter altogether (`OVERVIEW.md` §6). The
+exclusion is fixed; LSRK4 + limiter is plausible again and remains untested, so
+prefer GPUs the SSP integrator fits on (~58 GiB/GPU at 512³ across 4 GPUs) until
+someone measures it. The queued-log progress lines
 include the per-step `dt`, and the time loop aborts with a loud
 `[astronomix] ABORT` line if the clock ever stops advancing, so a dt collapse
 fails fast instead of spinning on the GPUs.
@@ -347,7 +351,7 @@ not a spectral synthetic observation.
 **Two of those are no longer library limitations.** Passive scalars and
 NEI post-processing both exist and are used by the calibrated track; conduction
 is implemented but costs ~15 days per run. What remains genuinely out of reach
-is the explosion-era ejecta structure — see `OVERVIEW.md` §5 and §6, which also
+is the explosion-era ejecta structure — see `OVERVIEW.md` §5 and §7, which also
 records why an in-house explosion needs a degenerate EOS the solver does not
 have.
 

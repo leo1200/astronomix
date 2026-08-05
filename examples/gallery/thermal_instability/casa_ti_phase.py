@@ -48,8 +48,8 @@ from astronomix._modules._turbulent_forcing._turbulent_forcing_options import (
 )
 from astronomix.units.unit_helpers import CodeUnits
 
+from _tipaths import FIGURES_DIR          # also puts the showcase's _common on sys.path
 from _common import GAMMA, make_fd_config, ism_ti_cooling_setup
-from cassiopeia_realistic import FIGURES_DIR
 
 # ↓───────────────────────────────────────────────────────────────────────↓
 # GKS unit system (ti.athinput <units>): length pc, time Myr, and the mass

@@ -52,13 +52,19 @@ consequences drive every design choice below:
                                                to IIb, exploded in 1D (Result 11)
 ```
 
-Everything else in this directory is either superseded or a different study:
-`cassiopeia.py` / `cassiopeia_realistic.py` are the pre-calibration showcase
-(no composition, no NEI — `README.md` describes those and their limits);
-`casa_ti_*.py`, `casa_turb_phase.py`, `compare_codes.py`, `compare_fig5.py`,
-`compare_slices.py` and `athenapk_ref/` belong to the thermal-instability /
-AthenaPK cross-code work; `forensics_*.py`, `nanhunt.py`, `scalarprobe.py`,
-`fediag.py` are one-off debugging probes kept for provenance.
+`_common.py` holds the solver configuration and the initial-condition builders
+the whole directory shares, and `run.sh` is the environment wrapper (§9).
+`verify_sharded_turb.py` checks that the multi-GPU turbulent field is the same
+field as the single-device one — a regression guard for the fix in §6.
+
+The rest of the directory is the **pre-calibration gallery**: `cassiopeia.py`,
+`cassiopeia_realistic.py`, `casa_turb_phase.py`, `snr_sedov.py`,
+`young_snr_ism.py`, and the `reimage.py` / `compare_real.py` renderers. Those
+are tuned to look right rather than to agree with data — no composition, no NEI,
+a forward shock ~25 % small — and `README.md` documents them and their limits.
+Do not take numbers from them. The thermal-instability / AthenaK cross-code study
+that used to live here is now in `../thermal_instability/`, and the one-off
+debugging probes have been deleted (their findings are in §6).
 
 **Why two stages.** Building the remnant directly in 3D skips the phase that
 sets the answer: the progenitor wind holds ~3 M☉ — an entire ejecta mass —
@@ -197,7 +203,7 @@ compared with Chandra's +0.36.
 (one email; the progenitor models there are open, the explosion models are not),
 or compute the RT-mixing part ourselves with an imposed l = 1,2 asymmetry
 (2–3 sessions). A full in-house explosion needs a Yin-Yang/moving-mesh solver
-rewrite (6–12 months) plus a degenerate EOS — **not recommended**; see §6.
+rewrite (6–12 months) plus a degenerate EOS — **not recommended**; see §7.
 
 **2. Non-thermal synchrotron.**
 Absent entirely. Costs the 140–180″ rim (a 3–5× residual that the dust halo
@@ -253,10 +259,77 @@ assumed, not simulated.
 | cooling, cosmic Λ | changes nothing observable. **But Λ×10 with the guards off destroys the run** — metal-enhanced cooling is an *open* question |
 | conduction (the Field length) | 15 days/run — unaffordable |
 | projection / shell thickness | refuted: the emitting shell is already thin, dR/R = 0.12 at 109″ |
+| dust halo as the outer flux | refuted: it puts 5.2 % beyond r_FS against Chandra's 8.8 %, in the wrong radial shape (observed r⁻⁴…⁻⁷ is too steep for any admissible halo). The halo is still **mandatory** — it just is not that flux (Result 13) |
 
 ---
 
-## 6. Two hard walls
+## 6. Dead ends, and the mistakes that produced them
+
+Every expensive mistake in this study has the same shape: **the run completed,
+and printed a plausible number.** A crash is cheap. What cost weeks was code
+that was silently not doing what its flag said, and metrics that ranked models
+in the wrong order while looking rigorous. They are listed here because each one
+was believed for a while, and any of them can come back.
+
+### Silent bugs — the run finishes, the number is wrong
+
+| what happened | what it looked like | how it was caught |
+|---|---|---|
+| **`POSITIVITY_HARD_FLOOR` manufactures mass**, 17 → 10¹² M☉ | "512³ is unstable" — a verdict that stood for weeks and was recorded in a handoff as settled | a mass-conservation check on a run that had *not* crashed. `--positivity redistribute` completes to 350 yr with mass conserved to 6e-5 |
+| **`ejecta_radial_shape` clipped the profile to ≤ 1**, so `--inner-slope` did nothing | δ = 1 runs that "worked" and changed no observable | the unshocked mass refused to move. **Any δ result from before the fix is a δ = 0 result whatever the flag said** |
+| **The LSRK fused Pallas path skipped the positivity flux limiter** — `use_fused_pallas` did not exclude the flux-blending flags, so `_blend_interface_flux` was never called | every `--low-mem` run blowing up, blamed on LSRK's non-SSP property | reading the dispatch, not the physics. LSRK + limiter is plausible again for 1024³, and untested |
+| **`pyxsim.EventList` ignores the path it is given** and re-reads the filenames stored inside the HDF5 | the dust halo doing *nothing*: run completes, count rate identical to no-halo | the count rate was identical to the last digit, which is not what a physical process looks like. `apply_dust_halo` now rewrites `info/filenames` and asserts the round trip |
+| **`casa_morph_null.py` v1 never thinned the real image**, though a comment said it did | a null table comparing Chandra at 143 ks against models at 20 ks — nulls 6.6 vs 16.8 | the numbers were too good. Every image is now thinned to matched counts |
+| **The "sharded" turbulent field was not sharded** — it was a single-device array that replicated the whole cube the moment it multiplied a sharded density | 1024³ initial conditions that would not build, read as a memory-per-cell problem | threading `sharding` through the generators; `verify_sharded_turb.py` checks the field is bit-identical either way |
+| **Multi-GPU was never broken.** It needed `AxisType.Auto` on the mesh (a jax 0.10 default drift) and `NCCL_NVLS_ENABLE=0` | "the solver does not shard", which put every rung above 512³ out of reach for months | trying the mesh option before touching the solver. Output is bit-identical to the single-device run |
+
+The common lesson: **a completed run is not a passed run.** Mass, energy and the
+scalar bounds are checked on every production run for this reason, and a result
+that changes nothing at all is treated as a bug report, not as a null.
+
+### Metrics that ranked models in the wrong order
+
+* **Band-pass RMS `σ_I/I` cannot tell a filamentary web from a few sharp edges.**
+  An edge is scale-free, so it deposits power in every octave. The statistic
+  ranked the 192³ model — a smooth blob with two arcs — *best* at 1.46×, and the
+  512³ contact-discontinuity model, which carries the cellular texture Cas A
+  actually shows, *worse* at 1.80×. Adding the Euler characteristic and
+  structure-tensor coherence **reversed three of Result 10's conclusions**:
+  resolution does help monotonically, finer seeds are better not worse, and
+  512³ CD is the best model. Result 10's seed-scale headline is withdrawn.
+* **A resolution ladder that does not hold the seed fixed measures the seed.**
+  The first ladder changed `k_hi` with N and produced a non-monotonic result
+  that was read as "resolution does not help".
+* **Topology needs matched noise, and a null.** χ is only comparable at matched
+  exposure, which is why the real image is binomially thinned; and because finer
+  structure lowers coherence for an almost geometric reason, "finer isotropic
+  foam" and "filamentary web" move the same way until you subtract a
+  phase-randomised null.
+* **Quote a fraction against a radius, not an annulus edge.** The same image
+  gives 13.5 % of the flux beyond 140″, 8.8 % beyond the observed forward shock
+  at 153″ and 7.0 % beyond 160″.
+* **`τ_sca ∝ E⁻²` is not usable in the soft band** (the local index wanders
+  between −1.4 and −2.2 below 2 keV), and **single scattering is not good enough**
+  at τ(1 keV) = 0.71, where a quarter of scattered photons scatter twice.
+
+### Directions that were tried and are closed
+
+The measured negatives are tabulated in §5 above and should not be re-run: cosmic
+rays, magnetic fields, Ni bubbles imposed at 150 yr, raising the clump amplitude,
+cosmic-abundance cooling, conduction, a projection/shell-thickness explanation
+for the smoothness, and the dust halo as the source of the outer flux. Two more
+are structural rather than physical:
+
+* **Building the remnant directly in 3D** (`cassiopeia_realistic.py`, the
+  gallery track). It skips the phase that sets the answer — the wind holds an
+  entire ejecta mass inside 1.5 pc — and its forward shock lands ~25 % small.
+  That is what Route B and the 1D calibration exist to fix.
+* **An in-house explosion.** Blocked by the degenerate EOS, not by effort; see
+  §7.
+
+---
+
+## 7. Two hard walls
 
 **Degenerate EOS.** A presupernova core is supported by electron degeneracy;
 `astronomix` is ideal-gas. Ideal gas + radiation accounts for 2.7 % of KEPLER's
@@ -275,7 +348,7 @@ isolated. **512³ is the top of the verified ladder.**
 
 ---
 
-## 7. Literature
+## 8. Literature
 
 **Setup and method** — Orlando et al. 2016 (Route B, Table 4 anisotropies),
 2021 (Cas A as a fully developed remnant), 2022 (asymmetric CSM shell), 2025
@@ -299,7 +372,7 @@ map, 13 769 points); Chandra ACIS evt2, 22 obsids 2000–2023, in
 
 ---
 
-## 8. Reproducing
+## 9. Reproducing
 
 ### Prerequisites — three things that live outside this directory
 

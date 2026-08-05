@@ -44,9 +44,9 @@ from astronomix import (
     time_integration,
 )
 
+from _tipaths import FIGURES_DIR          # also puts the showcase's _common on sys.path
 from _common import (GAMMA, make_fd_config, fd_positivity,
                      ism_ti_cooling_setup, tapered_sphere_weight)
-from cassiopeia_realistic import FIGURES_DIR
 from casa_ti_phase import gks_code_units, MU_ATH, BOX_SIZE, HRATE_CGS, DFLOOR, PFLOOR
 
 MASS_SNR = 197.85148

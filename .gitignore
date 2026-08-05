@@ -230,3 +230,8 @@ examples/scripts/differentiability/field_level_inference/*.png
 examples/gallery/supernova_showcase/*.npz
 examples/gallery/supernova_showcase/*.log
 examples/gallery/supernova_showcase/figures/
+
+# same, for the thermal-instability / AthenaK cross-code study next door
+examples/gallery/thermal_instability/*.npz
+examples/gallery/thermal_instability/*.log
+examples/gallery/thermal_instability/figures/

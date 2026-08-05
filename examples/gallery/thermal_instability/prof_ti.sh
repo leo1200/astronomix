@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Step-cost profile of the TI setup: isolate cooling / conduction / forcing.
-cd /export/home/lstorcks/jf1uids/examples/gallery/supernova_showcase
+cd "$(dirname "$(readlink -f "$0")")"
+RUN=../supernova_showcase/run.sh   # the env wrapper lives with the Cas A showcase
 T=0.35   # ~230 steps at dt ~1.5e-3
 OUT=/export/data/lstorcks/supernova_showcase/prof
 mkdir -p $OUT
 run () { label="$1"; shift; s=$(date +%s.%N)
-  ./run.sh casa_ti_phase.py --n 64 --t-end $T --nsnap 2 --ou --f0 10.7 --kf 0.589 --tcorr 0.5 \
+  $RUN casa_ti_phase.py --n 64 --t-end $T --nsnap 2 --ou --f0 10.7 --kf 0.589 --tcorr 0.5 \
       --save-state $OUT/$label.npz "$@" > $OUT/$label.log 2>&1
   e=$(date +%s.%N); n=$(grep -c "^progress" $OUT/$label.log)
   dt=$(grep "^progress" $OUT/$label.log | tail -1 | sed 's/.*dt = //')
