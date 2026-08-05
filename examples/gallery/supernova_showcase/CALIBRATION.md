@@ -857,3 +857,289 @@ alone: **the model carries roughly the right amount of fluctuation power at
 while steadily improving the organisation.** That is a different — and more
 optimistic — statement than Result 10's, and it puts resolution back on the
 table.
+
+## Result 13 — the dust halo is real, mandatory, and NOT the outer flux
+
+Every result up to here scores the model inside the forward shock, where it does
+well. Outside it the model has been empty by construction, and Chandra is not.
+Binned onto the same sky grid through the same response, `orl_n512_cd_adia`
+against the 2004 epoch:
+
+| radius | model | Chandra | ratio |
+|---|---|---|---|
+| 60–100″ | 1.10e-3 | 1.19e-3 | **1.1** |
+| 100–140″ | 8.58e-4 | 9.93e-4 | **1.2** |
+| 140–160″ | 1.03e-5 | 2.48e-4 | **24** |
+| 160–180″ | 3.83e-7 | 9.83e-5 | **257** |
+| 180–220″ | 3.85e-7 | 3.81e-5 | **99** |
+| 220–260″ | 3.49e-7 | 1.66e-5 | **48** |
+
+(counts/s/pixel, 0.5–7 keV). **8.8 % of Chandra's r < 260″ flux lies beyond the
+observed forward shock at r = 153″; the model has 0.1 %**, and that 0.1 % is
+only the instrumental and Galactic background SOXS adds. Quote that fraction
+against a radius, not against an annulus edge — the profile falls by an order of
+magnitude across the shock, so the same image gives 13.5 % beyond 140″, 8.8 %
+beyond 153″ and 7.0 % beyond 160″.
+
+This is a **sightline** problem, and `_dusthalo.py` models it as one: a
+photon-level post-process that sits between `project_photons` (which applies
+TBabs) and the telescope, because that is where interstellar dust sits
+physically. It moves photons; it never creates them.
+
+### Nothing in it is fitted
+
+The dust column is the same one that does the absorbing. MRN's own normalisation
+constants imply 1.564e-26 g of dust per hydrogen — a dust-to-H mass ratio of
+0.0093 — so `--nh` fixes the scattering column with no knob left over.
+`newdust` (Corrales et al. 2016, installed as `xdust`) then runs Mie theory on
+that population, silicate plus graphite, `dn/da ∝ a^-3.5` from 0.005 to
+0.25 µm.
+
+Two independent published anchors say the answer is right:
+
+* **Depth.** The model gives `tau_sca(1 keV) = 0.59 (N_H/1e22)`. Predehl &
+  Schmitt (1995), from 25 measured ROSAT halos, give a mean `S ≈ 0.5`. 19 %,
+  with nothing tuned.
+* **Angular profile.** Draine (2003) Eqs. 9 and 11 give a median scattering
+  angle `θ50 ≈ 360″ (keV/E)` and a cumulative `σ(<θ)/σ = s²/(1+s²)` in
+  `s = θ/θ50`. Our MRN mixture reproduces that cumulative shape to a few
+  percent at every quantile, with `θ50 ≈ 490″ (keV/E)` — a third wider, because
+  MRN is not Draine's WD01 size distribution. `--halo-profile draine03` swaps
+  the analytic form in, so that systematic is measured rather than argued.
+
+### Two things the plan for this got wrong
+
+**`tau_sca` is not `E^-2` where it matters.** It is asymptotically, and to
+better than 5 % above 4 keV, but through the 0.5–2 keV band the local index
+wanders between −1.4 and −2.2 and is not even monotonic: grains stop being small
+compared with the wavelength. The band dependence is still steep — `tau` falls
+7.0× from 0.5 to 2 keV — so "scattering is a soft-band effect" survives, but
+`E^-2` must not be used to scale it onto the 0.5–1.5 keV residual.
+
+**Single scattering is not good enough.** At `N_H = 1.2e22` the 1 keV depth is
+0.71, so a quarter of the scattered photons scatter twice and single-scattering
+would be a 25 % error there (a factor of two at 0.5 keV). The number of
+scatterings is drawn from `Poisson(tau_sca(E))` and the small-angle deflections
+add as vectors, each at its own position `x = 1 - d/D` along the sightline.
+
+### The one real assumption
+
+Where the dust sits along the 3.4 kpc. The default spreads it uniformly, which
+needs no parameter; Cas A lies just beyond the Perseus arm, so a single screen
+at ~2 kpc (`--halo-screen 0.41`) is the physically motivated alternative.
+Running both is how the size of that assumption is measured.
+
+### What it does: the right total in the wrong place, and a worse soft band
+
+`orl_n512_cd_adia`, 20 ks, NEI, against Chandra 2004, with the *identical*
+photon list — only the sightline changes:
+
+| radius | model, no halo | model, halo | Chandra | real/model, no halo | real/model, halo |
+|---|---|---|---|---|---|
+| 60–100″ | 1.10e-3 | 9.51e-4 | 1.19e-3 | 1.1 | 1.3 |
+| 100–140″ | 8.58e-4 | 7.33e-4 | 9.93e-4 | 1.2 | 1.4 |
+| 140–160″ | 1.03e-5 | 4.65e-5 | 2.48e-4 | **24** | **5.3** |
+| 160–180″ | 3.83e-7 | 2.97e-5 | 9.83e-5 | **257** | **3.3** |
+| 180–220″ | 3.85e-7 | 2.06e-5 | 3.81e-5 | **99** | **1.8** |
+| 220–260″ | 3.49e-7 | 1.34e-5 | 1.66e-5 | **48** | **1.2** |
+
+The fraction of the r < 260″ flux beyond r_FS goes **0.09 % → 5.2 %** against
+Chandra's 8.9 %. 18.3 % of photons scatter at least once, with a median
+displacement of 141″.
+
+**But the shape is wrong, and that matters more than the total.** The annulus
+ratios above improve outward — 5.3, 3.3, 1.8, 1.2 — which looks like convergence
+and is not. It is two curves with different slopes crossing. Measured as a local
+power law `-d ln SB / d ln r` on the same images:
+
+| | 160→180″ | 180→202″ | 202→227″ | 227→246″ | SB(150–170″)/SB(240–252″) |
+|---|---|---|---|---|---|
+| **Chandra 2004** | **7.2** | **5.6** | **4.2** | **4.9** | **10.9** |
+| halo, uniform | 2.4 | 2.4 | 2.5 | 2.6 | 2.9 |
+| halo, Perseus screen | 2.5 | 2.8 | 3.0 | 3.2 | 3.4 |
+
+**The observed profile is far too steep to be a scattering halo.** This
+falsifies the premise the work was started on, which was that the excess
+declines "roughly as θ^-1.5 to θ^-2, the right shape for a dust-scattering
+halo". It declines as r^-4 to r^-7. The error was in the sign as well as the
+number: the data are too *steep* for a halo, not too shallow, and that could
+have been measured in ten minutes before any of this was built.
+
+### Can a halo be made compact enough? No
+
+The only handle that narrows a scattering halo is grain size — `θ50 ∝ 1/(a E)`
+— so MRN's 0.25 µm cutoff was pushed up and the profile re-measured:
+
+| | τ_sca(1 keV) | 160→180″ | 202→227″ | SB(150″)/SB(246″) |
+|---|---|---|---|---|
+| Chandra | — | 7.2 | 4.2 | 10.9 |
+| MRN, a_max = 0.25 µm | **0.71** | 2.4 | 2.5 | 2.9 |
+| a_max = 0.50 µm | 1.52 | 3.4 | 3.3 | 4.1 |
+| a_max = 1.0 µm | 2.39 | 4.0 | 3.5 | 4.8 |
+| a_max = 1.0 µm + screen | 2.39 | 4.4 | 3.7 | 5.4 |
+
+Quadrupling the maximum grain radius reaches half the observed contrast and
+costs a factor 3.4 in optical depth: `S` goes from 0.59 — which is the value
+Predehl & Schmitt measured — to **2.0**, four times the observational anchor.
+There is no grain population that is simultaneously compact enough to make this
+profile and shallow enough to be the dust we know is there. **The outer emission
+is not the sightline.**
+
+### It makes the count rate and the soft band WORSE, and that was the point
+
+A halo cannot add photons. Inside a fixed aperture it can only remove them, and
+the real observation lost the same photons long before we started modelling it.
+So putting the model and the data through the same sightline moves the
+comparison, and it moves it against us:
+
+| | no halo | halo | |
+|---|---|---|---|
+| count rate ratio | 0.79 | **0.73** | |
+| 0.5–1.5 keV (O, Ne, Fe-L) | 0.60 | **0.46** | |
+| 1.5–2.1 keV (Si He-α) | 0.68 | 0.62 | |
+| 2.1–2.8 keV (S He-α) | 1.06 | 1.02 | |
+| 2.8–4.2 keV (Ar, Ca) | 1.58 | 1.56 | |
+| 4.2–6.0 keV (continuum) | 1.71 | 1.71 | |
+| 6.0–7.0 keV (Fe-K) | 2.43 | 2.42 | |
+
+The count-rate question that was left open — whether the aperture correction
+helps or hurts — is settled: it **hurts**, 0.79 → 0.73, because 7.9 % of the
+model's photons leave r < 200″ and nothing scatters in from outside a source
+that is entirely inside it.
+
+The band effect is the one worth arguing about. The expectation was that
+scattering would *relieve* the 0.5–1.5 keV deficit. It does the opposite:
+scattering is strongest exactly where the model is already faintest, so the soft
+ratio falls from 0.60 to **0.46** while everything above 2 keV moves by under
+3 %. **The soft-band deficit is a factor of two, not 40 %**, and it is now a
+deficit measured through the same sightline as the data rather than against a
+model that pretended the sightline was empty.
+
+### Guardrail
+
+The emission model is untouched: the halo is a permutation of positions applied
+to a photon list that is otherwise bit-identical, so every change above is
+accounted for by photons leaving the aperture — 7.9 % of them at r < 200″, which
+is the 0.79 → 0.73 in the count rate. Above 2 keV, where `tau_sca < 0.2`,
+nothing moves by more than 3 %.
+
+One trap is worth recording because it fails silently. `pyxsim.EventList`
+**ignores the path it is given** and re-reads the filenames stored inside the
+HDF5 file, so a copied-and-edited event list serves SOXS the original photons,
+the run completes normally, and the count rate comes out identical to the
+no-halo case — which is indistinguishable from "the halo does nothing".
+`apply_dust_halo` rewrites `info/filenames` and then asserts the round trip.
+
+### How big are the two assumptions? Both smaller than the result
+
+The halo has exactly two things that are not computed from `--nh`: where the
+dust sits along the sightline, and which grain size distribution it is. Both
+were varied to the edge of plausibility:
+
+| | count rate ratio | flux beyond r_FS | 0.5–1.5 keV | 1.5–2.1 keV |
+|---|---|---|---|---|
+| no halo | 0.79 | 0.09 % | 0.60 | 0.68 |
+| **uniform dust, Mie/MRN** | **0.73** | **5.2 %** | **0.46** | **0.62** |
+| Perseus screen, `x = 0.41` | 0.74 | 6.3 % | 0.47 | 0.62 |
+| Draine (2003) profile | 0.75 | 5.2 % | 0.49 | 0.63 |
+| Chandra 2004 | — | 8.9 % | — | — |
+
+Putting all the dust in the Perseus arm instead of spreading it over 3.4 kpc
+moves the outer flux by one point (5.2 → 6.3 %) and the band ratios by 0.01.
+Swapping MRN's Mie profile for Draine's WD01 approximation — a third narrower —
+moves them by less. The median displacement of a scattered photon is 141″, 129″
+and 100″ across the three. **Every conclusion above survives both**, which is
+what makes it worth stating that the depth itself is anchored on Predehl &
+Schmitt rather than fitted: that is the number the result would actually be
+sensitive to.
+
+`figures/orl_n512_halo_uniform_absolute_2004.png` shows it as an image, and it
+has to be a *different* image from the usual one: `comparison_figure` scales
+each panel to its own 99.6th percentile and crops to 200″, which is right for
+morphology and useless here, because the scattered light is three decades below
+the shell and mostly outside that crop. `halo_image_figure` puts every panel on
+the same absolute counts/s/pixel scale, logarithmic, out to 250″. Without the
+halo the frame is black outside r_FS; with it a diffuse glow fills it, as in the
+data. Two caveats when reading that panel: the vertical dark stripe is an ACIS
+chip gap that only became visible once there were photons out there to fall into
+it (the real image is a multi-obsid mosaic, so its gaps are dithered over), and
+a three-decade log stretch cannot show the factor 1.2–1.8 that still separates
+the outer profiles — read the numbers, not the picture.
+
+`figures/orl_n512_halo_uniform_radial_2004.png` is the whole result in one plot:
+without the halo the model falls off a cliff at 150″, with it the profile tracks
+Chandra's outer tail and meets it by 250″, and the gap that remains is confined
+to 150–200″.
+
+### Reproducing
+
+```bash
+# the Mie table, once (~90 s on 40 cores; not keyed on N_H)
+/export/home/lstorcks/xrayobs/bin/python _dusthalo.py --rebuild --selftest
+
+# no halo, then halo, from the SAME cached photon list
+S=/export/data/lstorcks/supernova_showcase
+for v in "halo_off" "halo_uniform --halo" \
+         "halo_screen --halo --halo-screen 0.41" \
+         "halo_draine --halo --halo-profile draine03"; do
+  set -- $v
+  /export/home/lstorcks/xrayobs/bin/python casa_observe.py \
+      $S/orl_n512_cd_adia.npz --exposure 20 --compare 2004 --nei \
+      --pyxsim-events $S/xray_scratch/obs_n512_cd_adia_events.h5 \
+      --out orl_n512_$1 "${@:2}"
+done
+```
+
+### What this is, and what it is not
+
+Three of the handoff's expectations for this work were wrong and one was right.
+Wrong: that `tau_sca ~ E^-2` (not through the band where the argument was being
+made); that the halo would *relieve* the soft-band residual (it doubles it); and
+— the one that matters — that the outer excess had "the right shape for a
+dust-scattering halo". It does not, by a factor of two in log slope, and no
+admissible grain population closes that. Right: that the aperture correction
+would push the count-rate discrepancy the wrong way.
+
+**So this is not a model of the flux outside r_FS, and it should not be
+presented as one.** It is a correction to the forward model that happens to be
+mandatory rather than optional: `tau_sca(1 keV) = 0.71` is forced by the same
+`N_H = 1.2e22` that the spectral fits already assume, so a fifth of the photons
+*do* get moved and pretending otherwise is a modelling error. What it buys is
+therefore not the outer profile — it is:
+
+* **the aperture, honestly.** 7.9 % of the model's photons leave r < 200″ and
+  the real observation lost the same photons before we ever saw it. Count rate
+  0.79 → **0.73**.
+* **the soft band, honestly.** 0.5–1.5 keV goes 0.60 → **0.46**. That is a
+  factor-of-two deficit, not 40 %, and it is the single largest change any of
+  this produced.
+
+Both depend on the total scattered fraction and the aperture, not on the fine
+angular profile, which is why they hold across every variant (0.73–0.75, 0.46–0.49)
+even though the profile shape does not.
+
+### What it leaves for the non-thermal rim — more, not less
+
+The original reading was that the halo would take the diffuse outer component
+and leave a sharp rim at 140–180″. The measurement says otherwise: **the whole
+outer profile, from 150″ to 250″, is too steep to be sightline and is therefore
+remnant.** That makes Task 2 bigger than it looked. A synchrotron model now has
+to account for emission out to at least 250″ — where the halo contributes about
+half the observed surface brightness but with the wrong gradient — not just a
+thin rim at the shock. (Chandra's HRMA far-PSF wings are the other candidate and
+are also not modelled here; they are shallower than r^-4 and so cannot be the
+whole answer either.)
+
+It also sharpens the T_e argument rather than softening it. The 4.2–6.0 keV
+band is untouched by scattering (`tau_sca < 0.05` there), so the model's 1.71×
+overprediction of that continuum stands unchanged — and if part of the *observed*
+4.2–6.0 keV flux is non-thermal, the real thermal continuum is lower still and
+the overprediction is worse than 1.71.
+
+### And it is not the missing morphology
+
+Worth stating because the image invites the opposite reading: a scattering halo
+is smooth and azimuthally symmetric **by construction**. It cannot make a
+filament, and it does not touch the 60–140″ annulus `casa_morphology.py` scores.
+Nothing in Result 13 moves any structure number, and it must not be sold as if
+it did.

@@ -50,6 +50,14 @@ What is faithful here:
     that it has reached collisional equilibrium, which at Cas A's n_e t ~ 1e11
     it has not. See :mod:`_nei`.
 
+  * **the dust-scattering halo** with ``--halo``: the same N_H that absorbs also
+    scatters, and at 1.2e22 the 1 keV scattering depth is 0.71. Every photon is
+    given ``Poisson(tau_sca(E))`` deflections drawn from a Mie calculation on an
+    MRN grain population, at random positions along the 3.4 kpc. This is a model
+    of the SIGHTLINE, not of the remnant: it adds no flux, it moves it, and it
+    is the only candidate with the right radial shape for the 8.8 % of Chandra's
+    counts that lie outside the forward shock. See :mod:`_dusthalo`.
+
 What is still approximate, and must be stated with any figure:
   * **collisional ionization equilibrium**, unless ``--nei`` is given. Cas A's
     bulk plasma sits an order of magnitude short of equilibrium, so CIE gets the
@@ -68,6 +76,11 @@ What is still approximate, and must be stated with any figure:
     ~10-20 % in ``mu_e`` for the Fe-rich cells only.
   * no non-thermal (synchrotron) component: the blast-wave rim will be fainter
     relative to the ejecta than in the real image.
+  * **no scattering halo unless ``--halo`` is given**, so by default the model
+    puts nothing at all outside the forward shock, where Chandra puts 8.8 % of
+    its counts.
+  * the halo's one assumption is where the dust sits along the sightline; the
+    default spreads it uniformly, ``--halo-screen`` puts it in a single wall.
   * states written before the passive scalars existed have no composition; for
     those, ``--ejecta-zmet`` applies a crude density/temperature-selected
     enhancement instead, and says so.
@@ -336,10 +349,21 @@ def make_yt_dataset(state, em, *, zmet, ejecta_zmet, ejecta_temperature_K):
     return ds
 
 
-def make_events(state, args):
-    """Photon list -> SIMPUT -> Chandra event file. Returns the event-file path."""
+def scratch_prefix(args):
+    """Where this run's (large) intermediates live. Keyed on ``--out``, so two
+    variants of the same state -- halo on and halo off -- do not overwrite each
+    other's event files."""
+    os.makedirs(args.scratch, exist_ok=True)
+    return os.path.join(args.scratch, os.path.basename(args.out))
+
+
+def make_photon_events(state, args):
+    """State -> pyXSIM photon list -> projected, absorbed event list (.h5).
+
+    Stops before the telescope, because the interstellar dust comes first: see
+    :func:`apply_dust_halo`.
+    """
     import pyxsim
-    import soxs
 
     em = emission_fields(state, max_abundance=args.max_abundance,
                          two_temperature=not args.single_temperature)
@@ -401,8 +425,7 @@ def make_events(state, args):
     # bright enough that the careless combination (3000 cm^2 x 50 ks, emitting
     # down to 1e5 K) produced 4.7e9 photons, a 38 GB file and 64 GB resident.
     # The intermediates therefore go to scratch on /export/data, not to $HOME.
-    prefix = os.path.join(args.scratch, os.path.basename(args.out))
-    os.makedirs(args.scratch, exist_ok=True)
+    prefix = scratch_prefix(args)
     n_ph, n_cell = pyxsim.make_photons(
         f"{prefix}_photons", sp, 0.0, args.area, args.exposure * 1e3, source,
         dist=(DISTANCE_KPC, "kpc"),
@@ -425,9 +448,86 @@ def make_events(state, args):
         kernel="gaussian",
     )
     print(f"[casa-obs] {n_ev:.3e} photons survive absorption + projection")
+    return f"{prefix}_events.h5"
 
+
+def apply_dust_halo(h5_in, args):
+    """Scatter the projected photons off the interstellar dust in the sightline.
+
+    This belongs exactly here -- after ``project_photons`` has applied
+    photoelectric absorption, before the telescope sees anything -- because that
+    is where it happens physically. TBabs and dust scattering are separate
+    processes on the same column and both are driven by the same ``--nh``.
+
+    Writes a copy of the pyXSIM event list with the sky coordinates moved. The
+    photon count is unchanged: this redistributes flux, and the photons pushed
+    off the detector are lost from the aperture exactly as they are lost from
+    the real observation. See :mod:`_dusthalo`.
+    """
+    import shutil
+
+    import h5py
+    import pyxsim
+
+    from _dusthalo import scatter_sky_positions
+
+    h5_out = f"{scratch_prefix(args)}_events_halo.h5"
+    if os.path.abspath(h5_out) == os.path.abspath(h5_in):
+        raise SystemExit("--halo would overwrite its own input; give a different --out")
+    shutil.copyfile(h5_in, h5_out)
+    with h5py.File(h5_out, "r+") as f:
+        ra, dec = f["data/xsky"][:], f["data/ysky"][:]
+        energy = f["data/eobs"][:]
+        r_before = _offset_arcsec(ra, dec)
+        ra, dec, _ = scatter_sky_positions(
+            ra, dec, energy, nh=args.nh, profile=args.halo_profile,
+            screen_x=args.halo_screen, seed=args.halo_seed)
+        f["data/xsky"][:] = ra
+        f["data/ysky"][:] = dec
+        r_after = _offset_arcsec(ra, dec)
+        # pyXSIM's EventList IGNORES the path it is handed and re-reads the
+        # filenames recorded INSIDE the file, so a copied-and-edited event list
+        # silently serves up the original photons. This must be updated, and
+        # the round trip below is checked rather than assumed -- the failure is
+        # completely silent otherwise: the run completes and the count rate
+        # comes out identical to the no-halo case.
+        f["info"].attrs["filenames"] = [h5_out]
+
+    check = pyxsim.EventList(h5_out)
+    if list(check.filenames) != [h5_out]:
+        raise SystemExit(f"the halo event list still points at {check.filenames}; "
+                         "SOXS would read the un-scattered photons")
+
+    # What the scattering does to the aperture, in the units the count-rate
+    # comparison is quoted in. This is the number the halo was built to settle:
+    # a halo cannot add photons, so any change here is photons LEAVING.
+    print("[casa-obs] photon fraction inside an aperture, before -> after dust:")
+    for rad in (140.0, 200.0, 260.0):
+        b = float((r_before < rad).mean())
+        a = float((r_after < rad).mean())
+        print(f"[casa-obs]   r < {rad:5.0f}\": {b:.4f} -> {a:.4f} "
+              f"({100 * (a / b - 1):+.1f}%)")
+    print(f"[casa-obs] wrote {h5_out}")
+    return h5_out
+
+
+def _offset_arcsec(ra, dec):
+    """Angular distance from the Cas A centre [arcsec], for the aperture report."""
+    d0, d = np.deg2rad(DEC0), np.deg2rad(dec)
+    dr = np.deg2rad(ra - RA0)
+    cosc = np.clip(np.sin(d0) * np.sin(d) + np.cos(d0) * np.cos(d) * np.cos(dr),
+                   -1.0, 1.0)
+    return np.rad2deg(np.arccos(cosc)) * 3600.0
+
+
+def simulate_instrument(h5_events, args):
+    """pyXSIM event list -> SIMPUT -> SOXS Chandra event file."""
+    import pyxsim
+    import soxs
+
+    prefix = scratch_prefix(args)
     simput = f"{prefix}_simput"
-    el = pyxsim.EventList(f"{prefix}_events.h5")
+    el = pyxsim.EventList(h5_events)
     el.write_to_simput(simput, overwrite=True)
 
     evtfile = f"{prefix}_evt.fits"
@@ -440,6 +540,14 @@ def make_events(state, args):
     )
     print(f"[casa-obs] wrote {evtfile}")
     return evtfile
+
+
+def make_events(state, args):
+    """The whole forward model: state -> photons -> dust -> Chandra event file."""
+    h5 = args.pyxsim_events or make_photon_events(state, args)
+    if args.halo:
+        h5 = apply_dust_halo(h5, args)
+    return simulate_instrument(h5, args)
 
 
 # =============================================================================
@@ -726,45 +834,150 @@ def comparison_figure(syn, real, *, out_path, syn_exposure_ks, real_exposure_ks,
     print(f"[casa-obs] saved {out_path}")
 
 
-def radial_profile_figure(syn, real, *, out_path, label):
+def halo_image_figure(panels, *, out_path, crop_arcsec=250.0, smooth_pix=3.0,
+                      vmin=2e-6, vmax=2e-3):
+    """The image on an ABSOLUTE, shared, logarithmic surface-brightness scale.
+
+    :func:`comparison_figure` deliberately scales each panel to its own 99.6th
+    percentile and crops to 200", which is right for judging morphology and
+    useless for judging a halo: the scattered light is three decades below the
+    shell and mostly outside the crop. This is the complementary view -- same
+    counts/s/pixel scale on every panel, wide enough to hold r < 255", and
+    logarithmic so three decades are visible at once.
+
+    ``panels`` is a list of ``(image, exposure_s, title)``.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.colors import LinearSegmentedColormap, LogNorm
+    from scipy.ndimage import gaussian_filter
+
+    cmap = LinearSegmentedColormap.from_list("chandra_blue", [
+        (0.00, "#000005"), (0.15, "#04102e"), (0.35, "#0a3f8f"),
+        (0.60, "#1f7fd4"), (0.82, "#7fc4ef"), (1.00, "#f2fbff")])
+
+    # the grid is only 1024 x 0.492" = 504" wide, so a crop wider than its half
+    # would silently wrap the slice and give a black frame
+    c = NPIX_COMPARE // 2
+    half = min(int(crop_arcsec / PIXEL_ARCSEC), c)
+    crop_arcsec = half * PIXEL_ARCSEC
+    sl = slice(c - half, c + half)
+    ext = [crop_arcsec, -crop_arcsec, -crop_arcsec, crop_arcsec]
+    norm = LogNorm(vmin=vmin, vmax=vmax)
+
+    fig, axes = plt.subplots(1, len(panels), figsize=(6.2 * len(panels), 6.8),
+                             facecolor="black")
+    for ax, (img, exp, title) in zip(np.atleast_1d(axes), panels):
+        a = gaussian_filter(np.asarray(img, float)[sl, sl] / exp, smooth_pix)
+        im = ax.imshow(np.maximum(a, vmin), origin="lower", extent=ext, cmap=cmap,
+                       norm=norm, interpolation="bilinear")
+        ax.add_patch(plt.Circle((0, 0), R_FS_ARCSEC, fill=False, color="tab:red",
+                                ls=":", lw=1.0, alpha=0.8))
+        ax.set_title(title, color="white", fontsize=11)
+        ax.set_facecolor("black")
+        ax.tick_params(colors="0.6", labelsize=8)
+        ax.set_xlabel("offset [arcsec]", color="0.6", fontsize=9)
+    cb = fig.colorbar(im, ax=np.atleast_1d(axes), fraction=0.03, pad=0.01)
+    cb.set_label("surface brightness [counts s$^{-1}$ pixel$^{-1}$], 0.5-7 keV",
+                 color="0.8", fontsize=9)
+    cb.ax.tick_params(colors="0.7", labelsize=8)
+    fig.savefig(out_path, dpi=150, facecolor="black", bbox_inches="tight")
+    print(f"[casa-obs] saved {out_path}")
+
+
+#: Annuli the radial comparison is quoted in [arcsec]. The first two straddle
+#: the bright shell, the rest are outside the forward shock, which is where the
+#: model and Chandra part company.
+RADIAL_ANNULI = ((60, 100), (100, 140), (140, 160), (160, 180), (180, 220),
+                 (220, 260))
+
+#: Cas A's observed forward-shock radius, 2.52 pc at 3.4 kpc [arcsec]. The
+#: "outside the remnant" fraction is quoted against THIS, not against the
+#: nearest annulus edge -- the two differ by a lot, because the profile is
+#: falling by an order of magnitude across the shock (13.5 % beyond 140",
+#: 8.8 % beyond 153", 7.0 % beyond 160").
+R_FS_ARCSEC = np.rad2deg(2.52 / (DISTANCE_KPC * 1e3)) * 3600.0
+
+
+def radial_profile(img, exposure_s, bins):
+    """Azimuthally averaged surface brightness [counts/s/pixel] in ``bins``."""
+    c = NPIX_COMPARE // 2
+    yy, xx = np.mgrid[:NPIX_COMPARE, :NPIX_COMPARE]
+    rr = np.hypot(xx - c, yy - c) * PIXEL_ARCSEC
+    idx = np.digitize(rr.ravel(), bins) - 1
+    ok = (idx >= 0) & (idx < len(bins) - 1)
+    tot = np.bincount(idx[ok], weights=img.ravel()[ok], minlength=len(bins) - 1)
+    area = np.bincount(idx[ok], minlength=len(bins) - 1)
+    return np.where(area > 0, tot / np.maximum(area, 1), 0.0) / exposure_s
+
+
+def report_radial(syn, syn_exp, real, real_exp):
+    """Surface brightness annulus by annulus -- the measurement outside r_FS.
+
+    Quoted in counts/s/pixel, NOT normalised: the deficit beyond the forward
+    shock is an amplitude, and a profile scaled to its own peak hides it.
+    """
+    edges = np.array(sorted({0.0} | {float(e) for a in RADIAL_ANNULI for e in a}))
+    s = radial_profile(syn, syn_exp, edges)
+    r = radial_profile(real, real_exp, edges)
+    print("[casa-obs] surface brightness [counts/s/pixel], 0.5-7 keV:")
+    print("[casa-obs]   radius        model      Chandra    real/model")
+    for lo, hi in RADIAL_ANNULI:
+        i = int(np.searchsorted(edges, lo))
+        ratio = r[i] / s[i] if s[i] > 0 else np.inf
+        print(f"[casa-obs]   {lo:3d}-{hi:3d}\"   {s[i]:.3e}    {r[i]:.3e}    {ratio:8.1f}")
+    # the headline number, straight off the images rather than off the binned
+    # profile, so nothing is extrapolated over the corners the grid does not
+    # cover past r = 252"
+    c = NPIX_COMPARE // 2
+    yy, xx = np.mgrid[:NPIX_COMPARE, :NPIX_COMPARE]
+    rr = np.hypot(xx - c, yy - c) * PIXEL_ARCSEC
+    inside, outside = rr < 260.0, (rr >= R_FS_ARCSEC) & (rr < 260.0)
+    for name, img in (("model", syn), ("Chandra", real)):
+        frac = img[outside].sum() / max(img[inside].sum(), 1e-30)
+        print(f"[casa-obs]   fraction of the r < 260\" flux beyond "
+              f"r_FS = {R_FS_ARCSEC:.0f}\": {name:8s} {100 * frac:5.2f}%")
+
+
+def radial_profile_figure(syn, real, *, out_path, label, syn_exposure_s,
+                          real_exposure_s, overlay=None):
     """Azimuthally averaged surface-brightness profiles -- the quantitative test.
 
-    The forward shock shows up as the outer break; comparing the two profiles
-    is how the calibrated shock radii are checked against the data in counts
-    space rather than by eye.
-
-    Note that the real profile keeps a shallow tail well beyond the forward
-    shock which the synthetic one does not reproduce: that is the Chandra
-    dust-scattering halo plus the far PSF wings, neither of which SOXS models
-    (it convolves with the core PSF image only). Compare the position of the
-    outer break, not the flux beyond it.
+    In counts/s/pixel through the same response on the same grid, so the two
+    curves are directly comparable in amplitude as well as in shape. The forward
+    shock is the outer break; the flux beyond it is the sightline rather than
+    the remnant (dust scattering, plus the far PSF wings SOXS does not model --
+    it convolves with the core PSF image only). Without ``--halo`` the model
+    puts nothing out there at all.
     """
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    c = NPIX_COMPARE // 2
-    yy, xx = np.mgrid[:NPIX_COMPARE, :NPIX_COMPARE]
-    rr = np.hypot(xx - c, yy - c) * PIXEL_ARCSEC
-    bins = np.arange(0, 260, 4.0)
-    idx = np.digitize(rr.ravel(), bins) - 1
-    ok = (idx >= 0) & (idx < len(bins) - 1)
+    bins = np.arange(0, 264, 4.0)
+    mid = 0.5 * (bins[:-1] + bins[1:])
+
+    curves = [(syn, syn_exposure_s, "astronomix (synthetic)", "-", None)]
+    if overlay is not None:
+        o = np.load(overlay)
+        curves.append((np.asarray(o["counts"], float), float(o["exposure"]),
+                       Path(overlay).stem.replace("_synimg", ""), "-", "0.55"))
+    curves.append((real, real_exposure_s, f"Chandra {label}", "--", None))
 
     fig, ax = plt.subplots(figsize=(7, 4.6), constrained_layout=True)
-    for img, lbl, style in ((syn, "astronomix (synthetic)", "-"),
-                            (real, f"Chandra {label}", "--")):
-        tot = np.bincount(idx[ok], weights=img.ravel()[ok], minlength=len(bins) - 1)
-        area = np.bincount(idx[ok], minlength=len(bins) - 1)
-        prof = np.where(area > 0, tot / np.maximum(area, 1), 0.0)
-        prof = prof / max(prof.max(), 1e-30)
-        ax.semilogy(0.5 * (bins[:-1] + bins[1:]), np.maximum(prof, 1e-4), style, label=lbl)
+    for img, exp, lbl, style, col in curves:
+        prof = radial_profile(img, exp, bins)
+        ax.semilogy(mid, np.maximum(prof, 1e-9), style, label=lbl, color=col)
     # observed shock radii at 3.4 kpc
     for r_pc, name, col in ((2.52, "$r_{FS}$", "tab:red"), (1.58, "$r_{RS}$", "tab:orange")):
         arcsec = np.rad2deg(r_pc / (DISTANCE_KPC * 1e3)) * 3600.0
         ax.axvline(arcsec, color=col, ls=":", lw=1.2)
-        ax.text(arcsec, 1.1, name, color=col, ha="center", fontsize=9)
-    ax.set(xlabel="radius [arcsec]", ylabel="normalised surface brightness (0.5-7 keV)",
-           ylim=(1e-4, 2.0))
+        ax.text(arcsec, 0.96, name, color=col, ha="center", va="top", fontsize=9,
+                transform=ax.get_xaxis_transform())
+    ax.set(xlabel="radius [arcsec]",
+           ylabel="surface brightness [counts s$^{-1}$ pixel$^{-1}$]",
+           ylim=(3e-6, 5e-3))
     ax.legend(fontsize=9)
     fig.savefig(out_path, dpi=150)
     print(f"[casa-obs] saved {out_path}")
@@ -853,6 +1066,41 @@ def main():
                          "(e.g. 2004)")
     ap.add_argument("--events", default=None,
                     help="skip the simulation and re-bin/compare an existing event file")
+    ap.add_argument("--pyxsim-events", default=None,
+                    help="reuse an existing pyXSIM ``*_events.h5`` (the projected, "
+                         "absorbed photon list) instead of regenerating it. That is "
+                         "the expensive stage and it is untouched by the dust "
+                         "options below, so a halo A/B costs only the SOXS run")
+
+    # ---- the sightline, not the remnant ------------------------------------
+    ap.add_argument("--halo", action="store_true",
+                    help="scatter the photons off interstellar dust before they "
+                         "reach the telescope. 8.8%% of Chandra's r < 260\" counts "
+                         "lie outside the forward shock and the model puts 0.1%% "
+                         "there; a scattering halo at N_H = 1.2e22 is the only "
+                         "candidate with the right radial shape. Adds no flux -- "
+                         "it moves photons, and loses the ones it moves off the "
+                         "detector. See :mod:`_dusthalo`")
+    ap.add_argument("--halo-profile", default="mie", choices=["mie", "draine03"],
+                    help="angular distribution of a scattering. 'mie' (default) "
+                         "tabulates it from newdust's Mie calculation on an MRN "
+                         "grain population; 'draine03' uses the published "
+                         "analytic approximation (Draine 2003, Eqs. 9 and 11), "
+                         "whose median angle is a third smaller because WD01 is "
+                         "not MRN. Running both measures the grain-size systematic")
+    ap.add_argument("--halo-screen", type=float, default=None, metavar="X",
+                    help="put all the dust in one screen at x = 1 - d/D instead "
+                         "of spreading it uniformly along the sightline. Cas A "
+                         "sits just beyond the Perseus arm, so x = 0.41 (dust at "
+                         "2 kpc of 3.4) is the physically motivated alternative "
+                         "to the default uniform column")
+    ap.add_argument("--halo-seed", type=int, default=1234,
+                    help="RNG seed for the scattering draw")
+    ap.add_argument("--overlay-synimg", default=None, metavar="NPZ",
+                    help="also draw this saved ``*_synimg.npz`` on the radial "
+                         "figure. Meant for a before/after: point a --halo run "
+                         "at the no-halo run's image and the sightline's effect "
+                         "is one plot instead of two")
     args = ap.parse_args()
 
     if args.out is None:
@@ -890,7 +1138,22 @@ def main():
                           label=args.compare, age_yr=state["age_yr"])
         radial_profile_figure(syn, real,
                               out_path=FIGURES_DIR / f"{Path(args.out).name}_radial_{args.compare}.png",
-                              label=args.compare)
+                              label=args.compare, syn_exposure_s=syn_exp,
+                              real_exposure_s=real_exp, overlay=args.overlay_synimg)
+        report_radial(syn, syn_exp, real, real_exp)
+
+        # the absolute-scale view, which is the only one a halo shows up in
+        panels = [(syn, syn_exp, f"astronomix{' + dust halo' if args.halo else ''}"
+                                 f"\nsynthetic ACIS-S, {args.exposure:.0f} ks")]
+        if args.overlay_synimg:
+            o = np.load(args.overlay_synimg)
+            panels.insert(0, (np.asarray(o["counts"], float), float(o["exposure"]),
+                              f"{Path(args.overlay_synimg).stem.replace('_synimg', '')}"
+                              f"\n(no sightline model)"))
+        panels.append((real, real_exp, f"Chandra, real (epoch {args.compare})"
+                                       f"\n{real_exp / 1e3:.0f} ks"))
+        halo_image_figure(panels, out_path=FIGURES_DIR /
+                          f"{Path(args.out).name}_absolute_{args.compare}.png")
 
         # ---- the spectral comparison ----------------------------------------
         px, py, energy, _ = read_events(evtfile)
