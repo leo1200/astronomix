@@ -307,5 +307,5 @@ plt.close(fig_a)
 # -------------------------------------------------------------
 
 # Save snapshot states to npz file
-np.savez(data_dir / "colliding_wind_binary_states.npz", states=np.asarray(snapshots.states), time_points=np.asarray(snapshots.time_points))
+# np.savez(data_dir / "colliding_wind_binary_states.npz", states=np.asarray(snapshots.states), time_points=np.asarray(snapshots.time_points))
 
