@@ -5,10 +5,11 @@ Used by the ``snapshot_storage_mode == TO_DISK`` path of the time integration
 the restart helper in :mod:`astronomix.setup_helpers`.
 
 Each on-disk checkpoint stores the loop carry threaded through the integrator
-— the (unpadded) primitive state, the PRNG key and the persistent OU forcing
-field (when active) — plus the current simulation time and iteration count.
-This mirrors :class:`~astronomix.time_stepping.time_integration.LoopState`, so a
-checkpoint is everything needed to resume a run bit-reproducibly.
+— the (unpadded) primitive state, the PRNG key, the persistent OU forcing
+field (when active) and the N-body state (when active) — plus the current
+simulation time and iteration count. This mirrors
+:class:`~astronomix.time_stepping.time_integration.LoopState`, so a checkpoint
+is everything needed to resume a run bit-reproducibly.
 
 Implementation notes
 --------------------
@@ -74,6 +75,8 @@ class LoopCheckpoint(NamedTuple):
     key: Any
     #: The persistent OU forcing field, or ``None`` if it was not stored.
     forcing: Any
+    #: The N-body phase-space state, or ``None`` if it was not stored.
+    nbody_state: Any
     #: Cumulative number of integration steps taken up to this checkpoint.
     num_iterations: int
     #: The step index of this checkpoint.
@@ -87,12 +90,12 @@ class _LoopCheckpointWriter:
         self._checkpointer = checkpointer
         self._directory = Path(directory).resolve()
 
-    def save(self, step, *, time, primitive_state, key, forcing, num_iterations):
+    def save(self, step, *, time, primitive_state, key, forcing, nbody_state, num_iterations):
         """Serialise one loop carry into the ``<root>/<step>`` sub-directory.
 
         The PRNG key is stored as raw key data (a plain uint32 array
-        tensorstore can serialise) and the OU forcing field is only written
-        when present, so its absence is unambiguous on load.
+        tensorstore can serialise) and the OU forcing field / N-body state are
+        only written when present, so their absence is unambiguous on load.
         """
         tree = {
             "time": time,
@@ -102,6 +105,8 @@ class _LoopCheckpointWriter:
         }
         if forcing is not None:
             tree["forcing"] = forcing
+        if nbody_state is not None:
+            tree["nbody_state"] = nbody_state
         # Synchronous save; ``force`` overwrites a partially written step dir.
         self._checkpointer.save(self._directory / str(step), tree, force=True)
 
@@ -131,6 +136,7 @@ def save_loop_checkpoint(
     primitive_state,
     key,
     forcing,
+    nbody_state,
     num_iterations,
 ) -> None:
     """Write one loop checkpoint at ``step`` through an open ``writer``.
@@ -144,6 +150,7 @@ def save_loop_checkpoint(
         primitive_state=primitive_state,
         key=key,
         forcing=forcing,
+        nbody_state=nbody_state,
         num_iterations=num_iterations,
     )
 
@@ -238,6 +245,7 @@ def load_loop_checkpoint(
         primitive_state=tree["primitive_state"],
         key=jax.random.wrap_key_data(tree["key_data"]),
         forcing=tree.get("forcing", None),
+        nbody_state=tree.get("nbody_state", None),
         num_iterations=tree["num_iterations"],
         step=step,
     )

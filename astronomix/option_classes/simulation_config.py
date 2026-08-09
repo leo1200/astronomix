@@ -27,6 +27,7 @@ from astronomix._modules._cnn_mhd_corrector._cnn_mhd_corrector_options import (
 )
 from astronomix._modules._cooling.cooling_options import CoolingConfig
 from astronomix._modules._cosmic_rays.cosmic_ray_options import CosmicRayConfig
+from astronomix._modules._nbody._nbody_options import NBodyConfig
 from astronomix._modules._neural_net_force._neural_net_force_options import (
     NeuralNetForceConfig,
 )
@@ -621,6 +622,9 @@ class SimulationConfig(NamedTuple):
     #: Cosmic rays
     cosmic_ray_config: CosmicRayConfig = CosmicRayConfig()
 
+    #: The configuration for the N-body point-mass gravity solver.
+    nbody_config: NBodyConfig = NBodyConfig()
+
     #: The configuration for the cooling module.
     cooling_config: CoolingConfig = CoolingConfig()
 
@@ -903,6 +907,17 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
             "For stellar wind simulations, we need source term aware timesteps, turning on."
         )
         config = config._replace(source_term_aware_timestep=True)
+
+    # The N-body -> gas mass-deposition kernels (NGP/CIC/TSC) are 3D-only.
+    if (
+        config.nbody_config.nbody
+        and config.gravity_config.self_gravity
+        and config.dimensionality != 3
+    ):
+        raise ValueError(
+            "N-body gravity feedback onto the gas (nbody_config.nbody and "
+            "gravity_config.self_gravity both enabled) requires dimensionality == 3."
+        )
 
     # Disk-snapshot (Orbax) mode requirements.
     if config.snapshot_storage_mode == TO_DISK:

@@ -35,6 +35,7 @@ from astronomix._modules._gravity._poisson_solver import (
     _compute_gravitational_potential,
 )
 from astronomix._modules._gravity._utils import _pad_external_potential
+from astronomix._modules._nbody._nbody import _deposit_nbody_density
 from astronomix._fluid_equations._equations import (
     get_absolute_velocity,
     total_energy_from_primitives,
@@ -100,6 +101,35 @@ def calculate_kinetic_energy(state, helper_data, config, registered_variables):
         return jnp.sum(kinetic_energy * config.grid_spacing**config.dimensionality)
 
 
+def _nbody_gas_interaction_energy_density(
+    rho, gravitational_constant, params, config
+):
+    """
+    Gravitational interaction energy density between the gas and the N-body
+    point masses (config.nbody_config.nbody), i.e. ``rho * phi_nbody`` where
+    ``phi_nbody`` is the potential sourced by the deposited N-body masses
+    alone (linearity of the Poisson solve makes this exactly the N-body part
+    of the combined gas-plus-N-body potential used in
+    ``astronomix._modules._gravity._gravity._compute_total_potential``).
+
+    Counted at full weight rather than the mutual self-gravity 1/2: the
+    coupling is one-directional (the N-body dynamics never feel the gas, see
+    ``rk4_step_nbody``), so this is energetically like a (dynamically
+    evolving) external potential acting on the gas, not a mutual interaction.
+    """
+    nbody_density = _deposit_nbody_density(
+        params.nbody_params.nbody_state,
+        params.nbody_params.masses,
+        rho.shape,
+        config.grid_spacing,
+        config,
+    )
+    nbody_potential = _compute_gravitational_potential(
+        nbody_density, config.grid_spacing, config, gravitational_constant
+    )
+    return rho * nbody_potential
+
+
 # @jaxtyped(typechecker=typechecker)
 @partial(jax.jit, static_argnames=["config", "registered_variables"])
 def calculate_gravitational_energy(
@@ -117,6 +147,11 @@ def calculate_gravitational_energy(
             rho, config.grid_spacing, config, gravitational_constant
         )
         gravitational_energy = gravitational_energy + 0.5 * rho * self_potential
+
+        if config.nbody_config.nbody:
+            gravitational_energy = gravitational_energy + _nbody_gas_interaction_energy_density(
+                rho, gravitational_constant, params, config
+            )
 
     if config.gravity_config.external_potential:
         external_potential = _pad_external_potential(
@@ -177,6 +212,11 @@ def calculate_total_energy(
             rho, config.grid_spacing, config, gravitational_constant
         )
         energy += 0.5 * rho * self_potential
+
+        if config.nbody_config.nbody:
+            energy += _nbody_gas_interaction_energy_density(
+                rho, gravitational_constant, params, config
+            )
 
     if config.gravity_config.external_potential:
         external_potential = _pad_external_potential(
