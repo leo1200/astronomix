@@ -674,6 +674,8 @@ def _integrate_core(
         if config.exact_end_time and not config.use_specific_snapshot_timepoints:
             dt = jnp.minimum(dt, params.t_end - time)
 
+        step_params = params
+
         # N-body: advance the point-mass RK4 solver jointly with (i.e. using
         # the same time step as) the hydro update below. rk4_step_nbody only
         # ever depends on the other bodies' masses, never the gas.
@@ -682,18 +684,27 @@ def _integrate_core(
                 nbody_state, params.nbody_params.masses, dt, config,
             )
             # Hand the freshly advanced N-body state to the (self-)gravity
-            # source term computed inside the hydro evolve below, so a
-            # self-gravitating gas feels the N-body masses' gravity this step
-            # (one-directional: never fed back into the N-body update above).
-            step_params = params._replace(
-                nbody_params=params.nbody_params._replace(nbody_state=nbody_state)
+            # source term computed inside the hydro evolve below (and, when
+            # active, the multi-source stellar-wind injection below), so a
+            # self-gravitating gas feels the N-body masses' gravity and the
+            # wind sources track the N-body orbits this step (one-directional:
+            # never fed back into the N-body update above).
+            step_params = step_params._replace(
+                nbody_params=step_params.nbody_params._replace(nbody_state=nbody_state)
             )
-        else:
-            step_params = params
+
+        # Stellar wind: make the current simulation time available to the
+        # (per-RK-stage) finite-difference source-term path, which has no
+        # other access to the absolute time, for real_wind_params' tabulated
+        # time interpolation (see astronomix._modules._stellar_wind).
+        if config.wind_config.stellar_wind:
+            step_params = step_params._replace(
+                wind_params=step_params.wind_params._replace(current_time=time + dt)
+            )
 
         # modules that run every time step
         key, forcing, primitive_state = _iteration_level_updates(
-            primitive_state, key, forcing, dt, config, params, helper_data_pad,
+            primitive_state, key, forcing, dt, config, step_params, helper_data_pad,
             registered_variables, time + dt,
         )
 

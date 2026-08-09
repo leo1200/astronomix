@@ -100,8 +100,16 @@ wind_final_velocity = 2000 * u.km / u.s
 wind_mass_loss_rate = 2.965e-3 / (1e6 * u.yr) * M_star
 
 wind_params = WindParams(
-    wind_mass_loss_rate=wind_mass_loss_rate.to(code_units.code_mass / code_units.code_time).value,
-    wind_final_velocity=wind_final_velocity.to(code_units.code_velocity).value,
+    # single source at the box center: the 3D EI scheme takes its rates from
+    # the per-source wind_mass_loss_rates / wind_final_velocities arrays
+    # (wind_injection_positions defaults to a single source at the origin,
+    # i.e. the box center).
+    wind_mass_loss_rates=jnp.array(
+        [wind_mass_loss_rate.to(code_units.code_mass / code_units.code_time).value]
+    ),
+    wind_final_velocities=jnp.array(
+        [wind_final_velocity.to(code_units.code_velocity).value]
+    ),
 )
 
 params = SimulationParams(

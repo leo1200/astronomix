@@ -115,7 +115,7 @@ def _time_integrator_sources(
     # Stellar wind (FD path): added directly as a conserved-state source.
     if config.wind_config.stellar_wind and config.solver_mode == FINITE_DIFFERENCE:
         source_term += _wind_ei3D_source(
-            params.wind_params,
+            params,
             conserved_state,
             dt,
             config,
