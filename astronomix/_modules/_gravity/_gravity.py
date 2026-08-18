@@ -40,6 +40,7 @@ from astronomix._modules._gravity._poisson_solver import (
     _compute_gravitational_potential,
 )
 from astronomix._modules._gravity._utils import _pad_external_potential
+from astronomix._modules._nbody._nbody import _deposit_nbody_density
 from astronomix._stencil_operations._stencil_operations import _shift, _stencil_add
 
 @partial(jax.jit, static_argnames=["grid_spacing", "config", "registered_variables"])
@@ -52,14 +53,18 @@ def _compute_total_potential(
     G: Union[float, Float[Array, ""]] = 1.0,
 ) -> FIELD_TYPE:
     """
-    Compute the total gravitational potential, including contributions from self-gravity and any external potentials.
+    Compute the total gravitational potential, including contributions from
+    self-gravity (optionally combined with the deposited N-body masses) and
+    any external potentials.
 
     Args:
         gas_density: The gas density field (ghost-cell padded, i.e. the
             shape of a single state field).
         grid_spacing: The grid spacing.
         config: The simulation configuration.
-        params: The simulation parameters (provides the external potential).
+        params: The simulation parameters (provides the external potential
+            and, when ``config.nbody_config.nbody``, the current N-body
+            state/masses).
         registered_variables: The registered variables.
         G: The gravitational constant.
 
@@ -68,10 +73,26 @@ def _compute_total_potential(
     """
     total_potential = jnp.zeros_like(gas_density)
 
-    # Self-gravity contribution from the FFT Poisson solve.
+    # Self-gravity contribution from the FFT Poisson solve. When the N-body
+    # solver is active, the point masses are deposited onto the grid and
+    # combined with the gas density before the solve, so the gas feels the
+    # combined gas-plus-N-body potential. This coupling is one-directional:
+    # the N-body integration (rk4_step_nbody) only ever depends on the other
+    # bodies' masses, never on the gas, so the N-body masses gravitationally
+    # act on the gas but the gas never acts back on them.
     if config.gravity_config.self_gravity:
+        combined_density = gas_density
+        if config.nbody_config.nbody:
+            combined_density = combined_density + _deposit_nbody_density(
+                params.nbody_params.nbody_state,
+                params.nbody_params.masses,
+                gas_density.shape,
+                grid_spacing,
+                config,
+            )
+
         total_potential = total_potential + _compute_gravitational_potential(
-            gas_density,
+            combined_density,
             grid_spacing,
             config,
             G,

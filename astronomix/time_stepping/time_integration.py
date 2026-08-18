@@ -57,6 +57,7 @@ from astronomix._finite_difference._timestep_estimation._timestep_estimator impo
     _cfl_time_step_fd_hydro
 )
 from astronomix._modules._iteration_level_updates import _iteration_level_updates
+from astronomix._modules._nbody._nbody import _advance_nbody_state
 from astronomix._modules._turbulent_forcing._turbulent_forcing import _init_ou_forcing_state
 from astronomix._snapshotting._snapshot_diagnostics import (
     build_snapshot_store,
@@ -101,10 +102,16 @@ class LoopState(NamedTuple):
         key: The PRNG key advanced by stochastic per-step modules (forcing, ...).
         forcing: The persistent OU forcing field ``f`` (shape (3, nx, ny, nz)),
             or ``None`` when OU forcing is inactive.
+        nbody_state: The N-body phase-space state, [t, x, y, z, vx, vy, vz]
+            per body flattened to shape (n_bodies * 7,), advanced by
+            ``_advance_nbody_state`` jointly with the hydro update each step,
+            or ``None`` when the N-body solver (config.nbody_config.nbody) is
+            inactive.
     """
     primitive_state: Any
     key: Any
     forcing: Any = None
+    nbody_state: Any = None
 
 
 def _raise_with_time_integration_hint(error: Exception, config: SimulationConfig):
@@ -520,20 +527,36 @@ def _seed_key_and_forcing(config, params):
     return key0, forcing0
 
 
+def _seed_nbody_state(config, params):
+    """Seed the N-body phase-space state from ``params.nbody_params.nbody_state``
+    for a fresh run, or ``None`` when the N-body solver is inactive."""
+    if config.nbody_config.nbody:
+        return params.nbody_params.nbody_state
+    return None
+
+
 def _build_initial_loop_state(primitive_state, config, params, restart_state=None):
     """Construct the initial loop carry for an (already padded) state.
 
-    When ``restart_state`` is given, its PRNG key and persistent OU forcing
-    field are reused so a resumed run continues the same stochastic realisation;
-    otherwise they are seeded from ``config.random_seed``. The OU forcing (when
-    active) needs a persistent solenoidal field; otherwise the forcing slot
-    stays ``None`` and costs nothing in the carry.
+    When ``restart_state`` is given, its PRNG key, persistent OU forcing field
+    and N-body state are reused so a resumed run continues the same
+    trajectory; otherwise they are seeded from ``config.random_seed`` /
+    ``params.nbody_params.nbody_state``. The OU forcing (when active) needs a
+    persistent solenoidal field, and the N-body state (when active) needs the
+    phase-space state of every body; otherwise those carry slots stay ``None``
+    and cost nothing.
     """
     if restart_state is not None:
-        return LoopState(primitive_state, restart_state.key, restart_state.forcing)
+        return LoopState(
+            primitive_state,
+            restart_state.key,
+            restart_state.forcing,
+            restart_state.nbody_state,
+        )
 
     key0, forcing0 = _seed_key_and_forcing(config, params)
-    return LoopState(primitive_state, key0, forcing0)
+    nbody_state0 = _seed_nbody_state(config, params)
+    return LoopState(primitive_state, key0, forcing0, nbody_state0)
 
 
 def _integrate_core(
@@ -606,6 +629,7 @@ def _integrate_core(
         primitive_state = state.primitive_state
         key = state.key
         forcing = state.forcing
+        nbody_state = state.nbody_state
 
         # determine the time step size
         if not config.fixed_timestep:
@@ -655,25 +679,53 @@ def _integrate_core(
         if config.exact_end_time and not config.use_specific_snapshot_timepoints:
             dt = jnp.minimum(dt, params.t_end - time)
 
+        step_params = params
+
+        # N-body: advance the point-mass RK4 solver jointly with (i.e. using
+        # the same time step as) the hydro update below. rk4_step_nbody only
+        # ever depends on the other bodies' masses, never the gas.
+        if config.nbody_config.nbody:
+            nbody_state = _advance_nbody_state(
+                nbody_state, params.nbody_params.masses, dt, config,
+            )
+            # Hand the freshly advanced N-body state to the (self-)gravity
+            # source term computed inside the hydro evolve below (and, when
+            # active, the multi-source stellar-wind injection below), so a
+            # self-gravitating gas feels the N-body masses' gravity and the
+            # wind sources track the N-body orbits this step (one-directional:
+            # never fed back into the N-body update above).
+            step_params = step_params._replace(
+                nbody_params=step_params.nbody_params._replace(nbody_state=nbody_state)
+            )
+
+        # Stellar wind: make the current simulation time available to the
+        # (per-RK-stage) finite-difference source-term path, which has no
+        # other access to the absolute time, for real_wind_params' tabulated
+        # time interpolation (see astronomix._modules._stellar_wind).
+        if config.wind_config.stellar_wind:
+            step_params = step_params._replace(
+                wind_params=step_params.wind_params._replace(current_time=time + dt)
+            )
+
         # modules that run every time step
         key, forcing, primitive_state = _iteration_level_updates(
-            primitive_state, key, forcing, dt, config, params, helper_data_pad,
+            primitive_state, key, forcing, dt, config, step_params, helper_data_pad,
             registered_variables, time + dt,
         )
 
         # evolve the state
         if config.solver_mode == FINITE_VOLUME:
             primitive_state = _evolve_state_fv(
-                primitive_state, dt, params.gamma, config, params,
+                primitive_state, dt, params.gamma, config, step_params,
                 helper_data_pad, registered_variables,
             )
         elif config.solver_mode == FINITE_DIFFERENCE:
             primitive_state = _evolve_state_fd(
-                primitive_state, dt, params.gamma, config, params,
+                primitive_state, dt, params.gamma, config, step_params,
                 helper_data_pad, registered_variables,
             )
 
-        return dt, LoopState(primitive_state, key, forcing)
+        return dt, LoopState(primitive_state, key, forcing, nbody_state)
 
     def _record_snapshot(time, state, store, idx):
         """Record snapshot ``idx`` (the requested diagnostics)."""
@@ -887,6 +939,7 @@ def _run_segment(
     helper_data_pad: Union[HelperData, NoneType],
     init_key,
     init_forcing,
+    init_nbody_state,
 ):
     """Integrate one segment for the disk-checkpointing (TO_DISK) driver.
 
@@ -898,13 +951,14 @@ def _run_segment(
     left uninterrupted. ``config`` always has snapshots disabled here (each
     segment end is itself a checkpoint), so no snapshot buffers are allocated.
 
-    Returns ``(t_final, primitive_state_unpadded, key, forcing, num_iterations)``.
+    Returns ``(t_final, primitive_state_unpadded, key, forcing, nbody_state,
+    num_iterations)``.
     """
     original_shape = primitive_state.shape
     primitive_state = _prepare_padded_state(
         primitive_state, config, params, registered_variables
     )
-    initial_loop_state = LoopState(primitive_state, init_key, init_forcing)
+    initial_loop_state = LoopState(primitive_state, init_key, init_forcing, init_nbody_state)
     t_final, loop_state, _, num_iterations = _integrate_core(
         config,
         params,
@@ -922,6 +976,7 @@ def _run_segment(
         primitive_state,
         loop_state.key,
         loop_state.forcing,
+        loop_state.nbody_state,
         num_iterations,
     )
 
@@ -942,8 +997,8 @@ def _time_integration_to_disk(
     The run is split into ``config.num_snapshots`` segments spanning
     ``[params.t_start, params.t_end]``. Each segment is integrated by the JIT'd
     :func:`_run_segment`; afterwards the loop carry (primitive state, PRNG key,
-    OU forcing) plus the time and cumulative iteration count are written to
-    ``config.snapshot_storage_path`` via Orbax. The carry stays on device
+    OU forcing, N-body state) plus the time and cumulative iteration count are
+    written to ``config.snapshot_storage_path`` via Orbax. The carry stays on device
     (sharded) between segments, and Orbax writes each device's shard
     independently, so this scales to multiple devices / nodes.
 
@@ -964,11 +1019,15 @@ def _time_integration_to_disk(
         primitive_state = state
 
     # The carry between segments is the unpadded state plus the stochastic
-    # bits (PRNG key, OU forcing). On a restart these come from the checkpoint.
+    # bits (PRNG key, OU forcing) and the N-body state. On a restart these
+    # come from the checkpoint.
     if restart_state is not None:
-        key, forcing = restart_state.key, restart_state.forcing
+        key, forcing, nbody_state = (
+            restart_state.key, restart_state.forcing, restart_state.nbody_state,
+        )
     else:
         key, forcing = _seed_key_and_forcing(config, params)
+        nbody_state = _seed_nbody_state(config, params)
 
     # Segment config: snapshots stay off (each segment end *is* a checkpoint)
     # and ON_DEVICE so the segment runner does not recurse into this driver.
@@ -1028,7 +1087,7 @@ def _time_integration_to_disk(
                 )
 
             with mesh_ctx, pallas_mesh_context(pallas_mesh):
-                t_final, primitive_state, key, forcing, num_iterations = run_segment_jit(
+                t_final, primitive_state, key, forcing, nbody_state, num_iterations = run_segment_jit(
                     primitive_state,
                     segment_config,
                     segment_params,
@@ -1036,6 +1095,7 @@ def _time_integration_to_disk(
                     helper_data_pad,
                     key,
                     forcing,
+                    nbody_state,
                 )
 
             cumulative_iterations = cumulative_iterations + num_iterations
@@ -1047,6 +1107,7 @@ def _time_integration_to_disk(
             # is a no-op data-movement-wise when already so placed).
             store_state = primitive_state
             store_forcing = forcing
+            store_nbody_state = nbody_state
             if sharding is not None:
                 store_state = jax.device_put(primitive_state, sharding)
                 if forcing is not None:
@@ -1060,6 +1121,8 @@ def _time_integration_to_disk(
                         else sharding
                     )
                     store_forcing = jax.device_put(forcing, forcing_sharding)
+                if nbody_state is not None:
+                    store_nbody_state = jax.device_put(nbody_state, sharding)
 
             save_loop_checkpoint(
                 checkpointer,
@@ -1068,6 +1131,7 @@ def _time_integration_to_disk(
                 primitive_state=store_state,
                 key=key,
                 forcing=store_forcing,
+                nbody_state=store_nbody_state,
                 num_iterations=cumulative_iterations,
             )
 
