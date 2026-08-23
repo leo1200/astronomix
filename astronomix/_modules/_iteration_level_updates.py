@@ -36,6 +36,7 @@ from astronomix.option_classes.simulation_params import SimulationParams
 from astronomix.variable_registry.registered_variables import RegisteredVariables
 
 # astronomix functions
+from astronomix._modules._chemistry._chemistry import update_chemistry
 from astronomix._modules._cnn_mhd_corrector._cnn_mhd_corrector import _cnn_mhd_corrector
 from astronomix._modules._cooling._cooling import update_pressure_by_cooling
 from astronomix._modules._cosmic_rays.cr_injection import inject_crs_at_strongest_shock
@@ -141,6 +142,17 @@ def _iteration_level_updates(
             primitive_state,
             registered_variables,
             config.cooling_config,
+            params,
+            dt,
+        )
+
+    # Astrochemistry. The species advect with the flow (handled by the solver);
+    # here they are reacted per cell. Finite-volume only for now.
+    if config.chemistry_config.chemistry and config.solver_mode == FINITE_VOLUME:
+        primitive_state = update_chemistry(
+            primitive_state,
+            registered_variables,
+            config.chemistry_config,
             params,
             dt,
         )

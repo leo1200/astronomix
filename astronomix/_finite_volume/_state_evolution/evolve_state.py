@@ -576,15 +576,26 @@ def _evolve_state_fv(
     if config.mhd:
         if config.dimensionality > 1:
 
-            # WARNING: this relies on the last three state indices being the
-            # magnetic-field components, so that stripping them off yields the
-            # pure gas sub-state and a matching gas variable registry.
+            # The magnetic field occupies three contiguous slots starting at
+            # ``magnetic_index.x`` (right after the pressure) — NOT necessarily the
+            # last three, because advected tracers (chemistry species, cosmic rays,
+            # wind density) are registered after the magnetic block. Strip the
+            # magnetic rows out of the middle so the gas sub-state keeps density /
+            # velocity / pressure at the front with the tracers trailing (they
+            # advect with the flow), then reinsert the field into its slot below.
+            magnetic_start = registered_variables.magnetic_index.x
             registered_variables_gas = registered_variables._replace(
                 num_vars=registered_variables.num_vars - 3
             )
 
-            gas_state = primitive_state[:-3, ...]
-            magnetic_field = primitive_state[-3:, ...]
+            gas_state = jnp.concatenate(
+                [
+                    primitive_state[:magnetic_start],
+                    primitive_state[magnetic_start + 3 :],
+                ],
+                axis=0,
+            )
+            magnetic_field = primitive_state[magnetic_start : magnetic_start + 3, ...]
 
             if config.split == UNSPLIT:
                 evolved_gas = _evolve_gas_state_unsplit(
@@ -638,7 +649,15 @@ def _evolve_state_fv(
                     registered_variables_gas,
                 )
 
-            return jnp.concatenate((evolved_gas, magnetic_field), axis=0)
+            # reinsert the magnetic field into its original (middle) slot
+            return jnp.concatenate(
+                [
+                    evolved_gas[:magnetic_start],
+                    magnetic_field,
+                    evolved_gas[magnetic_start:],
+                ],
+                axis=0,
+            )
         else:
             raise ValueError("MHD currently not supported in 1D.")
 
