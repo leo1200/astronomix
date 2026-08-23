@@ -118,6 +118,16 @@ class RegisteredVariables(NamedTuple):
     cosmic_ray_n_index: int = -1
     cosmic_ray_n_active: bool = False
 
+    #: chemical species abundances
+    # The chemistry module carries the species number densities in a contiguous
+    # block of the state array, starting at ``chemistry_species_index`` and
+    # spanning ``num_chemical_species`` slots (ordered as ``species_names``).
+    # They are advected as passive volumetric densities by the finite-volume
+    # solver, exactly like the cosmic-ray and wind-density tracers.
+    chemistry_species_index: int = -1
+    num_chemical_species: int = 0
+    chemistry_species_active: bool = False
+
     # here you can add more variables
 
 
@@ -212,6 +222,24 @@ def get_registered_variables(config: SimulationConfig) -> RegisteredVariables:
                 num_vars=registered_variables.num_vars + 1
             )
             registered_variables = registered_variables._replace(cosmic_ray_n_active=True)
+
+        # NOTE: CURRENTLY ONLY IMPLEMENTED FOR FINITE VOLUME MODE
+        # The chemical species occupy one contiguous block; the base index marks
+        # its start and the block spans ``number_of_chemical_species`` slots.
+        if config.chemistry_config.chemistry:
+            registered_variables = registered_variables._replace(
+                chemistry_species_index=registered_variables.num_vars
+            )
+            registered_variables = registered_variables._replace(
+                num_chemical_species=config.chemistry_config.number_of_chemical_species
+            )
+            registered_variables = registered_variables._replace(
+                num_vars=registered_variables.num_vars
+                + config.chemistry_config.number_of_chemical_species
+            )
+            registered_variables = registered_variables._replace(
+                chemistry_species_active=True
+            )
 
 
     if config.solver_mode == FINITE_DIFFERENCE:

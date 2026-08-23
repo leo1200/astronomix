@@ -145,6 +145,24 @@ def _iteration_level_updates(
             dt,
         )
 
+    # Chemical-species reaction source term (operator split). The species advect
+    # with the flow (they live in the state array); this hook applies a
+    # user-supplied per-cell update to them — e.g. a reaction network and its
+    # heating/cooling. astronomix only invokes the callable; the physics (and any
+    # extra dependencies) live entirely in the user's ``source_term``. FV only.
+    if (
+        config.chemistry_config.chemistry
+        and config.solver_mode == FINITE_VOLUME
+        and config.chemistry_config.source_term is not None
+    ):
+        primitive_state = config.chemistry_config.source_term(
+            primitive_state,
+            registered_variables,
+            config.chemistry_config,
+            params.chemistry_params,
+            dt,
+        )
+
     # Neural-network body force.
     if config.neural_net_force_config.neural_net_force:
         primitive_state = _neural_net_force(
