@@ -530,8 +530,11 @@ hence the whole composition model — rests on spherical symmetry. Adopting a 3D
 CSM cube also requires re-deriving the calibration, since n_w is currently
 *fitted*.
 
-**9. The emission budget is CSM-dominated, and the real remnant's is not — the
-replacement for §5.6 as the explanation of the 2.3×.**
+**9. The emission budget is CSM-dominated — measured, and then FALSIFIED as the
+explanation of the residual (Result 21).**
+
+*Kept in full because it was a reasonable inference from a real measurement and
+was wrong anyway, which is the most useful kind of entry in this document.*
 
 Measured on `orl_n256_final`: of the ``n_e^2``-weighted emission measure in
 shocked gas, **79 % comes from shocked wind/CSM and 21 % from ejecta**, with
@@ -561,13 +564,36 @@ of 3.05 against ~2–2.7), n_w is pinned by n_post = 4.0 ± 1.0, and every previ
 score integrated the two populations together. The `--tracer-split` and sub-grid
 work both moved the *ejecta* side; nothing has yet tested the *wind* side.
 
-*And it does not retract Result 18.* The sub-grid contrast demonstrably fixes the
-shape (rms 0.250 → 0.084 dex, 0.289 → 0.068 with the halo). But it achieves that
-by *adding* ejecta line emissivity, whereas this hypothesis says the shape is
-wrong because there is *too much wind continuum*. **Both flatten the same
-residual and only one can be the cause** — which is why the band-resolved split is
-now the discriminating measurement, and why χ should not be tuned further until it
-is done.
+### The band-resolved split was run, and it kills this hypothesis
+
+`--population {ejecta,csm}` scales the emission measure by the ejecta tracer.
+Emission is linear in it, so the arms must sum to the whole — they do, to ≤1.1 %
+per band. And the `csm` arm really is circumstellar: **75.6 % of its emission
+measure comes from cells with C_ej < 0.01**, metal mass fraction 0.020.
+
+| | 0.5–1.5 | 1.5–2.1 | 2.1–2.8 | 2.8–4.2 | 4.2–6.0 | 6.0–7.0 | spread |
+|---|---|---|---|---|---|---|---|
+| ejecta share of the band | 45 % | 51 % | 53 % | 55 % | 55 % | 54 % | — |
+| shape, ejecta | 0.71 | 0.84 | 1.37 | 2.01 | 1.98 | 3.05 | **4.32** |
+| shape, csm | 0.87 | 0.82 | 1.24 | 1.70 | 1.67 | 2.69 | **3.26** |
+
+**The ejecta share is flat across the band** (45→55 %, no trend), and **both
+populations carry the same one-sided residual with the ejecta's the steeper.** If
+metal-free wind were supplying excess continuum, the ejecta share would fall
+steeply with energy and the csm shape would be the steeper one. Neither happens.
+
+**So the residual belongs to all the shocked gas, not to one population** — which
+is what XRISM's kT_e measurement says and what `_subgrid` acts on, since it scales
+every cell's density and cools wind and ejecta alike. §5.1's interpretation
+survives with its only competitor eliminated, **and χ can be tuned again.**
+
+*It also explains the 2.3× without any mass error.* A temperature error spread
+over all the shocked gas means cooling all of it raises ⟨n²⟩ over all of it, so
+the normalisation excess is the arithmetic of a mass-conserving two-phase split —
+which §5.1 already showed `f_mass` cannot avoid. **The open question is therefore
+not "where is the extra material" but "what cools the gas without compressing
+it":** a genuinely lower shock velocity into the emitting gas, thermal conduction
+(recorded unaffordable at 15 days/run), or a modified CSM profile.
 
 **10. Smaller items.** Fast ejecta knots beyond the forward shock (optically
 bright, X-ray faint); dust destruction and IR emission; per-species ion
