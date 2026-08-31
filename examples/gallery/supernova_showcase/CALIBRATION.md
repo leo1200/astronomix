@@ -1383,14 +1383,26 @@ that freedom can be removed:
 | emitting volume assumed | predicted 4.2–6 keV | vs observed non-thermal |
 |---|---|---|
 | co-spatial with the radio (whole shell) | 2.5e-10 | **9.3×** |
-| purely advected loss layer, 1.0e-4 pc | 8.6e-14 | **0.0032×** |
-| **observed filament width, 1–3″** | 1.4–4.1e-11 | **0.51–1.53×** |
+| purely advected loss layer, 1.0e-4 pc | 3.2e-14 | **0.0012×** |
+| **observed filament width, 1–3″** | 0.5–1.6e-11 | **0.19–0.58×** |
+| the model's **own** fresh fraction, 0.0177 | — | **0.16×** |
 
-**The picture is quantitatively consistent.** With the measured radio flux, a
-loss-limited cutoff, and the observed filament width as the emitting thickness,
-the predicted non-thermal flux lands within a factor of two of the measured one
-across the whole observed width range — no efficiency and no amplification
-factor fitted.
+**The picture is consistent to within a factor of a few, in the direction of too
+faint.** With the measured radio flux, a loss-limited cutoff and the observed
+filament width as the emitting thickness, the prediction is 0.19–0.58× the
+measured flux with nothing fitted — and the model's *own* ram-pressure-weighted
+fresh fraction gives 0.16×, so **the two independent routes to the emitting
+volume agree with each other to a factor ~1.2–3.5.** That agreement is the
+substantive result. The shared offset from unity is open; η > 1 would raise the
+cutoff and the flux.
+
+*A correction, recorded because it cost a debugging cycle:* the first version of
+this table said 0.51–1.53× and "consistent within a factor of two", using a
+**0.3 pc** emitting shell. That is the visually bright rim, not the shocked
+region — the calibrated solution has r_FS − r_RS = **0.8 pc**. The wrong value
+also made the wired component look ~30× fainter than the module predicted, which
+read as a plumbing bug and was not one. `SHELL_THICKNESS_PC` is now tied to the
+measured shocked thickness and asserted against it.
 
 **What is not predicted is the width.** The advected loss layer is 2936× thinner
 than the shell, so the observed filaments are 161–484× thicker than advection
@@ -1598,3 +1610,113 @@ merged list now spans their union and only `area`, `exp_time`, `nH` and `redshif
 are enforced. The phase event lists were reusable through `--pyxsim-events`, so
 the cost was the guard's, not the run's — **but a guard strict about the wrong
 quantity is as expensive as no guard at all.**
+
+---
+
+## Result 19 — the gradient fit: δ ≈ 1, and E, M_ej, n_w were already right
+
+*2026-08-31. `casa_diff.py --validate/--check-grad/--fit`, 1D, 2000 cells, 350 yr,
+float64.*
+
+Result 18 left the spectrum limited by ~2.3× too much emitting material, which is
+the δ / unshocked-mass residual `OVERVIEW.md` §5.6 records as *blocked*. This is
+the fit that attacks it, and it is the one place in this study where
+PDE-constrained optimisation is well posed: the 1D model is genuinely the right
+physics, the gradient is exact, and the residuals are correlated in exactly the
+way a one-at-a-time scan cannot handle.
+
+### First, the recorded blocker was not a smoothing problem
+
+`casa_diff.py` was recorded as unusable for `r_RS` and `M_unshocked`. The cause
+was that they **measured different quantities** from the calibration's:
+
+* `casa_calibrate_1d` defines the reverse shock by **homology** — the outer edge
+  of the still-freely-expanding ejecta, |v − r/t| < 5 % of r/t. `casa_diff`
+  defined it by **entropy**. On the fiducial the entropy version sits at
+  **3.999 pc — the box edge**, because the outer wind is cold too, against a true
+  r_RS of 1.721. A fit against that would have optimised a radius nobody
+  measures, with a perfectly well-behaved gradient.
+* `M_unshocked` multiplied by the entropy indicator *as well as* the radial
+  window, integrating a strict subset of the hard region and then subtracting the
+  hard version's full interior-wind correction. That mismatched numerator is why
+  it went negative (−0.08 M☉).
+
+`--validate` had the mirror-image defect: its "hard" r_RS was *also* an entropy
+criterion, so it compared two entropy definitions with each other and reported
+their agreement as validation. Both are now transcribed from
+`casa_calibrate_1d.measure_snapshot`.
+
+| observable | smooth | hard | rel |
+|---|---|---|---|
+| r_FS | 2.4797 | 2.5190 | −1.6 % |
+| r_RS | 1.7223 | 1.7210 | **+0.1 %** |
+| n_post | 4.0465 | 4.0097 | +0.9 % |
+| M_unshocked | 0.1016 | 0.0961 | +5.7 % |
+
+**And the gradients tightened as a consequence**: JVP against central differences
+is now 0.5–10.9 % across the four parameters, against the 0.2–37 % recorded
+before. A well-posed observable differentiates better than an ill-posed one.
+
+### `n_post` is what makes the fit determined, and it matters
+
+With three targets the system is under-determined and the fit walks up the E–n_w
+degeneracy — both act through the deceleration. Observed: χ² fell 7.003 → 0.239
+while **E rose 2.09 → 2.87e51 and n_w 0.93 → 1.50 together**, which is the
+degeneracy and not a result. Adding `n_post` (Lee et al. 2014, 4.0 ± 1.0 cm⁻³)
+pins n_w almost directly and takes the system to exactly determined.
+
+*(v_FS and v_RS are deliberately not added: a velocity needs two epochs or a
+shock-frame construction, and the post-shock gas velocity is not the shock
+velocity. Adding a fifth observable that is subtly the wrong quantity is the
+mistake this module already made once with r_RS.)*
+
+### The fit, 4 targets / 4 parameters
+
+| | fiducial (hand) | fitted | target |
+|---|---|---|---|
+| E | 2.09e51 erg | **2.00e51** | — |
+| M_ej | 3.0 M☉ | 2.66 M☉ | — |
+| n_w | 0.928 cm⁻³ | **0.988** | — |
+| **δ (inner slope)** | **0.0** | **1.38** | — |
+| r_FS | 2.480 | 2.426 | 2.52 ± 0.20 |
+| r_RS | 1.722 | 1.673 | 1.58 ± 0.16 |
+| n_post | 4.05 | 4.14 | 4.0 ± 1.0 |
+| **M_unshocked** | **0.102** | **0.344** | **0.35 ± 0.10** |
+| χ² | 7.005 | **0.561** | — |
+
+**Two results, and the second is as useful as the first.**
+
+**1. δ ≈ 1, and it fixes the unshocked mass.** 0.102 → 0.344 M☉ against an
+observed 0.35 ± 0.10. δ ≈ 1 is the *standard core-collapse value*, which the
+project's own notes had identified as the likely answer but only ever scanned.
+Both fits agree on it: 1.36 with three targets, 1.38 with four. **This is the
+stable, robust output.**
+
+**2. E and n_w were already right.** With `n_post` in, the fit returns
+E = 2.00e51 against the hand-calibrated 2.09e51 and n_w = 0.988 against 0.928 —
+within 5–7 %. The hand calibration of Result 2 is *independently confirmed by a
+gradient fit that was free to move it*, and the one thing it got wrong was δ,
+which it never varied.
+
+### What is NOT settled, stated plainly
+
+**M_ej is the least constrained parameter and the two fits disagree about its
+direction**: 3.46 M☉ with three targets, 2.66 M☉ with four, against 3.0 fiducial
+and 3.56 from the KEPLER progenitor (Result 11). It is still drifting at the last
+step while δ rises, which is a residual δ–M_ej degeneracy — both control how much
+ejecta the reverse shock has processed. **Do not quote a fitted M_ej.** Breaking
+that degeneracy needs an observable sensitive to the total ejecta mass
+independently of the reverse-shock position; the shocked *element* masses are the
+obvious candidate and would need the composition model in the loop.
+
+Also: at exactly determined, χ² = 0.561 is **not a goodness-of-fit test** — it
+only says the solver converged. The script now computes that note from the counts
+rather than asserting it.
+
+### The next step this hands over
+
+δ ≈ 1 has still **never run in 3D** — that is the recorded §5.6 blocker, a
+timestep collapse at t = 0.019 attributed to the Fe pistons sitting inside a
+centrally peaked core. The 1D fit now says δ ≈ 1 is what the data want, with a
+number and an uncertainty behind it, so bisecting that crash is no longer
+speculative work.

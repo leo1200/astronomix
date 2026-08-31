@@ -160,6 +160,7 @@ from _plasma import (
     ATOMIC,
     CODE_DENSITY,
     CODE_LENGTH,
+    CODE_TIME,
     CODE_VELOCITY,
     KEV_IN_K,
     M_P,
@@ -634,6 +635,100 @@ def simulate_instrument(h5_events, args):
     return evtfile
 
 
+def synchrotron_photon_events(state, args):
+    """A non-thermal photon list from the same state -- see :mod:`_synchrotron`.
+
+    Separate from the thermal one and merged afterwards, because it is a
+    different source model: ``pyxsim.PowerLawSourceModel`` takes a per-cell
+    luminosity and a per-cell photon index, which is exactly what the module
+    produces. Nothing about the thermal path changes.
+
+    **This component's normalisation rests on ONE measured number**, the observed
+    filament width, which sets the emitting thickness. Read the module docstring
+    before quoting a flux from it: co-spatial electrons would be 9x too bright
+    and a pure advected loss layer 300x too faint, so the width is doing real
+    work and it is an observation, not a prediction.
+    """
+    import pyxsim
+    import yt
+
+    import _synchrotron as SY
+    from _plasma import plasma_state
+
+    ps = plasma_state(state["fields"], two_temperature=not args.single_temperature,
+                      te_model=args.te_model, kT_e_shock_keV=args.kt_e_shock,
+                      beta_shock=args.beta_shock)
+    if "time_since_shock" not in state["fields"]:
+        raise SystemExit("--synchrotron needs the shock history: rerun "
+                         "casa_orlando.py with --composition")
+    # time_since_shock is in CODE time; the gate is in years
+    tss_yr = state["fields"]["time_since_shock"] * CODE_TIME / 3.155693e7
+
+    n = state["num_cells"]
+    dv = (state["box_pc"] * CODE_LENGTH / n) ** 3
+    lum, gamma, sync_report = SY.synchrotron_fields(
+        state["fields"]["rho"] * CODE_DENSITY, ps["T_i"],
+        ps["moments"]["mu_i"], tss_yr, ps["shocked"],
+        eta=args.sync_eta, width_arcsec=args.sync_width,
+        distance_kpc=DISTANCE_KPC, epoch=float(args.compare or 2004),
+        band=(args.emin, args.emax), cell_volume_cm3=dv)
+
+    emitting = int(np.sum(lum > 0))
+    _say(f"[casa-obs] synchrotron: eta = {args.sync_eta:g}, filament width "
+         f"{args.sync_width:g} arcsec, {emitting} cells emitting "
+         f"({100 * emitting / lum.size:.2f}% of the box), total "
+         f"{lum.sum():.3e} erg/s, photon index "
+         f"{np.min(gamma[lum > 0]) if emitting else float('nan'):.2f}-"
+         f"{np.max(gamma[lum > 0]) if emitting else float('nan'):.2f} "
+         f"(XRISM fits {SY.PHOTON_INDEX_OBSERVED[0]}-"
+         f"{SY.PHOTON_INDEX_OBSERVED[1]})")
+    _say(f"[casa-obs] synchrotron: effective volume factor "
+         f"{sync_report['w_fresh_fraction']:.4f} (ram-pressure-weighted fresh "
+         f"fraction), median gate {sync_report['gate_yr_median']:.1f} yr, "
+         f"band flux {sync_report['flux_band']:.3e} erg/cm^2/s")
+    _say("[casa-obs] synchrotron: NORMALISATION IS OPEN -- this comes out ~30x "
+         "below the module's\n[casa-obs]   own standalone estimate and the "
+         "discrepancy is unexplained. See _synchrotron's\n[casa-obs]   OPEN "
+         "note. Do not quote a non-thermal flux from this yet.")
+    if emitting == 0:
+        raise SystemExit(
+            "--synchrotron produced no emitting cells: nothing was shocked "
+            "within the gate. Raise --sync-width or check that the state "
+            "carries a sensible time_since_shock.")
+
+    half = 0.5 * state["box_pc"] * CODE_LENGTH
+    f = state["fields"]
+    zero = np.zeros_like(f["rho"])
+    data = {
+        ("gas", "density"): (f["rho"] * CODE_DENSITY, "g/cm**3"),
+        ("gas", "sync_luminosity"): (lum, "erg/s"),
+        ("gas", "sync_index"): (gamma, "dimensionless"),
+    }
+    for name, key in (("velocity_x", "vx"), ("velocity_y", "vy"),
+                      ("velocity_z", "vz")):
+        data[("gas", name)] = ((f[key] * CODE_VELOCITY) if key in f else zero,
+                              "cm/s")
+    ds = yt.load_uniform_grid(data, [n, n, n], length_unit="cm",
+                              bbox=np.array([[-half, half]] * 3), nprocs=1,
+                              default_species_fields="ionized")
+
+    source = pyxsim.PowerLawSourceModel(
+        1.0, args.emin, args.emax, ("gas", "sync_luminosity"),
+        ("gas", "sync_index"))
+    prefix = scratch_prefix(args) + "_sync"
+    n_ph, n_cell = pyxsim.make_photons(
+        f"{prefix}_photons", ds.all_data(), 0.0, args.area,
+        args.exposure * 1e3, source, dist=(DISTANCE_KPC, "kpc"),
+        velocity_fields=[("gas", "velocity_x"), ("gas", "velocity_y"),
+                         ("gas", "velocity_z")])
+    _say(f"[casa-obs] synchrotron: {n_ph:.3e} photons from {n_cell:.3e} cells")
+    pyxsim.project_photons(
+        f"{prefix}_photons", f"{prefix}_events", args.los, (RA0, DEC0),
+        absorb_model="tbabs", nH=args.nh, abund_table="angr",
+        kernel="gaussian")
+    return f"{prefix}_events.h5"
+
+
 def subgrid_photon_events(state, args):
     """One event list per sub-grid phase, merged -- see :mod:`_subgrid`.
 
@@ -760,10 +855,17 @@ def make_events(state, args):
     matters: a phase filling part of a cell is the same fields with the emission
     measure scaled by its volume fraction, so no new plumbing is needed.
     """
-    if args.pyxsim_events is None and args.subgrid_chi is not None:
+    if args.pyxsim_events is not None:
+        h5 = args.pyxsim_events
+    elif args.subgrid_chi is not None:
         h5 = subgrid_photon_events(state, args)
     else:
-        h5 = args.pyxsim_events or make_photon_events(state, args)
+        h5 = make_photon_events(state, args)
+    if args.synchrotron and args.pyxsim_events is None:
+        # a SECOND component, not a modification of the first: thermal and
+        # non-thermal are different source models over the same cells
+        h5 = merge_event_lists([h5, synchrotron_photon_events(state, args)],
+                              f"{scratch_prefix(args)}_events_total.h5")
     if _MPI_SIZE > 1:
         _MPI.COMM_WORLD.Barrier()
         if not _is_root():
@@ -1281,6 +1383,23 @@ def main():
                          "for showing what the two-temperature model changes: "
                          "Coulomb equilibration is far from complete at 350 yr, "
                          "so T_e = T is not a defensible approximation here")
+    ap.add_argument("--synchrotron", action="store_true",
+                    help="add a non-thermal component from _synchrotron.py, as "
+                         "a second pyXSIM source. ~54%% of Cas A's observed "
+                         "4.2-6 keV flux is non-thermal, so without this those "
+                         "band ratios are not comparisons between the same "
+                         "quantity. Its normalisation rests on ONE measured "
+                         "number, the filament width -- read the module "
+                         "docstring before quoting a flux")
+    ap.add_argument("--sync-eta", type=float, default=1.0, metavar="ETA",
+                    help="gyrofactor; 1 is Bohm diffusion. Enters ONLY through "
+                         "the loss-limited cutoff, which is why it is the single "
+                         "free physics parameter here")
+    ap.add_argument("--sync-width", type=float, default=2.0, metavar="ARCSEC",
+                    help="observed non-thermal filament width, which sets the "
+                         "emitting thickness. Cas A's are 1-3 arcsec; the "
+                         "predicted flux spans 0.51-1.53x the observed over "
+                         "that range")
     ap.add_argument("--subgrid-chi", type=float, default=None, metavar="CHI",
                     help="re-read every cell as a two-phase medium of density "
                          "contrast CHI and observe both phases (see _subgrid). "

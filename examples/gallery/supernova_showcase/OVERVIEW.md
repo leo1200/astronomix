@@ -383,23 +383,33 @@ Cas A's ~500 µG rim field against a 350 yr remnant:
 | emitting volume assumed | vs observed non-thermal 4.2–6 keV |
 |---|---|
 | co-spatial with the radio (whole shell) | 9.3× |
-| purely advected loss layer (1.0e-4 pc) | 0.0032× |
-| **observed filament width, 1–3″** | **0.51–1.53×** |
+| purely advected loss layer (1.0e-4 pc) | 0.0012× |
+| **observed filament width, 1–3″** | **0.19–0.58×** |
+| the model's **own** fresh fraction (0.0177) | **0.16×** |
 
-With the observed width supplying the thickness the prediction is consistent
-**within a factor of two, with nothing fitted** — one geometric parameter taken
-from an observation, not two free physics parameters. The width itself is not
-predicted: the observed filaments are 161–484× thicker than advection allows,
-which needs diffusive transport or magnetic damping and is an open problem.
+With the observed width supplying the thickness the prediction is **0.19–0.58×
+with nothing fitted**, and the model's own ram-pressure-weighted fresh fraction
+independently gives 0.16× — **the two routes to the emitting volume agree with
+each other to a factor ~1.2–3.5**, which is the substantive result. The shared
+offset from unity is open (η > 1 raises it). The width itself is not predicted:
+the observed filaments are 161–484× thicker than advection allows, which needs
+diffusive transport or magnetic damping and is an open problem.
+
+**Wired in** as a second pyXSIM source (`--synchrotron`, `--sync-eta`,
+`--sync-width`): verified end to end at 128³ — 2.7 % of cells emit, Γ comes out
+2.1–10 against XRISM's 2.94–3.43, and the photon lists merge. **Not calibrated**:
+the contribution to the ACIS count rate came out ~1–2 %, and the band handed to
+the shape integral is the full `--emin/--emax` range rather than 4.2–6 keV while
+TBabs is applied to the wired component and not to the standalone estimate — so
+the two are not yet the same comparison. Do not quote a non-thermal flux from it.
 
 **And one result with nothing adjustable at all:** inverting XRISM's
 Γ = 2.94–3.43 through the loss-limited relation at η = 1 gives a shock at
 **1708–2423 km s⁻¹** — Cas A's *reverse* shock (1800–2000), not its forward shock
 (~5000). The non-thermal continuum in those pointings is reverse-shock emission,
 and nothing was tuned to produce that.
-*Remaining cost:* ~1 week to add it to the photon list as a second source
-(`pyxsim.PowerLawSourceModel` takes per-cell luminosity and index fields, which
-is what the module produces), plus the event-list merge.
+*Remaining:* reconcile the band definition and the absorption between the wired
+component and the standalone estimate, then scan η.
 
 **4. `TRACER_SPLIT`'s Ar and Ca — an assumption with a measured error.**
 Ours is Si:S:Ar:Ca = 0.444 / 0.333 / 0.111 / 0.111 by mass, from Hwang & Laming

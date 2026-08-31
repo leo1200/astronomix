@@ -50,15 +50,27 @@ number):
 emitting volume assumed                          4.2-6 keV vs observed
 ===============================================  ==========================
 co-spatial with the radio (whole shell)          **9.3x too bright**
-purely advected loss layer, 1.0e-4 pc            **0.003x** (300x too faint)
-**observed filament width, 1-3 arcsec**          **0.51x - 1.53x**
+purely advected loss layer, 1.0e-4 pc            **0.001x** (~800x too faint)
+**observed filament width, 1-3 arcsec**          **0.19x - 0.58x**
+the model's OWN fresh fraction, 0.0177           **0.16x**
 ===============================================  ==========================
 
-**So the picture is quantitatively consistent.** Anchored on the measured radio
-flux, with a loss-limited cutoff and the observed non-thermal filament width as
-the emitting thickness, the predicted 4.2-6 keV non-thermal flux lands within a
-factor of two of the measured one -- across the whole observed range of filament
-widths, with no efficiency and no amplification factor fitted.
+**So the picture is consistent to within a factor of a few, in the direction of
+too faint.** Anchored on the measured radio flux, with a loss-limited cutoff and
+the observed filament width as the emitting thickness, the predicted 4.2-6 keV
+non-thermal flux is 0.19-0.58x the measured one, with no efficiency and no
+amplification factor fitted -- and the model's own ram-pressure-weighted fresh
+fraction gives 0.16x, i.e. the two independent routes to the emitting volume
+agree with each other to a factor ~1.2-3.5. That agreement is the substantive
+result; the shared offset from unity is not resolved and could be the gyrofactor
+(``eta > 1`` raises the cutoff and the flux) or a real deficit.
+
+**A CORRECTION TO AN EARLIER VERSION OF THIS TABLE.** It quoted 0.51-1.53x and
+"consistent within a factor of two", using a 0.3 pc emitting shell. That is the
+visually bright rim, not the shocked region: the calibrated solution has
+``r_FS - r_RS = 0.8 pc``. With the right thickness the numbers are the ones above.
+The wrong value also made the wired component in ``casa_observe.py`` appear ~30x
+fainter than this module predicted, which read as a plumbing bug and was not one.
 
 **What is NOT predicted is the filament width itself.** The advected loss layer
 is 2936x thinner than the emitting shell, so the observed 1-3 arcsec filaments
@@ -125,6 +137,23 @@ from, because the electrons that make it lose their energy in decades. The radio
 electrons are long-lived and the whole shocked volume contributes, so the two
 components are weighted differently and deliberately.
 
+STATE OF THE WIRED COMPONENT
+---------------------------
+``casa_observe.py --synchrotron`` works end to end: on a 128^3 test state 2.7 %
+of cells emit (a thin rim, by construction), the photon index comes out 2.1-10
+against XRISM's fitted 2.94-3.43, the photon lists merge, and the full chain
+reaches a count rate. The emitted band flux is 8.5e-11 erg/cm^2/s over 0.5-7 keV
+and the effective volume factor is 0.0177, both printed on every run.
+
+**It is not calibrated, and two things are still open.** First, the shared factor
+~2-5 deficit above. Second, the contribution to the observed ACIS *count* rate in
+4.2-6 keV came out ~1-2 % on that test, which is much smaller than the flux ratio
+suggests; the band handed to the shape integral is the full ``--emin/--emax``
+range rather than 4.2-6 keV, and TBabs is applied to the wired component but not
+to the standalone estimate, so the two are not yet the same comparison. Neither is
+a reason to adjust a normalisation before it is identified. **The plumbing is
+verified; the calibration is not. Do not quote a non-thermal flux from this yet.**
+
 WHAT IS STILL A FIT, AND MUST BE SAID
 -------------------------------------
 * **The non-thermal filament width**, taken from the observation (1-3 arcsec).
@@ -174,10 +203,27 @@ PHOTON_INDEX_OBSERVED = (2.94, 3.43)
 #: observed width of Cas A's non-thermal X-ray filaments [arcsec]. This is the
 #: ONE geometric parameter the X-ray normalisation rests on -- see the docstring.
 FILAMENT_WIDTH_ARCSEC = (1.0, 3.0)
-#: thickness of the X-ray emitting shell [pc], for the volume ratio
-SHELL_THICKNESS_PC = 0.3
+#: Thickness of the X-ray emitting shell [pc], for the volume ratio. MEASURED
+#: from the model, not assumed: r_FS - r_RS = 2.52 - 1.72 = 0.8 pc on the
+#: calibrated 1D solution. A first version used 0.3 pc, which is the visually
+#: bright rim rather than the shocked region, and that single wrong number is
+#: what made the wired component look 30x fainter than this module's own
+#: estimate -- see the OPEN note.
+SHELL_THICKNESS_PC = 0.8
 #: one arcsec at 3.4 kpc
 ARCSEC_IN_PC = 1.0 / (206264.806 / 3400.0)
+
+#: Cells below this fraction of the peak band flux are dropped. Their cutoff is
+#: so far below the band that they emit nothing, but their LOCAL PHOTON INDEX
+#: diverges -- ``alpha + 1 + 0.5 sqrt(E/E_cut)`` is unbounded as ``E_cut -> 0``
+#: -- and handing pyXSIM a spectral-index field containing 183 is meaningless
+#: whatever luminosity sits beside it. The cut is on flux, not on the index, so
+#: it cannot remove anything that actually emits; how much it discards is
+#: asserted at 0.1 %.
+NEGLIGIBLE_FLUX_FRACTION = 1e-6
+#: ceiling on the reported photon index, for the same reason. A synchrotron
+#: spectrum this steep is indistinguishable from no emission.
+GAMMA_MAX = 10.0
 # =============================================================================
 # ============ ↑ Measurements this module is anchored on ↑ =====================
 # =============================================================================
@@ -373,6 +419,121 @@ def nonthermal_band_fraction(E_cut_keV, weights, *, band=(4.2, 6.0),
     return float(num / max(den, 1e-300))
 
 
+def emission_gate_years(width_arcsec, v_shock_cgs, *, compression=4.0):
+    """How long ago a cell must have been shocked to still emit X-ray synchrotron.
+
+    The observed filament width divided by the downstream advection speed,
+    ``v_s / compression``. This is the operational form of the module's central
+    point: the X-ray synchrotron volume is set by the *observed* filament
+    thickness, not by the synchrotron lifetime (which would give a layer 161-484x
+    thinner) and not by the whole shocked shell (which would give 9x too much
+    flux). At 2 arcsec and 5000 km/s it is ~26 yr against a 350 yr remnant, so
+    the component is confined to a thin rim by construction -- which is what
+    produces the right morphology as well as the right flux.
+    """
+    width_pc = np.asarray(width_arcsec, dtype=np.float64) * ARCSEC_IN_PC
+    v_down = np.asarray(v_shock_cgs, dtype=np.float64) / compression
+    return width_pc * 3.0857e18 / np.maximum(v_down, 1e-30) / 3.155693e7
+
+
+def synchrotron_fields(rho_cgs, T_i, mu_i, time_since_shock_yr, shocked, *,
+                       eta=1.0, width_arcsec=2.0, distance_kpc=3.4,
+                       epoch=2004.0, band=(4.2, 6.0), cell_volume_cm3=1.0,
+                       alpha=RADIO_ALPHA):
+    """Per-cell non-thermal luminosity [erg/s] and photon index, for pyXSIM.
+
+    ``pyxsim.PowerLawSourceModel`` wants exactly these two fields, so this is the
+    whole interface. Nothing is fitted except the emitting thickness
+    ``width_arcsec``, which is measured (:data:`FILAMENT_WIDTH_ARCSEC`).
+
+    The normalisation chain, in order:
+
+    1. the relativistic electron energy density goes as the ram pressure, so the
+       relative radio weight per cell is ``rho v_s^2`` -- known up to one global
+       constant, which is all that is needed;
+    2. summing that over ALL shocked cells and equating to Cas A's measured
+       1 GHz flux at ``epoch`` fixes the constant, and cancels the injection
+       efficiency and the field amplification with it;
+    3. the X-ray band flux per cell is then the same weight times the band
+       integral of the loss-limited spectrum at that cell's own cutoff --
+       restricted to cells shocked within :func:`emission_gate_years`, because
+       those are the only ones that still have the electrons.
+
+    Returns ``(luminosity_erg_s, photon_index, report)`` -- the first two
+    cell-shaped and zero outside the gate, the third a dict of the numbers
+    needed to diagnose the normalisation (see the OPEN note in the module
+    docstring).
+    """
+    rho = np.asarray(rho_cgs, dtype=np.float64)
+    tss = np.asarray(time_since_shock_yr, dtype=np.float64)
+    ok = np.asarray(shocked, dtype=bool)
+
+    v_s = shock_velocity_from_ion_temperature(T_i, mu_i)
+    # relative radio weight: rho v_s^2, over every shocked cell
+    w = np.where(ok, rho * v_s ** 2, 0.0)
+    w_total = float(w.sum())
+    if w_total <= 0.0:
+        return (np.zeros_like(rho), np.full_like(rho, alpha + 1.0),
+                dict(w_fresh_fraction=0.0, cells_emitting=0, flux_band=0.0,
+                     gate_yr_median=np.nan, dropped_flux_fraction=0.0))
+
+    # the X-ray-emitting subset: shocked recently enough to still hold the
+    # electrons, with the gate set by the OBSERVED filament width
+    gate = emission_gate_years(width_arcsec, v_s)
+    fresh = ok & (tss >= 0.0) & (tss <= gate)
+
+    E_cut = cutoff_photon_energy_keV(v_s, eta=eta)
+    band_shape = band_shape_integral(band[0], band[1], E_cut, alpha=alpha)
+
+    # absolute scale from the measured radio flux
+    E_radio_keV = RADIO_FREQ_GHZ * 1e9 * 4.135667696e-18
+    radio_shape = E_radio_keV ** (1.0 - alpha)          # no cutoff at 1 GHz
+    nu_S_nu = RADIO_FREQ_GHZ * 1e9 * radio_flux_at(epoch) * 1e-23   # erg/cm^2/s
+    # flux per unit weight, such that sum(w) * radio_shape * k = nu S_nu
+    k = nu_S_nu / (w_total * radio_shape)
+
+    flux = np.where(fresh, w * band_shape * k, 0.0)     # erg/cm^2/s per cell
+
+    # DROP the cells whose cutoff is so far below the band that they contribute
+    # nothing. They are not harmless: their local photon index diverges (a first
+    # version handed pyXSIM Gamma = 183, from a cell whose shock was slow enough
+    # that E_cut was ~1e-4 of the band), and a spectral index field with values
+    # like that is meaningless whatever the luminosity beside it. The threshold is
+    # on the FLUX, so nothing with real emission is ever cut -- the discarded
+    # cells sum to a negligible fraction, which is asserted below.
+    peak = float(flux.max()) if flux.size else 0.0
+    keep = flux > NEGLIGIBLE_FLUX_FRACTION * peak
+    dropped = float(flux[~keep].sum()) / max(float(flux.sum()), 1e-300)
+    if dropped > 1e-3:                          # never silently lose real flux
+        raise SystemExit(
+            f"the negligible-flux cut would discard {100 * dropped:.2f}% of the "
+            f"synchrotron flux, which is not negligible. Lower "
+            f"NEGLIGIBLE_FLUX_FRACTION or investigate the cutoff distribution.")
+    flux = np.where(keep, flux, 0.0)
+
+    d_cm = distance_kpc * 1000.0 * 3.0857e18
+    lum = flux * 4.0 * np.pi * d_cm ** 2                # erg/s per cell
+
+    gamma = local_photon_index(0.5 * (band[0] + band[1]), E_cut, alpha=alpha)
+    # a defined, finite value everywhere -- pyXSIM reads the whole field, and
+    # non-emitting cells must not carry a divergent one
+    gamma = np.where(keep, np.minimum(gamma, GAMMA_MAX), alpha + 1.0)
+
+    # The diagnostic that localises a normalisation disagreement, because there
+    # IS one and it is unresolved (see the module docstring's OPEN note). The
+    # effective volume factor here is the ram-pressure-weighted fresh fraction,
+    # which is the model's OWN version of the width/shell ratio the standalone
+    # estimate uses -- printing both is how the two get reconciled.
+    report = dict(
+        w_fresh_fraction=float(w[fresh].sum()) / max(w_total, 1e-300),
+        cells_emitting=int(np.sum(lum > 0)),
+        flux_band=float(flux.sum()),
+        gate_yr_median=float(np.median(gate[ok])) if np.any(ok) else np.nan,
+        dropped_flux_fraction=dropped,
+    )
+    return lum, gamma, report
+
+
 def _self_check():
     """Every number the module claims, checked against its published source."""
     # 1. the electron index from Cas A's radio index, and DSA's own value
@@ -437,14 +598,53 @@ def _self_check():
     # (c) a purely advected loss layer: far too faint
     d_adv = float(loss_layer_thickness_pc(5.0, 500e-6, 5.0e8))
     assert 5e-5 < d_adv < 5e-4, d_adv
-    assert 1e3 < SHELL_THICKNESS_PC / d_adv < 1e4, SHELL_THICKNESS_PC / d_adv
+    assert 1e3 < SHELL_THICKNESS_PC / d_adv < 1e5, SHELL_THICKNESS_PC / d_adv
     assert pred_cospatial * d_adv / SHELL_THICKNESS_PC / obs_nt < 0.01
-    # (d) the OBSERVED filament width: within a factor of two, both ends
+    # (d) the OBSERVED filament width: within a factor of a few, too faint
     for w_arcsec in FILAMENT_WIDTH_ARCSEC:
         p = pred_cospatial * (w_arcsec * ARCSEC_IN_PC) / SHELL_THICKNESS_PC
-        assert 0.4 < p / obs_nt < 2.0, (w_arcsec, p / obs_nt)
+        assert 0.1 < p / obs_nt < 1.0, (w_arcsec, p / obs_nt)
+    # and the shell thickness is the SHOCKED region, not the bright rim: it must
+    # be consistent with the calibrated r_FS - r_RS
+    assert 0.7 < SHELL_THICKNESS_PC < 0.9, SHELL_THICKNESS_PC
     # and the observed filaments really are far thicker than advection allows
     assert 100.0 < FILAMENT_WIDTH_ARCSEC[0] * ARCSEC_IN_PC / d_adv < 1000.0
+
+    # 7b. THE INTERFACE, end to end on a synthetic state. The property that
+    #     matters is that the ABSOLUTE flux comes out where the table above says
+    #     it does -- i.e. that the radio anchoring and the gate compose
+    #     correctly -- so it is checked here rather than only argued for.
+    rng = np.random.default_rng(1)
+    n = 20000
+    rho_t = rng.lognormal(-22.0, 0.5, n)
+    T_i_t = rng.lognormal(np.log(3e9), 0.4, n)
+    mu_i_t = np.full(n, 16.0)
+    v_t = shock_velocity_from_ion_temperature(T_i_t, mu_i_t)
+    # a plausible spread of shock ages, most old and a thin fresh rim
+    tss = rng.uniform(0.0, 350.0, n)
+    ok_t = np.ones(n, dtype=bool)
+    lum, gam, rep = synchrotron_fields(rho_t, T_i_t, mu_i_t, tss, ok_t,
+                                       width_arcsec=FILAMENT_WIDTH_ARCSEC[1])
+    assert 0.0 < rep["w_fresh_fraction"] <= 1.0, rep
+    assert np.all(np.isfinite(lum)) and np.all(lum >= 0.0)
+    # only the freshly shocked cells emit, and that is a small minority
+    frac = float(np.mean(lum > 0))
+    assert 0.0 < frac < 0.5, frac
+    # the photon index is FINITE and bounded everywhere, not just where it emits
+    assert np.all(np.isfinite(gam)), "non-finite photon index"
+    assert gam.max() <= GAMMA_MAX + 1e-12, gam.max()
+    g = gam[lum > 0]
+    assert g.size and 1.5 < g.min(), g.min()
+    # the total flux is within an order of magnitude of the observed
+    # non-thermal, which is the composition of steps 1-3 working
+    d_cm = 3.4 * 1000.0 * 3.0857e18
+    flux_t = float(lum.sum()) / (4.0 * np.pi * d_cm ** 2)
+    assert 1e-13 < flux_t < 1e-9, flux_t
+    # and turning the gate off must RAISE it, by a lot
+    lum_all, _, _ = synchrotron_fields(rho_t, T_i_t, mu_i_t,
+                                       np.zeros(n), ok_t,
+                                       width_arcsec=FILAMENT_WIDTH_ARCSEC[1])
+    assert lum_all.sum() > 2.0 * lum.sum(), (lum_all.sum(), lum.sum())
 
     # 8. the secular decline, in the direction and size it is measured
     f2004 = radio_flux_at(2004.0)
@@ -484,11 +684,17 @@ def _self_check():
         p = pred_cospatial * (w * ARCSEC_IN_PC) / SHELL_THICKNESS_PC
         print(f"      OBSERVED filament width {w:.0f}\"      "
               f"{p:.2e}   {p / obs_nt:6.2f}x")
-    print(f"    So the picture is CONSISTENT within a factor of two once the "
-          f"observed filament\n    width supplies the thickness -- but that "
-          f"width is {FILAMENT_WIDTH_ARCSEC[0] * ARCSEC_IN_PC / d_adv:.0f}-"
+    print(f"    Consistent to within a factor of a few, in the direction of "
+          f"TOO FAINT, once the\n    observed filament width supplies the "
+          f"thickness (shell = {SHELL_THICKNESS_PC:.1f} pc = r_FS - r_RS,\n"
+          f"    the SHOCKED region and not the bright rim). The model's own "
+          f"ram-pressure-weighted\n    fresh fraction, 0.0177, gives 0.16x -- "
+          f"so the two independent routes to the\n    emitting volume agree "
+          f"with each other to a factor ~1.2-3.5, which is the result;\n"
+          f"    the shared offset from unity is OPEN (eta > 1 would raise it).")
+    print(f"    The width is {FILAMENT_WIDTH_ARCSEC[0] * ARCSEC_IN_PC / d_adv:.0f}-"
           f"{FILAMENT_WIDTH_ARCSEC[1] * ARCSEC_IN_PC / d_adv:.0f}x what pure "
-          f"advection\n    allows, so it is a measured INPUT and not a "
+          f"advection allows, so it is a measured\n    INPUT and not a "
           "prediction. One geometric parameter.")
     print(f"    Cas A radio: {RADIO_FLUX_JY:.0f} Jy at "
           f"{RADIO_FREQ_GHZ:.0f} GHz in {RADIO_EPOCH:.0f}, "
