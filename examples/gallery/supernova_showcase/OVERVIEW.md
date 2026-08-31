@@ -171,7 +171,8 @@ them silently reads as one model when it is two.
 | r_FS | 2.494 pc | n256 | 2.52 ± 0.20 |
 | r_RS | 1.531 pc | n256 | 1.58 ± 0.16 |
 | shocked ejecta | 2.79 M☉ | n256 | 2.8–3.7 |
-| **unshocked ejecta** | **0.21 M☉** (1D δ = 0 scan: 0.096) | n256 / 1D | **0.35 ± 0.10 — off, and the fix is blocked; §5.6** |
+| **unshocked ejecta** | **0.417 M☉** | n256 | **0.35 ± 0.10 — 0.67 σ, IN RANGE (was recorded as 0.21 and off; see §5.6)** |
+| shocked fraction of the ejecta | 87 % | n256 | 87–90 % |
 | EM-weighted kT_e | 3.05 keV | n256 | — |
 | EM-weighted n_e t | 2.3e11 | n256 | ~1e11 |
 | 0.5–7 keV rate | 0.86× | n256, **no halo** | 1.0 |
@@ -468,26 +469,44 @@ near 3 keV.)
 **But see §5.0:** XRISM says the IME electrons *are* ~2× too hot, so T_e is
 closed as a knob and not as a discrepancy. §5.1 is the mechanism that moves it.
 
-**6. The inner ejecta slope δ, and the unshocked mass — blocked, not unknown, and
-now the top of the queue.** §5.1's measured 2.3× normalisation excess is this
-residual seen from the other side: too much emitting material in the shocked
-ejecta. Result 18 promotes it from "a discrepancy that stands" to "the thing the
-spectrum is now limited by".
-This is the one gap where the fix is already identified and *fails to run*
-(Result 7). The reverse shock has eaten too far into the ejecta *in mass*: 96 %
-shocked against the observed ~87–90 %, i.e. 0.096–0.21 M☉ left unshocked against
-a target of 0.35 ± 0.10 (DeLaney et al. 2014, Hwang & Laming 2012). One cause,
-two symptoms — **shocked Si+S 3× too high (0.24 against 0.08 M☉) and r_RS
-0.35 pc too far in**. The controlling parameter is the inner ejecta density index
-δ, and in 1D δ = 1 (the standard core-collapse value) lands on the target *while
-improving* r_FS. But **δ = 1 has never run in 3D**: the 256³ run with pistons,
-shell and cooling dies on a timestep collapse at t = 0.019, most likely because
-a centrally peaked core puts the Fe pistons inside denser material and pushes
-the contrast over the crush threshold — the same mechanism that killed the
-tabulated-radius and capped-radius piston variants. Until that is bisected,
-**δ = 0 is the working configuration and the Si / r_RS discrepancy stands**.
-*Cost:* one bisect session (the crash is reproducible and cheap at 256³); the
-likely landing point is a piston-contrast gate rather than a solver change.
+**6. The inner ejecta slope δ — CLOSED 2026-08-31, and this entry was STALE.**
+
+This item recorded the reverse shock as having eaten too far into the ejecta in
+mass — "96 % shocked against the observed 87–90 %, 0.096–0.21 M☉ unshocked
+against 0.35 ± 0.10" — with the fix identified as δ = 1 and marked **blocked**,
+because δ = 1 had "never run in 3D" (a timestep collapse at t = 0.019).
+
+**All of that is out of date, and the production state already satisfies the
+constraint.** Measured on `orl_n256_final`, two independent ways:
+
+| | recorded here | measured now | target |
+|---|---|---|---|
+| unshocked ejecta | 0.096–0.21 M☉ | **0.417 M☉** | 0.35 ± 0.10 (0.67 σ) |
+| shocked fraction | 96 % | **87 %** | 87–90 % |
+
+The cause is mundane and instructive: **`casa_calibrate_1d.py`'s `--inner-slope`
+default is 1.0**, and the committed `casa_1d_map150.npz` carries
+`cfg_inner_slope = 1.0` with a centrally peaked core (d ln ρ/d ln r = −0.55 over
+0.05–0.5 pc, against +1.25 for a δ = 0 profile). So the production mapping has
+been a δ = 1 mapping, δ = 1 **does** run in 3D, and the numbers above were never
+re-measured after the profile was regenerated. Nothing was fixed deliberately;
+the recorded residual simply stopped being true and nobody checked.
+
+**The lesson, which is the project's own §6 lesson in a new place:** a recorded
+*blocker* decays exactly like a recorded result. The δ = 1 crash was real when it
+was seen, on a configuration that predates `--positivity redistribute` as the
+default, the `ejecta_radial_shape` clip fix and `--coldcrush-factor 16`. Re-check
+a blocker before building around it — this one had been shaping the priority list
+for a month.
+
+**And it means one inference in Result 18 is WITHDRAWN.** That result attributed
+the 2.3× normalisation excess to this residual — "too much emitting material in
+the shocked ejecta is the δ problem". It cannot be, because the ejecta mass
+budget is right. See §5.9 for what replaced it.
+
+*Independent support, and it is now a genuine cross-check rather than a plan:*
+the 1D gradient fit (Result 19) lands on δ = 1.38 from a δ = 0 start and returns
+E and n_w within 5–7 % of the hand calibration. Two methods, agreeing on δ ≈ 1.
 
 **7. Self-consistent CSM — and it now has two named targets.** The wind is an
 imposed r⁻² law plus one smooth asymmetric shell. Two published measurements say
@@ -511,7 +530,46 @@ hence the whole composition model — rests on spherical symmetry. Adopting a 3D
 CSM cube also requires re-deriving the calibration, since n_w is currently
 *fitted*.
 
-**8. Smaller items.** Fast ejecta knots beyond the forward shock (optically
+**9. The emission budget is CSM-dominated, and the real remnant's is not — the
+replacement for §5.6 as the explanation of the 2.3×.**
+
+Measured on `orl_n256_final`: of the ``n_e^2``-weighted emission measure in
+shocked gas, **79 % comes from shocked wind/CSM and 21 % from ejecta**, with
+8.52 M☉ of shocked wind against 2.79 M☉ of shocked ejecta. The EM-weighted
+μ_e is 1.297, against 2.0 for metal ejecta — that is the same fact stated as a
+composition.
+
+**§1 of this document opens by saying Cas A's X-ray emission is line-dominated
+ejecta emission.** A model whose emission measure is 79 % circumstellar is
+therefore suspect on its own terms, and the signature matches the residual
+exactly: shocked wind is metal-free, so it contributes **continuum and no lines**.
+Too much of it produces precisely *too little soft line emission and too much hard
+continuum* — the one-sided energy dependence four other candidates were tested
+against.
+
+**This is a hypothesis, not yet a result, and the distinction matters here.** The
+79 % is an ``n_e^2`` continuum-weighted fraction; the forward model computes line
+emission from per-element abundances, so the ejecta can still dominate the *line*
+bands while the wind dominates the continuum. What is measured is the continuum
+budget. What is needed is the band-resolved split — the emission in each of the
+six bands from ejecta cells versus wind cells, which `casa_observe.py` can produce
+by observing the two populations separately and differencing.
+
+*Why it was not visible before:* the shocked wind mass is not obviously wrong
+(8.5 M☉ against a literature swept-up CSM of ~6–8 M☉, and a wind-to-ejecta ratio
+of 3.05 against ~2–2.7), n_w is pinned by n_post = 4.0 ± 1.0, and every previous
+score integrated the two populations together. The `--tracer-split` and sub-grid
+work both moved the *ejecta* side; nothing has yet tested the *wind* side.
+
+*And it does not retract Result 18.* The sub-grid contrast demonstrably fixes the
+shape (rms 0.250 → 0.084 dex, 0.289 → 0.068 with the halo). But it achieves that
+by *adding* ejecta line emissivity, whereas this hypothesis says the shape is
+wrong because there is *too much wind continuum*. **Both flatten the same
+residual and only one can be the cause** — which is why the band-resolved split is
+now the discriminating measurement, and why χ should not be tuned further until it
+is done.
+
+**10. Smaller items.** Fast ejecta knots beyond the forward shock (optically
 bright, X-ray faint); dust destruction and IR emission; per-species ion
 temperatures (XRISM measures T_i(Fe) − T_i(Si) = 150–300 keV; we carry one ion
 temperature); multi-temperature and multi-ionisation structure within a cell.
