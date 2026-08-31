@@ -107,6 +107,7 @@ from _common import (
     centered_radius,
     chandra_deep_figure,
     ejecta_mass_coordinate,
+    explosion_plume_field,
     fd_positivity,
     POSITIVITY_HARD_FLOOR,
     POSITIVITY_REDISTRIBUTE,
@@ -132,6 +133,18 @@ from _common import (
 #: composition alone cannot provide it — the outer ejecta layers are H/He too.
 TRACKED_SPECIES = ("Fe", "Si", "O", "He")
 SCALAR_NAMES = ("C_ej",) + tuple(f"C_{s}" for s in TRACKED_SPECIES)
+
+
+def _git_commit():
+    """The working tree's commit, for stamping into a saved state."""
+    import subprocess
+    try:
+        out = subprocess.run(["git", "-C", str(Path(__file__).resolve().parent),
+                              "describe", "--always", "--dirty"],
+                             capture_output=True, text=True, timeout=10)
+        return out.stdout.strip() or "unknown"
+    except Exception:
+        return "unknown"
 
 
 # =============================================================================
@@ -408,6 +421,32 @@ def build(args, sharding=None):
                   f"spectral grid, so this realisation is grid-independent: "
                   f"another resolution gets the SAME clumps, not another draw")
 
+    plume_A = None
+    if args.plume_sigma > 0:
+        # The one change in this initial condition that is about the SHAPE of
+        # the correlation rather than its amplitude or its scale. See
+        # explosion_plume_field: the clumping above is statistically isotropic,
+        # so it cannot make a radial filament however it is tuned.
+        r_plume_in = args.plume_inner * r_cd
+        plume_A = explosion_plume_field(
+            X, Y, Z, keys[3], n_plumes=args.plume_n,
+            size_range_deg=tuple(args.plume_size),
+            size_slope=args.plume_size_slope, region=clump_region,
+            inner_radius=r_plume_in)
+        ejecta_mult = ejecta_mult * jnp.exp(
+            args.plume_sigma * plume_A - 0.5 * args.plume_sigma ** 2)
+        lo_deg, hi_deg = args.plume_size
+        print(f"[orlando] plumes: {args.plume_n} lobes, half-width "
+              f"{lo_deg:.0f}-{hi_deg:.0f} deg (arc {np.deg2rad(lo_deg) * r_fs:.3f}-"
+              f"{np.deg2rad(hi_deg) * r_fs:.3f} pc at r_FS = "
+              f"{np.deg2rad(lo_deg) * r_fs / dx:.1f}-{np.deg2rad(hi_deg) * r_fs / dx:.1f} "
+              f"cells), sigma_ln = {args.plume_sigma:.3f}, contrast "
+              f"{np.exp(4.0 * args.plume_sigma):.1f}x across +-2 sigma; "
+              f"RADIALLY COHERENT (a function of direction only), faded out "
+              f"below r = {r_plume_in:.3f} pc where a direction-only field is "
+              f"singular and its smallest lobes span "
+              f"{np.deg2rad(lo_deg) * r_plume_in / dx:.1f} cells")
+
     if args.ni_bubbles:
         # Radioactive 56Ni inflates low-density bubbles in the first weeks and
         # their compressed walls are what light up as the RING-shaped interior
@@ -450,13 +489,22 @@ def build(args, sharding=None):
     # renormalisation c touches ONLY the perturbed region, so rescaling the
     # clumping cannot quietly rescale the circumstellar medium as well.
     cell_vol = dx ** 3
-    if args.clump_sigma > 0:
+    # Any of the three ejecta perturbations rides on ``ejecta_mult``, so the
+    # renormalisation has to fire if ANY of them is active. It used to be gated
+    # on --clump-sigma alone, which silently made --ni-bubbles a no-op whenever
+    # the clumping was switched off -- exactly the class of bug catalogued in
+    # OVERVIEW.md §6, and the reason the condition is spelled out here.
+    if args.clump_sigma > 0 or args.plume_sigma > 0 or args.ni_bubbles:
         w = clump_region
         m_smooth = float(jnp.sum(rho * w) * cell_vol)
         m_clumped = float(jnp.sum(rho * w * ejecta_mult) * cell_vol)
         c = m_smooth / m_clumped
         rho = rho * ((1.0 - w) + w * ejecta_mult * c)
-        print(f"[orlando] clumping applied out to "
+        active = "+".join(n for n, on in (("clumping", args.clump_sigma > 0),
+                                          ("plumes", args.plume_sigma > 0),
+                                          ("Ni bubbles", bool(args.ni_bubbles)))
+                          if on)
+        print(f"[orlando] {active} applied out to "
               f"{'r_CD' if args.clump_region == 'ejecta' else 'r_RS'} = "
               f"{r_cd if args.clump_region == 'ejecta' else r_rs:.3f} pc over "
               f"{m_smooth:.3f} Msun, mass-neutral (renormalised by {c:.5f}; it "
@@ -472,6 +520,21 @@ def build(args, sharding=None):
 
     # velocity: radial, from the mapped profile, boosted inside the pistons
     v_r = v_r * (1.0 + inside * (velocity_mult - 1.0))
+    if plume_A is not None and args.plume_vel > 0:
+        # A real plume is not a static density enhancement: it is material that
+        # was accelerated harder, so it runs ahead. Coupling the velocity to the
+        # same field is what lets a finger overtake the mean contact
+        # discontinuity and, eventually, corrugate the forward shock -- which is
+        # the part of the morphology a density-only perturbation cannot touch.
+        ke_before = float(jnp.sum(0.5 * rho * v_r ** 2) * cell_vol)
+        v_r = v_r * (1.0 + clump_region * args.plume_vel * plume_A)
+        ke_after = float(jnp.sum(0.5 * rho * v_r ** 2) * cell_vol)
+        e_unit = (1.0 * code_units.code_energy).to(u.erg).value
+        print(f"[orlando] plume velocity coupling {args.plume_vel:.3f}: kinetic "
+              f"energy {ke_before * e_unit:.4e} -> {ke_after * e_unit:.4e} erg "
+              f"({100 * (ke_after / ke_before - 1):.2f}%). This is ADDED energy, "
+              f"not redistributed -- it is part of the model, not a rounding "
+              f"error, and the calibrated E = 2.09e51 no longer holds exactly")
     vx = v_r * X / r_safe
     vy = v_r * Y / r_safe
     vz = v_r * Z / r_safe
@@ -486,7 +549,19 @@ def build(args, sharding=None):
         # stratification can be laid down at the mapping time without the 1D
         # stage having carried any composition itself. It was computed in stage
         # 2c, which needs the same contact-discontinuity radius.
-        comp = layered_composition(m_coord, C_ej)
+        m_comp = m_coord
+        if plume_A is not None and args.plume_mix > 0:
+            # Shift the Lagrangian label, not the species fields: a plume is
+            # material from deeper in that has been carried out, so the whole
+            # stratification moves with it and the mass fractions stay
+            # normalised by construction.
+            m_comp = jnp.clip(m_coord * jnp.exp(-args.plume_mix * plume_A), 0.0, 1.0)
+            print(f"[orlando] plume composition mixing B = {args.plume_mix:.2f}: "
+                  f"mass coordinate shifted by "
+                  f"{float(jnp.mean(jnp.abs(m_comp - m_coord))):.4f} on average "
+                  f"(plumes drag deeper layers out, voids leave lighter "
+                  f"material behind)")
+        comp = layered_composition(m_comp, C_ej)
         if piston_species is not None:
             # The knots carry their OWN composition -- this is what produces the
             # observed layer inversion (Fe outside Si). Blend the knot material
@@ -864,6 +939,53 @@ def main():
                          "target, clamped to num_cells // 6). Pinning it is the "
                          "other half of a controlled ladder: the seed SCALE "
                          "otherwise moves with the grid because of that clamp")
+    ap.add_argument("--plume-sigma", type=float, default=0.0, metavar="S",
+                    help="amplitude of the explosion-era PLUME field (0 = off, "
+                         "the historical behaviour). The clumping seed is a 3D "
+                         "band-limited Gaussian field and is therefore "
+                         "statistically ISOTROPIC: its correlation length along "
+                         "a ray equals the one across it, so it makes foam, not "
+                         "fingers. This adds a perturbation that is a function "
+                         "of DIRECTION ONLY -- radially coherent, angularly "
+                         "structured -- which is the shape explosion-era "
+                         "structure actually has (Wongwathanarat et al. 2015, "
+                         "Orlando et al. 2025). S is the log-normal sigma; "
+                         "0.5 gives a ~5x plume-to-void density contrast")
+    ap.add_argument("--plume-n", type=int, default=60, metavar="N",
+                    help="number of plume lobes (default 60). Too few and the "
+                         "field is a handful of blobs rather than a network")
+    ap.add_argument("--plume-size", type=float, nargs=2, default=(7.0, 55.0),
+                    metavar=("LO", "HI"),
+                    help="angular half-width range of the plumes in degrees "
+                         "(default 7 55). At 3.4 kpc the remnant is ~153 arcsec "
+                         "in radius, so 7 deg is ~19 arcsec of arc at r_FS")
+    ap.add_argument("--plume-size-slope", type=float, default=-1.0, metavar="Q",
+                    help="power-law index of the plume size distribution")
+    ap.add_argument("--plume-inner", type=float, default=0.35, metavar="F",
+                    help="fade the plumes out below F * r_CD (default 0.35). A "
+                         "direction-only field is SINGULAR at the origin -- two "
+                         "cells either side of r = 0 are grid neighbours but "
+                         "antipodal in angle -- and the innermost ejecta is a "
+                         "cold near-vacuum, so the unfaded field puts a "
+                         "cell-sharp factor-7 density jump exactly where the "
+                         "solver can least take it (it collapses the timestep "
+                         "at ~166 yr with mass conserved). Also keeps the "
+                         "smallest lobes angularly resolved where they act")
+    ap.add_argument("--plume-mix", type=float, default=0.0, metavar="B",
+                    help="couple the plumes to the COMPOSITION: shift the ejecta "
+                         "mass coordinate by exp(-B * A), so a plume drags "
+                         "deeper (heavier) layers outward and a void leaves "
+                         "lighter material behind. This is the mechanism that "
+                         "puts Fe outside Si in a real explosion, and it is what "
+                         "makes the plumes an ejecta-structure statement rather "
+                         "than a density-only one. 0 = off")
+    ap.add_argument("--plume-vel", type=float, default=0.0, metavar="V",
+                    help="fractional radial-velocity boost correlated with the "
+                         "plume field (0 = off). Fast fingers protrude past the "
+                         "mean contact discontinuity and eventually deform the "
+                         "forward shock, which is what breaks the model's "
+                         "circular outline. ADDS KINETIC ENERGY -- the amount is "
+                         "reported, and it is not renormalised away")
     ap.add_argument("--csm-sigma", type=float, default=CSM_SIGMA, help="wind clumping sigma")
     ap.add_argument("--shell", action="store_true", help="add the Orlando et al. (2022) CSM shell")
     ap.add_argument("--shell-radius", type=float, default=SHELL_RADIUS, help="r_sh (pc)")
@@ -978,9 +1100,16 @@ def main():
             for j, name in enumerate(("entropy_initial", "shocked_fraction",
                                       "time_since_shock", "density_time")):
                 extra_fields[name] = fs[i_hist + j]
+        # Record the command line IN the state. Without it a saved state is an
+        # anonymous cube: reconstructing which flags produced one means going to
+        # the run log, and the logs are not kept alongside the states. That cost
+        # a control run's worth of doubt about whether an existing state was a
+        # valid A/B partner for a new one.
         np.savez_compressed(args.save_state, rho=rho, press=p, vx=vx, vy=vy, vz=vz,
                             box=float(args.box), age=float(args.age),
                             num_cells=args.n, map_age=meta["map_age"],
+                            argv=np.array(" ".join(sys.argv)),
+                            git_commit=np.array(_git_commit()),
                             **extra_fields)
         print(f"[orlando] saved state {args.save_state}"
               + (f" (+ {len(extra_fields)} scalar fields)" if extra_fields else ""))

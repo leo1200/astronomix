@@ -646,6 +646,126 @@ def nickel_bubble_field(X, Y, Z, key, ejecta_radius, n_bubbles=5,
     return m
 
 
+def explosion_plume_field(X, Y, Z, key, *, n_plumes=60,
+                          size_range_deg=(7.0, 55.0), size_slope=-1.0,
+                          region=None, radial_tilt=0.0, inner_radius=0.0,
+                          inner_width=None):
+    """Radially coherent, angularly structured ejecta perturbation ("plumes").
+
+    The physical gap this fills is stated in ``OVERVIEW.md`` §5.1. The ejecta
+    do not arrive at the reverse shock as an isotropic random medium: the
+    neutrino-driven explosion imprints large-scale plumes, the ⁵⁶Ni bubbles
+    inflate a cellular network after breakout, and Rayleigh-Taylor fingers grow
+    at the composition interfaces while the shock is still inside the star
+    (Wongwathanarat, Janka & Müller 2013/2015; Orlando et al. 2025). All three
+    are *coherent in radius and structured in angle* — fingers and sheets, with
+    voids between them.
+
+    :func:`turbulent_field` cannot represent that, and the reason is not the
+    amplitude or the wavenumber band but the SHAPE OF THE CORRELATION: a 3D
+    band-limited Gaussian field is statistically isotropic by construction, so
+    its correlation length along the radius equals its correlation length across
+    it. The result is foam — structure of the same size in every direction,
+    uniformly distributed over the remnant — which is what makes the synthetic
+    image read as a smooth mottled shell rather than as Cas A's web of radial
+    filaments with large voids between them.
+
+    So this field is a **function of direction only**. Every parcel along a ray
+    carries the same perturbation, which is the extreme of radial coherence and
+    the cleanest single-variable contrast against the isotropic seed. It is
+    built as a superposition of ``n_plumes`` von Mises-Fisher lobes at random
+    directions, with angular half-widths drawn from a power law over
+    ``size_range_deg`` (so the network has a *spectrum* of finger sizes, not one
+    scale) and Gaussian amplitudes (so lobes are plumes or voids with equal
+    probability). It is a parameterised stand-in for explosion-era structure in
+    exactly the sense :func:`nickel_bubble_field` is — not a transported
+    explosion model.
+
+    Returned zero-mean and unit-variance over ``region``; the caller turns it
+    into a strictly positive multiplier (log-normal) and renormalises the mass,
+    the same way the clumping is applied.
+
+    Args:
+        X, Y, Z: Coordinate fields, centred on the remnant.
+        key: PRNG key.
+        n_plumes: Number of lobes. Enough of them to tile the sphere at the
+            small end of ``size_range_deg``, or the field is a few blobs
+            rather than a network.
+        size_range_deg: Angular half-width range of the lobes, in degrees.
+        size_slope: Power-law index of the size distribution. Negative weights
+            the population toward SMALL lobes while the variance stays with the
+            large ones, which is the observed arrangement.
+        region: Optional weight field to normalise over (use the ejecta
+            window). Normalising over the whole box instead would let the
+            corners, which no ray of the remnant passes through, set the
+            variance.
+        radial_tilt: Optional fractional tilt of the pattern with radius, in
+            radians per unit radius, to shear the plumes rather than leave them
+            exactly ray-like. 0 = perfectly radial (the default).
+        inner_radius: Radius below which the plumes are faded out. **This is
+            required, not cosmetic** -- see the note below.
+        inner_width: Width of that fade (default: half ``inner_radius``).
+
+    Returns:
+        A zero-mean, unit-variance field of shape ``X.shape``.
+
+    Why ``inner_radius`` is not optional
+    ------------------------------------
+    A function of direction alone is SINGULAR AT THE ORIGIN: two cells on
+    opposite sides of r = 0 are neighbours on the grid but antipodal in angle,
+    so they can differ by the entire plume-to-void contrast across one cell.
+    The angular gradient goes as 1/r, and the innermost ejecta at the mapping
+    time is a cold near-vacuum evacuated by the reverse shock -- exactly the
+    place a cell-sharp density jump is least survivable. Left at zero, sigma =
+    0.5 collapses the timestep of a 256^3 adiabatic run at ~166 yr with mass
+    conserved to five digits (i.e. it is a gradient problem, not the
+    mass-manufacturing failure of OVERVIEW.md §6).
+
+    Fading the plumes out below a few per cent of the remnant radius removes
+    that and costs nothing physical: the region is evacuated, holds no
+    appreciable mass, and emits nothing. The plumes are a statement about the
+    ejecta ENVELOPE.
+    """
+    keys = jax.random.split(key, 4)
+    lo, hi = size_range_deg
+    # power-law sizes by inverse-transform sampling on the half-width
+    xi = jax.random.uniform(keys[0], (n_plumes,))
+    q = size_slope + 1.0
+    if abs(q) < 1e-6:
+        half = lo * (hi / lo) ** xi
+    else:
+        half = (lo ** q + xi * (hi ** q - lo ** q)) ** (1.0 / q)
+    kappa = 2.0 * np.log(2.0) / jnp.deg2rad(half) ** 2
+
+    # isotropic random directions (a normalised Gaussian is exactly uniform on
+    # the sphere; sampling theta uniformly would pile the plumes at the poles)
+    d = jax.random.normal(keys[1], (n_plumes, 3))
+    d = d / jnp.linalg.norm(d, axis=1, keepdims=True)
+    amp = jax.random.normal(keys[2], (n_plumes,))
+
+    r_safe = jnp.sqrt(X ** 2 + Y ** 2 + Z ** 2) + 1e-12
+    nx, ny, nz = X / r_safe, Y / r_safe, Z / r_safe
+
+    a = jnp.zeros_like(X)
+    for j in range(n_plumes):
+        cos_psi = nx * d[j, 0] + ny * d[j, 1] + nz * d[j, 2]
+        if radial_tilt:
+            # shear the lobe in azimuth with radius: a plume that is not
+            # perfectly ray-like, as a finger dragged by a sheared flow is not
+            cos_psi = cos_psi * jnp.cos(radial_tilt * r_safe)
+        a = a + amp[j] * jnp.exp(kappa[j] * (cos_psi - 1.0))
+
+    if inner_radius > 0:
+        wid = inner_width if inner_width is not None else 0.5 * inner_radius
+        a = a * (0.5 * (1.0 + jnp.tanh((r_safe - inner_radius) / wid)))
+
+    w = jnp.ones_like(a) if region is None else region
+    tot = jnp.sum(w) + 1e-30
+    mean = jnp.sum(w * a) / tot
+    var = jnp.sum(w * (a - mean) ** 2) / tot
+    return (a - mean) / (jnp.sqrt(var) + 1e-30)
+
+
 def dense_csm_shell(r, X, Y, Z, *, shell_radius, shell_thickness, peak_number_density,
                     rho_per_n, asymmetry=0.0):
     """Additive dense circumstellar shell (Gaussian in radius), optionally lopsided.
