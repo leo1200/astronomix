@@ -697,10 +697,17 @@ def merge_event_lists(inputs, out):
     """
     import h5py
 
-    # these must match, or the merged rate is meaningless
-    STRICT = ("area", "exp_time", "emin", "emax", "nH", "redshift")
+    # These must match, or the merged rate is meaningless. NOT emin/emax: those
+    # are OUTPUTS -- pyXSIM stores the actual observed-frame energy range of the
+    # photons it drew, so two components at different temperatures legitimately
+    # differ there (0.402 vs 0.438 keV for the two sub-grid phases). Including
+    # them refused a perfectly valid merge after 80 minutes of photon
+    # generation. The merged range is the union, set below.
+    STRICT = ("area", "exp_time", "nH", "redshift")
+    SPAN = ("emin", "emax")
     with h5py.File(inputs[0], "r") as f0:
         ref = {k: f0[f"parameters/{k}"][()] for k in STRICT}
+        span = {k: f0[f"parameters/{k}"][()] for k in SPAN}
     for path in inputs[1:]:
         with h5py.File(path, "r") as f:
             for k in STRICT:
@@ -711,6 +718,8 @@ def merge_event_lists(inputs, out):
                         f"{k} = {v} against {ref[k]}. Merging event lists made "
                         f"with different {k} gives a count rate that means "
                         f"nothing.")
+            span["emin"] = min(span["emin"], f["parameters/emin"][()])
+            span["emax"] = max(span["emax"], f["parameters/emax"][()])
 
     import shutil
     shutil.copyfile(inputs[0], out)
@@ -724,6 +733,8 @@ def merge_event_lists(inputs, out):
                     a[n0:] = b[:]
                 fo["parameters/flux"][()] = (fo["parameters/flux"][()]
                                              + fi["parameters/flux"][()])
+        for k in SPAN:                          # the merged list spans the union
+            fo[f"parameters/{k}"][()] = span[k]
         # pyxsim re-reads this, not the path it is given
         fo["info"].attrs["filenames"] = np.array([out], dtype=object)
         n = fo["data/eobs"].shape[0]

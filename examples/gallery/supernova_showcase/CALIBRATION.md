@@ -1481,3 +1481,120 @@ kept, `set_tracer_split` selects, and every consumer prints which it used.
 
 *Side finding, fixed:* the hand-typed Si layer summed to **0.999**, quietly
 losing 0.1 % of it. Both presets are now derived from their source numbers.
+
+---
+
+## Result 18 — the sub-grid contrast fixes the SHAPE, and exposes a normalisation error the old cancellation was hiding
+
+*2026-08-31. `casa_observe.py --subgrid-chi 4 --subgrid-fmass 0.5
+--subgrid-net-mode unchanged`, 256³, NEI, no halo, vs Chandra 2004; then an
+`f_mass` scan through `casa_xrism.py`.*
+
+Result 15 calibrated χ against the plasma diagnostics. This is the spectrum, which
+the scan does not constrain, and it is the first thing in this study to move the
+**one-sided energy-dependent residual** that Results 10, 7, 13 and the T_e bracket
+all failed to move.
+
+### The measurement
+
+| band | χ = 1 (control) | **χ = 4** | target |
+|---|---|---|---|
+| 0.5–7 keV rate | 0.89 | **2.26** | 1.0 |
+| 0.5–1.5 (O, Ne, Fe-L) | 0.70 | 2.48 | 1.0 |
+| 1.5–2.1 (Si He-α) | 0.74 | 1.99 | 1.0 |
+| 2.1–2.8 (S He-α) | 1.16 | 2.47 | 1.0 |
+| 2.8–4.2 (Ar, Ca) | 1.65 | 2.48 | 1.0 |
+| 4.2–6.0 (continuum) | 1.60 | 1.64 | 1.0 |
+| **6.0–7.0 (Fe-K)** | **2.52** | **1.71** | 1.0 |
+
+Read as absolute ratios that looks like a failure — everything got worse except
+Fe-K. It is not, and the reason is that **the normalisation and the shape moved in
+opposite directions.** Dividing each row by its own rate ratio separates them:
+
+| band | shape, χ = 1 | shape, χ = 4 |
+|---|---|---|
+| 0.5–1.5 | 0.79 | 1.10 |
+| 1.5–2.1 | 0.83 | 0.88 |
+| 2.1–2.8 | 1.31 | 1.09 |
+| 2.8–4.2 | 1.86 | 1.10 |
+| 4.2–6.0 | 1.81 | 0.72 |
+| 6.0–7.0 | 2.84 | 0.75 |
+| **spread (max/min)** | **3.60** | **1.51** |
+| **rms deviation** | **0.250 dex** | **0.084 dex** |
+
+**The spectral shape improves by a factor of three, and its character changes.**
+The control's residual is *monotone rising with energy* — 0.79 to 2.84, the
+soft-deficit/hard-excess signature this study has been chasing since Result 8.
+At χ = 4 there is no monotone trend below 4 keV and the whole 0.5–7 keV band sits
+within ±25 %. Fe-K, the single worst residual in the study, goes 2.52 → 1.71 while
+every other band rises — i.e. it improves *twice*, once absolutely and once
+relative to the rest.
+
+**So the density contrast was the right mechanism.** That is what four falsified
+candidates and the "too much hot gas" diagnosis were pointing at, and it is now
+measured rather than inferred.
+
+### And the normalisation is a new, cleaner residual
+
+2.26× is not a small error, and the honest reading is that **the control's 0.89
+was a cancellation**: it under-predicted the soft bands and over-predicted the
+hard ones, and the total came out near unity because the two errors had opposite
+signs. Fixing the shape removed the cancellation and left the underlying problem
+visible — **there is ~2.3× too much emitting material once the emission is placed
+at the right temperature.**
+
+### `f_mass` cannot absorb it, and that is the useful part
+
+`f_mass` sets how much of the cell mass is in the dense phase, hence the clumping
+factor, hence the normalisation. It was never scanned (0.5 was a placeholder). At
+fixed χ = 4:
+
+| f_mass | dense share of emission | kT_e IME | v_Si | Spearman IME / Fe | rate (∝ C) |
+|---|---|---|---|---|---|
+| 0.05 | 18 % | 2.75–4.99 | 2614 | −0.345 / +0.035 | ~1.10 |
+| 0.10 | 32 % | 2.51–4.52 | 2484 | −0.354 / +0.032 | ~1.22 |
+| 0.20 | 54 % | 2.15–3.81 | 2261 | −0.365 / +0.006 | ~1.46 |
+| **0.50** | **88 %** | **1.55–2.69** | **1770** | **−0.410 / −0.174** | **2.26** |
+
+*(XRISM: kT_e 1.3–2.1 keV, reverse shock ≈ 1800 km/s, both correlations negative.)*
+
+**The two constraints select opposite ends of the range.** The `f_mass` that fixes
+the normalisation (0.05–0.1) loses the temperature fix completely — kT_e back to
+2.5–5.0 keV, the implied shock back to 2500–2600 km/s, and the Fe-group
+correlation back to +0.03. The `f_mass` that fixes the temperature (0.5) overshoots
+the rate by 2.3×. The mechanism is transparent: the dense phase is cool *and*
+bright, so its share of the emission is what sets the temperature — and that share
+is exactly what sets the normalisation.
+
+**A two-phase model with one contrast therefore cannot satisfy the spectral shape
+and the total emission at once.** That is a measured negative and it is more
+useful than another tuning knob would have been, because it says the 2.3× is
+**not absorbable by the sub-grid parameters** — it is a property of the
+hydrodynamic state.
+
+### Where that points, and it is somewhere the project already has the tool
+
+Too much emitting material in the shocked ejecta is `OVERVIEW.md` §5.6: the
+reverse shock has eaten too far into the ejecta *in mass* (96 % shocked against an
+observed 87–90 %, 0.21 M☉ unshocked against 0.35 ± 0.10), controlled by the inner
+ejecta slope δ, and recorded as *blocked* because δ = 1 has never run in 3D.
+
+So the chain closes on itself: the XRISM diagnostic localised the residual to the
+ejecta density structure; the sub-grid contrast fixed the shape and exposed the
+normalisation; the normalisation points at δ; and δ is precisely the correlated,
+multi-symptom parameter `casa_diff.py` exists to fit. **It is also the one place
+in this whole study where PDE-constrained optimisation is well posed** (§5, "why
+the residual is not fitted away with gradient descent"). Clear that module's
+recorded blocker — reconcile the smooth `r_RS` and `M_unshocked` with
+`casa_analyze.py`'s definitions — and this is the fit to run.
+
+### A bug this cost, and the guard that was wrong
+
+`merge_event_lists` refused the two phases after 80 minutes of photon generation,
+on `emin` disagreeing (0.402 against 0.438 keV). Those are **outputs**, not
+inputs: pyXSIM stores the actual observed-frame energy range of the photons it
+drew, so two components at different temperatures legitimately differ there. The
+merged list now spans their union and only `area`, `exp_time`, `nH` and `redshift`
+are enforced. The phase event lists were reusable through `--pyxsim-events`, so
+the cost was the guard's, not the run's — **but a guard strict about the wrong
+quantity is as expensive as no guard at all.**

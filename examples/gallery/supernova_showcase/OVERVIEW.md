@@ -307,13 +307,49 @@ high-contrast knot at the 6–8 cells a shock interaction needs takes **N ≳ 15
 — 3–6× in linear resolution, 30–200× in cost, past a memory wall that already
 stops this study at 512³. `CLUMP_SIZE_FRACTION = 0.02` already targets 3× larger
 than the observed knots and is *still* grid-clamped.
-**Wired through `casa_observe.py`** as two thermal components
-(`--subgrid-chi/-fmass/-net-mode`), which works because the emission measure was
-already explicit: a phase filling part of a cell is the same fields with the
-emission measure scaled by its volume fraction. *Remaining:* the spectrum at
-χ = 4 has not been measured yet — the scan constrains the plasma diagnostics, not
-the band ratios. **It is an interpretation layer and `_subgrid.describe` prints
-that sentence on every run.**
+**THE SPECTRUM AT χ = 4 IS MEASURED, AND IT IS THE FIRST THING IN THIS STUDY TO
+MOVE THE ENERGY-DEPENDENT RESIDUAL (Result 18).** Dividing each band ratio by the
+overall rate ratio separates the shape from the normalisation:
+
+| band | shape, χ = 1 | shape, χ = 4 |
+|---|---|---|
+| 0.5–1.5 | 0.79 | 1.10 |
+| 1.5–2.1 | 0.83 | 0.88 |
+| 2.1–2.8 | 1.31 | 1.09 |
+| 2.8–4.2 | 1.86 | 1.10 |
+| 4.2–6.0 | 1.81 | 0.72 |
+| 6.0–7.0 (Fe-K) | 2.84 | 0.75 |
+| **spread** | **3.60** | **1.51** |
+| **rms** | **0.250 dex** | **0.084 dex** |
+
+The control's residual is *monotone rising with energy* — the
+soft-deficit/hard-excess signature chased since Result 8. At χ = 4 there is no
+monotone trend below 4 keV and the whole band sits within ±25 %, a **factor 3
+improvement in shape**. Fe-K, the worst residual in the study, goes 2.52 → 1.71
+in absolute terms while every other band rises. **The density contrast was the
+right mechanism.**
+
+**And the normalisation overshoots to 2.26×, which is a new and cleaner
+residual.** The control's 0.89 was a *cancellation* — soft under, hard over,
+opposite signs. Fixing the shape removed it and left the real problem visible:
+**~2.3× too much emitting material once the emission sits at the right
+temperature.**
+
+**`f_mass` cannot absorb it**, and that is the useful part. At fixed χ = 4 the
+`f_mass` that fixes the normalisation (0.05–0.1) loses the temperature fix
+entirely (kT_e back to 2.5–5.0 keV, implied shock back to 2500 km s⁻¹, Fe-group
+correlation back to +0.03), because the dense phase's *share of the emission* is
+what sets both. A two-phase model with one contrast cannot satisfy the shape and
+the total at once — so the 2.3× is a property of the hydrodynamic state, not of
+the sub-grid parameters.
+
+**That points at §5.6.** Too much emitting material in the shocked ejecta *is* the
+δ / unshocked-mass problem, and δ is precisely the correlated multi-symptom
+parameter `casa_diff.py` exists to fit — the one place in this study where
+PDE-constrained optimisation is well posed. **The chain closes on itself.**
+
+**It is an interpretation layer and `_subgrid.describe` prints that sentence on
+every run.**
 
 **2. Explosion-era structure — still the dominant *morphological* gap.**
 The ejecta arrive already structured: neutrino-driven convection/SASI plumes,
@@ -422,7 +458,11 @@ near 3 keV.)
 **But see §5.0:** XRISM says the IME electrons *are* ~2× too hot, so T_e is
 closed as a knob and not as a discrepancy. §5.1 is the mechanism that moves it.
 
-**6. The inner ejecta slope δ, and the unshocked mass — blocked, not unknown.**
+**6. The inner ejecta slope δ, and the unshocked mass — blocked, not unknown, and
+now the top of the queue.** §5.1's measured 2.3× normalisation excess is this
+residual seen from the other side: too much emitting material in the shocked
+ejecta. Result 18 promotes it from "a discrepancy that stands" to "the thing the
+spectrum is now limited by".
 This is the one gap where the fix is already identified and *fails to run*
 (Result 7). The reverse shock has eaten too far into the ejecta *in mass*: 96 %
 shocked against the observed ~87–90 %, i.e. 0.096–0.21 M☉ left unshocked against
