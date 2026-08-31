@@ -62,8 +62,12 @@ from _plasma import (
     CODE_DENSITY,
     CODE_LENGTH,
     KEV_IN_K,
+    TRACER_SPLIT_PRESETS,
     _self_check,
+    load_diagnostic_state,
     plasma_state,
+    set_tracer_split,
+    tracer_split_report,
 )
 
 FIGURES_DIR = Path(__file__).resolve().parent / "figures"
@@ -103,56 +107,26 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("state", help="a --save-state npz carrying the shock history")
+    ap.add_argument("--tracer-split", default="hwang_laming",
+                    choices=sorted(TRACER_SPLIT_PRESETS),
+                    help="see _plasma.TRACER_SPLIT_PRESETS; the two presets\n"
+                         "disagree, and every mass and abundance below depends\n"
+                         "on which is used")
     ap.add_argument("--out", default="casa_plasma", help="figure name stem")
     args = ap.parse_args()
 
     _self_check()
 
-    d = np.load(args.state)
-    if "density_time" not in d:
-        raise SystemExit(
-            f"{args.state} carries no shock history -- rerun casa_orlando.py "
-            "with --composition")
-    state = {k: np.asarray(d[k], dtype=np.float64) for k in
-             ("rho", "press", "density_time", "time_since_shock")}
-    # The shocked FRACTION, not "has any accumulated time": advection leaks an
-    # infinitesimal amount of the record into every cell, so a > 0 test would
-    # call the whole box shocked (this is exactly the trap the solver's own
-    # latch had to be rewritten to avoid).
-    state["shocked_fraction"] = (np.asarray(d["shocked_fraction"], dtype=np.float64)
-                                 if "shocked_fraction" in d else
-                                 (state["time_since_shock"] > 0).astype(np.float64))
-    # C_He is needed as much as the others: it is a quarter of the ejecta mass,
-    # and leaving it out of the composition moments would put that mass into
-    # hydrogen and halve the local mean molecular weight
-    for k in ("C_ej", "C_Fe", "C_Si", "C_O", "C_He"):
-        if k in d:
-            state[k] = np.asarray(d[k], dtype=np.float64)
-    # refuse a blown-up state: analysing one produces confident nonsense (a
-    # previous aborted run reported an ejecta mass of 2.5e13 Msun)
-    bad = []
-    if not np.all(np.isfinite(state["rho"])):
-        bad.append(f"{int(np.sum(~np.isfinite(state['rho'])))} non-finite density cells")
-    if float(state["rho"].max()) > 1e6:
-        bad.append(f"max density {float(state['rho'].max()):.3e}")
-    if not np.all(np.isfinite(state["press"])) or float(state["press"].min()) < 0:
-        bad.append("non-finite or negative pressure")
-    # an aborted run can leave the density looking innocuous while the ENERGY has
-    # collapsed; a total ejecta mass near zero or a wildly super-unity T_e/T are
-    # the tells (one aborted run reported 2.5e13 Msun, another 0.000)
-    if "C_ej" in d:
-        m_ej = float(np.sum(np.asarray(d["C_ej"]) * state["rho"])
-                     * (float(d["box"]) / int(d["num_cells"])) ** 3)
-        if not (0.1 < m_ej < 100.0):
-            bad.append(f"total ejecta mass {m_ej:.3e} Msun")
-    if bad:
-        raise SystemExit(
-            f"{args.state} looks unphysical ({'; '.join(bad)}) -- the run "
-            "probably aborted. Check its log for an ABORT before analysing.")
+    # BEFORE anything reads a composition: element_mass_fractions looks
+    # TRACER_SPLIT up at call time, so setting it late would silently mix
+    # two conventions in one report.
+    set_tracer_split(args.tracer_split)
+    print(f"[plasma] tracer split '{args.tracer_split}':\n"
+          f"{tracer_split_report()}")
 
-    age = float(d["age"])
-    box = float(d["box"])
-    n = int(d["num_cells"])
+    fields, meta = load_diagnostic_state(args.state)
+    state = fields
+    age, box, n = meta["age"], meta["box"], meta["num_cells"]
 
     # all of the physics, with the composition the run actually carried
     ps = plasma_state(state)

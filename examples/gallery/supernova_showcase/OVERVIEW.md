@@ -53,6 +53,9 @@ consequences drive every design choice below:
  casa_morphology.py     structure vs scale + topology, against real evt2
  casa_morph_null.py     phase-randomised null: is the structure real?
  casa_analyze.py        shock radii, masses    casa_plasma.py  plasma diagnostics
+ casa_xrism.py          per-element-group kT_e, n_e t, sigma_v and per-species
+                        T_i against XRISM/Resolve -- the sharpest scoring in the
+                        directory, and the cheap place to calibrate (Result 14)
 
  casa_progenitor.py  →  casa_explode_1d.py     side branch, not in the main line:
                                                a real KEPLER progenitor stripped
@@ -61,6 +64,12 @@ consequences drive every design choice below:
 
 `_common.py` holds the solver configuration and the initial-condition builders
 the whole directory shares, and `run.sh` is the environment wrapper (§9).
+`_subgrid.py` (density structure below the cell, Result 15) and
+`_synchrotron.py` (the non-thermal component, Result 16) are physics modules for
+the two gaps §5 ranks first and third; both are self-checking and neither is
+wired into `casa_observe.py` yet.
+`casa_wind.py` blows the CSM self-consistently and scores itself against the two
+published features §5.7 names; it is not calibrated and not wired in.
 `verify_sharded_turb.py` checks that the multi-GPU turbulent field is the same
 field as the single-device one — a regression guard for the fix in §6.
 
@@ -241,26 +250,55 @@ electrons really are ~2× too hot. The fix is therefore upstream, in the density
 structure: denser clumps slow the transmitted shock (v ≈ v_s/√χ), which lowers
 kT_e *without* the emission-reweighting that defeated the scan.
 
-**1. Ejecta density contrast — promoted to first among the spectral gaps.**
-Laming & Hwang (2003) needed overdensities ~100 for the intermediate-mass
-elements to reconcile n_e t with kT_e at an 1800 km s⁻¹ reverse shock; XRISM now
-derives the same independently and *differentially by composition*. Our
-log-normal has σ_ln = ln 5/3, i.e. a clumping factor ⟨n²⟩/⟨n⟩² = **1.33**. A
-two-phase medium at χ = 100, f = 0.01 gives **≈25** — a factor ~19 in emissivity
-at fixed mean density, which is more than enough for a factor-2 soft deficit,
-and it lowers kT_e at the same time. This is the one change that can move the
-soft deficit, the hard excess, kT_e and n_e t *together*.
+**1. Ejecta density contrast — first among the spectral gaps, and now measured
+(Result 15).** `_subgrid.py` re-reads each cell as two phases at fixed cell mass,
+fixed cell volume and pressure equilibrium — the post-crushing state, which makes
+the temperature split free of new parameters (`ρT` equal gives `T_dense = T/χ`,
+the same `v²/χ` a transmitted shock gives). `casa_xrism.py --subgrid-scan`
+calibrates χ in minutes rather than against a 45-minute observation:
 
-**The resolution wall is hard, and it is why this has to be sub-grid.** Cas A's
-knots are ~1″ = 0.016 pc. A cell is 0.023 pc at 256³ and 0.012 pc at 512³, so a
-χ = 100 knot resolved at 6–8 cells needs dx ≲ 0.003 pc — **N ≳ 1500**.
-`CLUMP_SIZE_FRACTION = 0.02` already targets 0.05 pc, 3× larger than the
-observed knots, and is *still* grid-clamped. Direct resolution is out of reach
-by 3–6× in linear resolution, i.e. 30–200× in cost.
-*Cost:* ~1 week for a per-cell clumping factor with a (χ, f) two-phase split and
-the transmitted-shock temperature for the dense phase. **Calibrate it to
-XRISM's χ ≈ 10/100, do not fit it to our own metrics** — and label it an
-interpretation layer, which is what §5's own DO-NOT list requires.
+| χ | kT_e IME | n_e t IME | v_Si | Spearman IME / Fe |
+|---|---|---|---|---|
+| 1.0 | 3.03–5.56 | 1.95–3.20e11 | 2758 | −0.35 / +0.04 |
+| **4.0** | **1.76–3.41** | 3.48–5.73e11 | **1730** | **−0.46 / −0.35** |
+| 16.0 | 0.68–1.67 | 6.97e11–1.17e12 | 849 | −0.47 / −0.14 |
+
+*(XRISM: kT_e 1.3–2.1, n_e t 1.0–3.4e11, v ~ 1800, both correlations negative.)*
+
+**χ ≈ 4 lands on three targets at once** — the temperature enters XRISM's range,
+the implied shock hits 1730 km s⁻¹ against 1800, and *both* correlation signs go
+negative including the Fe-group one. **And it overshoots the ionization age**,
+which was already at the top of the observed range at χ = 1. The two observables
+pull against each other, so the result is a **joint constraint, not a best-fit
+χ**: the ejecta must be dense enough to slow the shock by 1.5× *without* raising
+the swept electron column, which holds only if the dense gas was engulfed later —
+a statement about clump *size*, the one thing a sub-grid model cannot supply.
+
+**χ ≈ 4, not the χ ≈ 10–100 of the literature, and that is not a disagreement.**
+Laming & Hwang (2003) and XRISM infer χ from the offset of the data from a
+*one-zone* model with a single uniform 1800 km s⁻¹ reverse shock. Ours is the
+offset from a 3D calculation that already contains a distribution of shock
+velocities, clumping at contrast 5, pistons and a reflected shock. Most of what a
+one-zone analysis must attribute to χ is already here as resolved structure, and
+quoting theirs would double-count it.
+
+**The naive emissivity argument also does not survive being done properly.** A
+one-zone estimate at χ = 100, f = 0.01 gives a clumping factor ≈25, hence "a
+factor ~19 in emissivity". Measured, ⟨n²⟩/⟨n⟩² peaks at **1.63** near χ = 2.3 and
+*falls* thereafter, because as the dense phase cools its silicon stops being
+He-like and drops out of the line-emission weight. An emissivity argument made at
+fixed temperature is invalid at the temperature the same model implies.
+
+**The resolution wall is why this has to be sub-grid.** Cas A's knots are
+~1″ = 0.016 pc; a cell is 0.027 pc at 256³ and 0.014 pc at 512³, so resolving a
+high-contrast knot at the 6–8 cells a shock interaction needs takes **N ≳ 1500**
+— 3–6× in linear resolution, 30–200× in cost, past a memory wall that already
+stops this study at 512³. `CLUMP_SIZE_FRACTION = 0.02` already targets 3× larger
+than the observed knots and is *still* grid-clamped.
+*Remaining cost:* wiring the two phases through `casa_observe.py` as two thermal
+components (the emission-measure field is already explicit, so this is
+tractable), then one observation. **It is an interpretation layer and
+`_subgrid.describe` prints that sentence on every run.**
 
 **2. Explosion-era structure — still the dominant *morphological* gap.**
 The ejecta arrive already structured: neutrino-driven convection/SASI plumes,
@@ -284,11 +322,33 @@ the dust halo demonstrably cannot absorb), and — the reason for the promotion 
 in the model those two band ratios are not tests of anything. Adding it does
 *not* relieve the hard excess; it makes it ~3.7× instead of 1.71×, and points at
 §5.1 for the cure.
-*Cost:* 1–2 weeks for a REMLIGHT-style DSA post-process on an MHD state
-(Orlando & Bocchino's recipe). Field amplification is still a free parameter —
-Cas A's rim field is ~0.5 mG against our compressed 80 µG — but the *result* is
-now calibratable rather than guessed, against XRISM's measured photon index
-Γ = 2.94–3.43 and the measured non-thermal fraction.
+`_synchrotron.py` now carries the physics, and it is **better anchored than
+"a fit" (Result 16)**. The radio flux fixes the electrons (2720 Jy at 1 GHz,
+α = 0.77, same population, and the `K B^((s+1)/2)` scaling cancels); the
+loss-limited cutoff `hν_cut ≈ 1.4 keV (v_s/3000)²/η` is field-independent. What
+does *not* cancel is the emitting **volume** — the 5 keV electrons live 0.08 yr at
+Cas A's ~500 µG rim field against a 350 yr remnant:
+
+| emitting volume assumed | vs observed non-thermal 4.2–6 keV |
+|---|---|
+| co-spatial with the radio (whole shell) | 9.3× |
+| purely advected loss layer (1.0e-4 pc) | 0.0032× |
+| **observed filament width, 1–3″** | **0.51–1.53×** |
+
+With the observed width supplying the thickness the prediction is consistent
+**within a factor of two, with nothing fitted** — one geometric parameter taken
+from an observation, not two free physics parameters. The width itself is not
+predicted: the observed filaments are 161–484× thicker than advection allows,
+which needs diffusive transport or magnetic damping and is an open problem.
+
+**And one result with nothing adjustable at all:** inverting XRISM's
+Γ = 2.94–3.43 through the loss-limited relation at η = 1 gives a shock at
+**1708–2423 km s⁻¹** — Cas A's *reverse* shock (1800–2000), not its forward shock
+(~5000). The non-thermal continuum in those pointings is reverse-shock emission,
+and nothing was tuned to produce that.
+*Remaining cost:* ~1 week to add it to the photon list as a second source
+(`pyxsim.PowerLawSourceModel` takes per-cell luminosity and index fields, which
+is what the module produces), plus the event-list merge.
 
 **4. `TRACER_SPLIT`'s Ar and Ca — an assumption with a measured error.**
 Ours is Si:S:Ar:Ca = 0.444 / 0.333 / 0.111 / 0.111 by mass, from Hwang & Laming
@@ -555,6 +615,12 @@ remnant-integrated); Chandra ACIS evt2, 22 obsids 2000–2023, in
   (arXiv:2503.23640) — pre-shock free-expansion velocities 2400–7100 km s⁻¹.
 * **Orlando & Bocchino et al.**, REMLIGHT (arXiv:2012.13394) — the established
   recipe for synthesising synchrotron emission from an SNR MHD state (§5.3).
+
+**Used by `_subgrid.py` and `_synchrotron.py`** — Klein, McKee & Colella 1994
+(cloud crushing, and the pressure-equilibrium closure the two-phase split rests
+on); Zirakashvili & Aharonian 2007 and Vink 2012 (the loss-limited cutoff and its
+field-independence); Baars et al. 1977 (Cas A's 2720 Jy at 1 GHz, α = 0.77, the
+anchor that removes the electron efficiency).
 
 **Differentiable-solver prior art** — `diffhydro` (arXiv:2512.13403):
 PDE-constrained inference in astrophysical flows, reverse mode with custom

@@ -81,22 +81,136 @@ SOLAR_NUMBER_RATIO_TO_H = {
 #: into the wrong lines -- and S is a major Cas A emitter, which is why Hwang &
 #: Laming quote Si and S together.
 #:
-#: The split is by MASS, from Hwang & Laming (2012)'s measured shocked masses
-#: (O 2, Ne 0.03, Mg 0.03; Si 0.08, S 0.06, Ar 0.02, Ca 0.02) -- from the
-#: observation rather than a yield model, since being comparable to that
-#: observation is the point of this pipeline. A fixed ratio within each layer is
-#: exactly as much as co-located tracers can say; resolving it would need one
-#: scalar per element.
-TRACER_SPLIT = {
-    "O": {"O": 0.971, "Ne": 0.0145, "Mg": 0.0145},
-    "Si": {"Si": 0.444, "S": 0.333, "Ar": 0.111, "Ca": 0.111},
-    "Fe": {"Fe": 1.0},
-    "He": {"He": 1.0},
+#: The split is by MASS. A fixed ratio within each layer is exactly as much as
+#: co-located tracers can say; resolving it would need one scalar per element.
+#:
+#: TWO OBSERVATIONS DISAGREE ABOUT IT, AND THE DISAGREEMENT IS PHYSICAL.
+#:
+#: ``hwang_laming`` reproduces Hwang & Laming (2012)'s measured shocked masses
+#: (O 2, Ne 0.03, Mg 0.03; Si 0.08, S 0.06, Ar 0.02, Ca 0.02), integrated over
+#: the WHOLE remnant. It was chosen because being comparable to that measurement
+#: is the point of this pipeline. But it puts, relative to solar,
+#:
+#:     S/Si = 1.44x     Ar/Si = 1.72x     Ca/Si = 2.72x
+#:
+#: everywhere -- and XRISM/Resolve (Vink et al. 2026) measures S/Si = 0.88-1.12
+#: solar per 30" pixel, with the Ar and Ca enhancement confined to the NE and SW
+#: jet bases. Both can be true at once: the remnant-integrated Ar mass can be
+#: 0.02 Msun with most of it in the jets while the ratio is solar in the bulk.
+#:
+#: This model cannot express that. One "Si" tracer stands for the whole
+#: Si/S/Ar/Ca layer, so any enhancement is spread over ALL of it -- including the
+#: brightest smooth Si, which is where the emission is. That is exactly the
+#: recorded residual "Ar and Ca lines ~2x too strong while Si is 0.74x": not a
+#: bug and not a physical effect, but the cost of four tracers standing for nine
+#: elements.
+#:
+#: So the choice is exposed rather than hidden, and the two presets fix different
+#: things. ``xrism_bulk`` matches the per-pixel LINE RATIOS where the emission
+#: is, at the price of under-predicting the remnant-integrated Ar and Ca masses
+#: (the jet enhancement is then absent rather than mislocated).
+#: Select with :func:`set_tracer_split`; anything that reports masses or
+#: abundances must say which was used.
+#: Hwang & Laming (2012) shocked masses [Msun], remnant-integrated. The presets
+#: are DERIVED from these rather than typed in as fractions: the hand-typed
+#: version summed to 0.999 in the Si layer, which quietly lost 0.1 % of it.
+HWANG_LAMING_SHOCKED_MASSES = {
+    "O": 2.0, "Ne": 0.03, "Mg": 0.03,
+    "Si": 0.08, "S": 0.06, "Ar": 0.02, "Ca": 0.02,
+    "Fe": 0.14,
 }
 
 
+def _mass_layer_split(elements, masses):
+    """Normalise measured masses into mass fractions within one layer."""
+    total = sum(masses[el] for el in elements)
+    return {el: masses[el] / total for el in elements}
+
+
+TRACER_SPLIT_PRESETS = {
+    "hwang_laming": {
+        "O": _mass_layer_split(("O", "Ne", "Mg"), HWANG_LAMING_SHOCKED_MASSES),
+        "Si": _mass_layer_split(("Si", "S", "Ar", "Ca"),
+                                HWANG_LAMING_SHOCKED_MASSES),
+        "Fe": {"Fe": 1.0},
+        "He": {"He": 1.0},
+    },
+    # solar S/Si, Ar/Si and Ca/Si by number, i.e. XRISM's bulk line ratios.
+    # Derived from SOLAR_NUMBER_RATIO_TO_H, not typed in -- see _solar_layer_split.
+    "xrism_bulk": None,             # filled in below
+}
+
+#: which preset is active
+TRACER_SPLIT_NAME = "hwang_laming"
+
+
+def _solar_layer_split(elements):
+    """Mass fractions within a layer that give exactly SOLAR number ratios.
+
+    Computed from :data:`SOLAR_NUMBER_RATIO_TO_H` so the preset cannot drift out
+    of step with the abundance table the forward model normalises to -- typing
+    the numbers in is how a "solar" ratio silently stops being one.
+    """
+    w = {el: SOLAR_NUMBER_RATIO_TO_H[el] * ATOMIC[el][0] for el in elements}
+    total = sum(w.values())
+    return {el: v / total for el, v in w.items()}
+
+
+# ONLY the Si layer changes. XRISM/Resolve's band does not constrain Ne/O or
+# Mg/O, and forcing those to solar would be nucleosynthetic nonsense: it puts
+# 15 % of the oxygen layer's mass into neon, whereas Hwang & Laming measure
+# Ne/O and Mg/O far BELOW solar (0.03 against 2.0 Msun), which is what an
+# oxygen-burning layer should look like. Changing a ratio no observation
+# constrains, in the same commit as one it does, is how a calibration stops
+# being traceable.
+TRACER_SPLIT_PRESETS["xrism_bulk"] = dict(
+    TRACER_SPLIT_PRESETS["hwang_laming"],
+    Si=_solar_layer_split(("Si", "S", "Ar", "Ca")),
+)
+
+TRACER_SPLIT = TRACER_SPLIT_PRESETS[TRACER_SPLIT_NAME]
+
+
+def set_tracer_split(name):
+    """Choose a :data:`TRACER_SPLIT_PRESETS` entry, process-wide.
+
+    Module-level state, deliberately: :func:`element_mass_fractions` is called
+    from deep inside the forward model and threading the choice through every
+    caller would be a large change for a switch that must be set once per run.
+    The cost is that it MUST be set before any composition is computed, and that
+    every consumer has to report :data:`TRACER_SPLIT_NAME` alongside its numbers.
+    """
+    global TRACER_SPLIT, TRACER_SPLIT_NAME
+    if name not in TRACER_SPLIT_PRESETS:
+        raise SystemExit(f"unknown tracer split {name!r}; choose from "
+                         f"{sorted(TRACER_SPLIT_PRESETS)}")
+    TRACER_SPLIT_NAME = name
+    TRACER_SPLIT = TRACER_SPLIT_PRESETS[name]
+    return TRACER_SPLIT
+
+
+def tracer_split_report(name=None):
+    """One line per layer element: mass fraction and ratio to solar."""
+    split = TRACER_SPLIT_PRESETS[name] if name else TRACER_SPLIT
+    lines = []
+    for tracer, parts in split.items():
+        if len(parts) == 1:
+            continue
+        ref = tracer
+        for el, frac in parts.items():
+            solar = (SOLAR_NUMBER_RATIO_TO_H[el] / SOLAR_NUMBER_RATIO_TO_H[ref]
+                     * ATOMIC[el][0] / ATOMIC[ref][0])
+            lines.append(f"    {el:3s} {frac:.4f} by mass, "
+                         f"{el}/{ref} = {frac / parts[ref] / solar:.2f}x solar")
+    return "\n".join(lines)
+
+
 def element_mass_fractions(X):
-    """Expand the tracer mass fractions into per-ELEMENT mass fractions."""
+    """Expand the tracer mass fractions into per-ELEMENT mass fractions.
+
+    Reads :data:`TRACER_SPLIT` at call time, so :func:`set_tracer_split` takes
+    effect for callers that imported this function rather than the dict.
+    """
     out = {}
     for tracer, parts in TRACER_SPLIT.items():
         if tracer not in X:
@@ -417,6 +531,146 @@ def electron_ion_temperatures(T, rho_code, time_since_shock_code, X,
     return np.where(shocked, T_e, T), np.where(shocked, T_i, T)
 
 
+def species_ion_temperature(T_i, mu_i, element):
+    """Ion temperature of ONE species, from the model's mean ion temperature.
+
+    The solver carries one temperature and :func:`electron_ion_temperatures`
+    splits it into one electron and one *mean* ion temperature. A collisionless
+    shock does not do that: it heats each ion species to
+    ``T_s = (3/16) m_s v_s^2 / k``, i.e. **in proportion to its mass**, so the
+    oxygen and the iron behind the same shock differ by a factor 3.5. The mean
+    is what the mean is::
+
+        T_i = sum_s n_s T_s / sum_s n_s = (T_ref / m_ref) <m>_i
+
+    so inverting it for one species costs nothing but the composition already
+    carried::
+
+        T_s = T_i * m_s / (mu_i m_p)
+
+    XRISM/Resolve now measures this difference directly from the *thermal* part
+    of the line widths -- ``T_i(Fe) - T_i(Si) = 300 +- 180 keV`` (NW) and
+    ``150 +- 60 keV`` (SE) (Vink et al. 2026) -- so it is a prediction of the
+    calibrated dynamics that can be checked rather than an assumption. Note that
+    it is essentially ``(3/16)(m_Fe - m_Si) v_s^2`` at the reverse shock, which
+    is 176 keV at 1800 km/s: the measurement is a shock-velocity measurement in
+    disguise, and getting it right is a statement about the hydrodynamics.
+
+    **Two caveats, and they point in opposite directions.**
+
+    *Upper bound:* nothing here relaxes the species towards each other. Ion-ion
+    Coulomb collisions do, so the true difference is smaller than this by an
+    amount the model does not track. That XRISM still measures a difference
+    means the relaxation is incomplete, not absent.
+
+    *Robust to expansion:* adiabatic expansion cools every species by the same
+    ``rho^(2/3)``, so the RATIO ``T_s / T_i`` is preserved along a parcel's
+    trajectory. The formula is therefore valid at the observation epoch and not
+    only at the shock -- unlike almost everything else in this module, it needs
+    no history integral.
+
+    Args:
+        T_i: Mean ion temperature [K], from :func:`electron_ion_temperatures`.
+        mu_i: Mean ion mass in units of ``m_p`` (``moments["mu_i"]``).
+        element: Symbol in :data:`ATOMIC`.
+
+    Returns:
+        The species' ion temperature [K], same shape as ``T_i``.
+    """
+    if element not in ATOMIC:
+        raise KeyError(f"unknown element {element!r}; have {sorted(ATOMIC)}")
+    A = ATOMIC[element][0]
+    return np.asarray(T_i, dtype=np.float64) * A / np.maximum(mu_i, 1e-30)
+
+
+def thermal_line_width(T_s, element):
+    """1-sigma thermal Doppler width of a line of ``element`` [cm/s].
+
+    ``sigma_v = sqrt(k T_s / m_s)``. Worth having next to
+    :func:`species_ion_temperature` because of what the pair implies: under
+    *exactly* mass-proportional heating ``T_s / m_s`` is the same for every
+    species, so **every line has the same thermal width** and none of an
+    observed difference between species is thermal. XRISM measures the Fe-group
+    lines broader than the intermediate-mass ones by ~1500 km/s, so either the
+    heating is super-mass-proportional for iron or -- their reading -- the iron
+    was shocked by a faster shock, ``v_Fe^2 = (2300 km/s)^2 + v_IME^2``.
+    Either way it is a constraint on the model's *dynamics*.
+    """
+    A = ATOMIC[element][0]
+    return np.sqrt(K_B * np.asarray(T_s, dtype=np.float64) / (A * M_P))
+
+
+#: fields a diagnostic needs from a ``--save-state`` npz, beyond the optional
+#: composition tracers
+_REQUIRED_STATE_FIELDS = ("rho", "press", "density_time", "time_since_shock")
+
+
+def load_diagnostic_state(path):
+    """Read a ``--save-state`` npz for a diagnostic, and REFUSE a blown-up one.
+
+    Shared by ``casa_plasma.py`` and ``casa_xrism.py`` because the guard is the
+    interesting part and it must not drift between them. Analysing an aborted
+    run does not fail -- it produces confident nonsense, and it has: one aborted
+    state reported an ejecta mass of 2.5e13 Msun and another 0.000 with
+    ``T_e/T = 79.9``. A density-only guard let the second one through, so all
+    four of density, pressure, ionization age and total ejecta mass are checked.
+
+    Returns ``(fields, meta)`` where ``meta`` carries ``age``, ``box``,
+    ``num_cells`` and, for states written after the provenance fix, ``argv`` and
+    ``git_commit``.
+    """
+    d = np.load(path)
+    if "density_time" not in d:
+        raise SystemExit(
+            f"{path} carries no shock history -- rerun casa_orlando.py with "
+            "--composition")
+    fields = {k: np.asarray(d[k], dtype=np.float64)
+              for k in _REQUIRED_STATE_FIELDS}
+
+    # The shocked FRACTION, not "has any accumulated time": advection leaks an
+    # infinitesimal amount of the record into every cell, so a > 0 test would
+    # call the whole box shocked (exactly the trap the solver's own latch had to
+    # be rewritten to avoid).
+    fields["shocked_fraction"] = (
+        np.asarray(d["shocked_fraction"], dtype=np.float64)
+        if "shocked_fraction" in d
+        else (fields["time_since_shock"] > 0).astype(np.float64))
+
+    # C_He matters as much as the others: it is a quarter of the ejecta mass, and
+    # leaving it out would put that mass into hydrogen and halve the local mu.
+    for k in ("C_ej", "C_Fe", "C_Si", "C_O", "C_He"):
+        if k in d:
+            fields[k] = np.asarray(d[k], dtype=np.float64)
+    for k in ("vx", "vy", "vz"):
+        if k in d:
+            fields[k] = np.asarray(d[k], dtype=np.float64)
+
+    bad = []
+    if not np.all(np.isfinite(fields["rho"])):
+        bad.append(f"{int(np.sum(~np.isfinite(fields['rho'])))} non-finite "
+                   "density cells")
+    if float(fields["rho"].max()) > 1e6:
+        bad.append(f"max density {float(fields['rho'].max()):.3e}")
+    if not np.all(np.isfinite(fields["press"])) or float(fields["press"].min()) < 0:
+        bad.append("non-finite or negative pressure")
+    if "C_ej" in fields:
+        dx = float(d["box"]) / int(d["num_cells"])
+        m_ej = float(np.sum(fields["C_ej"] * fields["rho"])) * dx ** 3
+        if not (0.1 < m_ej < 100.0):
+            bad.append(f"total ejecta mass {m_ej:.3e} Msun")
+    if bad:
+        raise SystemExit(
+            f"{path} looks unphysical ({'; '.join(bad)}) -- the run probably "
+            "aborted. Check its log for an ABORT before analysing.")
+
+    meta = dict(age=float(d["age"]), box=float(d["box"]),
+                num_cells=int(d["num_cells"]))
+    for k in ("argv", "git_commit"):
+        if k in d:
+            meta[k] = str(np.asarray(d[k]).item())
+    return fields, meta
+
+
 def plasma_state(fields, *, kT_e_shock_keV=0.3, two_temperature=True,
                  te_model="ghavamian", beta_shock=0.05):
     """Everything the X-ray model needs, from a ``--save-state`` npz.
@@ -517,8 +771,61 @@ def _assert_physics():
             err = np.max(np.abs((f_e * T_e + (1.0 - f_e) * T_i) / T - 1.0))
             assert err < 1e-10, (X, age_yr, err)
             assert np.all(T_e <= T_i + 1e-6 * T), (X, age_yr)
+
+    # 3. the per-species split reproduces the mean it came from. This is the one
+    #    property that makes species_ion_temperature more than a rescaling: the
+    #    number-weighted mean of the per-species temperatures must be the mean
+    #    ion temperature the solver actually carries, for ANY composition.
+    for X in ({"O": 1.0}, {"O": 0.6, "Si": 0.2, "Fe": 0.2}, COSMIC):
+        mom = composition_moments(X)
+        T_i = 1e9
+        num = den = 0.0
+        for el, X_el in X.items():
+            if X_el <= 0:
+                continue
+            n_s = X_el / ATOMIC[el][0]                  # per unit mass
+            num += n_s * species_ion_temperature(T_i, mom["mu_i"], el)
+            den += n_s
+        assert abs(num / den / T_i - 1.0) < 1e-10, (X, num / den / T_i)
+
+    # 4. mass-proportional heating gives every species the SAME thermal line
+    #    width, which is why an observed difference between species cannot be
+    #    thermal (see thermal_line_width)
+    w = [thermal_line_width(species_ion_temperature(1e9, 16.0, el), el)
+         for el in ("O", "Si", "Fe")]
+    assert max(w) / min(w) - 1.0 < 1e-12, w
+
+    # 5. every preset is a normalised split of every layer it names, and the
+    #    two differ ONLY where an observation says they should. A preset that
+    #    silently renormalises, or that moves a ratio nothing constrains, is the
+    #    failure mode this guard exists for.
+    base = TRACER_SPLIT_PRESETS["hwang_laming"]
+    for name, split in TRACER_SPLIT_PRESETS.items():
+        assert set(split) == set(base), (name, sorted(split))
+        for tracer, parts in split.items():
+            assert abs(sum(parts.values()) - 1.0) < 1e-12, (name, tracer)
+            assert all(v >= 0.0 for v in parts.values()), (name, tracer)
+    differ = {t for t in base if TRACER_SPLIT_PRESETS["xrism_bulk"][t] != base[t]}
+    assert differ == {"Si"}, differ
+    # and xrism_bulk really is solar in the ratios XRISM measured
+    xb = TRACER_SPLIT_PRESETS["xrism_bulk"]["Si"]
+    for el in ("S", "Ar", "Ca"):
+        solar = (SOLAR_NUMBER_RATIO_TO_H[el] / SOLAR_NUMBER_RATIO_TO_H["Si"]
+                 * ATOMIC[el][0] / ATOMIC["Si"][0])
+        assert abs(xb[el] / xb["Si"] / solar - 1.0) < 1e-12, el
+
+    # 6. the reverse-shock arithmetic XRISM measures: (3/16)(m_Fe - m_Si) v^2 at
+    #    1800 km/s is ~176 keV, inside the observed 150 +- 60 to 300 +- 180 keV.
+    #    A single hand-checkable number tying the formula to the measurement.
+    v = 1.8e8
+    dT_keV = (3.0 / 16.0) * (ATOMIC["Fe"][0] - ATOMIC["Si"][0]) * M_P * v ** 2 \
+        / K_B / KEV_IN_K
+    assert 150.0 < dT_keV < 210.0, dT_keV
+
     print("[plasma] self-check passed (moments, energy conservation in the "
-          "T_e/T_i relaxation)")
+          f"T_e/T_i relaxation, per-species ion temperatures; the reverse-shock "
+          f"Fe-Si ion temperature difference at 1800 km/s is {dT_keV:.0f} keV "
+          f"against XRISM's 150-300)")
 
 
 if __name__ == "__main__":

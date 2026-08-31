@@ -165,7 +165,10 @@ from _plasma import (
     M_P,
     SOLAR_NUMBER_RATIO_TO_H,
     TE_MODELS,
+    TRACER_SPLIT_PRESETS,
     plasma_state,
+    set_tracer_split,
+    tracer_split_report,
 )
 
 FIGURES_DIR = Path(__file__).resolve().parent / "figures"
@@ -1148,6 +1151,16 @@ def main():
                          "for showing what the two-temperature model changes: "
                          "Coulomb equilibration is far from complete at 350 yr, "
                          "so T_e = T is not a defensible approximation here")
+    ap.add_argument("--tracer-split", default="hwang_laming",
+                    choices=sorted(TRACER_SPLIT_PRESETS),
+                    help="how the Si and O tracers divide among the elements "
+                         "they stand for. HWANG_LAMING (default) reproduces the "
+                         "remnant-integrated shocked masses but puts Ar/Si and "
+                         "Ca/Si at 1.7-2.7x solar everywhere; XRISM_BULK "
+                         "matches the per-pixel line ratios XRISM measures "
+                         "instead. The two disagree because the real "
+                         "enhancement is confined to the jets and one tracer "
+                         "cannot say so -- see _plasma.TRACER_SPLIT_PRESETS")
     ap.add_argument("--te-model", default="ghavamian", choices=TE_MODELS,
                     help="electron-heating prescription at the shock. The "
                          "default is Ghavamian et al. (2007)'s constant 0.3 keV, "
@@ -1211,6 +1224,12 @@ def main():
         args.out = str(FIGURES_DIR.parent / Path(args.state).stem)
     if args.instrument is None:
         args.instrument = instrument_for_epoch(args.compare)
+
+    # BEFORE the state is read: element_mass_fractions looks TRACER_SPLIT up at
+    # call time, so setting it any later would mix two conventions in one run.
+    set_tracer_split(args.tracer_split)
+    _say(f"[casa-obs] tracer split '{args.tracer_split}':\n"
+         f"{tracer_split_report()}")
 
     state = load_state(args.state)
     print(f"[casa-obs] {args.state}: {state['num_cells']}^3, box {state['box_pc']} pc, "

@@ -258,7 +258,96 @@ def report(state, registered_variables, helper_data, args, code_units):
     col = np.nansum(n_of_r * dr)
     print(f"[wind] radial column to the box edge: {col:.3f} cm^-3 pc "
           f"(the imposed shell alone carries 20 x 0.02 = 0.4)")
+
+    score_against_targets(centers, n_of_r, n, r, args)
     return centers, n_of_r, n
+
+
+# =============================================================================
+# ============ ↓ The two things this CSM has to produce ↓ ======================
+# =============================================================================
+# A turbulent wind bubble is more realistic than an r^-2 law plus one analytic
+# shell in a general way, and "more realistic" is not a target. Two PUBLISHED,
+# QUANTIFIED features of Cas A's circumstellar medium are, and both are absent
+# from the imposed model by construction. Calibrate against these, not against
+# the look of the profile.
+#
+# 1. THE "GREEN MONSTER" (Vink et al. 2024, arXiv:2401.02491). A structure of
+#    dense SHOCKED CSM projected onto the remnant's INTERIOR -- so it is not the
+#    swept-up shell seen edge-on, it is a discrete dense clump the blast has run
+#    into on the near side. Their conclusion is a direct statement about this
+#    initial condition: the progenitor's environment "was not that of a smooth
+#    steady wind profile".
+GREEN_MONSTER_PRESHOCK_N = 12.0         # cm^-3, against our wind's 0.93 at 2.5 pc
+GREEN_MONSTER_NET = 1.5e11              # cm^-3 s
+GREEN_MONSTER_VELOCITY_KMS = -2300.0    # blueshifted: on the near side
+#
+# 2. REVERSE-SHOCK ASYMMETRY (Fesen et al. 2025, arXiv:2501.07708). The reverse
+#    shock runs at 1900-2100 km/s in the east and is STATIONARY to -70 km/s on
+#    the western limb, with r_RS spanning 90-130". A spherical ambient cannot
+#    produce that; an azimuthally varying column can. Our r_RS = 1.531 pc = 93"
+#    sits at the inner edge of the observed range with no asymmetry at all.
+RS_RADIUS_ARCSEC = (90.0, 130.0)
+RS_VELOCITY_EAST_KMS = (1900.0, 2100.0)
+RS_VELOCITY_WEST_KMS = (-70.0, 0.0)
+#: fractional angular density scatter needed to deflect a reverse shock from
+#: 2000 km/s to rest. The shock speed into the ejecta goes roughly as the
+#: inverse square root of the ambient column it is pushing against, so halting
+#: it needs order-unity azimuthal variation -- which is the number to check,
+#: and it is exactly the quantity the imposed model sets to zero.
+RS_REQUIRED_ANGULAR_SCATTER = 0.5
+# =============================================================================
+# ============ ↑ The two things this CSM has to produce ↑ ======================
+# =============================================================================
+
+
+def score_against_targets(centers, n_of_r, n3d, r, args):
+    """Does this CSM have what the two published features need?
+
+    Deliberately not a goodness-of-fit. Both targets are about STRUCTURE the
+    imposed model cannot have at all, so the question at this stage is whether
+    the mechanism produces the right order of magnitude -- and if it does not,
+    no amount of calibration will make it, which is worth knowing before the
+    calibration is attempted.
+    """
+    print("\n[wind] ==== against the two published targets ====")
+
+    # 1. Green Monster: is there anywhere a discrete clump at ~12 cm^-3?
+    inner = (r > 0.5) & (r < 2.5)
+    if np.any(inner):
+        n_in = n3d[inner]
+        peak = float(np.nanmax(n_in))
+        frac = float(np.mean(n_in > 0.5 * GREEN_MONSTER_PRESHOCK_N))
+        print(f"[wind] Green Monster (Vink et al. 2024): needs pre-shock "
+              f"n ~ {GREEN_MONSTER_PRESHOCK_N:.0f} cm^-3 in the")
+        print(f"[wind]   interior. This CSM peaks at {peak:.2f} cm^-3 for "
+              f"0.5 < r < 2.5 pc, with {100 * frac:.2f}% of")
+        print(f"[wind]   cells above half of it -> "
+              f"{'PRESENT' if peak > 0.5 * GREEN_MONSTER_PRESHOCK_N else 'ABSENT, by ' + f'{GREEN_MONSTER_PRESHOCK_N / max(peak, 1e-30):.0f}x'}")
+        print(f"[wind]   (the imposed r^-2 wind gives 0.93 cm^-3 at 2.5 pc and "
+              f"has no interior clump at all)")
+
+    # 2. reverse-shock asymmetry: is the ANGULAR scatter large enough to matter?
+    #    This is the quantity that is identically zero in the imposed model.
+    scatters = []
+    for rc in np.linspace(1.0, 2.5, 7):
+        shell = np.abs(r - rc) < 0.05
+        if shell.sum() > 50:
+            scatters.append(float(np.std(n3d[shell]) / np.mean(n3d[shell])))
+    if scatters:
+        s_max = max(scatters)
+        print(f"[wind] reverse-shock asymmetry (Fesen et al. 2025): the RS is "
+              f"1900-2100 km/s east and")
+        print(f"[wind]   STATIONARY in the west, which needs order-"
+              f"{RS_REQUIRED_ANGULAR_SCATTER:.1f} azimuthal variation in the")
+        print(f"[wind]   column. This CSM has sigma/mean = "
+              f"{min(scatters):.3f}-{s_max:.3f} over 1.0-2.5 pc -> "
+              f"{'SUFFICIENT' if s_max > RS_REQUIRED_ANGULAR_SCATTER else 'INSUFFICIENT by ' + f'{RS_REQUIRED_ANGULAR_SCATTER / max(s_max, 1e-30):.1f}x'}")
+        print(f"[wind]   (the imposed model's angular scatter is exactly 0)")
+
+    print("[wind] NOTE: neither target can be reached by this script alone -- "
+          "see the module\n[wind]   docstring on why casa_orlando.py cannot yet "
+          "consume a 3D CSM cube.")
 
 
 def figure(centers, n_of_r, n3d, args, out_path):

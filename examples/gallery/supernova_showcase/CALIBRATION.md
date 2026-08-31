@@ -1143,3 +1143,256 @@ is smooth and azimuthally symmetric **by construction**. It cannot make a
 filament, and it does not touch the 60–140″ annulus `casa_morphology.py` scores.
 Nothing in Result 13 moves any structure number, and it must not be sold as if
 it did.
+
+---
+
+## Result 14 — the model in XRISM's plane, per element group
+
+*2026-08-31. `casa_xrism.py`, on `orl_n256_final` and `orl_n512_cd_adia`.*
+
+Every spectral score in this study up to here has been a **band ratio**: six
+numbers formed by integrating the whole remnant through the ACIS response. That
+is the right test of a spectrum and a weak test of physics, and it is why four
+candidate explanations for the residual (structure, cooling, the dust halo, T_e)
+could each be falsified without any of them being *localised*.
+
+**Vink et al. 2026 (arXiv:2602.06952), the XRISM/Resolve mapping of Cas A via
+UltraSPEX, changed what is available** — and it was published after every result
+above. It fits two pure-metal components per 30″ pixel, one for the
+intermediate-mass elements and one for the iron group, and reports for each the
+electron temperature, the ionization age, the Doppler shift and the line width.
+Those are precisely the quantities `_plasma.py` and `_nei.py` compute per cell.
+
+### Three method choices, each of which changes the answer
+
+1. **Weight by the emitting ions, not by n_e².** `casa_plasma.py`'s
+   n_e²-weighted `kT_e` is 3.05 keV — but on the same state its n_e²-weighted
+   `mu_e` is **1.30** against 2.0 for metal ejecta, i.e. that average is
+   dominated by shocked *wind*, not by the ejecta whose lines XRISM measures.
+   The default weight here is `n_e × n_el × f_line(el)`, with `f_line` the NEI
+   population of the charge states carrying the element's K-shell lines.
+   *This matters:* the n_e² weighting understates the IME temperature error
+   (1.14× against 1.44×) and gets the correlation sign **wrong** (below).
+2. **Bin onto 30″ pixels.** XRISM's ranges are ranges *across regions*, one
+   value per Resolve pixel. Comparing our single global average against their
+   range would compare a mean to a distribution and could only ever "agree".
+3. **Invert the mean ion temperature per species.**
+   `_plasma.species_ion_temperature` gives each species its mass-proportional
+   share, which is exact under adiabatic expansion because `T_s/T_i` is
+   preserved along a parcel. It is an *unrelaxed upper bound*: nothing here
+   relaxes the species towards each other.
+
+### The measurement (256³ fiducial, line-emission weighted)
+
+| | model, per pixel (10–90 %) | XRISM | |
+|---|---|---|---|
+| kT_e, IME | **3.03–5.56 keV** | 1.3–2.1 | **HIGH, 1.4–3×** |
+| kT_e, Fe group | 2.59–5.43 keV | 2.4–8.4 | overlaps |
+| n_e t, IME | 1.95–3.20×10¹¹ | 1.0–3.4×10¹¹ | overlaps |
+| n_e t, Fe group | 1.42–2.76×10¹¹ | 0.8–3.0×10¹¹ | overlaps |
+| Doppler shift, IME | −2087 to +2538 km/s | −1250 to +2000 | slightly broad |
+| σ_v total, IME | 2934 km/s | ≤2200 | 1.33× |
+| σ_v total, Fe group | 3419 km/s | ≤3700 | 0.92× |
+| Spearman(kT_e, n_e t), IME | **−0.35** | negative | right sign |
+| Spearman(kT_e, n_e t), Fe group | **+0.04** | negative, "pronounced" | **wrong** |
+| ⟨n_e²⟩/⟨n_e⟩² over emitting gas | **1.45** | — | — |
+
+### What it localises, in one sentence
+
+**The iron is fine and the intermediate-mass elements are too hot** — which no
+band ratio could have said, because the two are summed in every band.
+
+And the ion temperatures turn that into a statement about the *hydrodynamics*
+rather than about the plasma model. The Si-line-weighted ion temperature is
+418 keV, and since `T_i = (3/16) m_Si v_s²/k`, that **is** a shock velocity:
+
+> the reverse shock in the model's silicon-emitting gas runs at
+> **2758 km/s** against a published ~1800.
+
+A factor **1.53 in velocity**, i.e. 2.35 in temperature. Everything else in the
+table follows from it: too-hot electrons, line widths 1.33× too broad, and a
+soft band at 0.46× because the Si emissivity is off its peak.
+
+*Sanity check on the machinery, which passes:* `(3/16)(m_Fe − m_Si) v²` at
+1800 km/s is **176 keV**, inside XRISM's measured Fe−Si ion-temperature
+difference of 150 ± 60 (SE) to 300 ± 180 keV (NW). Asserted in
+`_plasma._assert_physics`.
+
+### Resolution moves every number the right way
+
+512³ CD against 256³, same weighting:
+
+| | 256³ | 512³ CD |
+|---|---|---|
+| kT_e IME | 3.03–5.56 | **2.67–5.24** |
+| v_Si implied | 2758 km/s | **2615** |
+| ⟨n_e²⟩/⟨n_e⟩² | 1.45 | **1.87** |
+| Spearman IME | −0.35 | **−0.54** |
+| Spearman Fe group | +0.04 | **−0.28** |
+
+**The Fe-group anticorrelation only appears at 512³.** That is the strongest
+available evidence that the anticorrelation is a *density-structure* effect and
+not a coincidence of the composition model — it switches on as the structure is
+resolved. (Cost: 65 GB resident at 512³.)
+
+### The weighting check, which is also a warning
+
+Re-run with `--weight ne2`, i.e. `casa_plasma.py`'s convention: Spearman goes to
+**+0.43**, the wrong sign, for both groups. The composition-aware weight is not
+a refinement of the n_e² one; it is a different measurement, and the shocked
+wind in the n_e² average reverses the correlation the observation is about.
+`--weight element` (no ionization factor) gives 1.39× against 1.44×, so the
+conclusion is robust to the *ionization* part of the weighting and sensitive to
+the *composition* part.
+
+---
+
+## Result 15 — sub-grid density contrast: the temperature and the ionization age want different things
+
+*2026-08-31. `_subgrid.py` + `casa_xrism.py --subgrid-scan`.*
+
+Result 14 says the transmitted shock is 1.53× too fast. The literature says why:
+Laming & Hwang (2003) needed ejecta overdensities ~100 to reconcile `n_e t` with
+`kT_e`, and XRISM derives χ ≈ 10 (iron group) to ≈100 (IME) independently.
+
+### Two things must be said before any number
+
+**It cannot be fixed by refining the grid.** Cas A's knots are ~1″ = 0.016 pc; a
+cell is 0.027 pc at 256³ and 0.014 pc at 512³. Resolving a χ = 100 knot at the
+6–8 cells a shock interaction needs takes **N ≳ 1500** — 3–6× in linear
+resolution, 30–200× in cost, past a memory wall that already stops this study at
+512³. `CLUMP_SIZE_FRACTION = 0.02` already targets 3× larger than the observed
+knots and is *still* grid-clamped.
+
+**Our χ is not their χ, and quoting theirs here would double-count.** Their
+inference is the offset of the data from a one-zone model with a single uniform
+1800 km/s reverse shock. Ours is the offset from a 3D calculation that already
+contains a distribution of shock velocities, clumping at contrast 5, pistons and
+a reflected shock from the CSM shell. Most of what a one-zone analysis must
+attribute to χ is already present here as resolved structure — which is why the
+measured requirement below is **χ ≈ 4, not 100**.
+
+### The model
+
+Each cell is re-read as two phases at fixed cell mass, fixed cell volume and
+**pressure equilibrium** — the post-crushing state (Klein, McKee & Colella
+1994), reached in ≪ the 200 yr since the reverse shock arrived. Pressure
+equilibrium is what makes the temperature split free of new parameters:
+`ρT` equal across the phases gives `T_dense = T/χ` immediately, the same `v²/χ`
+a transmitted shock gives. Two parameters, χ and `f_mass`; `χ = 1` is an exact
+identity, asserted.
+
+### The scan (256³, f_mass = 0.5, `net_mode = crossing`)
+
+| χ | kT_e IME (10–90 %) | n_e t IME (10–90 %) | v_Si | ρ IME | ρ Fe | verdict |
+|---|---|---|---|---|---|---|
+| 1.0 | 3.03–5.56 | 1.95–3.20e11 | 2758 | −0.350 | +0.037 | kT_e over |
+| 1.5 | 2.76–5.02 | 2.08–3.41e11 | 2583 | −0.356 | +0.020 | both over |
+| 2.3 | 2.35–4.31 | 2.56–4.21e11 | 2222 | −0.389 | −0.062 | both over |
+| **4.0** | **1.76–3.41** | 3.48–5.73e11 | **1730** | **−0.459** | **−0.350** | **kT_e IN, n_e t OVER** |
+| 8.0 | 1.12–2.43 | 5.02–8.33e11 | 1214 | −0.479 | −0.479 | kT_e IN, n_e t OVER |
+| 16.0 | 0.68–1.67 | 6.97e11–1.17e12 | 849 | −0.466 | −0.141 | kT_e IN, n_e t OVER |
+
+*(XRISM: kT_e 1.3–2.1, n_e t 1.0–3.4e11, reverse shock ~1800 km/s, both ρ
+negative. ρ is Spearman(kT_e, n_e t) across pixels.)*
+
+### The result, and it is a constraint rather than a fix
+
+**χ ≈ 4 lands on three targets at once** — kT_e enters XRISM's range, the implied
+shock velocity hits 1730 km/s against the published 1800, and *both* correlation
+coefficients go negative, including the Fe-group one that Result 14 could not
+reproduce at 256³.
+
+**And it overshoots the ionization age**, 3.48–5.73e11 against an observed
+1.0–3.4e11. That is not a detail to be tuned away: `n_e t` was already at the
+top of the observed range at χ = 1, so *any* mode that multiplies it by the
+density contrast breaks it.
+
+So the two observables pull against each other and the honest statement is a
+**joint constraint, not a best-fit χ**: the ejecta must be dense enough to slow
+the transmitted shock by 1.5× *without* raising the swept electron column. Both
+hold only if the dense gas was **engulfed later** — the density rise
+(× χ) compensated by a shorter shocked time (÷ χ) — which is a statement about
+clump *size*, the one quantity a sub-grid model cannot supply. `net_mode`
+exposes the three defensible choices for exactly this reason.
+
+The clumping factor is the other surprise: it peaks at ~1.63 near χ = 2.3 and
+*falls* thereafter, never approaching the ~25 a one-zone two-phase estimate
+gives. The mechanism is the weighting itself — as the dense phase cools, its
+silicon stops being He-like and drops out of the line-emission weight. **An
+emissivity argument made at fixed temperature does not survive being done at the
+temperature the same model implies.**
+
+### This is an interpretation layer
+
+The simulation does not contain this structure. `_subgrid.describe` prints that
+sentence on every run and any figure using it must carry it.
+
+---
+
+## Result 16 — synchrotron: anchored to a factor of two, by one measured number
+
+*2026-08-31. `_synchrotron.py`.*
+
+Helder & Vink (2008) measure ~54 % of Cas A's 4.2–6 keV flux as non-thermal
+remnant-integrated; XRISM finds 47–90 % per pixel. **So the recorded residual
+"our 4.2–6 keV is 1.71× the observed" is not a comparison between the same
+quantity.** The observed *thermal* flux there is ~0.46× the total, making the
+model's thermal continuum **~3.7× too bright**. Two of the six band ratios in
+`OVERVIEW.md` §4 are not currently tests of anything.
+
+### How much of this can be predicted rather than fitted
+
+The obvious implementation has two free parameters and says nothing. Most of
+that freedom can be removed:
+
+* **the radio flux fixes the electrons.** 2720 Jy at 1 GHz, α = 0.77 (Baars et
+  al. 1977), from the same population. Radio and X-ray emissivity both go as
+  `K B^((s+1)/2)`, so normalising the summed radio emission cancels it.
+* **the cutoff is field-independent.** `hν_cut ≈ 1.4 keV (v_s/3000 km/s)²/η`
+  (Zirakashvili & Aharonian 2007): the acceleration and loss rates both scale as
+  `1/B²`, so `E_max` depends only on `v_s` and the gyrofactor.
+* **but the field returns through the emitting VOLUME.** The electrons radiating
+  5 keV live 0.9 yr at 100 µG and **0.08 yr** at Cas A's ~500 µG rim field,
+  against a 350 yr remnant. They occupy a thin layer at the shock; the radio
+  electrons fill the shell.
+
+| emitting volume assumed | predicted 4.2–6 keV | vs observed non-thermal |
+|---|---|---|
+| co-spatial with the radio (whole shell) | 2.5e-10 | **9.3×** |
+| purely advected loss layer, 1.0e-4 pc | 8.6e-14 | **0.0032×** |
+| **observed filament width, 1–3″** | 1.4–4.1e-11 | **0.51–1.53×** |
+
+**The picture is quantitatively consistent.** With the measured radio flux, a
+loss-limited cutoff, and the observed filament width as the emitting thickness,
+the predicted non-thermal flux lands within a factor of two of the measured one
+across the whole observed width range — no efficiency and no amplification
+factor fitted.
+
+**What is not predicted is the width.** The advected loss layer is 2936× thinner
+than the shell, so the observed filaments are 161–484× thicker than advection
+allows — diffusive transport or magnetic damping, an open problem. So the honest
+description is **one geometric parameter taken from an observation**, not two
+free physics parameters and not a prediction.
+
+### The part with nothing adjustable at all
+
+Inverting XRISM's fitted photon index Γ = 2.94–3.43 through the loss-limited
+relation at η = 1 gives a shock at **1708–2423 km/s**. That is Cas A's *reverse*
+shock (1800–2000), not its forward shock (~5000) — so the non-thermal continuum
+in those pointings is reverse-shock emission. Nothing was tuned to produce it,
+and it agrees with the published association of the non-thermal continuum with
+the reverse shock in the (south)west.
+
+### And it makes the residual worse
+
+Repeated because the above is encouraging and the consequence is not. Adding
+synchrotron does not rescue the model; it makes the hard band mean something and
+hands the problem to Result 15.
+
+**One earlier claim of mine here was wrong and is corrected:** a first pass put
+the advected loss layer at ~1e-9 pc and concluded the bracket spanned nine
+orders of magnitude, making the normalisation hopeless. The arithmetic was
+wrong — it is 1.0e-4 pc, the bracket is ~3000, and with the observed width the
+answer lands within a factor of two. The conclusion changed from "hopeless" to
+"one measured parameter".
