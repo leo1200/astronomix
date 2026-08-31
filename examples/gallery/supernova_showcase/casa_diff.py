@@ -160,10 +160,25 @@ THETA0 = jnp.array([np.log10(2.09), 3.0, 0.928, 0.0])
 #:
 #: Sources: r_FS/r_RS Gotthelf et al. 2001 + DeLaney et al. 2004 as quoted in
 #: the calibration; M_unshocked DeLaney et al. 2014 / Hwang & Laming 2012.
+#: Four measurements for four parameters, which is the point: with three the
+#: system was UNDER-determined and the fit returned one point on a degenerate
+#: valley, picked by the damping rather than by the data. ``n_post`` is the
+#: cheapest fourth because it is a smooth functional of the same final state
+#: (``casa_calibrate_1d`` measures it as the mean density over the outer 5 % of
+#: the shocked region) and because it constrains a DIFFERENT combination: the
+#: radii respond to E/n_w through the deceleration, while the post-shock density
+#: pins n_w almost directly.
+#:
+#: ``casa_calibrate_1d`` also targets v_FS and v_RS. They are deliberately NOT
+#: here: a velocity needs either two epochs or a shock-frame construction, and
+#: the post-shock gas velocity is not the shock velocity. Adding a fifth
+#: observable that is subtly the wrong quantity is the mistake this module
+#: already made once with r_RS.
 TARGETS = {
-    "r_FS":        (2.52, 0.20),    # pc
-    "r_RS":        (1.58, 0.16),    # pc
-    "M_unshocked": (0.35, 0.10),    # Msun
+    "r_FS":        (2.52, 0.20),    # pc,     Gotthelf et al. 2001
+    "r_RS":        (1.58, 0.16),    # pc,     Gotthelf et al. 2001
+    "n_post":      (4.0, 1.0),      # cm^-3,  Lee et al. 2014
+    "M_unshocked": (0.35, 0.10),    # Msun,   DeLaney et al. 2014; Hwang & Laming 2012
 }
 
 AGE_YR = 350.0
@@ -304,20 +319,49 @@ def transition_radius(indicator, r, *, falling=True):
     return jnp.sum(r_mid * w) / (jnp.sum(w) + 1e-30)
 
 
+#: Homology tolerance and its smoothing width, for the reverse shock.
+#: ``HOMOLOGY_TOL`` is ``casa_calibrate_1d.measure_snapshot``'s default and must
+#: stay equal to it -- the whole point of the definition below is that the two
+#: measure the same quantity.
+HOMOLOGY_TOL = 0.05
+HOMOLOGY_WIDTH = 0.02
+#: cells excluded at the origin, where ``v/(r/t)`` is 0/0. Same guard, and the
+#: same reason, as the ``r > 5 dr`` band in ``casa_calibrate_1d``.
+INNER_GUARD_CELLS = 5.0
+
+
 def observables(final_state, rho_amb, p_amb, m_wind_interior,
                 registered_variables, helper_data,
-                code_units, *, dr, gamma=GAMMA, entropy_contrast=30.0,
-                entropy_width=0.5, shock_dex=0.5):
+                code_units, *, dr, t_total_code, gamma=GAMMA,
+                entropy_contrast=30.0, entropy_width=0.5, shock_dex=0.5,
+                homology_tol=HOMOLOGY_TOL, homology_width=HOMOLOGY_WIDTH):
     """The scoreboard quantities, as smooth functionals of the final state.
+
+    **Every one of these measures the same quantity as its hard counterpart in
+    ``casa_calibrate_1d.measure_snapshot``, and that was not true before.** The
+    first version defined the reverse shock by ENTROPY -- the outer edge of the
+    region whose entropy is far below ambient -- while the calibration defines it
+    by HOMOLOGY, the outer edge of the still-freely-expanding ejecta. Those are
+    different quantities, and at delta = 0 they are *very* different, because the
+    cold core is nearly exhausted: a fit against the entropy version would have
+    reported parameters that optimise a radius nobody measures. The recorded
+    blocker "r_RS and M_unshocked are NOT reconciled" was exactly this.
 
     Args:
         rho_amb, p_amb: the INITIAL ambient profiles, which are the correct
             reference: the unshocked wind ahead of the blast has not moved.
         m_wind_interior: wind mass that started inside the ejecta radius.
+        t_total_code: time since the EXPLOSION, in code units -- not the elapsed
+            simulation time. Homology is ``v = r/t`` measured from the
+            explosion, so this is the age and not ``t_end``.
         entropy_contrast: factor above the minimum entropy at which a parcel
-            counts as reverse-shocked.
+            counts as reverse-shocked. Retained for the diagnostic entropy
+            radius, which is no longer what ``r_RS`` means.
         entropy_width: smoothing width, in decades of entropy.
         shock_dex: decades above the ambient entropy that count as shocked.
+        homology_tol: fractional departure from ``v = r/t`` still counted as
+            freely expanding. Must equal ``casa_calibrate_1d``'s default.
+        homology_width: smoothing width on that tolerance.
     """
     rho = final_state[registered_variables.density_index]
     press = final_state[registered_variables.pressure_index]
@@ -350,11 +394,28 @@ def observables(final_state, rho_amb, p_amb, m_wind_interior,
 
     r = helper_data.geometric_centers
 
-    # ---- reverse shock: the outer edge of the cold ejecta core ------------
+    # ---- reverse shock: the outer edge of the still-HOMOLOGOUS ejecta -----
+    # This is the calibration's definition, not an entropy one. Freely expanding
+    # ejecta satisfies v = r/t exactly; the reverse shock is where material stops
+    # satisfying it. Entropy cannot substitute: it labels "shocked ever", which
+    # at delta = 0 marks the edge of a nearly exhausted cold core somewhere else
+    # entirely.
+    vel = final_state[registered_variables.velocity_index]
+    v_hom = r / t_total_code
+    # smooth version of |v - r/t| < tol * (r/t), i.e. |v/(r/t) - 1| < tol
+    departure = jnp.abs(vel / jnp.maximum(v_hom, 1e-30) - 1.0)
+    inner_ok = jax.nn.sigmoid((r - INNER_GUARD_CELLS * dr) / dr)
+    homologous = jax.nn.sigmoid(
+        (homology_tol - departure) / homology_width) * inner_ok
+    r_rs = transition_radius(homologous, r, falling=True)
+
+    # kept as a DIAGNOSTIC only: the old entropy definition, so the two can be
+    # reported side by side and the difference between them never again gets
+    # mistaken for a smoothing bias
     log_s0 = jnp.min(log_s)
-    unshocked = jax.nn.sigmoid(
+    cold_core = jax.nn.sigmoid(
         ((log_s0 + jnp.log10(entropy_contrast)) - log_s) / entropy_width)
-    r_rs = transition_radius(unshocked, r, falling=True)
+    r_cold = transition_radius(cold_core, r, falling=True)
 
     # ---- forward shock: the outer edge of the shocked region -------------
     # the same indicator RISES at the reverse shock and FALLS at the forward
@@ -363,25 +424,35 @@ def observables(final_state, rho_amb, p_amb, m_wind_interior,
     r_fs = transition_radius(shocked, r, falling=True)
 
     # ---- unshocked ejecta mass -------------------------------------------
-    # Inside the reverse shock the material is ejecta PLUS whatever wind was
-    # already inside the initial ejecta radius, which the 1D setup places there
-    # as a dense r^-2 cusp. That is a real mass and it is not ejecta, so it is
-    # subtracted -- it is the same ``M_wind_inside_r0`` correction
-    # casa_calibrate_1d applies, and without it this observable exceeds the
-    # total ejecta mass, which is how the error announced itself.
-    # restricted to the cold core: the entropy indicator alone has sigmoid
-    # tails that pick up shocked mass at every radius
-    # NOT corrected for the wind that started inside the ejecta radius: that
-    # correction is a constant, while the mass still inside r_RS at 350 yr is a
-    # small fraction of it, so subtracting the whole thing drives this
-    # observable NEGATIVE (measured: -0.08 Msun). Left uncorrected and flagged
-    # -- an observable that can go negative is not ready to be fitted against.
+    # ALL the mass inside r_RS, minus the wind that started inside the initial
+    # ejecta radius -- which is exactly what casa_calibrate_1d computes.
+    #
+    # The previous version multiplied by the entropy indicator AS WELL as the
+    # radial window, so it integrated a strict subset of the hard version's
+    # region and then subtracted the hard version's full constant correction.
+    # That is why it went negative (-0.08 Msun): not a real cancellation, a
+    # mismatched numerator. Subtracting a correction derived for one region from
+    # an integral over a smaller one is wrong however well-behaved the gradient
+    # looks, and the gradient looked fine.
     inside_rs = jax.nn.sigmoid((r_rs - r) / (4.0 * dr))
-    m_unshocked = jnp.sum(rho * unshocked * inside_rs * cell_vol)
-    m_unshocked_msun = m_unshocked * float(
-        (1.0 * code_units.code_mass).to(u.Msun).value)
+    m_inside = jnp.sum(rho * inside_rs * cell_vol)
+    to_msun = float((1.0 * code_units.code_mass).to(u.Msun).value)
+    m_unshocked_msun = m_inside * to_msun - m_wind_interior * to_msun
 
-    return dict(r_FS=r_fs, r_RS=r_rs, M_unshocked=m_unshocked_msun)
+    # ---- post-shock density ----------------------------------------------
+    # Mean density over the outer 5 % of the shocked region, matching
+    # casa_calibrate_1d. A smooth top-hat rather than a boolean shell: two
+    # sigmoids, so the window edges move differentiably with r_FS -- which they
+    # must, because r_FS is itself a fitted quantity.
+    r_lo = 0.95 * r_fs
+    shell = (jax.nn.sigmoid((r - r_lo) / (2.0 * dr))
+             * jax.nn.sigmoid((r_fs - r) / (2.0 * dr)))
+    rho_per_n = float((MASS_PER_NUCLEUS * const.m_p / u.cm ** 3)
+                      .to(code_units.code_density).value)
+    n_post = (jnp.sum(rho * shell) / (jnp.sum(shell) + 1e-30)) / rho_per_n
+
+    return dict(r_FS=r_fs, r_RS=r_rs, M_unshocked=m_unshocked_msun,
+                n_post=n_post, r_cold_core=r_cold)
 
 
 # =============================================================================
@@ -409,8 +480,11 @@ def make_forward(num_cells=2000, r_max=4.0, age_yr=AGE_YR, cfl=0.4):
         # with return_snapshots=False the integrator hands back the final state
         # array itself, not a snapshot container
         final = time_integration(state, cfg, params, rv)
+        # time since the EXPLOSION, which is what homology is measured from --
+        # t0 is already inside age_yr * yr_to_code, so this is the age itself
         return observables(final, rho_amb, p_amb, m_wind_int, rv, helper_data,
-                           code_units, dr=dr)
+                           code_units, dr=dr,
+                           t_total_code=age_yr * yr_to_code)
 
     return forward, dict(code_units=code_units, config=config,
                          helper_data=helper_data, rv=rv, dr=dr)
@@ -515,27 +589,66 @@ def cmd_validate(args):
                               minimum_density=1e-6, minimum_pressure=1e-12)
     final = time_integration(state, cfg, params, rv)
 
+    t_total = args.age * yr_to_code
     smooth = observables(final, rho_amb, p_amb, m_wind_int, rv, hd,
-                         code_units, dr=dr)
+                         code_units, dr=dr, t_total_code=t_total)
 
-    # the hard definitions, exactly as casa_analyze/casa_calibrate_1d use them
+    # THE HARD DEFINITIONS, TRANSCRIBED FROM casa_calibrate_1d.measure_snapshot.
+    # Transcribed and not approximated: an earlier version of this function used
+    # an ENTROPY criterion for the hard r_RS as well, so it compared two entropy
+    # definitions with each other and reported their agreement as validation
+    # while both differed from the quantity the calibration actually measures.
     r = np.asarray(hd.geometric_centers)
     rho = np.asarray(final[rv.density_index])
+    vel = np.asarray(final[rv.velocity_index])
     press = np.asarray(final[rv.pressure_index])
+    cell_vol = np.asarray(hd.cell_volumes)
+    to_msun = float((1.0 * code_units.code_mass).to(u.Msun).value)
+
+    # forward shock: outermost radius compressed above 2x ambient
     C = rho / np.maximum(np.asarray(rho_amb), 1e-30)
     hard_fs = float(r[np.max(np.where(C > 2.0)[0])]) if np.any(C > 2.0) else np.nan
+
+    # reverse shock: outer edge of the still-homologous ejecta, |v - r/t| < 5%
+    v_hom = r / t_total
+    band = (r < hard_fs) & (r > INNER_GUARD_CELLS * dr)
+    hom = band & (np.abs(vel - v_hom) < HOMOLOGY_TOL * v_hom)
+    hard_rs = float(r[np.max(np.where(hom)[0])]) if np.any(hom) else np.nan
+
+    # unshocked ejecta mass: all mass inside r_RS, minus the interior wind
+    hard_mu = (float(np.sum(np.where(r <= hard_rs, rho * cell_vol, 0.0)))
+               - float(m_wind_int)) * to_msun
+
+    # post-shock density: boolean shell over the outer 5% of the shocked region
+    rho_per_n = float((MASS_PER_NUCLEUS * const.m_p / u.cm ** 3)
+                      .to(code_units.code_density).value)
+    sh = (r > 0.95 * hard_fs) & (r <= hard_fs)
+    hard_np = float(np.mean(rho[sh]) / rho_per_n) if np.any(sh) else np.nan
+
+    # the OLD entropy definition, reported so the two are never confused again
     log_s = np.log10(np.maximum(press, 1e-30)) - GAMMA * np.log10(np.maximum(rho, 1e-30))
     cold = log_s < (log_s.min() + np.log10(30.0))
-    hard_rs = float(r[np.max(np.where(cold)[0])]) if np.any(cold) else np.nan
+    hard_cold = float(r[np.max(np.where(cold)[0])]) if np.any(cold) else np.nan
 
-    print(f"[diff] {'observable':<14s} {'smooth':>10s} {'hard':>10s} {'bias':>10s}")
-    print(f"[diff] {'r_FS':<14s} {float(smooth['r_FS']):10.4f} {hard_fs:10.4f} "
-          f"{float(smooth['r_FS']) - hard_fs:10.4f}")
-    print(f"[diff] {'r_RS':<14s} {float(smooth['r_RS']):10.4f} {hard_rs:10.4f} "
-          f"{float(smooth['r_RS']) - hard_rs:10.4f}")
+    print(f"\n[diff] {'observable':<14s} {'smooth':>10s} {'hard':>10s} "
+          f"{'bias':>10s} {'rel':>8s}")
+    for name, sm, hd_v in (("r_FS", float(smooth["r_FS"]), hard_fs),
+                           ("r_RS", float(smooth["r_RS"]), hard_rs),
+                           ("n_post", float(smooth["n_post"]), hard_np),
+                           ("M_unshocked", float(smooth["M_unshocked"]), hard_mu)):
+        rel = (sm - hd_v) / hd_v if hd_v not in (0.0,) and np.isfinite(hd_v) else np.nan
+        print(f"[diff] {name:<14s} {sm:10.4f} {hd_v:10.4f} {sm - hd_v:10.4f} "
+              f"{100 * rel:7.1f}%")
+    print(f"[diff] {'(cold core)':<14s} {float(smooth['r_cold_core']):10.4f} "
+          f"{hard_cold:10.4f} {float(smooth['r_cold_core']) - hard_cold:10.4f}")
+    print(f"[diff]   the cold core is NOT r_RS -- it sits "
+          f"{hard_cold - hard_rs:+.3f} pc away, which is why defining r_RS by "
+          f"entropy\n[diff]   was the recorded blocker and not a smoothing bias.")
     print("[diff] The bias is the cost of smoothing. It is nearly constant in "
-          "the parameters, so it cancels from the gradient; report FITTED "
-          "parameters, then re-measure the radii with the hard definition.")
+          "the parameters, so it\n[diff]   cancels from the GRADIENT; report "
+          "fitted parameters, then re-measure with the hard\n[diff]   "
+          "definition. A bias is acceptable; measuring a different QUANTITY is "
+          "not.")
 
 
 def cmd_fit(args):
@@ -554,10 +667,25 @@ def cmd_fit(args):
 
     theta = THETA0
     print(f"[diff] fitting {PARAM_NAMES} to {keys}")
-    print(f"[diff] {len(keys)} measurements for {len(PARAM_NAMES)} parameters: "
-          f"the system is UNDER-DETERMINED, so the result is one point on a "
-          f"degenerate valley, not a unique best fit. The damping is what "
-          f"picks the point closest to the starting guess.")
+    n_obs, n_par = len(keys), len(PARAM_NAMES)
+    if n_obs < n_par:
+        note = ("UNDER-DETERMINED, so the result is one point on a degenerate "
+                "valley rather than a\n[diff]   unique best fit, and the damping "
+                "is what picks the point closest to the start")
+    elif n_obs == n_par:
+        note = ("exactly DETERMINED (0 degrees of freedom), so chi^2 can in "
+                "principle reach zero and\n[diff]   its value is NOT a "
+                "goodness-of-fit test -- it only says the solver converged")
+    else:
+        note = (f"OVER-determined with {n_obs - n_par} degrees of freedom, so "
+                f"the final chi^2 IS\n[diff]   informative about whether the "
+                f"model can fit the data at all")
+    print(f"[diff] {n_obs} measurements for {n_par} parameters: the system is "
+          f"{note}.")
+    print("[diff] Degeneracy warning that survives any count: E and n_w both "
+          "act through the\n[diff]   deceleration, so they are strongly "
+          "anti-correlated. n_post is in the target list\n[diff]   precisely "
+          "to break that -- it pins n_w almost directly.")
 
     for it in range(args.steps):
         obs = forward(theta)

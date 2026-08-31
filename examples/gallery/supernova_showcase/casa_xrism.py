@@ -385,12 +385,18 @@ def main():
     ap.add_argument("--te-model", default="ghavamian",
                     help="passed to _plasma.plasma_state")
     ap.add_argument("--kt-e-shock", type=float, default=0.3)
-    ap.add_argument("--subgrid-chi", type=float, default=None, metavar="CHI",
+    ap.add_argument("--subgrid-chi", type=float, nargs="+", default=None,
+                    metavar="CHI",
                     help="re-read every cell as a two-phase medium of density "
                          "contrast CHI before measuring, via _subgrid. This is "
                          "an INTERPRETATION LAYER, not simulated structure; it "
                          "is here so CHI can be calibrated against XRISM in "
-                         "minutes instead of against a 45-minute observation")
+                         "minutes instead of against a 45-minute observation. "
+                         "Give TWO values to use a different contrast per "
+                         f"element group, in the order {tuple(GROUPS)} -- XRISM "
+                         "infers ~10 for the iron group and ~100 for the "
+                         "intermediate-mass elements, i.e. the contrast is "
+                         "composition-dependent, which one number cannot say")
     ap.add_argument("--subgrid-fmass", type=float,
                     default=_subgrid.F_MASS_DEFAULT, metavar="F",
                     help="mass fraction of the dense phase")
@@ -436,10 +442,37 @@ def main():
     results = measure(fields, args, v_los, n, box,
                       chi=args.subgrid_chi, f_mass=args.subgrid_fmass,
                       verbose=True)
+    if args.subgrid_chi is not None and len(args.subgrid_chi) > 1:
+        print("[xrism] per-group contrast: "
+              + ", ".join(f"{g} chi = {results[g]['chi']:.1f}"
+                          for g in results))
     if len(results) < 2:
         raise SystemExit("both element groups are needed for the comparison")
     report(results, args)
     make_figure(results, args, meta)
+
+
+def chi_for_group(chi, group):
+    """Resolve ``--subgrid-chi`` (scalar, or one value per group) for one group.
+
+    XRISM infers a contrast of ~10 for the iron group and up to ~100 for the
+    intermediate-mass elements, so a single number is a known simplification
+    rather than a modelling choice. It is cheap to relax HERE because the
+    measurement already loops over groups -- but note what it does and does not
+    mean: this applies a different contrast to the same cells depending on which
+    element's lines are being weighted, which is a statement about where each
+    species SITS, not a second hydrodynamic phase. Two genuinely different
+    contrasts in one cell would need the composition to be spatially separated
+    below the grid scale, which nothing here models.
+    """
+    if chi is None:
+        return None
+    if len(chi) == 1:
+        return float(chi[0])
+    if len(chi) != len(GROUPS):
+        raise SystemExit(f"--subgrid-chi takes 1 or {len(GROUPS)} values "
+                         f"({tuple(GROUPS)}), got {len(chi)}")
+    return float(chi[list(GROUPS).index(group)])
 
 
 def measure(fields, args, v_los, n, box, *, chi, f_mass, verbose=False):
@@ -449,36 +482,37 @@ def measure(fields, args, v_los, n, box, *, chi, f_mass, verbose=False):
     calibration of ``chi`` has to happen here, in minutes, and not against a
     45-minute observation.
     """
-    phases = subgrid_phases(fields, chi=chi, f_mass=f_mass,
-                            net_mode=args.subgrid_net_mode)
-    if verbose and chi is not None:
-        print(_subgrid.describe(chi, f_mass, net_mode=args.subgrid_net_mode))
+    # chi may differ per element group, so the phase decomposition does too.
+    # Built once per UNIQUE value rather than once per group: the two groups
+    # usually share a chi, and a plasma state is ~5 GB at 256^3.
+    chi_by_group = {g: chi_for_group(chi, g) for g in GROUPS}
+    table = _nei.load_table() if args.weight == "line" else None
 
-    # ---- the plasma state of every phase ----------------------------------
-    # Held simultaneously because the per-group weights below need all of them:
-    # ~2x the single-phase memory, which is 65 GB at 512^3 for one phase.
-    states = []
-    table = None
-    for name, fp, f_vol in phases:
-        ps = plasma_state(fp, te_model=args.te_model,
-                          kT_e_shock_keV=args.kt_e_shock)
-        if not ps["info"]["composition_tracked"]:
-            raise SystemExit(
-                "this state carries no composition scalars, so it has no "
-                "element groups to split -- rerun casa_orlando.py with "
-                "--composition")
-        if ps["net"] is None:
-            raise SystemExit("no ionization age in this state")
-        ps["rho_cgs"] = fp["rho"] * CODE_DENSITY
-        if args.weight == "line" and table is None:
-            table = _nei.load_table()
-        states.append((name, ps, f_vol))
-        if verbose and chi is not None:
-            kt = ps["T_e"] / KEV_IN_K
-            m = ps["shocked"]
-            print(f"[xrism]   phase '{name}': {100 * f_vol:.1f}% of the volume, "
-                  f"median shocked kT_e = {np.median(kt[m]):.2f} keV, "
-                  f"n_e t = {np.median(ps['net'][m]):.2e}")
+    states_by_chi = {}
+    for c in dict.fromkeys(chi_by_group.values()):       # unique, order-preserving
+        if verbose and c is not None:
+            print(_subgrid.describe(c, f_mass, net_mode=args.subgrid_net_mode))
+        states = []
+        for name, fp, f_vol in subgrid_phases(
+                fields, chi=c, f_mass=f_mass, net_mode=args.subgrid_net_mode):
+            ps = plasma_state(fp, te_model=args.te_model,
+                              kT_e_shock_keV=args.kt_e_shock)
+            if not ps["info"]["composition_tracked"]:
+                raise SystemExit(
+                    "this state carries no composition scalars, so it has no "
+                    "element groups to split -- rerun casa_orlando.py with "
+                    "--composition")
+            if ps["net"] is None:
+                raise SystemExit("no ionization age in this state")
+            ps["rho_cgs"] = fp["rho"] * CODE_DENSITY
+            states.append((name, ps, f_vol))
+            if verbose and c is not None:
+                kt = ps["T_e"] / KEV_IN_K
+                m = ps["shocked"]
+                print(f"[xrism]   phase '{name}': {100 * f_vol:.1f}% of the "
+                      f"volume, median shocked kT_e = {np.median(kt[m]):.2f} "
+                      f"keV, n_e t = {np.median(ps['net'][m]):.2e}")
+        states_by_chi[c] = states
 
     # ---- per group, accumulated over phases -------------------------------
     # A pixel's spectrum is the SUM of what every phase along the ray emits, and
@@ -487,6 +521,7 @@ def measure(fields, args, v_los, n, box, *, chi, f_mass, verbose=False):
     results = {}
     for group in GROUPS:
         el_ref = "Si" if group == "IME" else "Fe"
+        states = states_by_chi[chi_by_group[group]]
         w_tot = None
         wv = {}
         contrib = {}
@@ -541,6 +576,7 @@ def measure(fields, args, v_los, n, box, *, chi, f_mass, verbose=False):
             kT_e=mom["kT_e"], net=mom["net"], kT_s=mom["kT_s"],
             v_mean=v_mean, v_sigma=v_sigma,
             clumping=clumping_factor(clump_num, clump_den, clump_sq),
+            chi=chi_by_group[group],
             **{f"global_{k}": g_num[k] / max(g_den, 1e-300) for k in g_num},
         )
 
@@ -672,7 +708,8 @@ def scan(fields, meta, args, v_los, n, box):
     for chi in SCAN_CHI:
         c = None if chi <= 1.0 else chi
         try:
-            res = measure(fields, args, v_los, n, box, chi=c,
+            res = measure(fields, args, v_los, n, box,
+                          chi=None if c is None else [c],
                           f_mass=args.subgrid_fmass)
         except SystemExit as exc:
             print(f"    {chi:5.1f}  refused: {exc}")
