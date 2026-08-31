@@ -257,22 +257,34 @@ the temperature split free of new parameters (`ρT` equal gives `T_dense = T/χ`
 the same `v²/χ` a transmitted shock gives). `casa_xrism.py --subgrid-scan`
 calibrates χ in minutes rather than against a 45-minute observation:
 
-| χ | kT_e IME | n_e t IME | v_Si | Spearman IME / Fe |
-|---|---|---|---|---|
-| 1.0 | 3.03–5.56 | 1.95–3.20e11 | 2758 | −0.35 / +0.04 |
-| **4.0** | **1.76–3.41** | 3.48–5.73e11 | **1730** | **−0.46 / −0.35** |
-| 16.0 | 0.68–1.67 | 6.97e11–1.17e12 | 849 | −0.47 / −0.14 |
+| χ | kT_e IME | n_e t IME | v_Si | Spearman IME / Fe | |
+|---|---|---|---|---|---|
+| 1.0 | 3.03–5.56 | 1.95–3.20e11 | 2758 | −0.34 / +0.04 | kT_e over |
+| 2.3 | 2.13–3.70 | 1.81–2.96e11 | 2245 | −0.36 / −0.01 | kT_e over |
+| **4.0** | **1.55–2.69** | **1.87–3.05e11** | **1770** | **−0.41 / −0.17** | **both IN** |
+| 8.0 | 0.98–1.80 | 1.92–3.13e11 | 1267 | −0.50 / −0.22 | both IN |
+| 16.0 | 0.61–1.20 | 1.94–3.16e11 | 905 | −0.48 / +0.02 | kT_e too cold |
 
-*(XRISM: kT_e 1.3–2.1, n_e t 1.0–3.4e11, v ~ 1800, both correlations negative.)*
+*(XRISM: kT_e 1.3–2.1, n_e t 1.0–3.4e11, v ≈ 1800, both correlations negative.
+`net_mode = unchanged`, which is the one the data select — see below.)*
 
-**χ ≈ 4 lands on three targets at once** — the temperature enters XRISM's range,
-the implied shock hits 1730 km s⁻¹ against 1800, and *both* correlation signs go
-negative including the Fe-group one. **And it overshoots the ionization age**,
-which was already at the top of the observed range at χ = 1. The two observables
-pull against each other, so the result is a **joint constraint, not a best-fit
-χ**: the ejecta must be dense enough to slow the shock by 1.5× *without* raising
-the swept electron column, which holds only if the dense gas was engulfed later —
-a statement about clump *size*, the one thing a sub-grid model cannot supply.
+**At χ ≈ 4 the model satisfies four independent XRISM constraints at once** — the
+electron temperature, the ionization age, the implied shock velocity (1770 against
+1800 km s⁻¹), and *both* correlation signs including the Fe-group one it gets
+wrong at χ = 1. One parameter, nothing fitted to any of the four.
+
+**The ionization-age treatment is what makes that possible, and it is a physical
+statement.** `n_e t` was already at the top of the observed range at χ = 1, so the
+modes that raise it (`density` × χ, `crossing` × √χ) fix the temperature and break
+the ionization age: at χ = 4, `crossing` gives 3.48–5.73e11 against an observed
+ceiling of 3.4e11. `unchanged` holds it flat, and since `n_e t = ρ t`, holding it
+flat while ρ rises by χ means the elapsed time *falls* by χ — **the dense clumps
+were engulfed by the reverse shock four times more recently than the mean.** That
+is a claim about clump size and the shock crossing time, and it is falsifiable.
+(`crossing` does give a stronger Fe-group correlation, −0.35 against −0.17, so the
+correlation mildly prefers it while the level clearly prefers `unchanged`; both are
+negative at χ = 4 either way.) χ ≈ 4–8 is the window: by χ = 16 the electrons are
+too *cold* and the Fe-group correlation returns to zero.
 
 **χ ≈ 4, not the χ ≈ 10–100 of the literature, and that is not a disagreement.**
 Laming & Hwang (2003) and XRISM infer χ from the offset of the data from a
@@ -295,10 +307,13 @@ high-contrast knot at the 6–8 cells a shock interaction needs takes **N ≳ 15
 — 3–6× in linear resolution, 30–200× in cost, past a memory wall that already
 stops this study at 512³. `CLUMP_SIZE_FRACTION = 0.02` already targets 3× larger
 than the observed knots and is *still* grid-clamped.
-*Remaining cost:* wiring the two phases through `casa_observe.py` as two thermal
-components (the emission-measure field is already explicit, so this is
-tractable), then one observation. **It is an interpretation layer and
-`_subgrid.describe` prints that sentence on every run.**
+**Wired through `casa_observe.py`** as two thermal components
+(`--subgrid-chi/-fmass/-net-mode`), which works because the emission measure was
+already explicit: a phase filling part of a cell is the same fields with the
+emission measure scaled by its volume fraction. *Remaining:* the spectrum at
+χ = 4 has not been measured yet — the scan constrains the plasma diagnostics, not
+the band ratios. **It is an interpretation layer and `_subgrid.describe` prints
+that sentence on every run.**
 
 **2. Explosion-era structure — still the dominant *morphological* gap.**
 The ejecta arrive already structured: neutrino-driven convection/SASI plumes,

@@ -1296,25 +1296,48 @@ identity, asserted.
 *(XRISM: kT_e 1.3–2.1, n_e t 1.0–3.4e11, reverse shock ~1800 km/s, both ρ
 negative. ρ is Spearman(kT_e, n_e t) across pixels.)*
 
-### The result, and it is a constraint rather than a fix
+*This table is `net_mode = crossing`; the `unchanged` one is below and is the
+one that works.*
 
-**χ ≈ 4 lands on three targets at once** — kT_e enters XRISM's range, the implied
-shock velocity hits 1730 km/s against the published 1800, and *both* correlation
-coefficients go negative, including the Fe-group one that Result 14 could not
-reproduce at 256³.
+### The result: χ ≈ 4 satisfies all four XRISM constraints at once
 
-**And it overshoots the ionization age**, 3.48–5.73e11 against an observed
-1.0–3.4e11. That is not a detail to be tuned away: `n_e t` was already at the
-top of the observed range at χ = 1, so *any* mode that multiplies it by the
-density contrast breaks it.
+**χ ≈ 4 lands on three targets immediately** — kT_e enters XRISM's range, the
+implied shock velocity hits 1730 km/s against the published 1800, and *both*
+correlation coefficients go negative, including the Fe-group one that Result 14
+could not reproduce at 256³ at all.
 
-So the two observables pull against each other and the honest statement is a
-**joint constraint, not a best-fit χ**: the ejecta must be dense enough to slow
-the transmitted shock by 1.5× *without* raising the swept electron column. Both
-hold only if the dense gas was **engulfed later** — the density rise
-(× χ) compensated by a shorter shocked time (÷ χ) — which is a statement about
-clump *size*, the one quantity a sub-grid model cannot supply. `net_mode`
-exposes the three defensible choices for exactly this reason.
+**Under `crossing` it overshoots the ionization age**, 3.48–5.73e11 against an
+observed 1.0–3.4e11 — `n_e t` was already at the top of the observed range at
+χ = 1, so a mode that raises it further breaks it. That looked like a
+show-stopper: two observables pulling against each other with no configuration
+satisfying both.
+
+**It is not, and `net_mode = unchanged` is the resolution.** Same scan, same χ:
+
+| χ | kT_e IME | n_e t IME | v_Si | ρ IME | ρ Fe | |
+|---|---|---|---|---|---|---|
+| 1.0 | 3.03–5.56 | 1.95–3.20e11 | 2758 | −0.343 | +0.037 | kT_e over |
+| 2.3 | 2.13–3.70 | 1.81–2.96e11 | 2245 | −0.363 | −0.007 | kT_e over |
+| **4.0** | **1.55–2.69** | **1.87–3.05e11** | **1770** | **−0.410** | **−0.174** | **both IN** |
+| 8.0 | 0.98–1.80 | 1.92–3.13e11 | 1267 | −0.498 | −0.222 | both IN |
+| 16.0 | 0.61–1.20 | 1.94–3.16e11 | 905 | −0.477 | +0.020 | kT_e now too cold |
+
+**At χ = 4 with the ionization age unchanged, the model satisfies the electron
+temperature, the ionization age, the implied shock velocity and both correlation
+signs simultaneously** — four independent XRISM constraints from one parameter,
+none of them fitted to.
+
+And `unchanged` is not a convenience: its physical content is sharp and
+falsifiable. `n_e t` is `ρ × t`, so leaving it unchanged while the density rises
+by χ means the elapsed time falls by χ — **the dense clumps were engulfed by the
+reverse shock four times more recently than the mean**, which is a statement
+about clump size and the shock crossing time, and a testable one. `crossing`
+(engulfed only √χ later) gives a *stronger* Fe-group correlation, −0.350 against
+−0.174, but overshoots `n_e t`; so the correlation mildly prefers `crossing` and
+the level clearly prefers `unchanged`, and both are negative at χ = 4 either way.
+
+χ ≈ 4–8 is the window: by χ = 16 the electrons are too *cold* (0.61–1.20 keV) and
+the Fe-group correlation returns to zero.
 
 The clumping factor is the other surprise: it peaks at ~1.63 near χ = 2.3 and
 *falls* thereafter, never approaching the ~25 a one-zone two-phase estimate

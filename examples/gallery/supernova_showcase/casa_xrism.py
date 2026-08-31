@@ -394,7 +394,7 @@ def main():
     ap.add_argument("--subgrid-fmass", type=float,
                     default=_subgrid.F_MASS_DEFAULT, metavar="F",
                     help="mass fraction of the dense phase")
-    ap.add_argument("--subgrid-net-mode", default="crossing",
+    ap.add_argument("--subgrid-net-mode", default=_subgrid.NET_MODE_DEFAULT,
                     choices=_subgrid.NET_MODES,
                     help="how the dense phase's ionization age follows from the "
                          "cell's -- see _subgrid, and note that n_e t is already "

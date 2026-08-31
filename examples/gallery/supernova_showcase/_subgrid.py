@@ -69,15 +69,18 @@ it), so the whole module is a verifiable no-op when off.
 
 WHAT IS DELIBERATELY NOT MODELLED
 ---------------------------------
-* **The ionization age of the dense phase.** ``n_e t`` scales up with the
-  density but down with the elapsed time, because the transmitted shock is
-  slower and arrives later, and the two cancel to an extent this model cannot
-  compute. ``net_mode`` exposes the three defensible choices -- scale with
-  density, leave unchanged, or scale by ``chi/sqrt(chi)`` for a shock that
-  crossed the clump at ``v/sqrt(chi)`` -- and the answer is **already bounded by
-  the data**: ``casa_xrism.py`` shows the model's ``n_e t`` at the top of XRISM's
-  range before any sub-grid boost, so a mode that multiplies it by ``chi``
-  overshoots. That bound is the reason the choice is exposed rather than picked.
+* **The ionization age of the dense phase**, which ``net_mode`` exposes rather
+  than picks. ``n_e t`` scales up with the density but down with the elapsed
+  time, because the transmitted shock is slower and the clump is engulfed later,
+  and the two cancel to an extent this model cannot compute.
+  **THE DATA SELECT: ``unchanged`` at ``chi = 4``.** ``casa_xrism.py
+  --subgrid-scan`` shows ``n_e t`` already at the top of XRISM's range before any
+  boost, so ``density`` (x chi) and ``crossing`` (x sqrt(chi)) both overshoot it
+  while fixing the temperature; ``unchanged`` satisfies the electron temperature,
+  the ionization age, the implied shock velocity and both correlation signs at
+  once. Its physical content is that the dense gas was engulfed ``chi`` times
+  more recently than the mean -- a statement about clump size, and a testable
+  one.
 * **Destruction.** Real knots ablate and mix (Cas A's have measured ablation
   tails, Fesen et al. 2025), so a fixed ``f_mass`` overstates how much mass is
   still in clumps at 350 yr.
@@ -97,10 +100,17 @@ relaxed by the fact that the parameters now have measurements behind them.
 # numerics
 import numpy as np
 
-#: contrast calibrated against casa_xrism.py's silicon ion temperature on
-#: orl_n256_final: (2758 km/s / 1800 km/s)^2. NOT the one-zone literature value
-#: -- see the module docstring.
-CHI_CALIBRATED = 2.3
+#: Contrast selected by ``casa_xrism.py --subgrid-scan`` on ``orl_n256_final``.
+#:
+#: The naive value is ``(2758/1800)^2 = 2.35`` -- the contrast that would slow the
+#: measured Si-emitting shock to the published reverse-shock speed if all the
+#: emission came from the dense phase. It does not: the emission weighting shifts
+#: toward the hotter diffuse phase, so the scan lands on **4**, where kT_e, n_e t,
+#: the implied shock speed (1770 km/s) and both correlation signs are satisfied
+#: at once. That is why it is scanned and not computed.
+#:
+#: NOT the one-zone literature value of 10-100 -- see the module docstring.
+CHI_CALIBRATED = 4.0
 
 #: fraction of the ejecta mass in the dense phase. Cas A's X-ray image is
 #: knot-dominated, so most of the EMISSION is in clumps; this is the mass, and
@@ -108,11 +118,14 @@ CHI_CALIBRATED = 2.3
 #: casa_xrism.py --subgrid-scan.
 F_MASS_DEFAULT = 0.5
 
-#: how the dense phase's ionization age is obtained from the cell's
+#: How the dense phase's ionization age is obtained from the cell's. The default
+#: is ``unchanged`` because the DATA select it (see the docstring): the other two
+#: fix the temperature while pushing n_e t past the observed range.
 NET_MODES = ("density", "unchanged", "crossing")
+NET_MODE_DEFAULT = "unchanged"
 
 
-def phase_factors(chi, f_mass, net_mode="crossing"):
+def phase_factors(chi, f_mass, net_mode=NET_MODE_DEFAULT):
     """The multiplicative factors defining each phase -- THE single source.
 
     Returns ``{name: (rho_factor, time_factor, net_factor, volume_fraction)}``,
@@ -163,7 +176,7 @@ def phase_factors(chi, f_mass, net_mode="crossing"):
 
 
 def two_phase(rho, T, *, chi=CHI_CALIBRATED, f_mass=F_MASS_DEFAULT,
-              net=None, net_mode="crossing"):
+              net=None, net_mode=NET_MODE_DEFAULT):
     """Split a cell into a dense and a diffuse phase.
 
     Args:
@@ -239,7 +252,7 @@ def chi_for_velocity_ratio(ratio):
     return 1.0 / np.asarray(ratio, dtype=np.float64) ** 2
 
 
-def describe(chi, f_mass, *, net_mode="crossing", resolved_clumping=None):
+def describe(chi, f_mass, *, net_mode=NET_MODE_DEFAULT, resolved_clumping=None):
     """A block of text saying what the split does, for a run log."""
     f_vol = f_mass / chi
     C = clumping_factor(chi, f_mass)
@@ -315,8 +328,10 @@ def _self_check():
     # 3. the velocity relation and its inverse are consistent, and the
     #    calibration is the number the docstring claims
     assert abs(chi_for_velocity_ratio(shock_velocity_ratio(7.0)) - 7.0) < 1e-10
-    chi_cal = float(chi_for_velocity_ratio(1800.0 / 2758.0))
-    assert abs(chi_cal - CHI_CALIBRATED) < 0.05, chi_cal
+    # the naive single-phase value, which the scan then supersedes
+    chi_naive = float(chi_for_velocity_ratio(1800.0 / 2758.0))
+    assert abs(chi_naive - 2.35) < 0.05, chi_naive
+    assert CHI_CALIBRATED > chi_naive, (CHI_CALIBRATED, chi_naive)
 
     # 4. an impossible configuration is refused, not clipped
     for bad in (dict(chi=2.0, f_mass=2.5), dict(chi=0.5, f_mass=0.5),
@@ -328,11 +343,14 @@ def _self_check():
         else:                                       # pragma: no cover
             raise AssertionError(f"accepted an impossible split: {bad}")
 
-    print(f"[subgrid] self-check passed. chi from the measured Si ion "
-          f"temperature (2758 km/s vs 1800) is {chi_cal:.2f}; at "
-          f"f_mass = {F_MASS_DEFAULT} that is a clumping factor of "
-          f"{clumping_factor(chi_cal, F_MASS_DEFAULT):.2f} and a dense-phase "
-          f"temperature of T / {chi_cal:.2f}.")
+    print(f"[subgrid] self-check passed.")
+    print(f"    naive single-phase chi from the measured Si ion temperature "
+          f"(2758 vs 1800 km/s): {chi_naive:.2f}")
+    print(f"    chi SELECTED BY THE SCAN (emission reweights onto the hotter "
+          f"phase): {CHI_CALIBRATED:.1f},")
+    print(f"    at which kT_e, n_e t, the implied shock speed and both "
+          f"correlation signs are\n    all satisfied at once with "
+          f"net_mode = {NET_MODE_DEFAULT!r}.")
     print(describe(CHI_CALIBRATED, F_MASS_DEFAULT, resolved_clumping=1.45))
 
 

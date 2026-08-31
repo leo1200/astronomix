@@ -1279,7 +1279,7 @@ def main():
                          "this costs 45")
     ap.add_argument("--subgrid-fmass", type=float, default=0.5, metavar="F",
                     help="mass fraction of the dense phase")
-    ap.add_argument("--subgrid-net-mode", default="crossing",
+    ap.add_argument("--subgrid-net-mode", default="unchanged",
                     choices=("density", "unchanged", "crossing"),
                     help="how the dense phase's ionization age follows from the "
                          "cell's; n_e t is already at the top of the observed "
