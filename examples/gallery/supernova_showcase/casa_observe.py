@@ -101,6 +101,60 @@ from pathlib import Path
 # numerics
 import numpy as np
 
+# ---- MPI ---------------------------------------------------------------
+# ~98% of the wall time of this script is one call, pyxsim.make_photons, and it
+# already contains yt's parallel_objects -- it was running on 1 of the node's
+# 192 cores only because mpi4py was absent and the dataset was a single grid.
+# Launch under mpirun to use it:
+#
+#     mpirun -n 16 /export/home/lstorcks/xrayobs/bin/python casa_observe.py ...
+#
+# Serial behaviour is unchanged when the module is missing or -n 1 is used, so
+# nothing below is conditional on having MPI. Every rank builds the full plasma
+# state (the numpy prep is not distributed), so the memory cost is per-rank:
+# ~8 GB at 256^3 and ~110 GB at 512^3, which is what bounds the rank count.
+try:
+    from mpi4py import MPI as _MPI
+    _MPI_SIZE = _MPI.COMM_WORLD.Get_size()
+    _MPI_RANK = _MPI.COMM_WORLD.Get_rank()
+except Exception:
+    _MPI_SIZE, _MPI_RANK = 1, 0
+
+if _MPI_SIZE > 1:
+    # pyXSIM writes the photon list COLLECTIVELY, which needs an h5py built
+    # against parallel HDF5. The wheel is serial, so every rank instead tries to
+    # create the same file and the run dies inside h5py with "unable to lock
+    # file" -- an error that says nothing about the actual cause. Refuse up
+    # front instead.
+    #
+    # This is not worth fixing by building parallel HDF5: the work in this
+    # study is many INDEPENDENT observations (a T_e scan, a plume ladder, halo
+    # variants), so task-level concurrency -- N serial runs at once on a
+    # 192-core node -- gives the same throughput with no new dependency and no
+    # risk to a validated pipeline. Use that.
+    import h5py as _h5py
+    if not _h5py.get_config().mpi:
+        raise SystemExit(
+            f"casa_observe.py was launched under MPI (-n {_MPI_SIZE}) but h5py "
+            f"{_h5py.__version__} has no MPI support, so pyXSIM cannot write "
+            f"the photon list collectively. Run it SERIALLY and get throughput "
+            f"by running independent observations concurrently instead.")
+
+#: Grids per rank in the yt decomposition. More than one because the emitting
+#: cells sit in a thin shell, so an equal-volume split is not an equal-work one.
+_GRIDS_PER_RANK = 4
+
+
+def _is_root():
+    """True on the one rank that should print, plot and write final products."""
+    return _MPI_RANK == 0
+
+
+def _say(*a, **k):
+    """print() on the root rank only -- otherwise every message appears N times."""
+    if _is_root():
+        print(*a, **k)
+
 # the shared plasma physics (also used by casa_plasma.py)
 from _plasma import (
     ATOMIC,
@@ -110,6 +164,7 @@ from _plasma import (
     KEV_IN_K,
     M_P,
     SOLAR_NUMBER_RATIO_TO_H,
+    TE_MODELS,
     plasma_state,
 )
 
@@ -153,7 +208,9 @@ def load_state(path):
                 has_velocity="vx" in fields)
 
 
-def emission_fields(state, *, max_abundance, two_temperature=True):
+def emission_fields(state, *, max_abundance, two_temperature=True,
+                    te_model="ghavamian", kT_e_shock_keV=0.3,
+                    beta_shock=0.05):
     """The self-consistent set pyXSIM needs: ``n_e``, ``n_H``, abundances, ``T_e``.
 
     APEC -- like every X-ray plasma code -- normalises to hydrogen: the emission
@@ -185,7 +242,9 @@ def emission_fields(state, *, max_abundance, two_temperature=True):
 
     Returns a dict of cgs fields plus a report of what was done.
     """
-    ps = plasma_state(state["fields"], two_temperature=two_temperature)
+    ps = plasma_state(state["fields"], two_temperature=two_temperature,
+                      te_model=te_model, kT_e_shock_keV=kT_e_shock_keV,
+                      beta_shock=beta_shock)
     X, n_e = ps["X"], ps["n_e"]                 # X is per ELEMENT (TRACER_SPLIT)
     rho = state["fields"]["rho"] * CODE_DENSITY
 
@@ -262,20 +321,24 @@ def describe_emission(em):
     """Print what the plasma model did, so no figure is produced silently."""
     i, r = em["info"], em["report"]
     if not i["composition_tracked"]:
-        print("[casa-obs] NOTE: no composition scalars -- cosmic abundances "
+        _say("[casa-obs] NOTE: no composition scalars -- cosmic abundances "
               "everywhere, and the ejecta temperature is understated ~3x")
         return
     if i["two_temperature"]:
         w = (em["n_e"] ** 2) * (em["T_e"] > 1e6)
         ratio = float(np.average(em["T_e"] / em["T"], weights=w))
         kt = float(np.average(em["T_e"], weights=w)) / KEV_IN_K
-        print(f"[casa-obs] electron temperature: EM-weighted T_e/T = {ratio:.3f} "
+        setting = (f"{i['kT_e_shock_keV']:.2f} keV" if i["te_model"] == "ghavamian"
+                   else f"beta = {i['beta_shock']:.3f}" if i["te_model"] == "beta"
+                   else "no free parameter")
+        _say(f"[casa-obs] electron temperature: EM-weighted T_e/T = {ratio:.3f} "
               f"(1 = full equilibration), kT_e = {kt:.2f} keV; the spectrum is "
-              f"computed from T_e")
+              f"computed from T_e. Shock heating model '{i['te_model']}' "
+              f"({setting})")
     else:
-        print("[casa-obs] NOTE: single-temperature plasma (T_e = T_i = T), "
+        _say("[casa-obs] NOTE: single-temperature plasma (T_e = T_i = T), "
               "which over-predicts the hard emission of recently shocked gas")
-    print(f"[casa-obs] hydrogen reference: invented in "
+    _say(f"[casa-obs] hydrogen reference: invented in "
           f"{100 * r['invented_fraction']:.1f}% of cells, costing "
           f"{100 * r['spurious_ff']:.2f}% of the total free-free emission; "
           f"peak abundance {r['abundance_max']:.3g} solar")
@@ -292,6 +355,11 @@ def make_yt_dataset(state, em, *, zmet, ejecta_zmet, ejecta_temperature_K):
     per-element abundances handed to the same source model.
     """
     import yt
+
+    if _MPI_SIZE > 1:
+        # must precede the load: yt decides then whether the grids are
+        # distributed over the communicator
+        yt.enable_parallelism()
 
     n = state["num_cells"]
     f = state["fields"]
@@ -342,9 +410,17 @@ def make_yt_dataset(state, em, *, zmet, ejecta_zmet, ejecta_temperature_K):
         is_ejecta = (f["rho"] > 3.0 * rho_med) & (em["T"] > ejecta_temperature_K)
         data[("gas", "metallicity")] = (np.where(is_ejecta, ejecta_zmet, zmet), "Zsun")
 
+    # nprocs is what makes MPI worth anything here. pyXSIM's make_photons loops
+    # over the dataset's GRIDS through yt's parallel_objects, so a dataset built
+    # as a single grid runs on one rank however many are launched -- the cost is
+    # ~98% of the pipeline and it was being paid serially on a 192-core node.
+    # Splitting into a few grids per rank also balances the load, which matters
+    # because the emitting cells are concentrated in a thin shell and an
+    # equal-VOLUME decomposition is not an equal-WORK one.
+    nprocs = 1 if _MPI_SIZE == 1 else _GRIDS_PER_RANK * _MPI_SIZE
     ds = yt.load_uniform_grid(
         data, [n, n, n], length_unit="cm", bbox=bbox,
-        nprocs=1, default_species_fields="ionized",
+        nprocs=nprocs, default_species_fields="ionized",
     )
     return ds
 
@@ -366,7 +442,10 @@ def make_photon_events(state, args):
     import pyxsim
 
     em = emission_fields(state, max_abundance=args.max_abundance,
-                         two_temperature=not args.single_temperature)
+                         two_temperature=not args.single_temperature,
+                         te_model=args.te_model,
+                         kT_e_shock_keV=args.kt_e_shock,
+                         beta_shock=args.beta_shock)
     if args.nei:
         if em["net"] is None:
             raise SystemExit("--nei needs the ionization age: rerun "
@@ -374,10 +453,10 @@ def make_photon_events(state, args):
         em["ions"], ion_report = ion_abundance_fields(
             em, em["net"], threshold=args.ion_threshold)
         for el, r in ion_report.items():
-            print(f"[casa-obs] {el:2s}: <Z> = {r['mean_charge']:5.2f}, "
+            _say(f"[casa-obs] {el:2s}: <Z> = {r['mean_charge']:5.2f}, "
                   f"{r['kept']} ions carrying {100 * r['covered']:.1f}% of the "
                   f"emitting mass")
-        print(f"[casa-obs] NEI: {len(em['ions'])} ion fields")
+        _say(f"[casa-obs] NEI: {len(em['ions'])} ion fields")
     describe_emission(em)
     ds = make_yt_dataset(state, em, zmet=args.zmet, ejecta_zmet=args.ejecta_zmet,
                          ejecta_temperature_K=args.ejecta_temperature)
@@ -436,9 +515,9 @@ def make_photon_events(state, args):
                          ("gas", "velocity_z")],
     )
     if not state["has_velocity"]:
-        print("[casa-obs] NOTE: this state carries no velocities -- the line "
+        _say("[casa-obs] NOTE: this state carries no velocities -- the line "
               "emission is unshifted (no Doppler structure)")
-    print(f"[casa-obs] {n_ph:.3e} photons from {n_cell:.3e} cells")
+    _say(f"[casa-obs] {n_ph:.3e} photons from {n_cell:.3e} cells")
 
     n_ev = pyxsim.project_photons(
         f"{prefix}_photons", f"{prefix}_events", args.los, (RA0, DEC0),
@@ -447,7 +526,7 @@ def make_photon_events(state, args):
         # a lattice of delta functions at the sub-arcsecond ACIS pixel scale
         kernel="gaussian",
     )
-    print(f"[casa-obs] {n_ev:.3e} photons survive absorption + projection")
+    _say(f"[casa-obs] {n_ev:.3e} photons survive absorption + projection")
     return f"{prefix}_events.h5"
 
 
@@ -543,8 +622,19 @@ def simulate_instrument(h5_events, args):
 
 
 def make_events(state, args):
-    """The whole forward model: state -> photons -> dust -> Chandra event file."""
+    """The whole forward model: state -> photons -> dust -> Chandra event file.
+
+    Only the FIRST step is parallel. pyXSIM distributes photon generation and
+    projection over the grids; the dust halo and SOXS's ``instrument_simulator``
+    are serial, and running them on every rank would apply the halo N times to
+    the same file and have N processes write the same event list. So the
+    non-root ranks stop at the barrier and return.
+    """
     h5 = args.pyxsim_events or make_photon_events(state, args)
+    if _MPI_SIZE > 1:
+        _MPI.COMM_WORLD.Barrier()
+        if not _is_root():
+            return None
     if args.halo:
         h5 = apply_dust_halo(h5, args)
     return simulate_instrument(h5, args)
@@ -1058,6 +1148,20 @@ def main():
                          "for showing what the two-temperature model changes: "
                          "Coulomb equilibration is far from complete at 350 yr, "
                          "so T_e = T is not a defensible approximation here")
+    ap.add_argument("--te-model", default="ghavamian", choices=TE_MODELS,
+                    help="electron-heating prescription at the shock. The "
+                         "default is Ghavamian et al. (2007)'s constant 0.3 keV, "
+                         "which was calibrated on HYDROGEN-dominated ISM shocks "
+                         "and is applied here to a reverse shock in "
+                         "METAL-dominated ejecta -- the single largest "
+                         "assumption in the forward model. 'beta' scales with "
+                         "the local post-shock temperature instead; "
+                         "'equilibrated' and 'minimal' are the hot and cold "
+                         "bounds. See _plasma.shock_electron_temperature")
+    ap.add_argument("--kt-e-shock", type=float, default=0.3, metavar="KEV",
+                    help="the constant, for --te-model ghavamian (keV)")
+    ap.add_argument("--beta-shock", type=float, default=0.05, metavar="B",
+                    help="T_e / T at the shock, for --te-model beta")
     ap.add_argument("--no-background", action="store_true", help="no instrumental/sky background")
     ap.add_argument("--scratch", default="/export/data/lstorcks/supernova_showcase/xray_scratch",
                     help="where the (large) photon/event/SIMPUT intermediates go")
@@ -1114,6 +1218,8 @@ def main():
           f"scalars {sorted(k for k in state['fields'] if k.startswith('C_') or k in ('shocked_fraction', 'time_since_shock', 'density_time'))}")
 
     evtfile = args.events or make_events(state, args)
+    if evtfile is None:            # a non-root MPI rank: its work is done
+        return
 
     syn = bin_events_to_grid(evtfile)
     syn_exp = args.exposure * 1e3

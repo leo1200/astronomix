@@ -263,8 +263,86 @@ def equipartition_time(T_e, T_i, rho_code, X, coulomb_log=None):
         * bracket / np.maximum(sum_nz2_m, 1e-60)
 
 
+#: Electron-heating prescriptions at the collisionless shock. See
+#: :func:`shock_electron_temperature` for what each one asserts and why the
+#: default is the weakest link in the whole forward model.
+TE_MODELS = ("ghavamian", "beta", "equilibrated", "minimal")
+
+
+def shock_electron_temperature(T, f_e, *, model="ghavamian", kT_e_shock_keV=0.3,
+                               beta_shock=0.05):
+    """Electron temperature IMMEDIATELY behind the shock, before relaxation.
+
+    This one choice sets the spectrum, and the default is an extrapolation.
+    Ghavamian, Laming & Rakowski (2007) measured ``kT_e ~ 0.3 keV``,
+    approximately independent of Mach number above ~1000 km/s, at Balmer-
+    dominated shocks in **hydrogen-dominated ISM gas**. Cas A's X-rays come
+    from the *reverse* shock in **metal-dominated ejecta**, where the mean ion
+    mass is 16-56 times the proton mass and the electron-to-ion number ratio is
+    8 rather than 1.2. Nothing in that calibration transfers automatically.
+
+    The residual the model actually shows -- too little soft line emission
+    (0.46-0.62x) together with too much hard continuum (1.56-1.71x) and Fe-K
+    (2.42x) -- is the signature of *too much hot gas*, which is a statement
+    about this function and not about the hydrodynamics. So it is made
+    switchable, and the alternatives bracket the physics rather than
+    interpolating between fits:
+
+    ``ghavamian``
+        The published constant. ``kT_e = min(kT_e_shock_keV, T)``.
+    ``beta``
+        A fixed FRACTION of the local post-shock temperature,
+        ``T_e = beta_shock * T``. The physical difference from ``ghavamian`` is
+        that it scales with the local shock strength instead of being pinned to
+        an absolute energy calibrated on other shocks -- so a slow reverse
+        shock in dense ejecta heats its electrons less, which the constant
+        cannot express.
+    ``equilibrated``
+        ``T_e = T``: instantaneous equipartition. The HOT bound. Physically
+        excluded at Cas A's ionization age, and included precisely because it
+        brackets the answer from the wrong side.
+    ``minimal``
+        ``T_e / T_i = m_e / m_p``: adiabatic compression of the electrons and
+        no collisionless heating at all. The COLD bound.
+
+    Args:
+        T: Single-fluid (mass-weighted mean) temperature, K.
+        f_e: Electron share of the particles, ``n_e / (n_e + n_i)``.
+        model: One of :data:`TE_MODELS`.
+        kT_e_shock_keV: The constant, for ``ghavamian``.
+        beta_shock: The fraction, for ``beta``.
+
+    Returns:
+        ``(T_e, T_i)`` immediately post-shock, satisfying
+        ``f_e T_e + (1 - f_e) T_i = T`` exactly, so no energy is created or
+        destroyed by the choice.
+    """
+    if model not in TE_MODELS:
+        raise SystemExit(f"unknown --te-model {model!r}; choose from {TE_MODELS}")
+
+    if model == "equilibrated":
+        return np.array(T, dtype=np.float64), np.array(T, dtype=np.float64)
+
+    if model == "minimal":
+        # T_e = eps * T_i with eps = m_e/m_p, and f_e T_e + (1-f_e) T_i = T
+        eps = M_E / M_P
+        T_i = T / np.maximum(f_e * eps + (1.0 - f_e), 1e-30)
+        return eps * T_i, T_i
+
+    if model == "beta":
+        T_e = beta_shock * np.asarray(T, dtype=np.float64)
+    else:                                       # ghavamian
+        # never more than the gas has: in gas cooler than 0.3 keV the constant
+        # would hand the electrons more energy than the cell contains, and the
+        # ions would have to go below the electrons to pay for it
+        T_e = np.minimum(np.full_like(T, kT_e_shock_keV * KEV_IN_K), T)
+    T_i = (T - f_e * T_e) / np.maximum(1.0 - f_e, 1e-30)
+    return T_e, T_i
+
+
 def electron_ion_temperatures(T, rho_code, time_since_shock_code, X,
-                              kT_e_shock_keV=0.3, n_substeps=16):
+                              kT_e_shock_keV=0.3, n_substeps=16,
+                              te_model="ghavamian", beta_shock=0.05):
     """Split the single-fluid temperature into ``(T_e, T_i)``.
 
     The solver evolves one temperature, which is the mass-weighted mean: the
@@ -320,12 +398,9 @@ def electron_ion_temperatures(T, rho_code, time_since_shock_code, X,
     n_i = rho / (m["mu_i"] * M_P)
     f_e = n_e / (n_e + n_i)                     # electron share of the particles
 
-    # Post-shock electron temperature, but never more than the gas has: in gas
-    # cooler than 0.3 keV the Ghavamian value would hand the electrons more
-    # energy than the cell contains, and the ion temperature would have to go
-    # below the electron one to pay for it.
-    T_e = np.minimum(np.full_like(T, kT_e_shock_keV * KEV_IN_K), T)
-    T_i = (T - f_e * T_e) / np.maximum(1.0 - f_e, 1e-30)
+    T_e, T_i = shock_electron_temperature(
+        T, f_e, model=te_model, kT_e_shock_keV=kT_e_shock_keV,
+        beta_shock=beta_shock)
 
     dt_total = np.asarray(time_since_shock_code, dtype=np.float64) * CODE_TIME
     shocked = dt_total > 0.0
@@ -342,7 +417,8 @@ def electron_ion_temperatures(T, rho_code, time_since_shock_code, X,
     return np.where(shocked, T_e, T), np.where(shocked, T_i, T)
 
 
-def plasma_state(fields, *, kT_e_shock_keV=0.3, two_temperature=True):
+def plasma_state(fields, *, kT_e_shock_keV=0.3, two_temperature=True,
+                 te_model="ghavamian", beta_shock=0.05):
     """Everything the X-ray model needs, from a ``--save-state`` npz.
 
     One entry point so that the diagnostics (``casa_plasma.py``) and the forward
@@ -365,7 +441,8 @@ def plasma_state(fields, *, kT_e_shock_keV=0.3, two_temperature=True):
     if two_temperature and has_history:
         T_e, T_i = electron_ion_temperatures(
             T, fields["rho"], fields["time_since_shock"], X,
-            kT_e_shock_keV=kT_e_shock_keV)
+            kT_e_shock_keV=kT_e_shock_keV, te_model=te_model,
+            beta_shock=beta_shock)
     else:
         T_e = T_i = T
 
@@ -379,7 +456,9 @@ def plasma_state(fields, *, kT_e_shock_keV=0.3, two_temperature=True):
                 n_i=nd["n_i"], n_H=nd["n_H"], moments=nd["moments"],
                 net=net, shocked=shocked,
                 info=dict(composition_tracked=tracked, shock_history=has_history,
-                          two_temperature=bool(two_temperature and has_history)))
+                          two_temperature=bool(two_temperature and has_history),
+                          te_model=te_model, kT_e_shock_keV=kT_e_shock_keV,
+                          beta_shock=beta_shock))
 
 
 def _self_check():
