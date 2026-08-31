@@ -1814,3 +1814,90 @@ flatten the shape (rms 0.250 → 0.084 dex). But it flattens it by **adding ejec
 line emissivity**, while this hypothesis says the shape is wrong because there is
 **too much wind continuum**. Both flatten the same residual; only one can be the
 cause. **So χ must not be tuned further until the band-resolved split is measured.**
+
+---
+
+## Result 21 — the residual is in *all* the shocked gas, not in the circumstellar component
+
+*2026-08-31. `casa_observe.py --population {ejecta,csm}`, 256³, NEI, vs Chandra
+2004, against the matched `all` run.*
+
+Result 20 proposed that the one-sided soft-deficit/hard-excess residual comes
+from **too much circumstellar continuum**: the emission measure is 79 % shocked
+wind, wind is metal-free, so it contributes continuum with no lines. That
+competes directly with the sub-grid ejecta contrast of Result 18 — both flatten
+the same residual and only one can be the cause. This is the measurement that
+decides, and **the circumstellar hypothesis is falsified.**
+
+### The split is mechanically sound, and it really is wind
+
+Emission is linear in the emission measure, so the two arms must sum to the whole.
+They do:
+
+| band | `all` | `ejecta` + `csm` | diff |
+|---|---|---|---|
+| 0.5–1.5 | 71.93 | 72.04 | +0.2 % |
+| 1.5–2.1 | 82.76 | 82.70 | −0.1 % |
+| 2.1–2.8 | 46.11 | 46.13 | +0.0 % |
+| 2.8–4.2 | 39.17 | 39.15 | −0.1 % |
+| 4.2–6.0 | 10.62 | 10.72 | +0.9 % |
+| 6.0–7.0 | 3.60 | 3.64 | +1.1 % |
+| rate | 254.2 | 254.4 | +0.1 % |
+
+And the `csm` arm is genuinely circumstellar rather than a relabelled mixture:
+**75.6 % of its emission measure comes from cells with C_ej < 0.01**, whose metal
+mass fraction is **0.020** — near-cosmic. (12.6 % comes from mixed cells at
+C_ej = 0.1–0.5 with metal fraction 0.084, which is why the arm shows a little
+Fe-K rather than none.)
+
+### The result
+
+| | 0.5–1.5 | 1.5–2.1 | 2.1–2.8 | 2.8–4.2 | 4.2–6.0 | 6.0–7.0 | spread |
+|---|---|---|---|---|---|---|---|
+| ejecta share of the band | 45 % | 51 % | 53 % | 55 % | 55 % | 54 % | — |
+| **shape**, ejecta | 0.71 | 0.84 | 1.37 | 2.01 | 1.98 | 3.05 | **4.32** |
+| **shape**, csm | 0.87 | 0.82 | 1.24 | 1.70 | 1.67 | 2.69 | **3.26** |
+| **shape**, all | 0.79 | 0.83 | 1.31 | 1.86 | 1.81 | 2.84 | 3.60 |
+
+*(shape = band ratio ÷ rate ratio, i.e. the residual with the normalisation
+divided out.)*
+
+**Two things kill the hypothesis.**
+
+1. **The ejecta share is flat across the band** — 45 % to 55 %, with no trend from
+   the soft line bands to the hard continuum. If the wind were supplying excess
+   continuum and no lines, the ejecta share would fall steeply with energy. It
+   does not move.
+2. **Both populations carry the *same* one-sided residual**, and the ejecta's is
+   the *steeper* of the two (4.32 against 3.26). The wind is not the offender; if
+   anything it is slightly better behaved than the ejecta.
+
+**So the residual is a property of all the shocked gas, not of one population.**
+That is exactly what XRISM's kT_e measurement says (Result 14: the gas is too
+hot), and exactly what the sub-grid contrast acts on — `_subgrid` scales every
+cell's density, so it cools wind and ejecta alike. **Result 18's interpretation
+survives, strengthened by the elimination of its only competitor, and χ can be
+tuned again.**
+
+### And it explains the 2.3× without invoking a mass error
+
+If the residual is a temperature error spread over all the shocked gas, then
+cooling all of it — which is what χ = 4 does — necessarily raises ⟨n²⟩ over all of
+it too. The 2.26× normalisation excess is then not evidence of too much material
+anywhere; it is the unavoidable cost of a mass-conserving two-phase split, which
+Result 18 already showed `f_mass` cannot avoid. **The remaining question is
+therefore not "where is the extra material" but "what cools the gas without
+compressing it"** — and that is a genuinely different question, with a short list:
+a lower shock velocity into the emitting gas (dynamics, not sub-grid), or thermal
+conduction (recorded as unaffordable, 15 days/run), or a real reduction in the
+model's shock speeds from a modified CSM profile.
+
+### Two corrections to my own earlier claims, in one place
+
+* **Result 20's circumstellar hypothesis: falsified here.** Recorded because it
+  was a reasonable inference from a real measurement (79 % of the emission
+  measure) and was wrong anyway — the ⟨n_e²⟩ fraction says who dominates the
+  *continuum budget*, which turns out not to say who dominates the *residual*.
+* **Result 18's δ inference: withdrawn in Result 20** and not restored. The ejecta
+  mass budget is right to 0.67 σ; the 2.3× is the arithmetic of the split, not a
+  mass error.

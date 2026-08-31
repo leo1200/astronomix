@@ -107,7 +107,7 @@ unstable" verdict.
 ### Initial condition at 150 yr (`casa_orlando.py`)
 | ingredient | source | notes |
 |---|---|---|
-| ejecta + wind profile | calibrated 1D run | flat core + steep envelope; δ = 0 working value |
+| ejecta + wind profile | calibrated 1D run | steep envelope; **δ = 1 centrally peaked core** — the `--inner-slope` default, and what the committed `casa_1d_map150.npz` carries (§5.6) |
 | small-scale clumping | Orlando et al. 2012 | log-normal, contrast ≈ 5, k-band, **spans the whole ejecta to r_CD** |
 | 5 large-scale anisotropies | Orlando et al. 2016 Table 4 | Fe-rich knots + Si-rich NE jet/SW counter-jet; carry their own composition, which produces the observed Fe-outside-Si inversion |
 | asymmetric CSM shell | Orlando et al. 2022 Eq. 1 | placed *ahead* of the blast so the interaction is computed; drives the reflected shock that pushes r_RS inward |
@@ -636,7 +636,8 @@ was believed for a while, and any of them can come back.
 | what happened | what it looked like | how it was caught |
 |---|---|---|
 | **`POSITIVITY_HARD_FLOOR` manufactures mass**, 17 → 10¹² M☉ | "512³ is unstable" — a verdict that stood for weeks and was recorded in a handoff as settled | a mass-conservation check on a run that had *not* crashed. `--positivity redistribute` completes to 350 yr with mass conserved to 6e-5 |
-| **`ejecta_radial_shape` clipped the profile to ≤ 1**, so `--inner-slope` did nothing | δ = 1 runs that "worked" and changed no observable | the unshocked mass refused to move. **Any δ result from before the fix is a δ = 0 result whatever the flag said** |
+| **`ejecta_radial_shape` clipped the profile to ≤ 1**, so `--inner-slope` did nothing | δ = 1 runs that "worked" and changed no observable | the unshocked mass refused to move. **Any δ result from before the fix is a δ = 0 result whatever the flag said** — and after the fix the *default* of 1.0 silently took effect, which is the other half of the story (§5.6) |
+| **A recorded BLOCKER went stale and set the priority list for a month** — "δ = 1 has never run in 3D" stayed in this document after the configuration it referred to had been superseded three times | a residual that "stands", carried forward into every subsequent plan, including one this session wrote | running the thing the document said could not be run. It completes with mass conserved to six digits. **Blockers decay exactly like results; re-check one before building around it** (§5.6) |
 | **The LSRK fused Pallas path skipped the positivity flux limiter** — `use_fused_pallas` did not exclude the flux-blending flags, so `_blend_interface_flux` was never called | every `--low-mem` run blowing up, blamed on LSRK's non-SSP property | reading the dispatch, not the physics. LSRK + limiter is plausible again for 1024³, and untested |
 | **`pyxsim.EventList` ignores the path it is given** and re-reads the filenames stored inside the HDF5 | the dust halo doing *nothing*: run completes, count rate identical to no-halo | the count rate was identical to the last digit, which is not what a physical process looks like. `apply_dust_halo` now rewrites `info/filenames` and asserts the round trip |
 | **`casa_morph_null.py` v1 never thinned the real image**, though a comment said it did | a null table comparing Chandra at 143 ks against models at 20 ks — nulls 6.6 vs 16.8 | the numbers were too good. Every image is now thinned to matched counts |
