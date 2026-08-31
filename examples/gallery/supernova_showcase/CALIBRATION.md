@@ -1396,3 +1396,65 @@ orders of magnitude, making the normalisation hopeless. The arithmetic was
 wrong — it is 1.0e-4 pc, the bracket is ~3000, and with the observed width the
 answer lands within a factor of two. The conclusion changed from "hopeless" to
 "one measured parameter".
+
+---
+
+## Result 17 — the Ar/Ca tracer split: a measured assumption, and fixing it works
+
+*2026-08-31. `--tracer-split`, matched 256³ pair, NEI, no halo, vs Chandra 2004.*
+
+`TRACER_SPLIT` divides the carried "Si" tracer among Si, S, Ar and Ca. It was set
+from Hwang & Laming (2012)'s **remnant-integrated** shocked masses (Si 0.08,
+S 0.06, Ar 0.02, Ca 0.02 M☉), because being comparable to that measurement is
+the point of this pipeline. Expressed as ratios to solar, that is
+
+    S/Si = 1.44x     Ar/Si = 1.72x     Ca/Si = 2.72x
+
+**everywhere.** XRISM/Resolve measures S/Si = 0.88–1.12 solar per 30″ pixel, with
+the Ar and Ca enhancement **confined to the NE and SW jet bases**. Both can be
+true: the remnant-integrated Ar mass can be 0.02 M☉ with most of it in the jets
+while the ratio is solar in the bulk. One "Si" tracer cannot say so, so the
+enhancement is spread over *all* of the layer including the brightest smooth Si
+— which is exactly the recorded residual "Ar and Ca ~2× too strong while Si is
+0.74×". Not a bug and not a physical effect: the cost of four tracers standing
+for nine elements.
+
+`xrism_bulk` sets solar S/Si, Ar/Si and Ca/Si, derived from
+`SOLAR_NUMBER_RATIO_TO_H` rather than typed in. **Only the Si layer changes** —
+XRISM's band does not constrain Ne/O or Mg/O, and forcing those to solar would
+put 15 % of the oxygen layer's mass into neon against Hwang & Laming's measured
+Ne/O ≈ 0.08 solar, which is what an oxygen-burning layer should look like.
+Changing a ratio no observation constrains, in the same commit as one it does, is
+how a calibration stops being traceable.
+
+### The matched pair
+
+| band | `hwang_laming` | `xrism_bulk` | |
+|---|---|---|---|
+| 0.5–7 keV rate | 0.86 | **0.88** | |
+| 0.5–1.5 (O, Ne, Fe-L) | 0.70 | 0.70 | — |
+| **1.5–2.1 (Si He-α)** | 0.74 | **0.84** | **+0.10 →1** |
+| 2.1–2.8 (S He-α) | 1.16 | 1.14 | −0.02 |
+| **2.8–4.2 (Ar, Ca)** | 1.65 | **1.41** | **−0.24 →1** |
+| 4.2–6.0 (continuum) | 1.61 | 1.52 | −0.09 |
+| 6.0–7.0 (Fe-K) | 2.52 | 2.50 | −0.02 |
+
+**The two residuals that were fingered move together, in the right directions,
+and nothing else degrades.** Four of six bands improve; the count rate improves.
+And the control reproduces the recorded guardrail to the last digit (0.86 and
+0.70 / 0.74 / 1.16 / 1.65 / 1.61 / 2.52 against the recorded 0.86 and
+0.70 / 0.74 / 1.16 / 1.64 / 1.60 / 2.51), which validates the whole chain through
+the refactor.
+
+**It accounts for about half the Ar/Ca excess** — 1.65 → 1.41 against a target of
+1.0. The rest is not composition: the 2.8–4.2 keV band also carries continuum,
+and the continuum is separately too bright (Results 15, 16).
+
+**Which preset to use is a real choice, not a bug fix.** `hwang_laming` is right
+if you want the remnant-integrated masses; `xrism_bulk` is right if you want the
+per-pixel line ratios where the emission is. They disagree because the real
+enhancement is spatially localised and this model cannot represent that. Both are
+kept, `set_tracer_split` selects, and every consumer prints which it used.
+
+*Side finding, fixed:* the hand-typed Si layer summed to **0.999**, quietly
+losing 0.1 % of it. Both presets are now derived from their source numbers.

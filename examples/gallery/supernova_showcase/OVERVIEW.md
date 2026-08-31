@@ -358,7 +358,26 @@ bases, with S/Si = 0.88–1.12 elsewhere. So the total Ar mass may well be right
 while the *emission* is wrong, because the enhancement is spread over the
 brightest Si instead of confined to the jets — which is exactly the "Ar/Ca ~2×
 too strong while Si is 0.74×" residual, now with a size and a cause.
-*Cost:* hours. This is the cheapest item on the list.
+
+**DONE, and it works (Result 17).** `--tracer-split xrism_bulk` sets solar
+S/Si, Ar/Si and Ca/Si in the Si layer only. Matched 256³ pair:
+
+| band | `hwang_laming` | `xrism_bulk` |
+|---|---|---|
+| rate | 0.86 | **0.88** |
+| 1.5–2.1 (Si He-α) | 0.74 | **0.84** |
+| 2.8–4.2 (Ar, Ca) | 1.65 | **1.41** |
+| 4.2–6.0 | 1.61 | 1.52 |
+| others | 0.70 / 1.16 / 2.52 | 0.70 / 1.14 / 2.50 |
+
+The two fingered residuals move together in the right directions, nothing
+degrades, and the control reproduces the guardrail to the last digit. It accounts
+for about **half** the Ar/Ca excess; the rest is continuum, not composition.
+**Which preset to use is a real choice**: `hwang_laming` for the
+remnant-integrated masses, `xrism_bulk` for the per-pixel line ratios where the
+emission is. They disagree because the real enhancement is spatially localised
+and one tracer cannot say so. Both are kept and every consumer prints which it
+used.
 
 **5. T_e — CLOSED as a lever (was "the headline open residual").**
 The Ghavamian prescription is calibrated on H-dominated ISM shocks and

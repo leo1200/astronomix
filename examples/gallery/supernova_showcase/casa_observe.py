@@ -347,7 +347,8 @@ def describe_emission(em):
           f"peak abundance {r['abundance_max']:.3g} solar")
 
 
-def make_yt_dataset(state, em, *, zmet, ejecta_zmet, ejecta_temperature_K):
+def make_yt_dataset(state, em, *, zmet, ejecta_zmet, ejecta_temperature_K,
+                    em_scale=1.0):
     """Wrap the state in a yt uniform grid with the fields pyXSIM needs.
 
     The emission measure is supplied EXPLICITLY rather than left to yt. yt's
@@ -381,7 +382,8 @@ def make_yt_dataset(state, em, *, zmet, ejecta_zmet, ejecta_temperature_K):
         # Using the single-fluid temperature here over-predicted the hard
         # emission of the youngest-shocked gas.
         ("gas", "temperature"): (em["T_e"], "K"),
-        ("gas", "emission_measure_neneh"): (em["n_e"] * em["n_H"] * dv, "cm**-3"),
+        ("gas", "emission_measure_neneh"): (em["n_e"] * em["n_H"] * dv * em_scale,
+                                            "cm**-3"),
     }
     # Always register velocities, even for the older states that were saved
     # before ``--save-state`` kept them: pyXSIM's default is to look for
@@ -436,11 +438,18 @@ def scratch_prefix(args):
     return os.path.join(args.scratch, os.path.basename(args.out))
 
 
-def make_photon_events(state, args):
+def make_photon_events(state, args, *, suffix="", em_scale=1.0):
     """State -> pyXSIM photon list -> projected, absorbed event list (.h5).
 
     Stops before the telescope, because the interstellar dust comes first: see
     :func:`apply_dust_halo`.
+
+    ``suffix`` names the scratch files, so the sub-grid split (:mod:`_subgrid`)
+    can call this once per phase without the two collidng. ``em_scale`` is the
+    phase's VOLUME FRACTION: the emission measure is ``n_e n_H dV``, so a phase
+    occupying a fraction of each cell emits that fraction -- which is the only
+    change the volume split needs, because pyXSIM is handed the emission measure
+    explicitly rather than deriving it from a volume.
     """
     import pyxsim
 
@@ -462,7 +471,8 @@ def make_photon_events(state, args):
         _say(f"[casa-obs] NEI: {len(em['ions'])} ion fields")
     describe_emission(em)
     ds = make_yt_dataset(state, em, zmet=args.zmet, ejecta_zmet=args.ejecta_zmet,
-                         ejecta_temperature_K=args.ejecta_temperature)
+                         ejecta_temperature_K=args.ejecta_temperature,
+                         em_scale=em_scale)
     sp = ds.all_data()
 
     common = dict(
@@ -507,7 +517,7 @@ def make_photon_events(state, args):
     # bright enough that the careless combination (3000 cm^2 x 50 ks, emitting
     # down to 1e5 K) produced 4.7e9 photons, a 38 GB file and 64 GB resident.
     # The intermediates therefore go to scratch on /export/data, not to $HOME.
-    prefix = scratch_prefix(args)
+    prefix = scratch_prefix(args) + suffix
     n_ph, n_cell = pyxsim.make_photons(
         f"{prefix}_photons", sp, 0.0, args.area, args.exposure * 1e3, source,
         dist=(DISTANCE_KPC, "kpc"),
@@ -624,6 +634,108 @@ def simulate_instrument(h5_events, args):
     return evtfile
 
 
+def subgrid_photon_events(state, args):
+    """One event list per sub-grid phase, merged -- see :mod:`_subgrid`.
+
+    A phase differs from its cell only in density and in how long it has been
+    shocked, because the split is at fixed cell pressure. So each phase is the
+    same state with ``rho``, ``time_since_shock`` and ``density_time`` scaled, and
+    everything downstream -- temperature, T_e, n_e, the ionization age, the ion
+    fractions -- is recomputed from those by the existing code path. There is no
+    second physics implementation to keep in step, which is the whole reason the
+    split was formulated at fixed pressure.
+
+    **Calibrate chi with ``casa_xrism.py --subgrid-scan`` first.** A row there
+    costs a couple of minutes and this costs 45, and the two observables (the
+    electron temperature and the ionization age) pull in opposite directions, so
+    guessing chi here wastes the expensive step.
+    """
+    import _subgrid
+
+    chi, f_mass = args.subgrid_chi, args.subgrid_fmass
+    _say(_subgrid.describe(chi, f_mass, net_mode=args.subgrid_net_mode))
+    f_vol = f_mass / chi
+    factors = {"dense": (chi, 1.0 / np.sqrt(chi) if
+                         args.subgrid_net_mode == "crossing" else 1.0, f_vol),
+               "diffuse": ((1.0 - f_mass) / (1.0 - f_vol), 1.0, 1.0 - f_vol)}
+
+    parts = []
+    base = state["fields"]
+    for name, (rho_f, t_f, vol) in factors.items():
+        _say(f"[casa-obs] --- sub-grid phase '{name}': rho x {rho_f:.3f}, "
+             f"t_shock x {t_f:.3f}, volume fraction {vol:.3f} ---")
+        fields = dict(base)
+        fields["rho"] = base["rho"] * rho_f
+        # density_time carries rho*t, so it takes BOTH factors -- scaling only
+        # one would put the electron relaxation and the ionization age on
+        # different clocks
+        if "time_since_shock" in base:
+            fields["time_since_shock"] = base["time_since_shock"] * t_f
+        if "density_time" in base:
+            fields["density_time"] = base["density_time"] * rho_f * t_f
+        phase_state = dict(state, fields=fields)
+        parts.append(make_photon_events(phase_state, args,
+                                        suffix=f"_{name}", em_scale=vol))
+
+    return merge_event_lists(parts, f"{scratch_prefix(args)}_events.h5")
+
+
+def merge_event_lists(inputs, out):
+    """Concatenate pyXSIM event lists into one -- for multi-component sources.
+
+    A pyXSIM event list is three arrays (``eobs``, ``xsky``, ``ysky``) plus a
+    ``parameters`` group, so combining components is a concatenation and a sum of
+    the fluxes. What is NOT optional is checking that the parameters agree:
+    merging lists made with different collecting areas or exposure times would
+    silently produce an event list whose count rate means nothing, and nothing
+    downstream would notice.
+
+    **And ``info/filenames`` must be rewritten.** ``pyxsim.EventList`` ignores
+    the path it is handed and re-reads the filenames stored inside the file, so a
+    merged list that still carries its first input's name serves SOXS the first
+    component only -- the run completes and the answer looks like "the second
+    component does nothing". That trap cost a full A/B cycle when the dust halo
+    was added; see :func:`apply_dust_halo`, which does the same thing.
+    """
+    import h5py
+
+    # these must match, or the merged rate is meaningless
+    STRICT = ("area", "exp_time", "emin", "emax", "nH", "redshift")
+    with h5py.File(inputs[0], "r") as f0:
+        ref = {k: f0[f"parameters/{k}"][()] for k in STRICT}
+    for path in inputs[1:]:
+        with h5py.File(path, "r") as f:
+            for k in STRICT:
+                v = f[f"parameters/{k}"][()]
+                if not np.isclose(v, ref[k]):
+                    raise SystemExit(
+                        f"refusing to merge {path} into {inputs[0]}: "
+                        f"{k} = {v} against {ref[k]}. Merging event lists made "
+                        f"with different {k} gives a count rate that means "
+                        f"nothing.")
+
+    import shutil
+    shutil.copyfile(inputs[0], out)
+    with h5py.File(out, "r+") as fo:
+        for path in inputs[1:]:
+            with h5py.File(path, "r") as fi:
+                for name in ("eobs", "xsky", "ysky"):
+                    a, b = fo[f"data/{name}"], fi[f"data/{name}"]
+                    n0 = a.shape[0]
+                    a.resize((n0 + b.shape[0],))
+                    a[n0:] = b[:]
+                fo["parameters/flux"][()] = (fo["parameters/flux"][()]
+                                             + fi["parameters/flux"][()])
+        # pyxsim re-reads this, not the path it is given
+        fo["info"].attrs["filenames"] = np.array([out], dtype=object)
+        n = fo["data/eobs"].shape[0]
+    with h5py.File(out, "r") as fo:                 # assert the round trip
+        assert fo["data/eobs"].shape[0] == n
+        assert str(np.asarray(fo["info"].attrs["filenames"])[0]) == out
+    _say(f"[casa-obs] merged {len(inputs)} components -> {n:.3e} events")
+    return out
+
+
 def make_events(state, args):
     """The whole forward model: state -> photons -> dust -> Chandra event file.
 
@@ -632,8 +744,17 @@ def make_events(state, args):
     are serial, and running them on every rank would apply the halo N times to
     the same file and have N processes write the same event list. So the
     non-root ranks stop at the barrier and return.
+
+    With ``--subgrid-chi`` the emission is computed once per PHASE and the event
+    lists merged. That is what a two-component thermal model in each cell means,
+    and it is why the emission measure being explicit (:func:`make_yt_dataset`)
+    matters: a phase filling part of a cell is the same fields with the emission
+    measure scaled by its volume fraction, so no new plumbing is needed.
     """
-    h5 = args.pyxsim_events or make_photon_events(state, args)
+    if args.pyxsim_events is None and args.subgrid_chi is not None:
+        h5 = subgrid_photon_events(state, args)
+    else:
+        h5 = args.pyxsim_events or make_photon_events(state, args)
     if _MPI_SIZE > 1:
         _MPI.COMM_WORLD.Barrier()
         if not _is_root():
@@ -1151,6 +1272,20 @@ def main():
                          "for showing what the two-temperature model changes: "
                          "Coulomb equilibration is far from complete at 350 yr, "
                          "so T_e = T is not a defensible approximation here")
+    ap.add_argument("--subgrid-chi", type=float, default=None, metavar="CHI",
+                    help="re-read every cell as a two-phase medium of density "
+                         "contrast CHI and observe both phases (see _subgrid). "
+                         "This is an INTERPRETATION LAYER, not simulated "
+                         "structure. CALIBRATE IT WITH casa_xrism.py "
+                         "--subgrid-scan FIRST: a row there costs minutes and "
+                         "this costs 45")
+    ap.add_argument("--subgrid-fmass", type=float, default=0.5, metavar="F",
+                    help="mass fraction of the dense phase")
+    ap.add_argument("--subgrid-net-mode", default="crossing",
+                    choices=("density", "unchanged", "crossing"),
+                    help="how the dense phase's ionization age follows from the "
+                         "cell's; n_e t is already at the top of the observed "
+                         "range with no boost, which bounds this")
     ap.add_argument("--tracer-split", default="hwang_laming",
                     choices=sorted(TRACER_SPLIT_PRESETS),
                     help="how the Si and O tracers divide among the elements "
