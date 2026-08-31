@@ -5,6 +5,13 @@ measurements and their derivations (Results 1–13); this says how the pieces fi
 together, what physics is in each, and — the part that matters most — what is
 still missing and why.*
 
+*§5's ranking was revised on 2026-08-31 after a literature audit. One paper —
+**Vink et al., XRISM/Resolve mapping of Cas A (arXiv:2602.06952, ApJ 2026)**,
+published after every result in `CALIBRATION.md` — measures per element group
+exactly the quantities `_plasma.py` computes, and it moved three items: ejecta
+density contrast to the top, non-thermal synchrotron from last to third, and T_e
+off the list entirely. **Start at §5.0.***
+
 ---
 
 ## 1. The object, and why it is modelled this way
@@ -98,6 +105,7 @@ unstable" verdict.
 | wind clumping | — | k = 4–20, σ = 0.4 |
 | Ni bubbles | optional, `--ni-bubbles` | measured null as imposed at 150 yr |
 | magnetic field | optional, `--mhd-b0` | uniform, div-free; measured null (see §5) |
+| explosion-era plumes | optional, `--plume-sigma` | direction-only (radially coherent) von Mises–Fisher lobes, the one anisotropic ingredient. Spectral gain, morphological null (see §5) |
 
 ### Passive scalars (9 + 4)
 `C_ej` (ejecta/CSM discriminator), `C_Fe/C_Si/C_O/C_He` (H is the remainder),
@@ -111,7 +119,8 @@ Radiative cooling (Schure et al. 2009 curve, resolution limiter, T-floor,
 
 ### From state to observable (`_plasma.py`, `_nei.py`)
 - **μ and μ_e per cell** from the carried composition.
-- **T_e ≠ T_i**: electrons take ~0.3 keV at the shock (Ghavamian et al. 2007)
+- **T_e ≠ T_i** (`--te-model`, four prescriptions that bracket the physics —
+  see §5.5): electrons take ~0.3 keV at the shock (Ghavamian et al. 2007)
   and relax by Coulomb collisions. The temperature *difference* decays on
   `t_eq · n_i/(n_e+n_i)` — a factor 9 in fully ionised oxygen — and the rate
   goes as Σ n_i Z_i²/m_i. Integrated in the parcel's *present* (ρ, T), which is
@@ -153,7 +162,7 @@ them silently reads as one model when it is two.
 | r_FS | 2.494 pc | n256 | 2.52 ± 0.20 |
 | r_RS | 1.531 pc | n256 | 1.58 ± 0.16 |
 | shocked ejecta | 2.79 M☉ | n256 | 2.8–3.7 |
-| **unshocked ejecta** | **0.21 M☉** (1D δ = 0 scan: 0.096) | n256 / 1D | **0.35 ± 0.10 — off, and the fix is blocked; §5.4** |
+| **unshocked ejecta** | **0.21 M☉** (1D δ = 0 scan: 0.096) | n256 / 1D | **0.35 ± 0.10 — off, and the fix is blocked; §5.6** |
 | EM-weighted kT_e | 3.05 keV | n256 | — |
 | EM-weighted n_e t | 2.3e11 | n256 | ~1e11 |
 | 0.5–7 keV rate | 0.86× | n256, **no halo** | 1.0 |
@@ -164,6 +173,12 @@ them silently reads as one model when it is two.
 | χ ratio at 2.5″ | 0.84 (best on the ladder) | n512 CD | 1.0 |
 | coherence excess over the null | +0.56 | n512 CD | +0.36 |
 | Euler excess over the null | −13.06 — **overshoots** | n512 CD | −10.30 |
+
+**Two of these rows are not comparisons between the same quantity.** The
+4.2–6.0 and 6–7 keV bands are ~half non-thermal in the real remnant and purely
+thermal in the model (§5.0), so read 1.56 / 1.71 / 2.42 as *lower bounds on a
+thermal excess of ~3.7×*, not as 1.7×. Everything below 2.8 keV is a fair
+comparison.
 
 **The halo-on row is the one to quote.** The dust halo is mandatory (Result 13),
 so the 0.86× / 0.70 pair is a number from a sightline the model no longer claims
@@ -190,7 +205,64 @@ against the **3.0 M☉ we fitted** — 18 %, unprompted (Result 11,
 
 ### Missing physics, ranked by how much of the residual it explains
 
-**1. Explosion-era structure — the dominant gap.**
+*Re-ranked after the 2026-08-31 literature audit. Two of the items below moved,
+and the reason is one paper: **Vink et al., XRISM/Resolve mapping of Cas A via
+UltraSPEX (arXiv:2602.06952, ApJ 2026)** measures, per element group, exactly
+the quantities `_plasma.py` computes — and it was published after every result
+in `CALIBRATION.md`. §5.0 states what it says.*
+
+**0. What XRISM now measures, and what it does to the residual.**
+
+| | XRISM | this model |
+|---|---|---|
+| kT_e, IME (Si/S/Ar/Ca) | **1.3–2.1 keV** | 3.05 keV (EM-weighted, all species) |
+| kT_e, Fe-group | 2.4–8.4 keV (>5 in W/central) | — (not split) |
+| n_e t, IME | 1.0–3.4×10¹¹ | 2.3×10¹¹ |
+| n_e t, Fe-group | 0.8–3×10¹¹ | — (not split) |
+| σ_v, IME / Fe-group | ≤2200 / ≤3700 km s⁻¹ | not measured |
+| T_i(Fe) − T_i(Si) | **150–300 keV** | one ion temperature |
+| n_e t vs kT_e | **anticorrelated ("robust")** | — |
+| nonthermal fraction, 4–6 keV | **47–90 %, flux-weighted 84 %** | **0 %** |
+| implied ejecta overdensity | **χ ≈ 10 (Fe-group), up to ≈100 (IME)** | **`CLUMP_MAX_CONTRAST` = 5, species-independent** |
+
+Two consequences, both of which change what the residual *means*:
+
+*The hard band is ~3.7× off, not 1.71×, and the comparison as posed is not
+valid.* Helder & Vink (2008) give ~54 % nonthermal in 4.2–6 keV
+remnant-integrated; XRISM's 84 % is two PV pointings, so 54 % is the right
+number for our full aperture. The observed **thermal** flux there is then 0.46×
+the total, against our pure-thermal 1.71× — a thermal continuum **~3.7× too
+bright**, up to ~10× locally. Two of the six band ratios in §4 are currently
+not comparisons between the same quantity.
+
+*T_e is closed as a **lever**, not as a **quantity**.* The full bracket (§5.3)
+shows nothing in the admissible T_e family helps. But XRISM says the IME
+electrons really are ~2× too hot. The fix is therefore upstream, in the density
+structure: denser clumps slow the transmitted shock (v ≈ v_s/√χ), which lowers
+kT_e *without* the emission-reweighting that defeated the scan.
+
+**1. Ejecta density contrast — promoted to first among the spectral gaps.**
+Laming & Hwang (2003) needed overdensities ~100 for the intermediate-mass
+elements to reconcile n_e t with kT_e at an 1800 km s⁻¹ reverse shock; XRISM now
+derives the same independently and *differentially by composition*. Our
+log-normal has σ_ln = ln 5/3, i.e. a clumping factor ⟨n²⟩/⟨n⟩² = **1.33**. A
+two-phase medium at χ = 100, f = 0.01 gives **≈25** — a factor ~19 in emissivity
+at fixed mean density, which is more than enough for a factor-2 soft deficit,
+and it lowers kT_e at the same time. This is the one change that can move the
+soft deficit, the hard excess, kT_e and n_e t *together*.
+
+**The resolution wall is hard, and it is why this has to be sub-grid.** Cas A's
+knots are ~1″ = 0.016 pc. A cell is 0.023 pc at 256³ and 0.012 pc at 512³, so a
+χ = 100 knot resolved at 6–8 cells needs dx ≲ 0.003 pc — **N ≳ 1500**.
+`CLUMP_SIZE_FRACTION = 0.02` already targets 0.05 pc, 3× larger than the
+observed knots, and is *still* grid-clamped. Direct resolution is out of reach
+by 3–6× in linear resolution, i.e. 30–200× in cost.
+*Cost:* ~1 week for a per-cell clumping factor with a (χ, f) two-phase split and
+the transmitted-shock temperature for the dense phase. **Calibrate it to
+XRISM's χ ≈ 10/100, do not fit it to our own metrics** — and label it an
+interpretation layer, which is what §5's own DO-NOT list requires.
+
+**2. Explosion-era structure — still the dominant *morphological* gap.**
 The ejecta arrive already structured: neutrino-driven convection/SASI plumes,
 Ni-bubble walls inflated after shock breakout, and RT fingers at the C/O–He and
 He/H composition interfaces during shock propagation (Orlando et al. 2025). All
@@ -205,22 +277,58 @@ or compute the RT-mixing part ourselves with an imposed l = 1,2 asymmetry
 (2–3 sessions). A full in-house explosion needs a Yin-Yang/moving-mesh solver
 rewrite (6–12 months) plus a degenerate EOS — **not recommended**; see §7.
 
-**2. Non-thermal synchrotron.**
-Absent entirely. Costs the 140–180″ rim (a 3–5× residual that the dust halo
-demonstrably cannot absorb) and, more importantly, means part of the *real*
-4.2–6.0 keV flux is non-thermal — so our 1.64–1.71× overprediction of that
-band understates the true thermal excess, sharpening the T_e problem.
-*Cost:* 1–2 weeks for a DSA post-process on an MHD state. **It is a fit, not a
-prediction:** Cas A's rim field is ~0.5 mG against our compressed 80 µG, so
-field amplification enters as a free parameter.
+**3. Non-thermal synchrotron — promoted from last to third, and it is no
+longer optional.** Absent entirely. It costs the 140–180″ rim (a 3–5× residual
+the dust halo demonstrably cannot absorb), and — the reason for the promotion —
+**47–90 % of the observed 4–6 keV flux is non-thermal** (§5.0), so until it is
+in the model those two band ratios are not tests of anything. Adding it does
+*not* relieve the hard excess; it makes it ~3.7× instead of 1.71×, and points at
+§5.1 for the cure.
+*Cost:* 1–2 weeks for a REMLIGHT-style DSA post-process on an MHD state
+(Orlando & Bocchino's recipe). Field amplification is still a free parameter —
+Cas A's rim field is ~0.5 mG against our compressed 80 µG — but the *result* is
+now calibratable rather than guessed, against XRISM's measured photon index
+Γ = 2.94–3.43 and the measured non-thermal fraction.
 
-**3. T_e — the headline open residual.**
+**4. `TRACER_SPLIT`'s Ar and Ca — an assumption with a measured error.**
+Ours is Si:S:Ar:Ca = 0.444 / 0.333 / 0.111 / 0.111 by mass, from Hwang & Laming
+(2012)'s *remnant-integrated* shocked masses, which puts Ar/Si and Ca/Si at
+**2.1–2.5× solar everywhere**. XRISM localises that enhancement to the NE/SW jet
+bases, with S/Si = 0.88–1.12 elsewhere. So the total Ar mass may well be right
+while the *emission* is wrong, because the enhancement is spread over the
+brightest Si instead of confined to the jets — which is exactly the "Ar/Ca ~2×
+too strong while Si is 0.74×" residual, now with a size and a cause.
+*Cost:* hours. This is the cheapest item on the list.
+
+**5. T_e — CLOSED as a lever (was "the headline open residual").**
 The Ghavamian prescription is calibrated on H-dominated ISM shocks and
-extrapolated to a reverse shock in metal ejecta. The signature to explain is
-*too little soft line emission and too much hard continuum* — i.e. too much hot
-gas, which is a T_e question, not a structure question.
+extrapolated to a reverse shock in metal ejecta, so it *was* the obvious
+suspect. `--te-model` now brackets the whole admissible family, and the answer
+is a bound rather than a direction:
 
-**4. The inner ejecta slope δ, and the unshocked mass — blocked, not unknown.**
+| model | EM kT_e | rate | 0.5–1.5 | 6–7 (Fe-K) |
+|---|---|---|---|---|
+| `minimal` (no collisionless heating — cold bound) | 10.07 | 0.71 | 0.42 | 4.78 |
+| `ghavamian` 0.15 keV | 4.50 | 0.80 | 0.57 | 3.65 |
+| **`ghavamian` 0.30 keV (fiducial)** | **3.05** | **0.86** | **0.70** | 2.51 |
+| `beta` = 0.03 | 3.16 | 0.87 | 0.70 | **2.39** |
+| `equilibrated` (instant equipartition — hot bound) | 12.96 | 0.69 | 0.39 | 5.12 |
+
+**Nothing in the family raises the soft band above 0.70 or lowers Fe-K below
+2.39, and the fiducial is at or next to the optimum.** The EM-weighted kT_e is
+*non-monotone* in the shock setting, with its minimum essentially at the
+fiducial: halving the shock electron temperature *raises* it, 3.05 → 4.50 keV,
+because T_e does not merely set the emitting temperature, it **weights** the
+emission — colder electrons in freshly-shocked gas suppress its soft emission,
+so the emission measure shifts onto the older, hotter, more equilibrated
+interior. Every cell got cooler electrons and the mean went up. (`beta` = 0.03
+also reproduces the published constant to <0.05 in five of six bands, so the
+model is insensitive to *how* T_e is set as long as the EM-weighted value lands
+near 3 keV.)
+**But see §5.0:** XRISM says the IME electrons *are* ~2× too hot, so T_e is
+closed as a knob and not as a discrepancy. §5.1 is the mechanism that moves it.
+
+**6. The inner ejecta slope δ, and the unshocked mass — blocked, not unknown.**
 This is the one gap where the fix is already identified and *fails to run*
 (Result 7). The reverse shock has eaten too far into the ejecta *in mass*: 96 %
 shocked against the observed ~87–90 %, i.e. 0.096–0.21 M☉ left unshocked against
@@ -237,16 +345,32 @@ tabulated-radius and capped-radius piston variants. Until that is bisected,
 *Cost:* one bisect session (the crash is reproducible and cheap at 256³); the
 likely landing point is a piston-contrast gate rather than a solver change.
 
-**5. Self-consistent CSM.** The wind is an imposed r⁻² law plus one shell.
-`astronomix` has a stellar-wind module; blowing the bubble self-consistently
-would replace both, but would also require re-deriving the calibration (n_w is
-currently *fitted*).
+**7. Self-consistent CSM — and it now has two named targets.** The wind is an
+imposed r⁻² law plus one smooth asymmetric shell. Two published measurements say
+that is the wrong shape, not merely an idealisation:
 
-**6. Smaller items.** Fast ejecta knots beyond the forward shock (optically
-bright, X-ray faint); dust destruction and IR emission; multi-temperature and
-multi-ionisation structure within a cell; `TRACER_SPLIT` — four tracers stand
-for nine elements, so relative abundances *within* a nucleosynthetic layer are
-assumed, not simulated.
+* **The "Green Monster"** (Vink et al. 2024): dense *shocked CSM* projected onto
+  the remnant's interior, pre-shock density **~12 cm⁻³** against our wind's
+  0.93 cm⁻³ at 2.5 pc, n_e t = 1.5×10¹¹, v_r ≈ −2300 km s⁻¹. Their conclusion is
+  a direct statement about our IC: the progenitor's environment "was not that of
+  a smooth steady wind profile". It is now also implicated in the anomalous
+  *western* Fe kinematics (Chandra + XRISM, 2026).
+* **Reverse-shock asymmetry** (Fesen et al. 2025): 1900–2100 km s⁻¹ in the east
+  but **stationary to −70 km s⁻¹ on the western limb**, with r_RS spanning
+  90–130″. Our 1.531 pc = 93″ sits at the *inner edge* of that range, and the
+  model has no east–west asymmetry at all.
+
+`casa_wind.py` (built, smoke-tested at 64³, **not calibrated and deliberately
+not wired in**) is the route. The blocker is a design problem, not plumbing: the
+mapping stage consumes a 1D *spherical* profile and `ejecta_mass_coordinate` —
+hence the whole composition model — rests on spherical symmetry. Adopting a 3D
+CSM cube also requires re-deriving the calibration, since n_w is currently
+*fitted*.
+
+**8. Smaller items.** Fast ejecta knots beyond the forward shock (optically
+bright, X-ray faint); dust destruction and IR emission; per-species ion
+temperatures (XRISM measures T_i(Fe) − T_i(Si) = 150–300 keV; we carry one ion
+temperature); multi-temperature and multi-ionisation structure within a cell.
 
 ### Measured negatives — do not re-litigate these
 
@@ -255,11 +379,45 @@ assumed, not simulated.
 | cosmic-ray back-reaction (γ_eff) | pushes r_RS the **wrong way**; supports η < 10⁻⁴ (Result 3) |
 | magnetic fields | 20 µG (β = 3×10⁵): 0 %. 500 µG (25× over-strength): +2 % at 256³. Orlando et al. 2025 agree independently |
 | Ni bubbles at 150 yr | null, gentle *and* sharp walls — the real mechanism acts just after breakout, not at 150 yr |
-| clump amplitude | χ saturates; coherence stalls at 0.787 vs 0.536; raising it degrades the hard continuum *and* drags r_RS off the observed value |
+| clump amplitude **of the resolved log-normal** | χ saturates; coherence stalls at 0.787 vs 0.536; raising it degrades the hard continuum *and* drags r_RS off the observed value. **This does NOT close §5.1** — it says the *resolved, grid-clamped, species-independent* field cannot be pushed further, which is the reason §5.1 has to be sub-grid and two-phase |
+| radially coherent plume field (`--plume-sigma`) | a modest **spectral** gain and essentially **no morphological** gain. Matched 256³ pair at `--coldcrush-factor 16`: rate 0.78 → 0.87, both soft bands improve, Fe-K improves substantially 3.05 → 2.54; but coherence is unchanged (0.865 → 0.858 at 4.4″) and the amplitude deficit gets slightly *worse* at every scale (1.83 → 2.02). r_RS moves the right way, 1.531 → 1.560. `--plume-vel` is a net negative — it adds 6.5 % kinetic energy, breaking the calibrated E, and does not change the outline |
+| the plumes as a fix for the circular **outline** | refuted across four 256³ runs: the forward-shock position-angle spread is identical to three decimals (2.290–2.581, spread 0.292 pc). Ejecta structure does not reach the forward shock by 350 yr — the outline is set by the CSM shell and the wind, so it can only be fixed from the ambient side (§5.7) |
 | cooling, cosmic Λ | changes nothing observable. **But Λ×10 with the guards off destroys the run** — metal-enhanced cooling is an *open* question |
 | conduction (the Field length) | 15 days/run — unaffordable |
 | projection / shell thickness | refuted: the emitting shell is already thin, dR/R = 0.12 at 109″ |
 | dust halo as the outer flux | refuted: it puts 5.2 % beyond r_FS against Chandra's 8.8 %, in the wrong radial shape (observed r⁻⁴…⁻⁷ is too steep for any admissible halo). The halo is still **mandatory** — it just is not that flux (Result 13) |
+| T_e, the entire admissible family | closed as a lever — §5.5. Non-monotone, fiducial at the optimum |
+
+### Why the residual is not fitted away with gradient descent
+
+`astronomix` is differentiable and `casa_diff.py` works, so the obvious question
+is why the remaining parameters are not simply optimised against the images and
+spectra. **Because the model is misspecified in ways that are now measured, not
+suspected**, and an optimiser handed a biased forward model does not report the
+bias — it absorbs it into whatever *is* free, and those are the parameters you
+would then quote. Concretely: ~54 % of the 4–6 keV band is non-thermal and
+absent (§5.0); the emitting density structure is below any affordable grid, so
+⟨n²⟩ is biased low *by construction* (§5.1); and the T_e family is already
+bracketed with the fiducial at its optimum (§5.5), so the only remaining slack
+is in abundances, n_w and M_ej. On top of that, 200 yr of RT and shock–clump
+interaction is chaotic, so gradients of image statistics are trajectory-specific
+— which is why `casa_diff.py`'s JVPs agree with finite differences only to
+0.2–37 %.
+
+**Where it *is* well posed, and should be done: the 1D calibration.** There the
+model — an adiabatic blast in a wind — really is the right physics, the gradient
+is validated, and the target is precisely the correlated-residual problem that
+one-at-a-time scanning cannot solve (§5.6: one cause, three symptoms, all
+controlled by δ). Clear the recorded blocker first — reconcile the smooth `r_RS`
+and `M_unshocked` with `casa_analyze.py`'s definitions — then fit 4–6 parameters
+against 5–6 measurements.
+
+A legitimate middle route is to make the **post-hydro** parameters
+differentiable and fit *those* jointly: the clumping (χ, f), the non-thermal
+normalisation and index, the T_e prescription, the `TRACER_SPLIT` ratios. They
+are cheap, non-chaotic, and where the remaining freedom actually lives — but
+they are **fitted interpretation parameters**, and any result must report their
+count against the number of constraints.
 
 ---
 
@@ -315,10 +473,14 @@ that changes nothing at all is treated as a bug report, not as a null.
 ### Directions that were tried and are closed
 
 The measured negatives are tabulated in §5 above and should not be re-run: cosmic
-rays, magnetic fields, Ni bubbles imposed at 150 yr, raising the clump amplitude,
-cosmic-abundance cooling, conduction, a projection/shell-thickness explanation
-for the smoothness, and the dust halo as the source of the outer flux. Two more
-are structural rather than physical:
+rays, magnetic fields, Ni bubbles imposed at 150 yr, raising the amplitude of the
+resolved clumping field, the whole T_e family, the plume field as a fix for the
+outline, cosmic-abundance cooling, conduction, a projection/shell-thickness
+explanation for the smoothness, and the dust halo as the source of the outer
+flux. **Note the one distinction that matters**: "raising the clump amplitude"
+closes the *resolved, grid-clamped, species-independent* log-normal, not the
+sub-grid two-phase contrast of §5.1, which is a different mechanism with a
+different published calibration. Two more are structural rather than physical:
 
 * **Building the remnant directly in 3D** (`cassiopeia_realistic.py`, the
   gallery track). It skips the phase that sets the answer — the wind holds an
@@ -365,10 +527,41 @@ neutrino engines; **openly distributed**).
 scattering).
 
 **Observations** — Fesen et al. 2006 (age); Reed et al. 1995 (distance);
-Hwang & Laming 2012 (shocked masses and abundances); DeLaney et al. 2010/2014
-(3D structure, unshocked ejecta mass); Milisavljevic & Fesen 2013 (3D kinematic
-map, 13 769 points); Chandra ACIS evt2, 22 obsids 2000–2023, in
+Hwang & Laming 2012 (shocked masses and abundances — the source of
+`TRACER_SPLIT`); Laming & Hwang 2003 (ejecta overdensities ~100 needed to
+reconcile n_e t with kT_e); DeLaney et al. 2010/2014 (3D structure, unshocked
+ejecta mass); Milisavljevic & Fesen 2013 (3D kinematic map, 13 769 points);
+Helder & Vink 2008 (~54 % of the 4.2–6 keV continuum is non-thermal,
+remnant-integrated); Chandra ACIS evt2, 22 obsids 2000–2023, in
 `/export/data/lstorcks/chandra_casa`.
+
+**Added by the 2026-08-31 audit** — all published after the results in
+`CALIBRATION.md`, and §5.0 is what they change:
+
+* **Vink et al. 2026**, *Mapping plasma properties of Cassiopeia A with
+  XRISM/Resolve: a Bayesian analysis via UltraSPEX* (arXiv:2602.06952, ApJ).
+  **The key new reference.** Per-element-group kT_e, n_e t, σ_v, Doppler shifts,
+  abundance ratios, non-thermal fraction and photon index; the n_e t–kT_e
+  anticorrelation; and χ ≈ 10 (Fe-group) / ≈100 (IME) ejecta overdensities.
+* **Vink et al. 2024**, *X-ray diagnostics of Cassiopeia A's "Green Monster"*
+  (arXiv:2401.02491) — dense shocked CSM in the interior, ~12 cm⁻³ pre-shock.
+* **Chandra + XRISM 2026**, *Three-dimensional expansion of iron ejecta in
+  Cassiopeia A* (arXiv:2608.08412) — Fe to 5160 ± 320 km s⁻¹, layer inversion
+  confirmed, western anomaly linked to the Green Monster.
+* **Fesen et al. 2025**, *Cassiopeia A's reverse shock and its effects on the
+  expanding SN ejecta* (arXiv:2501.07708) — optical r_RS 90–130″, 1000–2000
+  km s⁻¹, stationary on the western limb; knot ablation tails.
+* **XRISM 2025**, *Dynamics of the intermediate-mass-element ejecta*
+  (arXiv:2503.23640) — pre-shock free-expansion velocities 2400–7100 km s⁻¹.
+* **Orlando & Bocchino et al.**, REMLIGHT (arXiv:2012.13394) — the established
+  recipe for synthesising synchrotron emission from an SNR MHD state (§5.3).
+
+**Differentiable-solver prior art** — `diffhydro` (arXiv:2512.13403):
+PDE-constrained inference in astrophysical flows, reverse mode with custom
+FFT/multigrid adjoints and checkpointing through ~10³ steps at ≤512³. Its own
+framing — "demonstrations with synthetic targets, not recovery of unknown real
+systems" — is the reason `casa_diff.py` is aimed at the 1D calibration and not
+at the images; see the note at the end of §5.
 
 ---
 
