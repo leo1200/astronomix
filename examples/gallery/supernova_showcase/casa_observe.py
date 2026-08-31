@@ -654,25 +654,23 @@ def subgrid_photon_events(state, args):
 
     chi, f_mass = args.subgrid_chi, args.subgrid_fmass
     _say(_subgrid.describe(chi, f_mass, net_mode=args.subgrid_net_mode))
-    f_vol = f_mass / chi
-    factors = {"dense": (chi, 1.0 / np.sqrt(chi) if
-                         args.subgrid_net_mode == "crossing" else 1.0, f_vol),
-               "diffuse": ((1.0 - f_mass) / (1.0 - f_vol), 1.0, 1.0 - f_vol)}
 
     parts = []
     base = state["fields"]
-    for name, (rho_f, t_f, vol) in factors.items():
+    # the factors come from _subgrid, not from a copy here: density_time is
+    # rho * t, so its factor is fixed once the other two are chosen, and a local
+    # copy that broke that tie made two net_modes silently identical
+    for name, (rho_f, t_f, net_f, vol) in _subgrid.phase_factors(
+            chi, f_mass, args.subgrid_net_mode).items():
         _say(f"[casa-obs] --- sub-grid phase '{name}': rho x {rho_f:.3f}, "
-             f"t_shock x {t_f:.3f}, volume fraction {vol:.3f} ---")
+             f"t_shock x {t_f:.3f}, n_e t x {net_f:.3f}, "
+             f"volume fraction {vol:.3f} ---")
         fields = dict(base)
         fields["rho"] = base["rho"] * rho_f
-        # density_time carries rho*t, so it takes BOTH factors -- scaling only
-        # one would put the electron relaxation and the ionization age on
-        # different clocks
         if "time_since_shock" in base:
             fields["time_since_shock"] = base["time_since_shock"] * t_f
         if "density_time" in base:
-            fields["density_time"] = base["density_time"] * rho_f * t_f
+            fields["density_time"] = base["density_time"] * net_f
         phase_state = dict(state, fields=fields)
         parts.append(make_photon_events(phase_state, args,
                                         suffix=f"_{name}", em_scale=vol))

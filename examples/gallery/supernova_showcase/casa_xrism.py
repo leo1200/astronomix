@@ -277,35 +277,23 @@ def subgrid_phases(fields, *, chi, f_mass, net_mode):
     code path and no chance of the phase temperature disagreeing with the
     equation of state that produced the cell one.
 
-    ``time_since_shock`` and ``density_time`` are scaled TOGETHER in ``crossing``
-    mode -- ``rho -> chi rho`` with ``t -> t/sqrt(chi)`` gives
-    ``rho t -> sqrt(chi) rho t``, which is the ``net_mode`` the same argument
-    implies. Scaling only one of them would put the electron relaxation and the
-    ionization age on different clocks.
+    The factors come from :func:`_subgrid.phase_factors` and NOT from a local
+    copy: ``density_time`` is ``rho * t``, so its factor is not free once the
+    density and time factors are chosen, and an earlier local version broke that
+    tie -- making two of the three ``net_mode`` values identical while the scan
+    claimed to be bounding the choice.
     """
     if chi is None:
         return [("cell", fields, 1.0)]
 
-    f_vol = f_mass / chi
-    if f_vol >= 1.0:
-        raise SystemExit(f"chi = {chi}, f_mass = {f_mass}: the dense phase would "
-                         f"fill {100 * f_vol:.0f}% of every cell")
-    rho_factors = {"dense": chi, "diffuse": (1.0 - f_mass) / (1.0 - f_vol)}
-    vols = {"dense": f_vol, "diffuse": 1.0 - f_vol}
-    # only the DENSE phase is taken to have been shocked for a shorter time; the
-    # diffuse phase is what the resolved solution already describes
-    t_factors = {"dense": {"density": 1.0, "unchanged": 1.0,
-                           "crossing": 1.0 / np.sqrt(chi)}[net_mode],
-                 "diffuse": 1.0}
-
     out = []
-    for name, fr in rho_factors.items():
+    for name, (rho_f, t_f, net_f, f_vol) in _subgrid.phase_factors(
+            chi, f_mass, net_mode).items():
         fp = dict(fields)
-        fp["rho"] = fields["rho"] * fr
-        tf = t_factors[name]
-        fp["time_since_shock"] = fields["time_since_shock"] * tf
-        fp["density_time"] = fields["density_time"] * fr * tf
-        out.append((name, fp, vols[name]))
+        fp["rho"] = fields["rho"] * rho_f
+        fp["time_since_shock"] = fields["time_since_shock"] * t_f
+        fp["density_time"] = fields["density_time"] * net_f
+        out.append((name, fp, f_vol))
     return out
 
 

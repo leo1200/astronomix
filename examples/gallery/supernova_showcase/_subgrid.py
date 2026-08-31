@@ -112,6 +112,56 @@ F_MASS_DEFAULT = 0.5
 NET_MODES = ("density", "unchanged", "crossing")
 
 
+def phase_factors(chi, f_mass, net_mode="crossing"):
+    """The multiplicative factors defining each phase -- THE single source.
+
+    Returns ``{name: (rho_factor, time_factor, net_factor, volume_fraction)}``,
+    all relative to the cell.
+
+    **This function exists because reimplementing it drifted, and the drift was
+    invisible in the output.** The first version of the scan composed the
+    ionization-age factor as ``rho_factor * time_factor``, which made
+    ``net_mode="unchanged"`` behave identically to ``"density"`` -- so a scan
+    meant to BOUND the ionization-age treatment silently measured the same thing
+    twice. The tell was ``unchanged`` giving a HIGHER ``n_e t`` than
+    ``crossing``, which is impossible by construction. Both ``casa_xrism.py``
+    and ``casa_observe.py`` now call this instead of writing their own.
+
+    The factors are tied together by ``net = rho * t``, so choosing ``net_mode``
+    FIXES the time factor rather than leaving it free::
+
+        net_factor  = {density: chi, unchanged: 1, crossing: sqrt(chi)}
+        time_factor = net_factor / rho_factor
+
+    That constraint is what the drifted version broke: it set the time factor and
+    the density factor independently, so the two described different clumps.
+    """
+    if net_mode not in NET_MODES:
+        raise SystemExit(f"unknown net_mode {net_mode!r}, choose from {NET_MODES}")
+    if not (0.0 < f_mass < 1.0):
+        raise SystemExit(f"--subgrid-fmass must be in (0, 1), got {f_mass}")
+    if chi < 1.0:
+        raise SystemExit(f"--subgrid-chi must be >= 1 (the dense phase is "
+                         f"dense), got {chi}")
+    f_vol = f_mass / chi
+    if f_vol >= 1.0:
+        raise SystemExit(
+            f"chi = {chi} and f_mass = {f_mass} need the dense phase to fill "
+            f"{100 * f_vol:.0f}% of every cell, which leaves no diffuse phase. "
+            f"f_mass < chi is required.")
+
+    rho_d = float(chi)
+    rho_u = (1.0 - f_mass) / (1.0 - f_vol)
+    net_d = {"density": rho_d, "unchanged": 1.0,
+             "crossing": float(np.sqrt(chi))}[net_mode]
+    # The DIFFUSE phase is what the resolved solution already describes: its
+    # elapsed time is unchanged, so its ionization age follows its own density.
+    return {
+        "dense": (rho_d, net_d / rho_d, net_d, f_vol),
+        "diffuse": (rho_u, 1.0, rho_u, 1.0 - f_vol),
+    }
+
+
 def two_phase(rho, T, *, chi=CHI_CALIBRATED, f_mass=F_MASS_DEFAULT,
               net=None, net_mode="crossing"):
     """Split a cell into a dense and a diffuse phase.
@@ -143,44 +193,18 @@ def two_phase(rho, T, *, chi=CHI_CALIBRATED, f_mass=F_MASS_DEFAULT,
             than the whole cell, and a silent clip there would produce a
             plausible number from an impossible configuration.
     """
-    if not (0.0 < f_mass < 1.0):
-        raise SystemExit(f"--subgrid-fmass must be in (0, 1), got {f_mass}")
-    if chi < 1.0:
-        raise SystemExit(f"--subgrid-chi must be >= 1 (the dense phase is "
-                         f"dense), got {chi}")
-    if net_mode not in NET_MODES:
-        raise SystemExit(f"unknown net_mode {net_mode!r}, choose from {NET_MODES}")
-
-    f_vol = f_mass / chi
-    if f_vol >= 1.0:
-        raise SystemExit(
-            f"chi = {chi} and f_mass = {f_mass} need the dense phase to fill "
-            f"{100 * f_vol:.0f}% of every cell, which leaves no diffuse phase. "
-            f"Either raise chi or lower f_mass (f_mass < chi is required).")
-
+    factors = phase_factors(chi, f_mass, net_mode)
     rho = np.asarray(rho, dtype=np.float64)
     T = np.asarray(T, dtype=np.float64)
+    net = None if net is None else np.asarray(net, dtype=np.float64)
 
-    rho_d = chi * rho
-    rho_u = rho * (1.0 - f_mass) / (1.0 - f_vol)
-    # pressure equilibrium: rho T is the same in both phases and equal to the
-    # cell's, so each phase's temperature is fixed by its own density
-    T_d = T * rho / np.maximum(rho_d, 1e-300)
-    T_u = T * rho / np.maximum(rho_u, 1e-300)
-
-    if net is None:
-        net_d = net_u = None
-    else:
-        net = np.asarray(net, dtype=np.float64)
-        scale_d = {"density": chi, "unchanged": 1.0,
-                   "crossing": np.sqrt(chi)}[net_mode]
-        scale_u = {"density": rho_u / np.maximum(rho, 1e-300),
-                   "unchanged": 1.0, "crossing": 1.0}[net_mode]
-        net_d, net_u = net * scale_d, net * scale_u
-
-    return [dict(rho=rho_d, T=T_d, f_vol=f_vol, net=net_d, name="dense"),
-            dict(rho=rho_u, T=T_u, f_vol=1.0 - f_vol, net=net_u,
-                 name="diffuse")]
+    out = []
+    for name, (rho_f, _t_f, net_f, f_vol) in factors.items():
+        # pressure equilibrium: rho T is the same in both phases and equal to
+        # the cell's, so each phase's temperature is fixed by its own density
+        out.append(dict(rho=rho_f * rho, T=T / rho_f, f_vol=f_vol, name=name,
+                        net=None if net is None else net * net_f))
+    return out
 
 
 def clumping_factor(chi, f_mass):
@@ -270,6 +294,23 @@ def _self_check():
             assert np.all(phases[0]["T"] < phases[1]["T"])
             # and it raises the emission measure
             assert clumping_factor(chi, f_mass) >= 1.0 - 1e-12, (chi, f_mass)
+
+    # 2b. THE DRIFT GUARD. net = rho * t must hold for every mode, and the three
+    #     modes must give DIFFERENT ionization ages -- the bug was that two of
+    #     them gave the same one while claiming to bound the choice.
+    for chi in (1.5, 2.3, 4.0, 16.0):
+        seen = {}
+        for mode in NET_MODES:
+            f = phase_factors(chi, 0.5, mode)
+            for name, (rho_f, t_f, net_f, _v) in f.items():
+                assert abs(rho_f * t_f - net_f) < 1e-12, (chi, mode, name)
+            seen[mode] = f["dense"][2]
+        assert len(set(seen.values())) == 3, (chi, seen)
+        # and they are ordered: unchanged < crossing < density
+        assert seen["unchanged"] < seen["crossing"] < seen["density"], (chi, seen)
+    # at chi = 1 all three coincide, because there is nothing to choose
+    one = {m: phase_factors(1.0, 0.5, m)["dense"][2] for m in NET_MODES}
+    assert all(abs(v - 1.0) < 1e-12 for v in one.values()), one
 
     # 3. the velocity relation and its inverse are consistent, and the
     #    calibration is the number the docstring claims
