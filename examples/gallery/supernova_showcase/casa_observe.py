@@ -348,6 +348,34 @@ def describe_emission(em):
           f"peak abundance {r['abundance_max']:.3g} solar")
 
 
+def population_weight(state, population):
+    """Emission-measure weight selecting ejecta, circumstellar gas, or both.
+
+    The emission measure is handed to pyXSIM explicitly, and the spectrum is
+    LINEAR in it, so multiplying by the ejecta fraction ``C_ej`` or its
+    complement observes one population and nothing else. That linearity is also
+    the consistency check: ejecta + csm must reproduce the ``all`` run band by
+    band, and if it does not, the split is wrong rather than interesting.
+
+    **Why this exists.** The model's ``n_e^2``-weighted emission measure is 79 %
+    shocked wind and 21 % ejecta, while Cas A's X-ray emission is
+    line-dominated *ejecta* emission -- so "too much circumstellar continuum" is
+    a candidate explanation for the whole one-sided soft-deficit/hard-excess
+    residual, competing with the sub-grid ejecta contrast of :mod:`_subgrid`.
+    Both flatten the same residual and only one can be the cause. This flag is
+    how they are told apart, and it needs no new physics at all -- only the
+    scalar the run already carries.
+    """
+    if population == "all":
+        return 1.0
+    if "C_ej" not in state["fields"]:
+        raise SystemExit(
+            f"--population {population} needs the ejecta tracer C_ej; rerun "
+            "casa_orlando.py with --composition")
+    c = np.clip(state["fields"]["C_ej"], 0.0, 1.0)
+    return c if population == "ejecta" else (1.0 - c)
+
+
 def make_yt_dataset(state, em, *, zmet, ejecta_zmet, ejecta_temperature_K,
                     em_scale=1.0):
     """Wrap the state in a yt uniform grid with the fields pyXSIM needs.
@@ -459,6 +487,14 @@ def make_photon_events(state, args, *, suffix="", em_scale=1.0):
                          te_model=args.te_model,
                          kT_e_shock_keV=args.kt_e_shock,
                          beta_shock=args.beta_shock)
+    em_scale = em_scale * population_weight(state, args.population)
+    if args.population != "all":
+        w = np.atleast_1d(em_scale)
+        _say(f"[casa-obs] population '{args.population}': mean emission-measure "
+             f"weight {float(np.mean(w)):.4f}. The spectrum is LINEAR in the "
+             f"emission measure, so\n[casa-obs]   'ejecta' + 'csm' must "
+             f"reproduce 'all' band by band -- check that before reading "
+             f"anything into the split.")
     if args.nei:
         if em["net"] is None:
             raise SystemExit("--nei needs the ionization age: rerun "
@@ -1383,6 +1419,16 @@ def main():
                          "for showing what the two-temperature model changes: "
                          "Coulomb equilibration is far from complete at 350 yr, "
                          "so T_e = T is not a defensible approximation here")
+    ap.add_argument("--population", default="all",
+                    choices=("all", "ejecta", "csm"),
+                    help="observe only one gas population, by scaling the "
+                         "emission measure with the ejecta tracer. THE "
+                         "DISCRIMINATING MEASUREMENT for the one-sided spectral "
+                         "residual: the model's emission measure is 79%% shocked "
+                         "CSM while Cas A's X-rays are line-dominated ejecta "
+                         "emission, and metal-free wind contributes continuum "
+                         "with no lines. Emission is linear in the emission "
+                         "measure, so ejecta + csm must reproduce all")
     ap.add_argument("--synchrotron", action="store_true",
                     help="add a non-thermal component from _synchrotron.py, as "
                          "a second pyXSIM source. ~54%% of Cas A's observed "
