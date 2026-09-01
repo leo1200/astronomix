@@ -2106,3 +2106,85 @@ normalisation. From 0.63, scaling by the χ = 4 rate factor (2.26/0.89) and the
 with a shape between 1.90 and 1.51. That run (`--subgrid-chi 4 --subgrid-fmass
 0.2` on the no-shell state) is the test, and the prediction is recorded here
 before the result so it cannot be fitted after the fact.
+
+---
+
+## Result 24 — the two mechanisms compose: every band within 0.76–1.11, from a prediction made in advance
+
+*2026-09-01. `orl_n256_noshell_d1` + `--subgrid-chi 4 --subgrid-fmass 0.2
+--subgrid-net-mode unchanged`, NEI, halo on and off, vs Chandra 2004.*
+
+Result 23 recorded a prediction before running it: no-shell supplies the shape by
+cooling, a modest sub-grid contrast supplies the missing normalisation, and the
+combination should reach a count rate near **1.03**. **Measured: 0.93–0.96.**
+Agreement to 10 % on a number written down in advance.
+
+### Absolute band ratios, which is the quantity that has to reach 1.0
+
+| run | rate | 0.5–1.5 | 1.5–2.1 | 2.1–2.8 | 2.8–4.2 | 4.2–6.0 | 6.0–7.0 | range | rms |
+|---|---|---|---|---|---|---|---|---|---|
+| fiducial, halo off | 0.89 | 0.70 | 0.74 | 1.16 | 1.65 | 1.60 | 2.52 | 3.60 | 0.222 |
+| **fiducial, halo on** | 0.79 | 0.53 | 0.67 | 1.11 | 1.62 | 1.60 | 2.50 | 4.75 | 0.243 |
+| no shell + χ4 f0.2, halo off | 0.96 | 1.03 | 0.83 | 1.05 | 1.13 | 0.81 | 0.85 | 1.39 | **0.063** |
+| **no shell + χ4 f0.2, halo on** | **0.83** | **0.76** | **0.76** | **1.01** | **1.11** | **0.81** | **0.84** | **1.47** | **0.087** |
+
+*(rms is of the absolute ratios against unity — shape and normalisation together,
+in dex. The halo is mandatory (Result 13), so the halo-on rows are the ones to
+quote.)*
+
+**Halo on, the rms residual goes 0.243 → 0.087 dex, a factor 2.8, and the band
+range 4.75 → 1.47.** Every band sits within 0.76–1.11 of the observation. For
+comparison, the previous best in this study was the fiducial's 0.243 dex with
+Fe-K at 2.50.
+
+### What is fitted, and what is not
+
+**One parameter is fitted: `f_mass`.** It was set to 0.2 by scaling the clumping
+factor to land the count rate near unity, so the *normalisation* is fitted. Six
+band ratios then land within 0.76–1.11 with nothing else adjusted — five effective
+degrees of freedom, and the shape comes from the physics of the split plus the
+removal of the shell, neither of which was tuned to a band ratio.
+
+`χ = 4` and `net_mode = unchanged` were fixed earlier by `casa_xrism.py` against
+XRISM's kT_e, n_e t and correlation signs (Result 15), *not* against the spectrum.
+So the sub-grid layer has one spectrally fitted number in it, and it should be
+described that way.
+
+### The residual that is left, and its shape
+
+A mild soft deficit — 0.76 in both bands below 2.1 keV — with everything above it
+between 0.81 and 1.11. That is no longer one-sided in energy: the hard excess is
+gone and what remains is a ~25 % soft shortfall, which is the size and sign of the
+recorded dust-halo effect itself (the halo alone takes the soft bands from 1.03 to
+0.76). So the remaining discrepancy is concentrated exactly where the sightline
+model is doing the most work, and `_dusthalo`'s grain population is the natural
+next suspect rather than the remnant.
+
+### THIS IS NOT A NEW FIDUCIAL YET, AND THE REASON IS MORPHOLOGY
+
+Removing the shell costs the forward-shock position-angle spread: **0.117 pc
+against 0.292 pc with the shell, where the observed range is 0.2–0.4** (Result
+23). The spectrum is now excellent and the outline is worse than before. Nothing
+here has been scored with `casa_morphology.py`, and until it is, this
+configuration is a spectral result and not a model.
+
+The way out is the one §5.7 already names and which three independent lines of
+evidence now point at: **an azimuthally varying wind**, which deforms the outline
+without putting a dense shell in the reverse shock's path. `casa_wind.py` exists
+to build it; the Green Monster and the east–west reverse-shock asymmetry ask for
+it; and Result 23 shows the shell is paying for its morphology with the spectrum.
+
+### Honest summary of the two-day arc
+
+The spectral residual that four separate investigations failed to move turned out
+to be two things at once, and both were found by measuring rather than modelling:
+
+1. **a temperature error** in all the shocked gas, of which the CSM shell supplied
+   a factor 1.8 — fixed by removing an ingredient (Results 22, 23);
+2. **an emissivity deficit** from density structure below the grid — supplied by a
+   sub-grid two-phase split calibrated against XRISM, with one number fitted
+   (Results 15, 18, 24).
+
+Neither was visible while the model was scored on radii, masses, band ratios and
+structure statistics alone. What made them visible was a per-element-group
+diagnostic (Result 14) and a thermodynamic guardrail (Result 22).
