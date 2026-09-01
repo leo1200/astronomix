@@ -2188,3 +2188,45 @@ to be two things at once, and both were found by measuring rather than modelling
 Neither was visible while the model was scored on radii, masses, band ratios and
 structure statistics alone. What made them visible was a per-element-group
 diagnostic (Result 14) and a thermodynamic guardrail (Result 22).
+
+### Addendum: the morphology was scored, and it is BETTER on most statistics
+
+Result 24 above said "the spectrum is now excellent and the outline is worse" and
+predicted the large-scale statistics would degrade too. **Scored on a properly
+matched pair — both 256³, NEI, halo on — that prediction is wrong.**
+
+| statistic | fiducial (shell) | no shell + χ4 f0.2 | target |
+|---|---|---|---|
+| σ_I/I real/syn, 4.4″ | 2.00 | **1.60** | 1.0 |
+| σ_I/I, 8.4″ | 1.23 | **0.91** | 1.0 |
+| σ_I/I, 16.2″ | 0.95 | 0.70 | 1.0 |
+| χ ratio, 2.5″ | 1.90 | **1.80** | 1.0 |
+| χ ratio, 4.4″ | 0.76 | 1.17 | 1.0 |
+| coherence syn (real 0.585), 2.5″ | 0.825 | 0.880 | 0.585 |
+| **forward-shock PA spread** | **0.292 pc** | **0.117 pc** | **0.2–0.4** |
+
+* **the amplitude deficit improves at the two scales that matter most** — 4.4″
+  goes 2.00 → 1.60 and 8.4″ 1.23 → 0.91, the best 4.4″ value measured on any 256³
+  run in this study (the recorded n256 and 512³ CD figures are 1.83 and 1.80);
+* the 16.2″ scale overshoots further (0.95 → 0.70) and the **coherence gets worse**
+  (0.825 → 0.880 against Chandra's 0.585), i.e. the image becomes *more* ordered —
+  the defect [[handoff-casa-morphology]] has been chasing all along;
+* χ is a wash.
+
+**So the trade is narrower than Result 24 claimed: it is specifically the
+forward-shock OUTLINE, not "the morphology".** The PA spread is the one
+unambiguous loss, 0.117 pc against an observed 0.2–0.4, and
+`casa_morphology.py` cannot see it because its statistics are computed in a
+60–140″ annulus while the outline is a property of the rim at ~150″.
+
+That sharpens the case for the azimuthally varying wind rather than weakening it:
+the thing that needs replacing is a *large-scale asymmetry generator*, and the
+shell is a poor one — it supplies the outline at the cost of a factor 1.8 in the
+emitting gas's temperature and a factor 2.8 in the spectral residual.
+
+**Two lessons, both about my own predictions in this section.** "Removing an
+ingredient that helps the spectrum must hurt the morphology" was an assumption,
+and the annulus statistics falsified it. And "morphology" is not one quantity:
+amplitude, topology, coherence and the outline moved in three different
+directions here, which is exactly why Result 12 had to add statistics to that
+module in the first place.
