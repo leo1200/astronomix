@@ -646,6 +646,85 @@ def nickel_bubble_field(X, Y, Z, key, ejecta_radius, n_bubbles=5,
     return m
 
 
+def wind_asymmetry_field(X, Y, Z, *, dipole=0.0, quadrupole=0.0,
+                         theta_deg=30.0, phi_deg=50.0):
+    """Low-order angular modulation of the AMBIENT wind. Mean-preserving.
+
+    THE PROBLEM THIS SOLVES, and why it is not the CSM shell. The forward-shock
+    outline needs a large-scale asymmetry: with a spherical ambient the model's
+    position-angle spread is 0.117 pc against an observed 0.2-0.4. The CSM shell
+    supplies one -- it takes the spread to 0.292 pc -- but ``CALIBRATION.md``
+    Result 23 measures what it costs: a **factor 1.8 in the temperature of the
+    gas just inside the contact discontinuity**, because a dense shell at 1.5 pc
+    drives a reflected shock back into exactly the ejecta the X-rays come from,
+    and a **factor 2.8 in the spectral residual**. The shell is a bad asymmetry
+    generator: it buys the outline with the spectrum.
+
+    A wind whose density varies with DIRECTION buys the same outline without that
+    cost, for three reasons:
+
+    * it is smooth, so there is no reflected shock -- the blast simply
+      decelerates at different rates in different directions;
+    * it is applied only AHEAD of the blast wave and to ``rho`` and ``p``
+      together, so the pre-shock temperature is untouched (the caller does this);
+    * it is **physically the expected thing**. A rotating or binary red
+      supergiant has an equatorially enhanced or bipolar wind; Cas A's
+      circumstellar medium is independently known not to be a smooth steady wind
+      (Vink et al. 2024's dense interior "Green Monster"), and its reverse shock
+      is nearly stationary on the western limb while running at 1900-2100 km/s
+      in the east (Fesen et al. 2025) -- which is what an azimuthal column
+      variation looks like.
+
+    IT PRESERVES THE CALIBRATION EXACTLY, and that is a property of the
+    functional form rather than a normalisation applied afterwards. With
+    ``mu = cos`` of the angle to the axis,
+
+        f = 1 + A1 mu + A2 (3 mu^2 - 1) / 2
+
+    the two angular terms are the l = 1 and l = 2 Legendre polynomials, whose
+    averages over the sphere are exactly zero. So the ANGLE-AVERAGED ambient
+    density is unchanged for any amplitudes, the mean deceleration and hence
+    ``r_FS`` are unchanged, and only the angular VARIATION is added. A field
+    normalised after the fact would not have that guarantee, and ``n_w`` is a
+    *fitted* parameter -- silently changing it would invalidate the 1D
+    calibration the whole pipeline rests on.
+
+    Args:
+        X, Y, Z: coordinate meshes (pc).
+        dipole: ``A1``. Lopsided -- denser on one side. This is the term Cas A's
+            east-west reverse-shock asymmetry asks for.
+        quadrupole: ``A2``. Denser in the equator (negative) or at the poles
+            (positive) of the axis; an equatorially enhanced RSG wind is
+            ``A2 < 0``.
+        theta_deg, phi_deg: the axis direction, in the same convention as
+            :func:`orlando_csm_shell` so the two are directly comparable.
+
+    Returns:
+        The multiplicative field, strictly positive.
+
+    Raises:
+        SystemExit: if ``|A1| + |A2|`` could drive the field non-positive. A
+            negative ambient density is not a small error to clip -- it would be
+            a mass sink dressed as an asymmetry.
+    """
+    if abs(dipole) + abs(quadrupole) >= 1.0:
+        raise SystemExit(
+            f"--wind-asym {dipole} and --wind-asym-quad {quadrupole} sum to "
+            f"{abs(dipole) + abs(quadrupole):.2f} >= 1, which makes the ambient "
+            f"density non-positive somewhere. Keep |A1| + |A2| < 1.")
+
+    th, ph = np.deg2rad(theta_deg), np.deg2rad(phi_deg)
+    ax = np.array([np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th)])
+    r = jnp.sqrt(X ** 2 + Y ** 2 + Z ** 2)
+    safe = jnp.maximum(r, 1e-12)
+    mu = (ax[0] * X + ax[1] * Y + ax[2] * Z) / safe
+
+    f = 1.0 + dipole * mu + quadrupole * 0.5 * (3.0 * mu ** 2 - 1.0)
+    # at r = 0 the direction is undefined; the field is only ever applied far
+    # outside the blast wave, but leave a defined value rather than a 0/0
+    return jnp.where(r > 1e-12, f, 1.0)
+
+
 def explosion_plume_field(X, Y, Z, key, *, n_plumes=60,
                           size_range_deg=(7.0, 55.0), size_slope=-1.0,
                           region=None, radial_tilt=0.0, inner_radius=0.0,

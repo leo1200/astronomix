@@ -107,6 +107,7 @@ from _common import (
     centered_radius,
     chandra_deep_figure,
     ejecta_mass_coordinate,
+    wind_asymmetry_field,
     explosion_plume_field,
     fd_positivity,
     POSITIVITY_HARD_FLOOR,
@@ -319,6 +320,25 @@ def build(args, sharding=None):
         g = turbulent_field(num_cells, keys[0], kmin=CSM_K_MIN, kmax=CSM_K_MAX,
                             slope=-1.0, sharding=sharding)
         csm_clump = jnp.exp(args.csm_sigma * g - 0.5 * args.csm_sigma ** 2)
+    if args.wind_asym or args.wind_asym_quad:
+        # A LARGE-SCALE ASYMMETRY WITHOUT A SHELL. The forward-shock outline
+        # needs one; the CSM shell supplies it and costs a factor 1.8 in the
+        # temperature of the emitting gas (CALIBRATION.md Result 23) because a
+        # dense shell drives a reflected shock back into the ejecta. A wind that
+        # varies with DIRECTION decelerates the blast differently per direction
+        # with no reflected shock at all, and the l = 1,2 form is mean-zero over
+        # the sphere so the fitted n_w -- and therefore the whole 1D calibration
+        # -- is preserved exactly rather than approximately.
+        f_asym = wind_asymmetry_field(
+            X, Y, Z, dipole=args.wind_asym, quadrupole=args.wind_asym_quad,
+            theta_deg=args.wind_asym_theta, phi_deg=args.wind_asym_phi)
+        csm_clump = csm_clump * f_asym
+        print(f"[orlando] wind asymmetry: dipole {args.wind_asym:+.2f}, "
+              f"quadrupole {args.wind_asym_quad:+.2f} about "
+              f"(theta {args.wind_asym_theta:.0f}, phi {args.wind_asym_phi:.0f}) deg; "
+              f"ambient x{float(jnp.min(f_asym)):.2f}-{float(jnp.max(f_asym)):.2f}, "
+              f"angle-averaged density UNCHANGED by construction (l = 1,2 are "
+              f"mean-zero)")
     modulation = 1.0 + outside * (csm_clump - 1.0)
     rho = rho * modulation
     p = p * modulation                      # preserves T ahead of the shock
@@ -987,6 +1007,26 @@ def main():
                          "circular outline. ADDS KINETIC ENERGY -- the amount is "
                          "reported, and it is not renormalised away")
     ap.add_argument("--csm-sigma", type=float, default=CSM_SIGMA, help="wind clumping sigma")
+    ap.add_argument("--wind-asym", type=float, default=0.0, metavar="A1",
+                    help="DIPOLE amplitude of an angular modulation of the "
+                         "ambient wind: denser on one side. The intended "
+                         "replacement for --shell as the source of the "
+                         "forward-shock outline -- the shell supplies the "
+                         "position-angle spread but costs a factor 1.8 in the "
+                         "temperature of the emitting gas (CALIBRATION.md "
+                         "Result 23), because a dense shell drives a reflected "
+                         "shock into the ejecta and a smooth angular gradient "
+                         "does not. Mean-zero over the sphere, so the fitted "
+                         "n_w and the 1D calibration are preserved exactly")
+    ap.add_argument("--wind-asym-quad", type=float, default=0.0, metavar="A2",
+                    help="QUADRUPOLE amplitude: negative for an equatorially "
+                         "enhanced wind (a rotating or binary RSG), positive "
+                         "for a polar one. |A1| + |A2| < 1 is required")
+    ap.add_argument("--wind-asym-theta", type=float, default=SHELL_THETA_DEG,
+                    metavar="DEG", help="asymmetry axis theta; defaults to the "
+                                        "shell's axis so the two are comparable")
+    ap.add_argument("--wind-asym-phi", type=float, default=SHELL_PHI_DEG,
+                    metavar="DEG", help="asymmetry axis phi")
     ap.add_argument("--shell", action="store_true", help="add the Orlando et al. (2022) CSM shell")
     ap.add_argument("--shell-radius", type=float, default=SHELL_RADIUS, help="r_sh (pc)")
     ap.add_argument("--shell-density", type=float, default=SHELL_DENSITY, help="n_sh (cm^-3)")
