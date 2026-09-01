@@ -1968,9 +1968,18 @@ discontinuity by a factor 1.8** — 1425 → 2576 km/s equivalent — while movi
 from 1.619 to 1.531 pc, i.e. from 0.24 σ to 0.31 σ of the observed 1.58 ± 0.16.
 
 So the shell buys **essentially nothing in r_RS** and costs **1.8× in the
-temperature of exactly the gas that emits the lines.** That trade was never
-visible because the shell was scored on radii and position-angle spread, and
-`OVERVIEW.md`'s own guardrail list contains no thermodynamic quantity at all.
+temperature of exactly the gas that emits the lines.**
+
+**It does buy something else, and Result 23 makes the trade precise:** the
+forward-shock position-angle spread, 0.117 pc without the shell against 0.292 pc
+with it, where the observed range is 0.2–0.4. That is the shell's real job —
+deforming the outline — and it is a *morphological* gain paid for with a
+*spectral* cost. Calling it "buys nothing" is right about r_RS and wrong about the
+outline.
+
+The trade was never visible because the shell was scored on radii and
+position-angle spread only, and `OVERVIEW.md`'s guardrail list contains no
+thermodynamic quantity at all.
 
 Note it is invisible in the emission-weighted average (2934 vs 2740, 7 %) and
 obvious in the shell-restricted one (1.8×). **A global average was hiding a local
@@ -2021,3 +2030,79 @@ gas's temperature by a large factor, its column is a free-ish parameter (set to
 Orlando's value at fixed column), and it has never been scored against anything
 thermodynamic. Removing it costs 0.07 σ in r_RS and buys a factor 1.8 in the
 temperature of the emitting gas — which on today's evidence is the better trade.
+
+---
+
+## Result 23 — removing the CSM shell fixes the hard bands, and does it by cooling rather than compressing
+
+*2026-09-01. `orl_n256_noshell_d1` (256³, δ = 1, pistons + clumping, **no shell**)
+observed with `--nei --compare 2004`, against the matched fiducial.*
+
+Result 22 predicted this and it is worth stating that it was a prediction: the
+shell raises the emitting gas's temperature by 1.8×, so removing it should lower
+the temperature **without** raising the density, which is precisely the
+"cool without compressing" mechanism Result 21 said was required and which
+`_subgrid` cannot supply.
+
+### The measurement
+
+| run | rate | 0.5–1.5 | 1.5–2.1 | 2.1–2.8 | 2.8–4.2 | 4.2–6.0 | 6.0–7.0 | range |
+|---|---|---|---|---|---|---|---|---|
+| fiducial (shell) | 0.89 | 0.70 | 0.74 | 1.16 | 1.65 | 1.60 | **2.52** | 3.60 |
+| **no shell** | **0.63** | 0.56 | 0.54 | 0.79 | 1.03 | 0.89 | **1.03** | **1.90** |
+| χ = 4 sub-grid | 2.26 | 2.48 | 1.99 | 2.47 | 2.48 | 1.64 | 1.71 | 1.51 |
+
+Shape (band ratio ÷ rate ratio, i.e. the residual with normalisation divided out):
+
+| run | shape spread | rms |
+|---|---|---|
+| fiducial | 3.60 | 0.250 dex |
+| **no shell** | **1.90** | **0.146 dex** |
+| χ = 4 sub-grid | 1.51 | 0.084 dex |
+
+### Three things, and the third is the point
+
+**1. Fe-K is fixed: 2.52 → 1.03.** The single worst residual in this study, at
+unity, from removing an ingredient rather than adding one. The 2.8–4.2 and
+4.2–6.0 bands follow it down, 1.65 → 1.03 and 1.60 → 0.89.
+
+**2. The absolute band ratios now span 0.54–1.03**, a factor 1.9, against the
+fiducial's 0.70–2.52, a factor 3.6. What is left is a *nearly uniform* ~0.6×
+deficit — a well-conditioned residual instead of a one-sided energy-dependent one.
+
+**3. It improves the shape while LOWERING the normalisation** — 0.89 → 0.63,
+where `_subgrid` improved the shape by *raising* it to 2.26. That is the
+distinction Result 21 said mattered, and this is the first ingredient in the study
+to land on the right side of it. Two mechanisms flatten the residual; only this one
+does it by cooling the gas rather than compressing it.
+
+### And it is a genuine morphology/spectrum trade, not a free win
+
+The shell's real job is the outline, not r_RS: the forward-shock position-angle
+spread is **0.117 pc without it against 0.292 pc with it**, where the observed
+range is 0.2–0.4. So removing the shell costs the one morphological quantity the
+shell was introduced to provide, while r_RS barely moves (1.619 vs 1.531 pc,
+0.24 σ vs 0.31 σ).
+
+**This is the first measured tension between the morphology and the spectrum in
+this project**, and it is exactly the kind of trade the guardrail list could not
+express until a thermodynamic quantity was added to it (Result 22's process fix).
+
+**The resolution is already named in §5.7:** get the position-angle spread from an
+*azimuthally varying wind* rather than from a dense shell sitting at 1.5 pc in the
+path of the reverse shock. That deforms the outline without over-heating the
+emitting gas, it is what `casa_wind.py` exists to build, and it is what the
+Green Monster and the east–west reverse-shock asymmetry independently ask for.
+
+### The combination that should close it
+
+The two mechanisms are complementary rather than competing: no-shell supplies the
+shape by cooling, and a *modest* sub-grid contrast supplies the missing
+normalisation. From 0.63, scaling by the χ = 4 rate factor (2.26/0.89) and the
+`f_mass = 0.2` clumping factor (0.645 of the `f_mass = 0.5` value) predicts
+
+> **rate ≈ 1.03**
+
+with a shape between 1.90 and 1.51. That run (`--subgrid-chi 4 --subgrid-fmass
+0.2` on the no-shell state) is the test, and the prediction is recorded here
+before the result so it cannot be fitted after the fact.
