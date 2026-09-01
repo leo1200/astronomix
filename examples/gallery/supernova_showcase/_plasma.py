@@ -583,6 +583,38 @@ def species_ion_temperature(T_i, mu_i, element):
     return np.asarray(T_i, dtype=np.float64) * A / np.maximum(mu_i, 1e-30)
 
 
+def shock_speed_from_pressure(press_code, rho_code):
+    """Shock speed [cm/s] implied by the post-shock state. **Composition-free.**
+
+    From ``p = n k T`` with ``n = rho / (mu m_p)`` and the strong-shock jump
+    ``T_2 = (3/16) mu m_p v^2 / k``, the mean molecular weight CANCELS::
+
+        v = sqrt(16 p / (3 rho))
+
+    That is what makes this the right quantity to put in a guardrail: it compares
+    directly to a measured shock speed without assuming an ejecta composition, it
+    needs no electron/ion split, and it is identical in the 1D and 3D solvers so
+    the two can be checked against each other. (It equals ``1.79 c_s`` at
+    ``gamma = 5/3``, as it must.)
+
+    **Why it exists.** The CSM shell was found to raise the temperature of the gas
+    just inside the contact discontinuity by a factor 1.8 while moving r_RS by
+    0.07 sigma -- a trade invisible for a month because every guardrail in this
+    project was a radius, a mass, a band ratio or a structure statistic, and none
+    of them was thermodynamic. A factor of two in the temperature of the emitting
+    gas should not be able to hide.
+
+    **Report it BOTH ways.** Averaged over a shell just outside r_RS it varies by
+    2.1x between configurations (1213-2576 km/s); emission-weighted over all the
+    shocked gas the same states differ by only 7 % (2740-3178). The global average
+    hid the local factor of two, so a guardrail that quotes one number quotes the
+    wrong one.
+    """
+    return np.sqrt(16.0 / 3.0 * np.asarray(press_code, dtype=np.float64)
+                   / np.maximum(np.asarray(rho_code, dtype=np.float64), 1e-300)
+                   ) * CODE_VELOCITY
+
+
 def thermal_line_width(T_s, element):
     """1-sigma thermal Doppler width of a line of ``element`` [cm/s].
 
@@ -787,6 +819,24 @@ def _assert_physics():
             num += n_s * species_ion_temperature(T_i, mom["mu_i"], el)
             den += n_s
         assert abs(num / den / T_i - 1.0) < 1e-10, (X, num / den / T_i)
+
+    # 3b. the composition-free shock speed really is composition-free, and really
+    #     is 1.79 c_s. Both are one-line identities and both are the reason it is
+    #     the quantity a thermodynamic guardrail should use.
+    rho_t = np.array([1.0, 4.0, 0.25])
+    press_t = np.array([1.0, 2.0, 0.5])
+    v = shock_speed_from_pressure(press_t, rho_t)
+    c_s = np.sqrt(5.0 / 3.0 * press_t / rho_t) * CODE_VELOCITY
+    assert np.allclose(v / c_s, np.sqrt(16.0 / 5.0), rtol=1e-12), v / c_s
+    # and it inverts the strong-shock jump for ANY mu
+    for X in ({"H": 1.0}, {"O": 1.0}, COSMIC):
+        mom = composition_moments(X)
+        v0 = 2.0e8 / CODE_VELOCITY                  # code units
+        T2 = 3.0 / 16.0 * mom["mu"] * M_P * (v0 * CODE_VELOCITY) ** 2 / K_B
+        rho0 = 1.0
+        p0 = rho0 * CODE_DENSITY / (mom["mu"] * M_P) * K_B * T2 / CODE_PRESSURE
+        assert abs(shock_speed_from_pressure(p0, rho0) / (v0 * CODE_VELOCITY)
+                   - 1.0) < 1e-10, X
 
     # 4. mass-proportional heating gives every species the SAME thermal line
     #    width, which is why an observed difference between species cannot be

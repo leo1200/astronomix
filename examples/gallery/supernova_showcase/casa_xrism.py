@@ -100,6 +100,7 @@ from _plasma import (
     load_diagnostic_state,
     plasma_state,
     set_tracer_split,
+    shock_speed_from_pressure,
     species_ion_temperature,
     thermal_line_width,
     tracer_split_report,
@@ -528,6 +529,7 @@ def measure(fields, args, v_los, n, box, *, chi, f_mass, verbose=False):
         clump_num = clump_den = clump_sq = 0.0
         g_num = {k: 0.0 for k in ("kT_e", "net", "kT_s")}
         g_den = 0.0
+        v_num = v_all_num = v_all_den = 0.0
         for name, ps, f_vol in states:
             if args.weight == "ne2":
                 w = ps["n_e"] ** 2
@@ -554,6 +556,17 @@ def measure(fields, args, v_los, n, box, *, chi, f_mass, verbose=False):
             g_den += float(w.sum())
             for k in g_num:
                 g_num[k] += float((w * vals[k]).sum())
+            # The composition-free guardrail, both weightings. The PHASE's own
+            # density -- pressure is unchanged by the sub-grid split (that is what
+            # pressure equilibrium means), so using the cell density here would
+            # report the cell's shock speed for a phase that is not at the cell's
+            # temperature.
+            v_sh = shock_speed_from_pressure(
+                fields["press"], ps["rho_cgs"] / CODE_DENSITY) / 1e5
+            v_num += float((w * v_sh).sum())
+            w_all = np.where(ps["shocked"], ps["n_e"] ** 2, 0.0) * f_vol
+            v_all_num += float((w_all * v_sh).sum())
+            v_all_den += float(w_all.sum())
 
         if w_tot is None or not np.any(w_tot > 0):
             print(f"[xrism] {group}: no emitting cells, skipped")
@@ -577,6 +590,8 @@ def measure(fields, args, v_los, n, box, *, chi, f_mass, verbose=False):
             v_mean=v_mean, v_sigma=v_sigma,
             clumping=clumping_factor(clump_num, clump_den, clump_sq),
             chi=chi_by_group[group],
+            v_shock=v_num / max(g_den, 1e-300),
+            v_shock_all=v_all_num / max(v_all_den, 1e-300),
             **{f"global_{k}": g_num[k] / max(g_den, 1e-300) for k in g_num},
         )
 
@@ -674,6 +689,20 @@ def report(results, args):
           f"shock\n    near {v_obs:.0f} km/s (150 keV) to "
           f"{v_obs * np.sqrt(300.0 / 176.0):.0f} km/s (300 keV), and the "
           "published\n    value is 1800 km/s.")
+
+    print("\n[xrism] ==== composition-free shock speed (THE THERMODYNAMIC "
+          "GUARDRAIL) ====")
+    print("    v = sqrt(16 p / 3 rho): mu cancels, so this compares directly to a")
+    print("    measured shock speed and is identical in the 1D and 3D solvers.")
+    for group, r in results.items():
+        print(f"    {group}, line-emission weighted: {r['v_shock']:.0f} km/s")
+    print(f"    all shocked gas, n_e^2 weighted:  {results['IME']['v_shock_all']:.0f} km/s")
+    print("    observed reverse shock ~1800 km/s (Laming & Hwang 2003; XRISM's")
+    print("    Gamma inversion gives 1600-2300).")
+    print("    QUOTE BOTH: across shell/no-shell/smooth configurations the")
+    print("    emission-weighted value moves 7% while the same states differ by")
+    print("    2.1x in a shell just outside r_RS. A single number hides the trade")
+    print("    the CSM shell makes (CALIBRATION.md Result 22).")
 
     print("\n[xrism] ==== the n_e t / kT_e anticorrelation ====")
     print("    XRISM reads it as dense clumps: denser gas is MORE ionized and")

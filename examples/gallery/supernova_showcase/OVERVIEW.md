@@ -867,7 +867,15 @@ against the state that owns the number (§4):**
   0.70 / 0.74 / 1.16 / 1.64 / 1.60 / 2.51 — remains the guardrail while
   iterating at 256³. Never compare one against the other.)*
 * **dynamics** (n256): r_FS 2.494, r_RS 1.531, shocked ejecta 2.79 M☉,
-  kT_e 3.05 keV, n_e t 2.3e11.
+  unshocked 0.417 M☉, kT_e 3.05 keV, n_e t 2.3e11;
+* **thermodynamics** (n256, `casa_xrism.py`) — **added 2026-09-01, and it is the
+  guardrail that was missing**: composition-free shock speed
+  `v = sqrt(16 p / 3ρ)`, IME 2907 / IGE 3188 / all-shocked 2946 km s⁻¹, against an
+  observed ~1800. **Quote it in a shell just outside r_RS as well**, because that
+  is where the CSM shell's factor 1.8 lives and the emission-weighted average
+  hides it (Result 22). Every guardrail above this line is a radius, a mass, a band
+  ratio or a structure statistic; a factor of two in the temperature of the
+  emitting gas was invisible for a month because none of them was thermodynamic.
 
 A change that improves the picture without improving a statistic is a failure,
 not a success.
