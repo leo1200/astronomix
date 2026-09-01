@@ -1901,3 +1901,123 @@ model's shock speeds from a modified CSM profile.
 * **Result 18's δ inference: withdrawn in Result 20** and not restored. The ejecta
   mass budget is right to 0.67 σ; the 2.3× is the arithmetic of the split, not a
   mass error.
+
+---
+
+## Result 22 — the shell buys r_RS by over-heating the gas that emits, and "the shock is 1.53× too fast" was weighting-dependent
+
+*2026-09-01. Three matched 256³ runs (fiducial / no shell / fully smooth) plus the
+1D solver, all at δ = 1, measured with the composition-free
+`v = sqrt(16 p / 3ρ)`; and a 5-target over-determined 1D fit.*
+
+Result 21 reduced everything to one question: **what cools the gas without
+compressing it?** The answer was supposed to be "a genuinely lower shock
+velocity", on the strength of `casa_xrism`'s 2758 km/s against a published 1800.
+This is the attempt to find it, and it corrected the premise instead.
+
+### The measurement, three weightings and four configurations
+
+`v = sqrt(16 p / 3ρ)` follows from `p = n k T`, `n = ρ/(μ m_p)` and the
+strong-shock jump `T₂ = (3/16) μ m_p v²/k` — **the mean molecular weight
+cancels**, so this is a pure hydrodynamic functional comparable to a measured
+shock speed without assuming a composition. (It is 1.79 c_s at γ = 5/3.)
+
+| configuration | r_RS | shell just outside r_RS | Si-line weighted | all shocked |
+|---|---|---|---|---|
+| fiducial (shell + pistons + clumping) | 1.531 | **2576** | 2934 | 2946 |
+| pistons + clumping, **no shell** | 1.619 | **1425** | 2740 | 2843 |
+| **fully smooth** (no shell/pistons/clumps) | 1.677 | **1213** | 3178 | 2822 |
+| 1D solver, δ fitted | 1.72 | **1315** | — | — |
+
+*(observed reverse shock ~1800 km/s: Laming & Hwang 2003; XRISM's Γ inversion
+gives 1600–2300)*
+
+### Four results, and one of them corrects me
+
+**1. The 1D and 3D solvers agree, and that had never been checked.** Fully smooth
+3D gives 1213 km/s against the 1D's 1315 — **8 %**, on a quantity neither was
+tuned to match, at the same age from the same mapped profile. That is a genuine
+cross-dimension consistency check of the whole Route-B chain and it passes.
+
+**2. "The model's reverse shock is 1.53× too fast" was weighting-dependent, and
+is hereby qualified.** Measured in a shell just outside r_RS — the definition that
+actually means *the reverse shock* — the model spans **1213 to 2576 km/s across
+configurations, bracketing the observed 1800 rather than overshooting it.** The
+2758 km/s quoted since Result 14 is an *emission-weighted* value, and the
+emission weighting is what makes it high.
+
+**3. But the emission-weighted value is the robust one, and it is genuinely
+~1.6× high.** Si-line weighted, every configuration gives 2740–3178 km/s — it
+barely moves when the shell, the pistons and the clumping are all removed. So the
+*spectrally relevant* effective shock speed is ~2900 against 1800, and that is not
+an artefact of any one ingredient. It does carry a selection bias — Si must be
+He-like to emit its K lines, so the weight prefers hot gas — but **XRISM fits the
+same lines and gets kT_e = 1.3–2.1 keV**, so the comparison is fair and the model's
+Si-bearing gas is simply distributed at too high a temperature.
+
+**4. Neither the clumping nor the pistons heat the gas.** Smooth against fully
+structured: 2822 vs 2946 on the emission-weighted measure, **4 %**. So the
+structure added for morphology costs nothing thermodynamically — which also kills
+a hypothesis I formed an hour earlier, that structural dissipation was doing the
+heating.
+
+### What the shell actually does, and it is a trade nobody scored
+
+**The CSM shell raises the temperature of the gas just inside the contact
+discontinuity by a factor 1.8** — 1425 → 2576 km/s equivalent — while moving r_RS
+from 1.619 to 1.531 pc, i.e. from 0.24 σ to 0.31 σ of the observed 1.58 ± 0.16.
+
+So the shell buys **essentially nothing in r_RS** and costs **1.8× in the
+temperature of exactly the gas that emits the lines.** That trade was never
+visible because the shell was scored on radii and position-angle spread, and
+`OVERVIEW.md`'s own guardrail list contains no thermodynamic quantity at all.
+
+Note it is invisible in the emission-weighted average (2934 vs 2740, 7 %) and
+obvious in the shell-restricted one (1.8×). **A global average was hiding a local
+factor of two** — the same lesson as Result 14's n_e² weighting, in a new place.
+
+### The over-determined 1D fit: the model cannot reach 1800
+
+Adding `v_rs_rel` as a fifth target (1800 ± 300) makes the system
+over-determined — 5 observables, 4 parameters, 1 degree of freedom — so χ² is now
+informative rather than a convergence report.
+
+| | fiducial | fitted | target |
+|---|---|---|---|
+| r_FS | 2.480 | 2.419 | 2.52 ± 0.20 |
+| r_RS | 1.722 | 1.719 | 1.58 ± 0.16 |
+| n_post | 4.05 | 3.96 | 4.0 ± 1.0 |
+| M_unshocked | 0.102 | 0.349 | 0.35 ± 0.10 |
+| **v_rs_rel** | **1251** | **1315** | **1800 ± 300** |
+| χ² | 10.36 | **3.62 (plateau)** | — |
+
+**χ² plateaus at 3.6 and will not go lower**, and essentially all of it is
+`v_rs_rel`: ((1315 − 1800)/300)² = 2.6, plus 0.75 from r_RS. The parameters move
+it by only 1251 → 1315 across the whole fit. **So the 1D adiabatic blast in a wind
+cannot simultaneously satisfy the radii, the post-shock density, the unshocked
+mass and the reverse-shock speed** — it is 1.6 σ short on the last, and that is a
+falsification of the model at 1 degree of freedom rather than a failure of the
+optimiser.
+
+### Where this leaves the residual
+
+Two statements that look contradictory and are not:
+
+* the **reverse shock** is at roughly the right speed (1213–2576 bracketing 1800),
+  and in 1D is if anything too *slow*;
+* the gas that **emits the Si lines** is at ~1.6× too high an effective
+  temperature, robustly across every configuration.
+
+Together they say the problem is **not the shock speed but the temperature
+*distribution* of the shocked ejecta** — too little Si-bearing gas at 1.3–2.1 keV
+and too much at 3–6 keV. That is consistent with everything measured today: it is
+why `_subgrid`'s density contrast fixes the shape (it moves the distribution down),
+why `f_mass` cannot fix the normalisation (moving the distribution costs ⟨n²⟩), and
+why the population split found the residual in both gas phases.
+
+**The next experiment is therefore a shell-column scan scored on the spectrum,
+not on radii.** The shell is the one ingredient measured to change the emitting
+gas's temperature by a large factor, its column is a free-ish parameter (set to
+Orlando's value at fixed column), and it has never been scored against anything
+thermodynamic. Removing it costs 0.07 σ in r_RS and buys a factor 1.8 in the
+temperature of the emitting gas — which on today's evidence is the better trade.

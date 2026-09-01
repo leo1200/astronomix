@@ -174,11 +174,25 @@ THETA0 = jnp.array([np.log10(2.09), 3.0, 0.928, 0.0])
 #: the post-shock gas velocity is not the shock velocity. Adding a fifth
 #: observable that is subtly the wrong quantity is the mistake this module
 #: already made once with r_RS.
+#: ``v_rs_rel`` is added 2026-09-01 and it is the interesting one, because it is
+#: the quantity the whole spectral residual reduces to. ``casa_xrism.py`` measures
+#: the model's reverse shock at 2758 km/s in the frame of the gas it is shocking,
+#: against a published ~1800 -- a factor 1.53 that sets the post-shock temperature
+#: and hence every band ratio (Results 14, 18, 21). Adding it here asks the
+#: gradient whether ANY (E, M_ej, n_w, delta) reaches 1800 while holding the
+#: radii, the post-shock density and the unshocked mass. With five observables for
+#: four parameters the system is finally OVER-determined, so the final chi^2 is
+#: informative about whether the 1D model can fit the data at all -- which is the
+#: point. A fit that cannot get there is a falsification, not a failure.
+#:
+#: Target from XRISM's ion-temperature inversion (1600-2300 km/s implied by
+#: Gamma = 2.94-3.43 at eta = 1) and Laming & Hwang's 1800 km/s.
 TARGETS = {
     "r_FS":        (2.52, 0.20),    # pc,     Gotthelf et al. 2001
     "r_RS":        (1.58, 0.16),    # pc,     Gotthelf et al. 2001
     "n_post":      (4.0, 1.0),      # cm^-3,  Lee et al. 2014
     "M_unshocked": (0.35, 0.10),    # Msun,   DeLaney et al. 2014; Hwang & Laming 2012
+    "v_rs_rel":    (1800.0, 300.0),  # km/s,  Laming & Hwang 2003; XRISM 2026
 }
 
 AGE_YR = 350.0
@@ -451,8 +465,32 @@ def observables(final_state, rho_amb, p_amb, m_wind_interior,
                       .to(code_units.code_density).value)
     n_post = (jnp.sum(rho * shell) / (jnp.sum(shell) + 1e-30)) / rho_per_n
 
+    # ---- reverse-shock speed in the frame of the gas it is shocking -------
+    # THE COMPOSITION CANCELS, which is what makes this worth having. With
+    # ``p = n k T``, ``n = rho / (mu m_p)`` and the strong-shock jump
+    # ``T_2 = (3/16) mu m_p v^2 / k``, the mean molecular weight drops out:
+    #
+    #     v_rel = sqrt(16 p / (3 rho))
+    #
+    # so this is a pure hydrodynamic functional of the final state, comparable
+    # to a measured shock speed without assuming an ejecta composition the 1D
+    # model does not carry. (It is 1.79 c_s at gamma = 5/3, as it must be.)
+    #
+    # Evaluated just OUTSIDE r_RS: the reverse shock travels inward through the
+    # ejecta, so the freshly shocked gas is at larger radius than the unshocked
+    # core, and taking the shell inside r_RS would sample gas that has never
+    # been shocked at all.
+    r_hi = r_rs * 1.10
+    shell_rs = (jax.nn.sigmoid((r - r_rs) / (2.0 * dr))
+                * jax.nn.sigmoid((r_hi - r) / (2.0 * dr)))
+    p_over_rho = (jnp.sum(press * shell_rs)
+                  / (jnp.sum(rho * shell_rs) + 1e-30))
+    v_rel_code = jnp.sqrt(16.0 / 3.0 * jnp.maximum(p_over_rho, 0.0))
+    v_rs_rel = v_rel_code * float(
+        (1.0 * code_units.code_velocity).to(u.km / u.s).value)
+
     return dict(r_FS=r_fs, r_RS=r_rs, M_unshocked=m_unshocked_msun,
-                n_post=n_post, r_cold_core=r_cold)
+                n_post=n_post, v_rs_rel=v_rs_rel, r_cold_core=r_cold)
 
 
 # =============================================================================
@@ -625,6 +663,13 @@ def cmd_validate(args):
     sh = (r > 0.95 * hard_fs) & (r <= hard_fs)
     hard_np = float(np.mean(rho[sh]) / rho_per_n) if np.any(sh) else np.nan
 
+    # reverse-shock relative speed: boolean shell just outside r_RS
+    sh_rs = (r > hard_rs) & (r <= 1.10 * hard_rs)
+    hard_v = (float(np.sqrt(16.0 / 3.0 * np.sum(press[sh_rs])
+                            / np.sum(rho[sh_rs])))
+              * float((1.0 * code_units.code_velocity).to(u.km / u.s).value)
+              if np.any(sh_rs) else np.nan)
+
     # the OLD entropy definition, reported so the two are never confused again
     log_s = np.log10(np.maximum(press, 1e-30)) - GAMMA * np.log10(np.maximum(rho, 1e-30))
     cold = log_s < (log_s.min() + np.log10(30.0))
@@ -635,7 +680,8 @@ def cmd_validate(args):
     for name, sm, hd_v in (("r_FS", float(smooth["r_FS"]), hard_fs),
                            ("r_RS", float(smooth["r_RS"]), hard_rs),
                            ("n_post", float(smooth["n_post"]), hard_np),
-                           ("M_unshocked", float(smooth["M_unshocked"]), hard_mu)):
+                           ("M_unshocked", float(smooth["M_unshocked"]), hard_mu),
+                           ("v_rs_rel", float(smooth["v_rs_rel"]), hard_v)):
         rel = (sm - hd_v) / hd_v if hd_v not in (0.0,) and np.isfinite(hd_v) else np.nan
         print(f"[diff] {name:<14s} {sm:10.4f} {hd_v:10.4f} {sm - hd_v:10.4f} "
               f"{100 * rel:7.1f}%")
