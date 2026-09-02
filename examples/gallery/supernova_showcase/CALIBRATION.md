@@ -2364,3 +2364,61 @@ obviously implicated.
 
 `casa_morphology.py` is running on this configuration. **Adopt as fiducial only if
 that score does not regress** — the guardrail rule is unchanged.
+
+### Result 25, concluded: the morphology score CLEARS, on all three statistics
+
+Matched triple — all 256³, NEI, **halo on**, scored by `casa_morphology.py`:
+
+| metric (lower/closer is better) | fiducial (shell) | no shell + χ4 f0.2 | **+ A₁ = 0.5 wind** |
+|---|---|---|---|
+| amplitude, mean \|log₁₀(real/syn)\| over 2.5–16.2″ | 0.232 | 0.210 | **0.154** |
+| coherence excess over Chandra | +0.321 | +0.346 | **+0.186** |
+| Euler χ ratio, mean \|log₁₀\| | 0.198 | 0.162 | **0.137** |
+| spectral rms | 0.243 dex | 0.087 | **0.077** |
+| forward-shock PA spread | 0.292 pc | 0.117 | **0.292** |
+
+**It wins on every one.** And the coherence result is the significant one: the
+"our structure is too *ordered*" defect that [[handoff-casa-morphology]] has been
+chasing since the beginning goes from **+0.321 to +0.186 — a 42 % reduction**,
+with the 4.4″ coherence dropping 0.891 → 0.705 against Chandra's 0.536. A
+large-scale ambient gradient breaks the azimuthal symmetry that made the image
+read as a set of clean arcs; no cosmetic structure was added and no amplitude was
+tuned.
+
+Amplitude per scale, real/syn against a target of 1.0:
+
+| | 2.5″ | 4.4″ | 8.4″ | 16.2″ |
+|---|---|---|---|---|
+| fiducial | 3.27 | 2.00 | 1.23 | 0.95 |
+| no shell + χ4 f0.2 | 2.76 | 1.60 | 0.91 | 0.70 |
+| **+ A₁ = 0.5 wind** | **1.13** | **0.76** | 0.61 | 0.59 |
+
+**2.5″ is essentially on target** (2.76 → 1.13), which is the scale the whole
+structure-deficit line of work was about.
+
+### THE NEW DEFECT, and it must be stated because the aggregate hides it
+
+**At 8.4″ and 16.2″ the amplitude error has changed SIGN**: 0.61 and 0.59 mean the
+model now carries *more* fluctuation power than Chandra at large scales, where the
+fiducial carried slightly less. Part of the aggregate improvement is therefore the
+error passing *through* the target rather than converging on it.
+
+That is the dipole's own signature — an l = 1 ambient gradient is large-scale
+power by construction — and it has an obvious lever. Interpolating the ladder
+(0.175 pc at A₁ = 0.3, 0.292 at A₁ = 0.5), **A₁ ≈ 0.4 should give a PA spread near
+0.23 pc, still inside the observed 0.2–0.4, with roughly half the large-scale
+power.** That run is submitted.
+
+### Verdict
+
+This configuration is better than `orl_n256_final` on the spectrum, on all three
+morphology statistics, on the outline, and on r_RS; marginally worse on the
+unshocked ejecta mass (0.67 σ → 1.09 σ). **It should become the fiducial**, with
+the large-scale amplitude overshoot recorded as its known defect and A₁ = 0.4 as
+the pending refinement.
+
+*Not yet done, and it is the rigorous version of the coherence claim:*
+`casa_morph_null.py`, which subtracts a phase-randomised null. The coherence
+improvement above is a raw comparison, and Result 12's lesson is that raw
+structure statistics can rank models in the wrong order. The +0.186 should be
+re-quoted as an excess over the null before it goes in a paper.
