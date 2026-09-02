@@ -2324,3 +2324,43 @@ of this configuration (`--subgrid-chi 4 --subgrid-fmass 0.2`, halo on) is
 rms of 0.087 dex, and if it does, this configuration replaces `orl_n256_final` as
 the fiducial. **Do not adopt it until that observation and a
 `casa_morphology.py` score are both in.**
+
+### Result 25, continued: the spectrum held, and this is now the best configuration on every axis
+
+The observation ran. **The angular wind costs nothing spectrally and slightly
+helps**, which is what the 3 % thermal difference predicted:
+
+| configuration | rate | band range | rms | PA spread |
+|---|---|---|---|---|
+| OLD FIDUCIAL (shell), halo on | 0.79 | 4.75 | 0.243 dex | 0.292 pc |
+| no shell + χ4 f0.2, halo on | 0.83 | 1.47 | 0.087 | **0.117** |
+| **+ A₁ = 0.5 wind, halo on** | **0.86** | 1.55 | **0.077** | **0.292** |
+| observed | 1.00 | 1.00 | 0 | 0.2–0.4 |
+
+Halo **off**, for comparison with Result 24's row: rate **1.00**, rms **0.056 dex**
+against 0.063 without the wind. So adding the asymmetry *improved* the spectrum
+marginally while supplying the outline — the two ingredients are independent, as
+the thermodynamics said they would be.
+
+Bands, halo on: **0.78 / 0.79 / 1.08 / 1.21 / 0.87 / 0.91.** Every one within
+±22 %, against the old fiducial's 0.53–2.50.
+
+**Summary of what changed, relative to the fiducial this replaces:**
+
+* rms band residual **0.243 → 0.077 dex** (factor 3.2);
+* Fe-K **2.50 → 0.91**;
+* count rate **0.79 → 0.86**;
+* forward-shock PA spread **preserved at 0.292 pc**, in the observed range;
+* r_RS 1.531 → 1.619 pc (0.31 σ → 0.24 σ, marginally better);
+* unshocked ejecta 0.417 → 0.459 M☉ (0.67 σ → 1.09 σ, marginally worse);
+* one spectrally fitted parameter, `f_mass`; χ, `net_mode` and A₁ are fixed by
+  XRISM's plasma diagnostics and by the PA spread respectively, not by band ratios.
+
+**Remaining gap: a uniform ~21 % soft deficit** (0.78, 0.79 in the two bands below
+2.1 keV). It is no longer one-sided in energy, and its size and sign are the dust
+halo's own — the halo alone takes those bands from 1.04/0.87 to 0.78/0.79. So
+`_dusthalo`'s grain population is the next suspect, and the remnant is no longer
+obviously implicated.
+
+`casa_morphology.py` is running on this configuration. **Adopt as fiducial only if
+that score does not regress** — the guardrail rule is unchanged.
