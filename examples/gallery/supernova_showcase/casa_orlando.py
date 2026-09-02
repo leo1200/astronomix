@@ -316,6 +316,7 @@ def build(args, sharding=None):
     # solver's own 1D solution is left alone.
     outside = _smoothstep((r - 1.02 * r_fs) / (2.0 * dx))
     csm_clump = 1.0
+    asym_field = None       # kept so the shock detector can use the same reference
     if args.csm_sigma > 0:
         g = turbulent_field(num_cells, keys[0], kmin=CSM_K_MIN, kmax=CSM_K_MAX,
                             slope=-1.0, sharding=sharding)
@@ -333,6 +334,7 @@ def build(args, sharding=None):
             X, Y, Z, dipole=args.wind_asym, quadrupole=args.wind_asym_quad,
             theta_deg=args.wind_asym_theta, phi_deg=args.wind_asym_phi)
         csm_clump = csm_clump * f_asym
+        asym_field = np.asarray(f_asym)
         print(f"[orlando] wind asymmetry: dipole {args.wind_asym:+.2f}, "
               f"quadrupole {args.wind_asym_quad:+.2f} about "
               f"(theta {args.wind_asym_theta:.0f}, phi {args.wind_asym_phi:.0f}) deg; "
@@ -705,21 +707,37 @@ def build(args, sharding=None):
 # =============================================================================
 # ============ ↓ Shock diagnostics on the 3D state ↓ ==========================
 # =============================================================================
-def ambient_number_density(rc, *, n_w, r_fs_ref, n_c, flat_beyond=None):
+def ambient_number_density(rc, *, n_w, r_fs_ref, n_c, flat_beyond=None,
+                           asym=None):
     """The pre-shock ambient (cm^-3) the forward-shock contrast is measured against.
 
-    The calibrated wind plus the constant ISM term. ``flat_beyond`` is the outer
-    radius of the 1D profile that was mapped onto the grid: ``map_1d_profile``
-    HOLDS the outermost value outside its domain, so beyond that radius the
-    ambient on the grid is constant while this analytic ``r^-2`` law keeps
-    falling. In a 7 pc box mapped from a 4 pc profile the mismatch reaches a
-    factor 1.8 at the corners -- just under the contrast threshold, so the
-    log-normal circumstellar clumping tips it over and the detector reports the
-    box half-diagonal (6.005 pc) as the forward shock. Passing ``flat_beyond``
-    makes the reference match the medium that is actually there.
+    The calibrated wind plus the constant ISM term.
+
+    **THE REFERENCE MUST MATCH THE MEDIUM THAT IS ACTUALLY THERE**, and this
+    function has now been caught failing that twice, in the same way:
+
+    * ``flat_beyond`` is the outer radius of the 1D profile that was mapped onto
+      the grid. ``map_1d_profile`` HOLDS the outermost value outside its domain,
+      so beyond that radius the ambient on the grid is constant while this
+      analytic ``r^-2`` law keeps falling. In a 7 pc box mapped from a 4 pc
+      profile the mismatch reaches a factor 1.8 at the corners -- just under the
+      contrast threshold, so the log-normal circumstellar clumping tips it over
+      and the detector reports the box half-diagonal (6.005 pc) as the forward
+      shock.
+    * ``asym`` is the angular modulation applied by ``--wind-asym``
+      (:func:`_common.wind_asymmetry_field`). Without it, a dipole of A1 = 0.7
+      leaves the *unshocked* ambient at 1.7x this spherical reference on the
+      overdense side -- 85 % of the contrast threshold on its own -- so the
+      detector triggers on gas that was never shocked and the position-angle
+      spread saturates. Measured: A1 = 0.5 and A1 = 0.7 both reported a spread of
+      0.583 pc, identical to three decimals, which is the tell.
+
+    Both are the same mistake: making the medium anisotropic or non-power-law
+    without telling its own detector. Pass whatever was applied to the density.
     """
     rc_eff = np.asarray(rc) if flat_beyond is None else np.minimum(rc, flat_beyond)
-    return n_w * (r_fs_ref / np.maximum(rc_eff, 1e-6)) ** 2 + n_c
+    n = n_w * (r_fs_ref / np.maximum(rc_eff, 1e-6)) ** 2 + n_c
+    return n if asym is None else n * np.asarray(asym)
 
 
 def _outermost_contiguous(above, seed):
@@ -810,7 +828,8 @@ def measure_shocks_3d(rho, v_r, r, *, age_yr, code_units, n_w, r_fs_ref, n_c,
 
 def shock_speed_vs_position_angle(rho, r, X, Y, Z, *, n_w, r_fs_ref, n_c,
                                   rho_per_n, n_angles=36, fs_contrast=2.0,
-                                  nbins=120, r_max=None, ambient_flat_beyond=None):
+                                  nbins=120, r_max=None, ambient_flat_beyond=None,
+                                  asym=None):
     """Forward-shock radius as a function of position angle in the plane of the sky.
 
     Orlando et al. (2022) identify the shock radius/velocity versus position
@@ -831,6 +850,7 @@ def shock_speed_vs_position_angle(rho, r, X, Y, Z, *, n_w, r_fs_ref, n_c,
     """
     r = np.asarray(r).ravel(); rho = np.asarray(rho).ravel()
     X = np.asarray(X).ravel(); Y = np.asarray(Y).ravel(); Z = np.asarray(Z).ravel()
+    asym = None if asym is None else np.asarray(asym).ravel()
 
     # cone half-angle ~10 deg around each direction in the plane of the sky
     pa = np.rad2deg(np.arctan2(Z, X)) % 360.0
@@ -854,7 +874,19 @@ def shock_speed_vs_position_angle(rho, r, X, Y, Z, *, n_w, r_fs_ref, n_c,
         cnt = np.bincount(idx[sel], minlength=nbins).astype(float)
         tot = np.bincount(idx[sel], weights=rho[sel], minlength=nbins)
         mean = np.divide(tot, cnt, out=np.zeros(nbins), where=cnt > 0)
-        contrast = np.divide(mean, n_amb * rho_per_n, out=np.zeros(nbins), where=cnt > 0)
+        # THE REFERENCE MUST CARRY THE SAME ANGULAR MODULATION AS THE MEDIUM.
+        # The angle-AVERAGED estimator needs no such correction, because the
+        # l = 1,2 modulation is mean-zero over the sphere -- but a per-cone
+        # estimator is looking in one direction, where it is emphatically not
+        # zero. Without this, a dipole of A1 = 0.7 leaves the unshocked ambient
+        # at 1.7x the spherical reference on the overdense side and the cone
+        # reports a shock in gas that was never shocked.
+        ref = n_amb
+        if asym is not None:
+            a_tot = np.bincount(idx[sel], weights=asym[sel], minlength=nbins)
+            a_mean = np.divide(a_tot, cnt, out=np.ones(nbins), where=cnt > 0)
+            ref = n_amb * a_mean
+        contrast = np.divide(mean, ref * rho_per_n, out=np.zeros(nbins), where=cnt > 0)
         hit = contrast > fs_contrast
         if np.any(hit):
             # same contiguity rule as the angle-averaged estimator: the outer
@@ -1208,7 +1240,7 @@ def main():
 
     angles, r_pa = shock_speed_vs_position_angle(
         rho, r_np, np.asarray(X), np.asarray(Y), np.asarray(Z),
-        rho_per_n=rho_per_n, r_max=0.5 * args.box,
+        asym=asym_field, rho_per_n=rho_per_n, r_max=0.5 * args.box,
         ambient_flat_beyond=meta.get("r_profile_max"), **wind)
     print(f"[orlando] r_FS vs position angle: min {np.nanmin(r_pa):.3f}, "
           f"max {np.nanmax(r_pa):.3f}, spread {np.nanmax(r_pa) - np.nanmin(r_pa):.3f} pc")

@@ -2230,3 +2230,97 @@ and the annulus statistics falsified it. And "morphology" is not one quantity:
 amplitude, topology, coherence and the outline moved in three different
 directions here, which is exactly why Result 12 had to add statistics to that
 module in the first place.
+
+---
+
+## Result 25 — the angular wind reproduces the shell's outline without its thermal cost
+
+*2026-09-02. `--wind-asym` dipole ladder, 256³, δ = 1, no shell, otherwise
+identical to `orl_n256_noshell_d1`.*
+
+Result 24 left one thing between the best spectrum in the study and a new
+fiducial: removing the CSM shell costs the forward-shock position-angle spread
+(0.117 pc against an observed 0.2–0.4). Result 23 named the intended fix — an
+azimuthally varying wind, which deforms the outline without putting a dense shell
+in the reverse shock's path. This is it, and it works.
+
+### The recorded blocker did not apply
+
+The handoff had self-consistent CSM blocked on a design problem: *"the mapping
+stage consumes a 1D SPHERICAL profile and `ejecta_mass_coordinate` rests on
+spherical symmetry."* True for a full 3D CSM cube from `casa_wind.py`. **Not true
+for an angular modulation of the ambient**, which touches only `r > 1.02 r_FS`
+while `ejecta_mass_coordinate` operates inside it — and `casa_orlando` already
+applied CSM structure as a multiplicative modulation of ρ *and* p, ahead of the
+blast only, so the pre-shock temperature is untouched. The hook was already there.
+Checking a blocker before building around it is Result 20's lesson, applied
+deliberately this time and paid off twice in three days.
+
+### The ladder
+
+| A₁ | PA spread | r_FS | r_RS |
+|---|---|---|---|
+| 0 (no shell) | 0.117 pc | 2.581 | 1.619 |
+| 0.3 | 0.175 | 2.581 | 1.619 |
+| **0.5** | **0.292** | 2.552 | 1.619 |
+| 0.7 | 0.467 | 2.552 | 1.619 |
+| *(CSM shell)* | *0.292* | *2.494* | *1.531* |
+
+*(observed 0.2–0.4 pc)*
+
+**A₁ = 0.5 gives 0.292 pc — identical to the CSM shell's value, to three
+decimals, and squarely inside the observed range.** The progression is monotone,
+which is the sanity check that it is a physical response and not a detector
+artefact.
+
+**And the mean-preserving property holds in the dynamics, not just on paper:**
+r_RS is **1.619 pc in all four runs** and r_FS moves only 2.581 → 2.552 (1 %).
+The l = 1,2 modulation adds angular structure without touching the calibrated mean
+deceleration, so the fitted n_w and the whole 1D calibration survive untouched.
+
+### The thermodynamics is the point
+
+| configuration | PA spread | v just outside r_RS | v EM-weighted | unshocked |
+|---|---|---|---|---|
+| shell (old fiducial) | 0.292 | **2576** | 2946 | 0.417 |
+| no shell | 0.117 | **1425** | 2843 | 0.461 |
+| **no shell + A₁ = 0.5** | **0.292** | **1469** | 2846 | 0.459 |
+| observed | 0.2–0.4 | ~1800 | ~1800 | 0.35 ± 0.10 |
+
+**The angular wind buys the shell's outline for a 3 % thermal cost instead of the
+shell's 80 %.** 1469 km/s against the no-shell 1425 and the shell's 2576. The
+emission-weighted value and the unshocked mass are unchanged to 0.1 % and 0.4 %.
+
+So the morphology/spectrum tension of Result 23 is **resolved rather than
+traded**, and the mechanism is exactly the one predicted: a smooth angular
+gradient decelerates the blast at different rates in different directions with no
+reflected shock, while a dense shell deforms the outline *and* re-shocks the
+emitting ejecta.
+
+### A bug this exposed, and it is the same bug twice
+
+The first pass reported A₁ = 0.5 and A₁ = 0.7 with **identical** spreads of
+0.583 pc — three decimals apart, which is the tell. The forward-shock detector
+requires `ρ > 2 × ambient` against a **spherically symmetric** reference, and the
+medium had just been made anisotropic: at A₁ = 0.7 the *unshocked* ambient sits
+at 1.7× the reference on the overdense side, 85 % of the contrast threshold on its
+own, so the cone triggers on gas that was never shocked and saturates.
+
+`ambient_number_density`'s own docstring already warned about this failure mode
+for `flat_beyond` — *"passing `flat_beyond` makes the reference match the medium
+that is actually there"* — and the fix is the same: pass whatever was applied to
+the density. Corrected, the spreads become 0.117 / 0.175 / 0.292 / 0.467.
+
+**One detail is a useful internal check:** the *angle-averaged* estimator needs no
+correction at all, because the modulation is mean-zero over the sphere. Only the
+per-cone estimator does. That is why r_FS looked healthy while the PA spread did
+not, and it independently confirms the mean-zero claim.
+
+### Status
+
+The dynamics, the outline and the thermodynamics are all in place. The spectrum
+of this configuration (`--subgrid-chi 4 --subgrid-fmass 0.2`, halo on) is
+**running**; on the thermodynamic evidence above it should reproduce Result 24's
+rms of 0.087 dex, and if it does, this configuration replaces `orl_n256_final` as
+the fiducial. **Do not adopt it until that observation and a
+`casa_morphology.py` score are both in.**
