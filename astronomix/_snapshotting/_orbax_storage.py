@@ -5,8 +5,9 @@ Used by the ``snapshot_storage_mode == TO_DISK`` path of the time integration
 the restart helper in :mod:`astronomix.setup_helpers`.
 
 Each on-disk checkpoint stores the loop carry threaded through the integrator
-— the (unpadded) primitive state, the PRNG key and the persistent OU forcing
-field (when active) — plus the current simulation time and iteration count.
+— the (unpadded) primitive state, the PRNG key, the persistent OU forcing
+field (when active) and the sink particles (when active) — plus the current
+simulation time and iteration count.
 This mirrors :class:`~astronomix.time_stepping.time_integration.LoopState`, so a
 checkpoint is everything needed to resume a run bit-reproducibly.
 
@@ -22,8 +23,9 @@ straight into a sharded target without the async machinery.
 
 The PRNG key is stored as raw key data (``jax.random.key_data`` -> a plain
 uint32 array tensorstore can serialise) and rebuilt with
-``jax.random.wrap_key_data`` on load. The OU forcing field is only written when
-present; its absence on load is reported as ``forcing = None``.
+``jax.random.wrap_key_data`` on load. The OU forcing field and the sink
+particles are only written when present; their absence on load is reported
+as ``None``.
 """
 
 # general
@@ -36,6 +38,9 @@ from typing import Any, NamedTuple, Optional
 # jax
 import jax
 from jax.sharding import NamedSharding, PartitionSpec
+
+# astronomix containers
+from astronomix.data_classes.simulation_state_struct import SinkParticles
 
 # checkpointing (optional dependency — only needed for the TO_DISK snapshot and
 # restart path). The import is guarded so that ``import astronomix`` keeps
@@ -74,6 +79,8 @@ class LoopCheckpoint(NamedTuple):
     key: Any
     #: The persistent OU forcing field, or ``None`` if it was not stored.
     forcing: Any
+    #: The sink particles, or ``None`` if they were not stored.
+    sink_particles: Any
     #: Cumulative number of integration steps taken up to this checkpoint.
     num_iterations: int
     #: The step index of this checkpoint.
@@ -87,12 +94,23 @@ class _LoopCheckpointWriter:
         self._checkpointer = checkpointer
         self._directory = Path(directory).resolve()
 
-    def save(self, step, *, time, primitive_state, key, forcing, num_iterations):
+    def save(
+        self,
+        step,
+        *,
+        time,
+        primitive_state,
+        key,
+        forcing,
+        num_iterations,
+        sink_particles=None,
+    ):
         """Serialise one loop carry into the ``<root>/<step>`` sub-directory.
 
         The PRNG key is stored as raw key data (a plain uint32 array
-        tensorstore can serialise) and the OU forcing field is only written
-        when present, so its absence is unambiguous on load.
+        tensorstore can serialise). The OU forcing field and the sink
+        particles are only written when present, so their absence is
+        unambiguous on load.
         """
         tree = {
             "time": time,
@@ -102,6 +120,8 @@ class _LoopCheckpointWriter:
         }
         if forcing is not None:
             tree["forcing"] = forcing
+        if sink_particles is not None:
+            tree["sink_particles"] = sink_particles._asdict()
         # Synchronous save; ``force`` overwrites a partially written step dir.
         self._checkpointer.save(self._directory / str(step), tree, force=True)
 
@@ -132,6 +152,7 @@ def save_loop_checkpoint(
     key,
     forcing,
     num_iterations,
+    sink_particles=None,
 ) -> None:
     """Write one loop checkpoint at ``step`` through an open ``writer``.
 
@@ -145,6 +166,7 @@ def save_loop_checkpoint(
         key=key,
         forcing=forcing,
         num_iterations=num_iterations,
+        sink_particles=sink_particles,
     )
 
 
@@ -251,11 +273,16 @@ def load_loop_checkpoint(
     finally:
         checkpointer.close()
 
+    sink_particles = tree.get("sink_particles", None)
+    if sink_particles is not None:
+        sink_particles = SinkParticles(**sink_particles)
+
     return LoopCheckpoint(
         time=tree["time"],
         primitive_state=tree["primitive_state"],
         key=jax.random.wrap_key_data(tree["key_data"]),
         forcing=tree.get("forcing", None),
+        sink_particles=sink_particles,
         num_iterations=tree["num_iterations"],
         step=step,
     )

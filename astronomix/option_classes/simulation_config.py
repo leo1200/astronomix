@@ -30,6 +30,7 @@ from astronomix._modules._cosmic_rays.cosmic_ray_options import CosmicRayConfig
 from astronomix._modules._neural_net_force._neural_net_force_options import (
     NeuralNetForceConfig,
 )
+from astronomix._modules._sink_particles._sink_particle_options import SinkParticleConfig
 from astronomix._modules._stellar_wind.stellar_wind_options import WindConfig
 from astronomix._modules._turbulent_forcing._turbulent_forcing_options import (
     TurbulentForcingConfig,
@@ -1145,6 +1146,9 @@ class SimulationConfig(NamedTuple):
     #: Configuration of the CNN MHD corrector module.
     cnn_mhd_corrector_config: CNNMHDconfig = CNNMHDconfig()
 
+    #: Configuration of the sink particle formation module.
+    sink_particle_config: SinkParticleConfig = SinkParticleConfig()
+
 
 def _parse_compute_capability(compute_capability):
     """
@@ -1224,9 +1228,10 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
     cross-field consistency: the positivity-protection defaults, the number
     of cells per axis, the grid spacing, the geometry- and solver-specific
     overrides, the master gravity switch, the boundary defaults, and the
-    disk-snapshot requirements. Combinations the solvers do not implement
-    (e.g. cosmic rays with the finite-difference solver, self-gravity or
-    non-Cartesian geometry with VL2, HLLD outside VL2) raise a ``ValueError``.
+    disk-snapshot and sink particle requirements. Combinations the solvers
+    do not implement (e.g. cosmic rays with the finite-difference solver,
+    self-gravity or non-Cartesian geometry with VL2, HLLD outside VL2) raise
+    a ``ValueError``.
 
     Args:
         config: The user-supplied simulation configuration.
@@ -1679,6 +1684,19 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
             raise ValueError(
                 "snapshot_storage_mode == TO_DISK is forward-mode only; "
                 "set differentiation_mode = FORWARDS."
+            )
+
+    # Sink particle formation requirements. The formation checks of Federrath
+    # et al. (2010) are formulated in 3D and need the self-gravity potential.
+    if config.sink_particle_config.sink_particles:
+        if config.dimensionality != 3:
+            raise ValueError("Sink particles are only supported in 3D.")
+        if not config.gravity_config.self_gravity:
+            raise ValueError("Sink particles require self_gravity = True.")
+        if not config.state_struct:
+            raise ValueError(
+                "Sink particles require state_struct = True; the sinks are "
+                "passed in and returned in the StateStruct."
             )
 
     return config
