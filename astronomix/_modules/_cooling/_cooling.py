@@ -569,6 +569,8 @@ def dtemperature_dt(
     cooling_curve_config: CoolingCurveConfig,
     cooling_curve_params: COOLING_CURVE_TYPE,
     heating_rate: float = 0.0,
+    heating_log10_T_table: jnp.ndarray = None,
+    heating_factor_table: jnp.ndarray = None,
 ) -> FIELD_TYPE:
     r"""
     Net rate of change of the rescaled temperature,
@@ -607,9 +609,20 @@ def dtemperature_dt(
         metal_mass_fraction,
     )
 
+    # Optional temperature-dependent heating factor f(T~) (see
+    # CoolingParams.heating_factor_table); table shapes are static, so this is
+    # a trace-time branch.
+    heating = heating_rate
+    if heating_factor_table is not None and heating_factor_table.shape[0] > 0:
+        heating = heating_rate * jnp.interp(
+            jnp.log10(temperature),
+            heating_log10_T_table,
+            heating_factor_table,
+        )
+
     return (
         -(cooling_rate * (gamma - 1) * density * mu) / (mu_e * mu_H)
-        + (gamma - 1) * heating_rate
+        + (gamma - 1) * heating
     )
 
 
@@ -624,6 +637,8 @@ def update_temperature_explicit(
     cooling_curve_config: CoolingCurveConfig,
     cooling_curve_params: COOLING_CURVE_TYPE,
     heating_rate: float = 0.0,
+    heating_log10_T_table: jnp.ndarray = None,
+    heating_factor_table: jnp.ndarray = None,
 ) -> FIELD_TYPE:
     """
     Advance the temperature by one explicit (forward-Euler) step,
@@ -655,6 +670,8 @@ def update_temperature_explicit(
             cooling_curve_config,
             cooling_curve_params,
             heating_rate=heating_rate,
+            heating_log10_T_table=heating_log10_T_table,
+            heating_factor_table=heating_factor_table,
         )
         * time_step
     )
@@ -671,6 +688,8 @@ def update_temperature_implicit(
     cooling_curve_config: CoolingCurveConfig,
     cooling_curve_params: COOLING_CURVE_TYPE,
     heating_rate: float = 0.0,
+    heating_log10_T_table: jnp.ndarray = None,
+    heating_factor_table: jnp.ndarray = None,
 ) -> FIELD_TYPE:
     """
     Advance the temperature by one implicit (backward-Euler) step.
@@ -704,6 +723,8 @@ def update_temperature_implicit(
             cooling_curve_config,
             cooling_curve_params,
             heating_rate=heating_rate,
+            heating_log10_T_table=heating_log10_T_table,
+            heating_factor_table=heating_factor_table,
         )
 
     # Why Newton: a fixed-point sweep converges only linearly, and each sweep
@@ -892,6 +913,8 @@ def update_pressure_by_cooling(
             cooling_curve_config,
             cooling_params.cooling_curve_params,
             heating_rate=cooling_params.heating_rate,
+            heating_log10_T_table=cooling_params.heating_log10_T_table,
+            heating_factor_table=cooling_params.heating_factor_table,
         )
         cooling_time = temperature / jnp.maximum(jnp.abs(net_temperature_rate), 1e-30)
         sound_speed = jnp.sqrt(gamma * pressure / density)
@@ -923,6 +946,8 @@ def update_pressure_by_cooling(
             cooling_curve_config,
             cooling_params.cooling_curve_params,
             heating_rate=cooling_params.heating_rate,
+            heating_log10_T_table=cooling_params.heating_log10_T_table,
+            heating_factor_table=cooling_params.heating_factor_table,
         )
     elif cooling_config.cooling_method == EXPLICIT_COOLING:
         new_temperature = update_temperature_explicit(
@@ -935,6 +960,8 @@ def update_pressure_by_cooling(
             cooling_curve_config,
             cooling_params.cooling_curve_params,
             heating_rate=cooling_params.heating_rate,
+            heating_log10_T_table=cooling_params.heating_log10_T_table,
+            heating_factor_table=cooling_params.heating_factor_table,
         )
     else:
         raise ValueError(f"Unknown cooling method: {cooling_config.cooling_method}")

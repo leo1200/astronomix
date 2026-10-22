@@ -172,6 +172,8 @@ def _apply_parabolic_and_source_limits(
             config.cooling_config.cooling_curve_config,
             cooling_params.cooling_curve_params,
             heating_rate=cooling_params.heating_rate,
+            heating_log10_T_table=cooling_params.heating_log10_T_table,
+            heating_factor_table=cooling_params.heating_factor_table,
         )
         dt_cooling = C_CFL * jnp.min(
             temperature / (jnp.abs(temperature_rate) + jnp.finfo(temperature.dtype).tiny)

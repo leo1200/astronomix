@@ -8,18 +8,28 @@ from
   includes the Dalgarno & McCray 1972 low-temperature curve), and
 * AthenaK's ISM cooling curve (Koyama & Inutsuka 2002 below 10^4.2 K, the
   Schure et al. SPEX table, and the CGOLS power-law fit above 10^8.15 K), which
-  extends far below 10^4 K for thermal-instability setups.
+  extends far below 10^4 K for thermal-instability setups, and
+* the TIGRESS-convention KI02 + Gnat & Ferland (2012) curve with a
+  temperature-dependent photoelectric heating factor and an exact mu(T)
+  mapping (``ki02_gf12_cooling``).
 
 NOTE: The rate tables feed the explicit and implicit cooling updates of
 ``_cooling.py``. The Townsend (2009) coefficients ``Y_table`` are filled in for
 completeness; the exact-integration scheme that would use them is not wired in.
 """
 
+# general
+from pathlib import Path
+
+# typing
+from typing import NamedTuple
+
 # jax
 import jax.numpy as jnp
 
 # numerics
 import numpy as np
+from scipy.interpolate import PchipInterpolator
 
 # units and constants
 from astropy import units as u
@@ -304,3 +314,328 @@ def athenak_ism_cooling(
         Y_table=Y_table,
         reference_temperature=T[-1],
     )
+
+
+# -------------------------------------------------------------
+# ====== ↓ KI02 + Gnat & Ferland (2012), TIGRESS conventions ↓ =
+# -------------------------------------------------------------
+
+#: rho / (n_H m_H) and (n_H + n_He) / n_H of TIGRESS-classic (Kim & Ostriker
+#: 2017); they define n_H and mu(T) = TIGRESS_MU_H / (TIGRESS_X_PART + x_e).
+TIGRESS_MU_H = 1.4271
+TIGRESS_X_PART = 1.1
+
+#: Solar-neighbourhood photoelectric + cosmic-ray heating rate per H [erg/s].
+TIGRESS_GAMMA_0 = 2.0e-26
+
+_HYDROGEN_MASS_CGS = 1.6735575e-24  # g
+_BOLTZMANN_CGS = 1.380649e-16  # erg / K
+
+_GF12_TABLE_PATH = Path(__file__).parent / "data" / "gf12_cie_asplund09.npz"
+
+
+class KI02GF12Cooling(NamedTuple):
+    """Everything ``ki02_gf12_cooling`` hands to ``CoolingParams``."""
+
+    #: Piecewise power-law cooling curve in code units (with Townsend Y_k).
+    cooling_curve_params: PiecewisePowerLawParams
+
+    #: Heating rate Gamma_0 * heat_ratio in code units
+    #: (``CoolingParams.heating_rate``).
+    heating_rate: float
+
+    #: log10 of the rescaled temperature grid of the heating factor
+    #: (``CoolingParams.heating_log10_T_table``).
+    heating_log10_T_table: jnp.ndarray
+
+    #: Heating factor f = 1 - x_HII(T) (``CoolingParams.heating_factor_table``).
+    heating_factor_table: jnp.ndarray
+
+    #: Rescaled temperature corresponding to T1 = T / mu = 10 K; use as
+    #: ``CoolingParams.floor_temperature`` (the 1e4 K default would switch the
+    #: low-temperature branch off).
+    floor_temperature: float
+
+    #: Conversion T~ = T1_to_code * T1, with T1 = T / mu(T) in Kelvin. Divide
+    #: astronomix temperatures by this and apply ``ki02_gf12_temperature`` to
+    #: obtain the physical temperature.
+    T1_to_code: float
+
+
+class _LogHermite:
+    """
+    Monotone (PCHIP) interpolant of log10 y over log10 T.
+
+    Beyond the table ends it extrapolates linearly in log-log space.
+    """
+
+    def __init__(self, log10_T, y, y_min=1e-35):
+        self.x = np.asarray(log10_T, float)
+        self.p = PchipInterpolator(
+            self.x,
+            np.log10(np.maximum(np.asarray(y, float), y_min)),
+        )
+        self.dp = self.p.derivative()
+        self.d0, self.d1 = float(self.dp(self.x[0])), float(self.dp(self.x[-1]))
+
+    def __call__(self, log10_T):
+        """Return (log10 y, d log10 y / d log10 T)."""
+        x = np.asarray(log10_T, float)
+        xc = np.clip(x, self.x[0], self.x[-1])
+        val = (
+            self.p(xc)
+            + np.where(x < self.x[0], self.d0 * (x - self.x[0]), 0.0)
+            + np.where(x > self.x[-1], self.d1 * (x - self.x[-1]), 0.0)
+        )
+        der = np.where(
+            x < self.x[0],
+            self.d0,
+            np.where(x > self.x[-1], self.d1, self.dp(xc)),
+        )
+        return val, der
+
+
+def _sigmoid(x):
+    """Logistic function 1 / (1 + exp(-x)), evaluated through tanh."""
+    return 0.5 * (1.0 + np.tanh(0.5 * x))
+
+
+class _KI02GF12Model:
+    """Physical (cgs) KI02 + GF12 model; evaluated once at table-build time."""
+
+    def __init__(
+        self,
+        zprime=1.0,
+        logT_blend=4.2,
+        dlogT_blend=0.05,
+        xe_floor=2.0e-3,
+        logT_floor=1.0,
+        table_path=_GF12_TABLE_PATH,
+    ):
+        d = np.load(table_path)
+        lT = np.log10(d["T"])
+        self.zprime = zprime
+        self.logT_blend, self.dlogT_blend = logT_blend, dlogT_blend
+        self.xe_floor, self.logT_floor = xe_floor, logT_floor
+        self.L_H, self.L_He, self.L_Z = (
+            _LogHermite(lT, d[k]) for k in ("Lambda_H", "Lambda_He", "Lambda_metal")
+        )
+        self.xe_H = _LogHermite(lT, d["xe_H"])
+        self.xe_He = _LogHermite(lT, np.maximum(d["xe_He"], 1e-30))
+        self.xe_Z = _LogHermite(lT, d["xe_metal"])
+
+    def lambda_ki02(self, T):
+        """Corrected Koyama & Inutsuka (2002), erg cm^3 / s per n_H^2."""
+        return TIGRESS_GAMMA_0 * (
+            1e7 * np.exp(-1.184e5 / (T + 1000.0))
+            + 1.4e-2 * np.sqrt(T) * np.exp(-92.0 / T)
+        )
+
+    def lambda_cie(self, T):
+        """Gnat & Ferland (2012) CIE cooling, erg cm^3 / s per n_H^2."""
+        lT = np.log10(T)
+        return (
+            10 ** self.L_H(lT)[0]
+            + 10 ** self.L_He(lT)[0]
+            + self.zprime * 10 ** self.L_Z(lT)[0]
+        )
+
+    def cooling_lambda(self, T):
+        """
+        Geometric sigmoid blend of KI02 and GF12 at 10^logT_blend K.
+
+        The blended curve is smoothly switched off below 10^logT_floor K.
+        """
+        lT = np.log10(T)
+        w = _sigmoid((lT - self.logT_blend) / self.dlogT_blend)
+        lam = np.exp(
+            (1 - w) * np.log(self.lambda_ki02(T)) + w * np.log(self.lambda_cie(T))
+        )
+        return lam * _sigmoid((lT - self.logT_floor) / 0.02)
+
+    def x_HII(self, T):
+        """CIE ionised-hydrogen fraction n_HII / n_H, clipped to [0, 1]."""
+        return np.clip(10 ** self.xe_H(np.log10(T))[0], 0.0, 1.0)
+
+    def electron_fraction(self, T):
+        """x_e = n_e / n_H and d x_e / d log10 T."""
+        lT = np.log10(T)
+        xe, dxe = self.xe_floor, 0.0
+        for interp, scale in (
+            (self.xe_H, 1.0),
+            (self.xe_He, 1.0),
+            (self.xe_Z, self.zprime),
+        ):
+            y, dy = interp(lT)
+            v = scale * 10**y
+            xe, dxe = xe + v, dxe + v * np.log(10.0) * dy
+        return xe, dxe
+
+    def temperature_from_T1(self, T1, n_newton=12):
+        """Invert T1 = T / mu(T) (monotone) by Newton iteration in log10 T."""
+        lT1 = np.log10(T1)
+        lT = np.where(
+            lT1 < 4.2,
+            lT1 + np.log10(TIGRESS_MU_H / (TIGRESS_X_PART + 2e-3)),
+            lT1 + np.log10(TIGRESS_MU_H / (TIGRESS_X_PART + 1.2)),
+        )
+        for _ in range(n_newton):
+            xe, dxe = self.electron_fraction(10**lT)
+            g = lT + np.log10(TIGRESS_X_PART + xe) - np.log10(TIGRESS_MU_H) - lT1
+            lT = lT - g / (1.0 + dxe / ((TIGRESS_X_PART + xe) * np.log(10.0)))
+        return 10**lT
+
+
+def ki02_gf12_temperature(T1, zprime: float = 1.0) -> np.ndarray:
+    """
+    Physical temperature T [K] from T1 = T / mu(T) [K] for the KI02 + GF12 model.
+
+    astronomix evolves T~ = T1_to_code * T1 (constant-mu EOS), so use
+    ``ki02_gf12_temperature(T_code / setup.T1_to_code)`` in post-processing;
+    for neutral gas the raw astronomix temperature is ~2x too low.
+
+    Args:
+        T1: T / mu(T) in Kelvin, scalar or array.
+        zprime: Gas metallicity in solar units, as given to ``ki02_gf12_cooling``.
+
+    Returns:
+        The physical temperature T in Kelvin, with the shape of ``T1``.
+    """
+    return _KI02GF12Model(zprime=zprime).temperature_from_T1(np.asarray(T1, float))
+
+
+def ki02_gf12_cooling(
+    code_units: CodeUnits,
+    hydrogen_mass_fraction: float,
+    metal_mass_fraction: float,
+    zprime: float = 1.0,
+    heat_ratio: float = 1.0,
+    log10_T1_min: float = 0.9,
+    log10_T1_max: float = 9.0,
+    dlog10_T1: float = 0.01,
+    log10_T_blend: float = 4.2,
+    dlog10_T_blend: float = 0.05,
+) -> KI02GF12Cooling:
+    """
+    Koyama & Inutsuka (2002) + Gnat & Ferland (2012) cooling, TIGRESS conventions.
+
+    Physics (Kim & Ostriker 2017; TIGRESS-NCR, Kim, Gong, Kim & Ostriker 2023):
+
+    * de/dt = n_H Gamma(T) - n_H^2 Lambda(T) with n_H = rho / (1.4271 m_H);
+    * Lambda: corrected KI02 (constant 1.184e5, coefficient 1.4e-2) below
+      ~10^4.2 K, blended (geometric sigmoid, width ``dlog10_T_blend`` dex) into
+      the Gnat & Ferland (2012) ion-by-ion CIE curve with Gnat & Sternberg
+      (2007) CIE ion fractions and Asplund+09 abundances; the metal part
+      scales with ``zprime``;
+    * Gamma = 2e-26 erg/s * heat_ratio * (1 - x_HII(T)), switched off as
+      hydrogen ionises (constant heating would heat a hot, rarefied wind);
+    * mu(T) = 1.4271 / (1.1 + x_e(T)), x_e from CIE plus a 2e-3 floor.
+
+    Differences from ``athenak_ism_cooling``: AthenaK normalises with the total
+    particle density n = rho / (0.618 m_u) and labels all gas with mu = 0.618,
+    i.e. ~5x stronger cooling and ~2x lower neutral-gas temperatures than
+    TIGRESS; its high-T curve (Schure+09 SPEX) peaks ~2.5x above GF12 at 1e5 K.
+
+    The varying mean molecular weight is exact without changing the
+    constant-mu EOS: astronomix evolves T~ = P / n, which is a rescaled
+    T1 = T / mu(T) = P m_H / (rho k_B). Table rows are placed at T1 and Lambda
+    is evaluated at the physical T(T1). The table is pre-scaled so that the
+    kernel's n_e n_H form yields n_H^2 Lambda with the TIGRESS n_H.
+
+    Args:
+        code_units: The code-unit system.
+        hydrogen_mass_fraction: X of ``CoolingParams`` (sets the kernel's mu,
+            mu_e, mu_H; the physical normalisation uses TIGRESS n_H).
+        metal_mass_fraction: Z of ``CoolingParams``.
+        zprime: Gas metallicity in solar units (scales the GF12 metal cooling).
+        heat_ratio: FUV intensity relative to the solar neighbourhood,
+            multiplying Gamma_0 = 2e-26 erg/s per H.
+        log10_T1_min: Lower end of the table in log10 T1 [K].
+        log10_T1_max: Upper end of the table in log10 T1 [K].
+        dlog10_T1: Table spacing in dex; 0.01 dex keeps the piecewise power law
+            within ~0.1% of the smooth curve.
+        log10_T_blend: Centre of the KI02 -> GF12 blend in log10 T [K].
+        dlog10_T_blend: Width of the blend in dex; a width -> 0 recovers the
+            TIGRESS hard switch.
+
+    Returns:
+        A :class:`KI02GF12Cooling` with the cooling-curve parameters, the
+        heating rate and heating-factor tables, the floor temperature and the
+        T1 -> code-temperature factor.
+    """
+    model = _KI02GF12Model(
+        zprime=zprime,
+        logT_blend=log10_T_blend,
+        dlogT_blend=dlog10_T_blend,
+    )
+    mu, mu_e, mu_H = get_effective_molecular_weights(
+        hydrogen_mass_fraction, metal_mass_fraction
+    )
+
+    log10_T1 = np.arange(log10_T1_min, log10_T1_max + 1e-9, dlog10_T1)
+    T1 = 10.0**log10_T1
+    T = model.temperature_from_T1(T1)
+    Lambda_cgs = model.cooling_lambda(T)  # per n_H^2
+    heating_factor = 1.0 - model.x_HII(T)
+
+    # rows: T~ = P / n = (k_B / m_H) * mu * T1 in code pressure / code density
+    T1_to_code = (
+        (1.0 * u.K * c.k_B * mu / (_HYDROGEN_MASS_CGS * u.g))
+        .to(code_units.code_pressure / code_units.code_density)
+        .value
+    )
+    T_code = T1_to_code * T1
+
+    # kernel: de/dt = -Lambda~ rho^2 / (mu_e mu_H)  ->  n_H^2 Lambda_cgs
+    unit_density_cgs = (1.0 * code_units.code_density).to(u.g / u.cm**3).value
+    unit_pressure_cgs = (1.0 * code_units.code_pressure).to(u.erg / u.cm**3).value
+    unit_time_cgs = (1.0 * code_units.code_time).to(u.s).value
+    Lambda_code = (
+        Lambda_cgs
+        * mu_e
+        * mu_H
+        * unit_density_cgs**2
+        * unit_time_cgs
+        / ((TIGRESS_MU_H * _HYDROGEN_MASS_CGS) ** 2 * unit_pressure_cgs)
+    )
+
+    log10_T_code = np.log10(T_code)
+    log10_Lambda = np.log10(np.maximum(Lambda_code, 1e-300))
+    alpha = np.diff(log10_Lambda) / np.diff(log10_T_code)
+    T_table, Lambda_table, alpha = (
+        jnp.asarray(a) for a in (T_code, 10.0**log10_Lambda, alpha)
+    )
+
+    cooling_curve_params = PiecewisePowerLawParams(
+        log10_T_table=jnp.asarray(log10_T_code),
+        log10_Lambda_table=jnp.asarray(log10_Lambda),
+        alpha_table=alpha,
+        Y_table=_townsend_y_coefficients(T_table, Lambda_table, alpha),
+        reference_temperature=float(T_code[-1]),
+    )
+
+    # heating: kernel de/dt = (rho / mu) * heating_rate  ->  n_H * Gamma
+    heating_rate = (
+        (
+            (TIGRESS_GAMMA_0 * heat_ratio * mu / (TIGRESS_MU_H * _HYDROGEN_MASS_CGS))
+            * u.erg
+            / u.s
+            / u.g
+        )
+        .to(code_units.code_pressure / code_units.code_density / code_units.code_time)
+        .value
+    )
+
+    return KI02GF12Cooling(
+        cooling_curve_params=cooling_curve_params,
+        heating_rate=float(heating_rate),
+        heating_log10_T_table=jnp.asarray(log10_T_code),
+        heating_factor_table=jnp.asarray(heating_factor),
+        floor_temperature=float(T1_to_code * 10.0),
+        T1_to_code=float(T1_to_code),
+    )
+
+
+# -------------------------------------------------------------
+# ====== ↑ KI02 + Gnat & Ferland (2012), TIGRESS conventions ↑ =
+# -------------------------------------------------------------
