@@ -54,6 +54,18 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 
+# astronomix constants
+from astronomix.plotting_helpers.paper_style import (
+    GUIDE_COLOR,
+    TEXT_WIDTH,
+)
+
+# astronomix functions
+from astronomix.plotting_helpers.paper_style import (
+    figure_legend,
+    use_paper_style,
+)
+
 # the dynamo study's measurement
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _mhd_metrics import E_MAG, E_V, load_runs, spectra_of
@@ -65,8 +77,8 @@ HERE = Path(__file__).resolve().parent
 
 #: Line width and opacity per resolution in the diffusivity panels: the finest
 #: grid is the boldest, the coarser ones recede.
-RESOLUTION_STYLE = {64: dict(lw=0.9, alpha=0.45), 128: dict(lw=1.3, alpha=0.7),
-                    256: dict(lw=1.9, alpha=1.0)}
+RESOLUTION_STYLE = {64: dict(lw=0.7, alpha=0.45), 128: dict(lw=1.0, alpha=0.7),
+                    256: dict(lw=1.6, alpha=1.0)}
 
 #: The resolutions of the simplified (diffusivity-only) figure.
 SIMPLE_RESOLUTIONS = (128, 256)
@@ -400,7 +412,6 @@ def style_diffusivity_axes(ax, field, limits):
     ax.set_xlim(MINIMUM_NYQUIST_FRACTION / 1.08, 1.08)
     ax.set_ylim(*limits)
     ax.set_xlabel(r"$n / n_{\rm Nyq}$")
-    ax.grid(alpha=0.25, which="major", lw=0.5, color="0.7")
     if field == "v":
         ax.set_title(r"$\nu_{\rm eff}(n) = D_v / 2k^2 E_v$")
         ax.set_ylabel(r"$\nu_{\rm eff}$")
@@ -446,26 +457,12 @@ def dissipation_location(budget, field):
     return peak_shell, grid_scale_fraction, mean_shell
 
 
-def apply_paper_style():
-    """Serif text sized for a two-column reduction, vector text in the SVG."""
-    plt.rcParams.update({
-        "font.family": "serif", "font.size": 10.5,
-        "axes.titlesize": 10.5, "axes.labelsize": 10.5,
-        "xtick.labelsize": 9.5, "ytick.labelsize": 9.5,
-        "legend.fontsize": 9, "axes.linewidth": 0.8, "axes.edgecolor": "0.25",
-        "xtick.direction": "in", "ytick.direction": "in",
-        "xtick.top": True, "ytick.right": True,
-        "mathtext.fontset": "dejavuserif", "svg.fonttype": "none",
-    })
-
-
 def save(fig, figures, stem):
     """Write ``fig`` as SVG, PDF and PNG."""
     figures.mkdir(parents=True, exist_ok=True)
     for extension in ("svg", "pdf", "png"):
         path = figures / f"{stem}.{extension}"
-        fig.savefig(path, dpi=300 if extension == "png" else None,
-                    bbox_inches="tight", pad_inches=0.02)
+        fig.savefig(path)
         print(f"wrote {path}")
     plt.close(fig)
 
@@ -504,7 +501,7 @@ def draw_diffusivity_figure(budgets, kinematic_budgets, figures, stem):
     """The 1 x 3 figure: ``nu_eff(n)``, ``eta_eff(n)`` and ``Pm(n)`` at 128^3
     and 256^3, from the kinematic-phase estimator in logarithmic shell bins,
     with the table's band means (from the matched window) as dashes."""
-    fig, axes = plt.subplots(1, 3, figsize=(13.0, 3.9))
+    fig, axes = plt.subplots(1, 3, figsize=(TEXT_WIDTH, 2.75), layout="constrained")
     for scheme in ("wenoz", "vl2"):
         for N in SIMPLE_RESOLUTIONS:
             if (scheme, N) not in kinematic_budgets:
@@ -520,24 +517,20 @@ def draw_diffusivity_figure(budgets, kinematic_budgets, figures, stem):
     prandtl_axes = axes[2]
     prandtl_axes.set_xscale("log")
     prandtl_axes.axvspan(*BAND, color="0.92", zorder=0)
-    prandtl_axes.axhline(1.0, color="0.35", lw=0.9, ls=":", zorder=1)
+    prandtl_axes.axhline(1.0, color=GUIDE_COLOR, lw=0.9, ls=":", zorder=1)
     prandtl_axes.set_xlim(MINIMUM_NYQUIST_FRACTION / 1.08, 1.08)
     prandtl_axes.set_ylim(*PRANDTL_LIMITS)
     prandtl_axes.set_xlabel(r"$n / n_{\rm Nyq}$")
-    prandtl_axes.set_title(r"$Pm(n) = \nu_{\rm eff}(n) / \eta_{\rm eff}(n)$")
-    prandtl_axes.set_ylabel(r"$Pm$")
-    prandtl_axes.grid(alpha=0.25, which="major", lw=0.5, color="0.7")
+    prandtl_axes.set_title(r"$\mathrm{Pm}(n) = \nu_{\rm eff}(n) / \eta_{\rm eff}(n)$")
+    prandtl_axes.set_ylabel(r"$\mathrm{Pm}$")
 
-    scheme_handles = [Line2D([], [], color=SERIES[key][0], lw=2.0, label=SERIES[key][2])
+    scheme_handles = [Line2D([], [], color=SERIES[key][0], lw=1.6, label=SERIES[key][3])
                       for key in ("wenoz", "vl2")]
     resolution_handles = [Line2D([], [], color="0.25", label=f"${N}^3$", **RESOLUTION_STYLE[N])
                           for N in SIMPLE_RESOLUTIONS]
     resolution_handles.append(Line2D([], [], color="0.25", ls=(0, (4, 2)), lw=1.5,
-                                     label="band mean (table)"))
-    fig.legend(handles=scheme_handles + resolution_handles, loc="lower center",
-               ncol=len(scheme_handles) + len(resolution_handles), frameon=False,
-               bbox_to_anchor=(0.5, -0.01), columnspacing=1.3, handlelength=2.4)
-    fig.tight_layout(rect=(0, 0.08, 1, 1))
+                                     label="band mean"))
+    figure_legend(fig, scheme_handles + resolution_handles, ncols=3, handlelength=2.4)
     save(fig, figures, stem)
 
 
@@ -566,7 +559,7 @@ def draw_full_figure(budgets, figures, stem):
     """The 2 x 2 figure: the 256^3 budgets and the diffusivities of every grid."""
     finest = max(N for _, N in budgets)
     resolutions = tuple(sorted(RESOLUTION_STYLE))
-    fig, axes = plt.subplots(2, 2, figsize=(10.0, 7.4))
+    fig, axes = plt.subplots(2, 2, figsize=(TEXT_WIDTH, 5.4), layout="constrained")
     for scheme in ("wenoz", "vl2"):
         colour = SERIES[scheme][0]
         draw_budget(axes[0, 0], budgets[(scheme, finest)], colour, "v")
@@ -582,7 +575,6 @@ def draw_full_figure(budgets, figures, stem):
         ax.set_ylim(*BUDGET_LIMITS[field])
         ax.set_xlabel(r"mode number $n = kL/2\pi$")
         ax.set_ylabel("per-shell rate")
-        ax.grid(alpha=0.25, which="major", lw=0.5, color="0.7")
     axes[0, 0].set_title(rf"kinetic budget, ${finest}^3$")
     axes[1, 0].set_title(rf"magnetic budget, ${finest}^3$")
     for ax, field in zip(axes[:, 1], ("v", "B")):
@@ -591,12 +583,12 @@ def draw_full_figure(budgets, figures, stem):
     # One legend below the panels, two rows: what the colour, the line weight
     # and the line style mean. Keeping it out of the panels keeps it off the
     # curves.
-    scheme_handles = [Line2D([], [], color=SERIES[key][0], lw=2.0, label=SERIES[key][2])
+    scheme_handles = [Line2D([], [], color=SERIES[key][0], lw=1.6, label=SERIES[key][3])
                       for key in ("wenoz", "vl2")]
     resolution_handles = [Line2D([], [], color="0.25", label=f"${N}^3$", **RESOLUTION_STYLE[N])
                           for N in resolutions]
     term_handles = [
-        Line2D([], [], color="0.25", ls=(0, (4, 2)), lw=1.5, label="band mean (table)"),
+        Line2D([], [], color="0.25", ls=(0, (4, 2)), lw=1.5, label="band mean"),
         Line2D([], [], color="0.25", ls="-", lw=1.6, label=r"$|T(n)|$, ideal transfer"),
         Line2D([], [], color="0.25", ls=":", lw=1.3, label=r"$|dE(n)/dt|$"),
         Line2D([], [], color="0.25", ls="--", lw=1.4, label=r"$D(n) = T - dE/dt$"),
@@ -605,9 +597,7 @@ def draw_full_figure(budgets, figures, stem):
     first_row = scheme_handles + resolution_handles
     # matplotlib fills legend columns first, so interleave the two rows.
     handles = [handle for pair in zip(first_row, term_handles) for handle in pair]
-    fig.legend(handles=handles, loc="lower center", ncol=len(first_row), frameon=False,
-               bbox_to_anchor=(0.5, -0.01), columnspacing=1.3, handlelength=2.4)
-    fig.tight_layout(rect=(0, 0.075, 1, 1))
+    figure_legend(fig, handles, ncols=len(first_row), handlelength=2.4)
     save(fig, figures, stem)
 
 
@@ -679,7 +669,7 @@ def main():
     kinematic_budgets = {key: value for key, value in kinematic_budgets.items()
                          if value is not None}
 
-    apply_paper_style()
+    use_paper_style()
     figures = Path(args.figures)
     draw_diffusivity_figure(budgets, kinematic_budgets, figures, args.stem)
     draw_full_figure(budgets, figures, f"{args.stem}_full")

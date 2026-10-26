@@ -44,6 +44,13 @@ from astronomix import (
     HLLC,
     VL2,
 )
+from astronomix.plotting_helpers.paper_style import (
+    FD_COLOR,
+    FV_COLOR,
+    FV_HLLE_COLOR,
+    REFERENCE_COLOR,
+    TEXT_WIDTH,
+)
 
 # astronomix containers
 from astronomix import (
@@ -58,6 +65,10 @@ from astronomix import (
     get_registered_variables,
 )
 from astronomix.plotting_helpers.inset_box import add_inset_box
+from astronomix.plotting_helpers.paper_style import (
+    figure_legend,
+    use_paper_style,
+)
 from astronomix.test_setups.hydrodynamics.shock_tube1D import (
     setup_sod_shock_tube,
     sod_shock_tube_solution,
@@ -69,6 +80,13 @@ FIG_DIR = Path(__file__).resolve().parent / "figures"
 FIG_DIR.mkdir(exist_ok=True)
 
 NUM_CELLS = 200
+
+# The line colors of the configurations, those of all figures of the paper.
+COLORS = {
+    "FV (VL2, HLLC)": FV_COLOR,
+    "FV (VL2, HLLE)": FV_HLLE_COLOR,
+    "FD (WENO-Z)": FD_COLOR,
+}
 
 # The configurations shown, as (legend label, configuration, CFL number): the
 # two Riemann solvers of the finite-volume VL2 scheme and the
@@ -130,7 +148,13 @@ def run_shock_tube1D():
     # =========== ↓ High-resolution reference solution ↓ ==========
     # -------------------------------------------------------------
 
-    fig, (ax_density, ax_velocity, ax_pressure) = plt.subplots(1, 3, figsize=(15, 5))
+    use_paper_style()
+    fig, (ax_density, ax_velocity, ax_pressure) = plt.subplots(
+        1,
+        3,
+        figsize=(TEXT_WIDTH, 2.4),
+        layout="constrained",
+    )
 
     # A finely resolved analytic solution serves as the visual reference the
     # coarser runs are plotted against.
@@ -157,30 +181,24 @@ def run_shock_tube1D():
     ax_density.plot(
         helper_data_high_res.geometric_centers,
         reference_solution_high_res[registered_variables.density_index],
-        label="Reference",
-        color="black",
+        label="exact solution",
+        color=REFERENCE_COLOR,
     )
     ax_velocity.plot(
         helper_data_high_res.geometric_centers,
         reference_solution_high_res[registered_variables.velocity_index],
-        label="Reference",
-        color="black",
+        label="exact solution",
+        color=REFERENCE_COLOR,
     )
     ax_pressure.plot(
         helper_data_high_res.geometric_centers,
         reference_solution_high_res[registered_variables.pressure_index],
-        label="Reference",
-        color="black",
+        label="exact solution",
+        color=REFERENCE_COLOR,
     )
-    ax_density.set_xlabel("x")
-    ax_density.set_ylabel("Density")
-    ax_velocity.set_xlabel("x")
-    ax_velocity.set_ylabel("Velocity")
-    ax_pressure.set_xlabel("x")
-    ax_pressure.set_ylabel("Pressure")
-    ax_density.set_title("Density")
-    ax_velocity.set_title("Velocity")
-    ax_pressure.set_title("Pressure")
+    for axis, quantity in ((ax_density, "density"), (ax_velocity, "velocity"), (ax_pressure, "pressure")):
+        axis.set_xlabel("$x$")
+        axis.set_ylabel(quantity)
 
     # -------------------------------------------------------------
     # =========== ↑ High-resolution reference solution ↑ ==========
@@ -220,16 +238,19 @@ def run_shock_tube1D():
             helper_data.geometric_centers,
             final_state[registered_variables.density_index],
             label=label,
+            color=COLORS[label],
         )
         ax_velocity.plot(
             helper_data.geometric_centers,
             final_state[registered_variables.velocity_index],
             label=label,
+            color=COLORS[label],
         )
         ax_pressure.plot(
             helper_data.geometric_centers,
             final_state[registered_variables.pressure_index],
             label=label,
+            color=COLORS[label],
         )
 
     # -------------------------------------------------------------
@@ -240,10 +261,8 @@ def run_shock_tube1D():
     # schemes differ where the solutions are hardest to resolve.
     add_inset_box(ax_density, x1=0.62, x2=0.72, y1=0.20, y2=0.30, connect_loc1=1)
 
-    handles, labels = ax_density.get_legend_handles_labels()
-    fig.legend(handles, labels, loc="lower center", ncol=4)
+    figure_legend(fig)
 
-    fig.tight_layout(rect=[0, 0.08, 1, 1])
     out = FIG_DIR / "shock_tube1D_test.svg"
     fig.savefig(out)
     plt.close(fig)

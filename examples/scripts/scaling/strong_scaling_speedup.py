@@ -84,9 +84,9 @@ EQUAL_WORK_RESOLUTION = 512
 #: fitted to (the small grids do not follow the asymptotic N^3 cost).
 EXTRAPOLATION_FIT_POINTS = 3
 
-#: Categorical colors (validated reference palette, slots 1 and 2): the scheme
-#: is the identity of a line.
-SCHEME_COLORS = {"fd": "#2a78d6", "fv": "#eb6834"}
+#: The colors of the schemes in all figures of the paper (``paper_style``):
+#: the scheme is the identity of a line.
+SCHEME_COLORS = {"fd": "tab:blue", "fv": "tab:orange"}
 
 #: Marker and line style per GPU count (the second encoding of a line).
 GPU_STYLES = {
@@ -96,7 +96,7 @@ GPU_STYLES = {
     16: dict(marker="s", linestyle="--"),
 }
 
-PHYSICS_TITLES = {"hydro": "Hydrodynamics (sound wave)", "mhd": "MHD (CP Alfvén wave)"}
+PHYSICS_TITLES = {"hydro": "hydrodynamics (3D sound wave)", "mhd": "MHD (3D CP Alfvén wave)"}
 
 
 # -------------------------------------------------------------
@@ -336,9 +336,30 @@ def plot(args) -> None:
     import matplotlib.pyplot as plt
     from matplotlib.lines import Line2D
 
+    # astronomix constants
+    from astronomix.plotting_helpers.paper_style import (
+        COLUMN_WIDTH,
+        GUIDE_COLOR,
+        TEXT_WIDTH,
+        TWO_COLUMN,
+        layout_path,
+    )
+
+    # astronomix functions
+    from astronomix.plotting_helpers.paper_style import (
+        figure_legend,
+        use_paper_style,
+    )
+
     shown_gpu_counts = sorted(args.plot_gpus)
 
-    figure, axes = plt.subplots(1, 2, figsize=(10.0, 4.2), sharey=True)
+    use_paper_style()
+    # Side by side in the single-column layout, stacked in one column (sharing
+    # N) in the two-column layout.
+    if TWO_COLUMN:
+        figure, axes = plt.subplots(2, 1, figsize=(COLUMN_WIDTH, 6.4), sharex=True, layout="constrained")
+    else:
+        figure, axes = plt.subplots(1, 2, figsize=(TEXT_WIDTH, 3.3), sharey=True, layout="constrained")
     summary = {}
     all_resolutions = set()
 
@@ -373,7 +394,6 @@ def plot(args) -> None:
                     values,
                     color=SCHEME_COLORS[scheme],
                     linestyle=style["linestyle"],
-                    linewidth=2.0,
                     zorder=2,
                 )
                 # Filled markers for measured baselines, open markers where the
@@ -383,20 +403,19 @@ def plot(args) -> None:
                         resolution,
                         value,
                         marker=style["marker"],
-                        markersize=7,
+                        markersize=5,
                         color=SCHEME_COLORS[scheme],
                         markerfacecolor="white" if extrapolated else SCHEME_COLORS[scheme],
-                        markeredgewidth=1.5,
                         linestyle="none",
                         zorder=3,
                     )
 
         for num_gpus in shown_gpu_counts:
-            axis.axhline(num_gpus, color="#8a8984", linestyle="--", linewidth=1.0, zorder=1)
-        axis.set_title(PHYSICS_TITLES[physics], fontsize=11)
-        axis.set_xlabel(r"$N$  (grid $2N \times N \times N$)")
+            axis.axhline(num_gpus, color=GUIDE_COLOR, linestyle="--", linewidth=0.8, zorder=1)
+        axis.set_title(PHYSICS_TITLES[physics])
+        if not TWO_COLUMN or physics == "mhd":
+            axis.set_xlabel(r"$N$ (grid $2N \times N \times N$)")
         axis.set_xscale("log")
-        axis.grid(True, which="major", alpha=0.25)
 
     resolution_ticks = sorted(all_resolutions)
     for axis in axes:
@@ -404,19 +423,22 @@ def plot(args) -> None:
         axis.set_xticklabels([str(resolution) for resolution in resolution_ticks])
         axis.xaxis.set_minor_locator(plt.NullLocator())
         for num_gpus in shown_gpu_counts:
+            # At the right end, where every curve lies well below its ideal.
             axis.annotate(
                 f"ideal {num_gpus}",
-                (resolution_ticks[0], num_gpus) if resolution_ticks else (1, num_gpus),
-                xytext=(2, 2),
+                (resolution_ticks[-1], num_gpus) if resolution_ticks else (1, num_gpus),
+                xytext=(0, 2),
                 textcoords="offset points",
-                fontsize=8,
-                color="#52514e",
+                ha="right",
+                fontsize=7,
+                color=GUIDE_COLOR,
             )
-    axes[0].set_ylabel(r"strong-scaling speedup $T(1)/T(G)$")
-    axes[0].set_ylim(0, max(shown_gpu_counts) * 1.08)
+    for axis in axes if TWO_COLUMN else axes[:1]:
+        axis.set_ylabel(r"strong-scaling speedup $T(1)/T(G)$")
+        axis.set_ylim(0, max(shown_gpu_counts) * 1.08)
 
     legend_handles = [
-        Line2D([], [], color=SCHEME_COLORS[scheme], linewidth=2.0, label=SCHEME_LABELS[scheme])
+        Line2D([], [], color=SCHEME_COLORS[scheme], label=SCHEME_LABELS[scheme])
         for scheme in ("fd", "fv")
     ]
     legend_handles += [
@@ -441,20 +463,12 @@ def plot(args) -> None:
             label="1-GPU baseline extrapolated",
         )
     )
-    # Below the highest ideal line, in the empty upper left of the panel.
-    axes[0].legend(
-        handles=legend_handles,
-        fontsize=8,
-        loc="upper left",
-        bbox_to_anchor=(0.0, 0.9),
-        framealpha=0.9,
-    )
+    figure_legend(figure, legend_handles, ncols=1 if TWO_COLUMN else 3)
 
-    figure.tight_layout()
     os.makedirs(FIGURE_DIR, exist_ok=True)
-    figure_stem = os.path.join(FIGURE_DIR, "strong_speedup_hydro_mhd")
+    figure_stem = layout_path(os.path.join(FIGURE_DIR, "strong_speedup_hydro_mhd"))
     for extension in ("svg", "pdf", "png"):
-        figure.savefig(f"{figure_stem}.{extension}", dpi=200)
+        figure.savefig(f"{figure_stem}.{extension}")
     plt.close(figure)
     print(f"[strong] wrote {figure_stem}.{{svg,pdf,png}}")
     if args.copy_to_paper:

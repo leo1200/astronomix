@@ -83,7 +83,11 @@ from _common import (
     DATA_DIR,
     FINITE_VOLUME_SCHEME,
     SMOOTH_TEST_SCHEMES,
+    SINGLE_PANEL_WIDTH,
+    TEXT_WIDTH,
+    TWO_COLUMN,
     apply_paper_style,
+    figure_legend,
     fit_power_law,
     gravity_options,
     integer_log_ticks,
@@ -240,7 +244,7 @@ def plot():
     resolutions = data["resolutions"]
 
     apply_paper_style()
-    fig, ax = plt.subplots(figsize=(10.5, 5))
+    fig, ax = plt.subplots(figsize=(SINGLE_PANEL_WIDTH, 4.4) if TWO_COLUMN else (0.75 * TEXT_WIDTH, 3.7), layout="constrained")
 
     for scheme in SMOOTH_TEST_SCHEMES:
         errs = data[f"errors_{scheme.key}"]
@@ -256,7 +260,7 @@ def plot():
 
     # Direct power-law fits of the corrected flux-based coupling and of the
     # finite-volume scheme.
-    for fit_scheme, fit_color in ((CORRECTED_SCHEME, "k"), (FINITE_VOLUME_SCHEME, "0.45")):
+    for fit_scheme, fit_color in ((CORRECTED_SCHEME, "black"), (FINITE_VOLUME_SCHEME, "0.45")):
         scheme_order, prefactor, n_fit, _ = fit_power_law(
             resolutions,
             data[f"errors_{fit_scheme.key}"],
@@ -267,7 +271,7 @@ def plot():
             prefactor * n_line**scheme_order,
             color=fit_color,
             linestyle="-",
-            linewidth=1.2,
+            linewidth=0.9,
             zorder=5,
             label=rf"fit: $\propto N^{{{scheme_order:.2f}}}$ ({fit_scheme.label})",
         )
@@ -276,12 +280,10 @@ def plot():
     ax.set_yscale("log")
     integer_log_ticks(ax, resolutions, axis="x")
     ax.set_xlabel(r"$x$-resolution $N_x$  ($N_y = N_z = N_x/2$)")
-    ax.set_ylabel("L1 density error")
-    ax.set_title("Jeans waves: L1 density error convergence")
+    ax.set_ylabel(r"$L_1$ density error")
     # The curves and fits leave no free corner, so the legend sits
-    # beside the axes.
-    ax.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0), fontsize="small")
-    fig.tight_layout()
+    # below the axes.
+    figure_legend(fig, ncols=1 if TWO_COLUMN else 2)
     corrected_order, _, _, _ = fit_power_law(resolutions, data[f"errors_{CORRECTED_SCHEME.key}"])
     print(f"Saved -> {save_figure(fig, FIGURE_STEM)}   (flux-based corrected order p = {corrected_order:.3f})")
     for scheme in SMOOTH_TEST_SCHEMES:

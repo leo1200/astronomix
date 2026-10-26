@@ -38,9 +38,29 @@ from astronomix.option_classes.simulation_config import (
     SECOND_ORDER_CONSERVATIVE,
     SIMPLE_SOURCE,
 )
+from astronomix.plotting_helpers.paper_style import (
+    ATHENA_COUPLING_COLOR,
+    FLUX_BASED_COLOR,
+    FLUX_BASED_CORRECTED_COLOR,
+    FLUX_CORRECTED_WORK_COLOR,
+    GUIDE_COLOR,
+    COLUMN_WIDTH,
+    SIMPLE_SOURCE_COLOR,
+    SINGLE_PANEL_WIDTH,
+    TEXT_WIDTH,
+    TIME_CENTRED_WORK_COLOR,
+    TWO_COLUMN,
+    layout_path,
+)
 
 # astronomix containers
 from astronomix import BackendConfig
+
+# astronomix functions
+from astronomix.plotting_helpers.paper_style import (
+    figure_legend,
+    use_paper_style,
+)
 
 HERE = Path(__file__).resolve().parent
 DATA_DIR = HERE / "data"
@@ -75,7 +95,7 @@ class Scheme(NamedTuple):
     marker: str
     linestyle: str
     color: str
-    linewidth: float = 2.0
+    linewidth: float = 1.5
     work_flux_correction: bool = False
     positivity_preserving: bool = False
     time_centred_energy_source: bool = False
@@ -94,7 +114,7 @@ class Scheme(NamedTuple):
         if self.positivity_preserving:
             label += " + PP-WENO"
         if self.time_centred_energy_source:
-            label += " + time-centred work"
+            label += " + time-centered work"
         return label
 
     @property
@@ -110,17 +130,18 @@ class Scheme(NamedTuple):
         return key
 
 
-# Order and styling shared by all figures. Colours and markers are fixed per
-# scheme so a reader can match curves across the panels.
-SIMPLE_SCHEME = Scheme(SIMPLE_SOURCE, marker="o", linestyle=":", color="C0", linewidth=2.5)
-FLUX_SCHEME = Scheme(SECOND_ORDER_CONSERVATIVE, marker="s", linestyle="-.", color="C1")
-CORRECTED_SCHEME = Scheme(FOURTH_ORDER_CONSERVATIVE, marker="^", linestyle="--", color="C2")
+# Order and styling shared by all figures. Colours (those of all figures of
+# the paper) and markers are fixed per scheme so a reader can match curves
+# across the panels.
+SIMPLE_SCHEME = Scheme(SIMPLE_SOURCE, marker="o", linestyle=":", color=SIMPLE_SOURCE_COLOR, linewidth=1.8)
+FLUX_SCHEME = Scheme(SECOND_ORDER_CONSERVATIVE, marker="s", linestyle="-.", color=FLUX_BASED_COLOR)
+CORRECTED_SCHEME = Scheme(FOURTH_ORDER_CONSERVATIVE, marker="^", linestyle="--", color=FLUX_BASED_CORRECTED_COLOR)
 CORRECTED_FCT_SCHEME = Scheme(
     FOURTH_ORDER_CONSERVATIVE,
     marker="v",
     linestyle="-",
-    color="C3",
-    linewidth=1.5,
+    color=FLUX_CORRECTED_WORK_COLOR,
+    linewidth=1.2,
     work_flux_correction=True,
 )
 
@@ -130,15 +151,13 @@ FINITE_VOLUME_SCHEME = Scheme(
     ATHENA_SECOND_ORDER,
     marker="D",
     linestyle=(0, (3, 1, 1, 1, 1, 1)),
-    color="C4",
-    linewidth=1.8,
+    color=ATHENA_COUPLING_COLOR,
 )
 FINITE_VOLUME_TIME_CENTRED_SCHEME = Scheme(
     ATHENA_SECOND_ORDER,
     marker="P",
     linestyle=(0, (8, 3)),
-    color="C5",
-    linewidth=1.8,
+    color=TIME_CENTRED_WORK_COLOR,
     time_centred_energy_source=True,
 )
 
@@ -165,6 +184,12 @@ CONSERVATIVE_SCHEMES = [FLUX_SCHEME, CORRECTED_SCHEME, CORRECTED_FCT_SCHEME]
 #: finite-volume scheme with both energy sources.
 FINITE_VOLUME_SCHEMES = [FINITE_VOLUME_SCHEME, FINITE_VOLUME_TIME_CENTRED_SCHEME]
 COLLAPSE_COMPARISON_SCHEMES = COLLAPSE_SCHEMES + FINITE_VOLUME_SCHEMES
+
+#: The couplings the collapse figures of the paper show. The flux-corrected work
+#: and the time-centred energy source of the finite-volume scheme are run and
+#: cached with the others but only quoted in the text.
+FIGURE_COLLAPSE_SCHEMES = [SIMPLE_SCHEME, FLUX_SCHEME, CORRECTED_SCHEME, FINITE_VOLUME_SCHEME]
+FIGURE_CONSERVATIVE_SCHEMES = [FLUX_SCHEME, CORRECTED_SCHEME]
 
 
 def solver_options(scheme: Scheme) -> dict:
@@ -278,22 +303,8 @@ def observed_orders(step_sizes, errors):
 
 
 def apply_paper_style():
-    """A light, consistent matplotlib style for the gravity figures."""
-    import matplotlib.pyplot as plt
-
-    plt.rcParams.update(
-        {
-            "figure.dpi": 150,
-            "savefig.bbox": "tight",
-            "font.size": 12,
-            "axes.titlesize": 13,
-            "axes.labelsize": 12,
-            "legend.fontsize": 10,
-            "axes.grid": True,
-            "grid.alpha": 0.3,
-            "lines.markersize": 6,
-        }
-    )
+    """The common style of the figures of the paper (``paper_style``)."""
+    use_paper_style()
 
 
 def integer_log_ticks(ax, resolutions, axis="x"):
@@ -320,7 +331,7 @@ def integer_log_ticks(ax, resolutions, axis="x"):
         ax.set_yticklabels([str(r) for r in resolutions])
 
 
-def save_figure(fig, stem, dpi=200, extensions=("svg",)):
+def save_figure(fig, stem, dpi=300, extensions=("svg",)):
     """Save a figure under ``figures/`` (svg, the format the paper includes,
     unless more formats are requested).
 
@@ -334,5 +345,5 @@ def save_figure(fig, stem, dpi=200, extensions=("svg",)):
         The path of the svg file.
     """
     for extension in extensions:
-        fig.savefig(FIG_DIR / f"{stem}.{extension}", dpi=dpi)
-    return FIG_DIR / f"{stem}.svg"
+        fig.savefig(layout_path(FIG_DIR / f"{stem}.{extension}"), dpi=dpi)
+    return layout_path(FIG_DIR / f"{stem}.svg")

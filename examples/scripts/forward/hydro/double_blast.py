@@ -46,6 +46,7 @@ from astronomix import (
     HLLC,
     VL2,
 )
+from astronomix.plotting_helpers.paper_style import TEXT_WIDTH, TWO_COLUMN, SINGLE_PANEL_WIDTH, layout_path
 
 # astronomix containers
 from astronomix import (
@@ -62,11 +63,16 @@ from astronomix import (
     time_integration,
     construct_primitive_state,
 )
+from astronomix.plotting_helpers.paper_style import (
+    figure_legend,
+    use_paper_style,
+)
 
 
 # shared hydro-figure helpers
 from _common import (
     DATA_DIR,
+    EXACT_COLOR,
     FIG_DIR,
     FD_COLOR,
     FV_HLLC_COLOR,
@@ -98,7 +104,7 @@ RUNS = [
         FINITE_VOLUME,
         HLLC,
         10000,
-        "0.3",
+        EXACT_COLOR,
         "line",
     ),
 ]
@@ -229,7 +235,8 @@ def plot(data):
     Args:
         data: The dict of cached profiles (see :func:`run_and_cache`).
     """
-    fig, ax = plt.subplots(1, 1, figsize=(8, 5))
+    use_paper_style()
+    fig, ax = plt.subplots(1, 1, figsize=(SINGLE_PANEL_WIDTH if TWO_COLUMN else 0.75 * TEXT_WIDTH, 3.2), layout="constrained")
 
     for key, label, _, _, _, color, style in RUNS:
         positions = data[f"{key}_r"]
@@ -247,18 +254,17 @@ def plot(data):
                 linestyle="None",
             )
         else:
-            ax.plot(positions, density, label=label, color=color, lw=1.5)
+            ax.plot(positions, density, label=label, color=color, linewidth=1.0)
 
-    ax.set_xlabel("position")
+    ax.set_xlabel("$x$")
     ax.set_ylabel("density")
-    ax.legend(loc="upper left", fontsize=9)
+    figure_legend(fig, ncols=1 if TWO_COLUMN else 2, markerscale=2)
     ax.set_xlim(0.4, 1.0)
     ax.set_ylim(0, 7)
 
-    plt.tight_layout()
-    out = FIG_DIR / "double_blast.pdf"
-    fig.savefig(out, bbox_inches="tight")
-    fig.savefig(out.with_suffix(".png"), bbox_inches="tight", dpi=200)
+    out = layout_path(FIG_DIR / "double_blast.pdf")
+    fig.savefig(out)
+    fig.savefig(out.with_suffix(".png"))
     plt.close(fig)
     print(f"saved {out}")
 

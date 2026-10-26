@@ -1,14 +1,14 @@
 """
-Figure: time per step of astronomix's finite-volume scheme (VL2 + PLM + HLLD +
-GLM, Pallas backend) against AthenaPK on one GPU, in single precision with the
-double-precision curves as a reference.
+Figure: throughput of astronomix's finite-volume scheme (VL2 + PLM + HLLD +
+GLM, Pallas backend) against AthenaPK on one GPU, in single and in double
+precision.
 
 Reads the results of ``benchmark.py`` (one file per precision, both codes
 measured on exclusive GH200 nodes; an entry of either code can be refreshed
-by a later run of that code alone) and draws the time per step and the
-throughput (cell updates per second; for AthenaPK its own zone-cycles per
-wall second) against the resolution N of the CP Alfvén wave (grid 2N x N x N).
-Prints the table behind the figure, with the AthenaPK/astronomix ratios and the
+by a later run of that code alone) and draws the throughput (cell updates per
+second; for AthenaPK its own zone-cycles per wall second) against the
+resolution N of the CP Alfvén wave (grid 2N x N x N). Prints the table behind
+the figure: the time per step, the AthenaPK/astronomix ratios and the
 single/double speed-ups of both codes.
 
 Usage:
@@ -31,13 +31,27 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 
+# astronomix constants
+from astronomix.plotting_helpers.paper_style import (
+    ATHENAPK_COLOR,
+    FV_COLOR,
+    SINGLE_PANEL_WIDTH,
+    layout_path,
+)
+
+# astronomix functions
+from astronomix.plotting_helpers.paper_style import (
+    use_paper_style,
+    variant_style,
+)
+
 HERE = Path(__file__).resolve().parent
 REPOSITORY = HERE.parents[3]
 
 ASTRONOMIX_CODE = "astronomix pallas"
 ATHENAPK_CODE = "AthenaPK"
 LABELS = {ASTRONOMIX_CODE: "astronomix FV (VL2, Pallas)", ATHENAPK_CODE: "AthenaPK (VL2+PLM)"}
-COLORS = {ASTRONOMIX_CODE: "tab:blue", ATHENAPK_CODE: "tab:red"}
+COLORS = {ASTRONOMIX_CODE: FV_COLOR, ATHENAPK_CODE: ATHENAPK_COLOR}
 MARKERS = {ASTRONOMIX_CODE: "o", ATHENAPK_CODE: "s"}
 
 
@@ -118,61 +132,49 @@ def main():
     print_table(single, double)
 
     # -------------------------------------------------------------
-    # =============== ↓ Time per step and throughput ↓ ============
+    # ==================== ↓ Throughput figure ↓ ==================
     # -------------------------------------------------------------
-    # Two panels rather than two y-axes: the throughput is the per-step time
-    # converted to cell updates per second, shown on its own scale.
-    figure, (axis_time, axis_throughput) = plt.subplots(1, 2, figsize=(12, 5))
+    # The figure shows the throughput only: it is the time per step converted
+    # to cell updates per second, and unlike the time per step it shows at a
+    # glance where each code saturates the GPU. The per-step times and their
+    # ratios are printed above.
+    use_paper_style()
+    figure, axis = plt.subplots(figsize=(SINGLE_PANEL_WIDTH, 2.9), layout="constrained")
     all_resolutions = set()
-    for precision_label, curves, line_style, face in (
-        ("single", single, "-", None),
-        ("double", double, "--", "none"),
-    ):
+    for precision_label, curves in (("single", single), ("double", double)):
         for code in (ASTRONOMIX_CODE, ATHENAPK_CODE):
             resolutions, milliseconds, throughput = curves[code]
             if len(resolutions) == 0:
                 continue
             all_resolutions |= set(int(value) for value in resolutions)
-            style = dict(
-                color=COLORS[code],
+            if precision_label == "single":
+                style = dict(color=COLORS[code])
+            else:
+                style = variant_style(COLORS[code])
+            axis.loglog(
+                resolutions,
+                throughput / 1e6,
                 marker=MARKERS[code],
-                linestyle=line_style,
-                linewidth=2,
-                markersize=8,
                 label=f"{LABELS[code]}, {precision_label}",
+                **style,
             )
-            if face is not None:
-                style["markerfacecolor"] = face
-            axis_time.loglog(resolutions, milliseconds, **style)
-            axis_throughput.loglog(resolutions, throughput / 1e6, **style)
 
     resolutions = sorted(all_resolutions)
-    for axis in (axis_time, axis_throughput):
-        axis.set_xscale("log")
-        axis.xaxis.set_major_locator(ticker.FixedLocator(resolutions))
-        axis.xaxis.set_major_formatter(ticker.FixedFormatter([str(value) for value in resolutions]))
-        axis.xaxis.set_minor_locator(ticker.NullLocator())
-        axis.set_xlabel("N (grid size: 2N x N x N)", fontsize=12)
-        axis.grid(True, which="major", ls="-", alpha=0.2)
-    axis_time.set_ylabel("Time per step (ms)", fontsize=12)
-    axis_time.set_title("Time per step vs N", fontsize=13)
-    axis_throughput.set_ylabel("Cell updates per second (millions)", fontsize=12)
-    axis_throughput.set_title("Throughput vs N", fontsize=13)
-    axis_time.legend(loc="upper left", fontsize=9)
-    device_tag = arguments.node.upper()
-    figure.suptitle(f"3D CP Alfvén wave, VL2 + PLM + HLLD + GLM, one {device_tag}", fontsize=14)
-    figure.tight_layout()
+    axis.set_xscale("log")
+    axis.xaxis.set_major_locator(ticker.FixedLocator(resolutions))
+    axis.xaxis.set_major_formatter(ticker.FixedFormatter([str(value) for value in resolutions]))
+    axis.xaxis.set_minor_locator(ticker.NullLocator())
+    axis.set_xlabel(r"$N$ (grid $2N \times N \times N$)")
+    axis.set_ylabel("cell updates per second (millions)")
+    axis.legend(loc="lower right")
 
     figure_directory = Path(arguments.figure_directory or REPOSITORY / "pytests" / "mhd" / "figures" / arguments.node)
     figure_directory.mkdir(parents=True, exist_ok=True)
     for extension in ("svg", "pdf", "png"):
-        figure.savefig(
-            figure_directory / f"fv_athenapk_single_precision.{extension}",
-            dpi=200 if extension == "png" else None,
-        )
+        figure.savefig(layout_path(figure_directory / f"fv_athenapk_single_precision.{extension}"))
     print(f"wrote {figure_directory}/fv_athenapk_single_precision.{{svg,pdf,png}}")
     # -------------------------------------------------------------
-    # =============== ↑ Time per step and throughput ↑ ============
+    # ==================== ↑ Throughput figure ↑ ==================
     # -------------------------------------------------------------
 
 

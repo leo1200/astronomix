@@ -18,8 +18,8 @@ The schemes are the finite-difference WENO-Z solver (native JAX and Pallas)
 and the finite-volume VL2 scheme (AthenaPK's van Leer integrator, PLM, HLLC; native
 JAX and Pallas). Every backend is set explicitly; the Pallas derivatives go
 through the native-JAX tangent (``diffable_pallas_call``). The reduced numbers
-are written to ``data/``; ``--plot-only`` redraws the convergence figure from
-``data/gradient_convergence_test.npz``.
+are written to ``data/``; ``--plot-only`` redraws both figures from
+``data/gradient_3d_gaussian.npz`` and ``data/gradient_convergence_test.npz``.
 """
 
 # ==== GPU selection ====
@@ -66,6 +66,17 @@ from astronomix import (
     VL2,
 )
 from astronomix.option_classes.simulation_config import PERIODIC_ROLL
+from astronomix.plotting_helpers.paper_style import (
+    FD_COLOR,
+    FV_COLOR,
+    GUIDE_COLOR,
+    REFERENCE_COLOR,
+    COLUMN_WIDTH,
+    SINGLE_PANEL_WIDTH,
+    TEXT_WIDTH,
+    TWO_COLUMN,
+    layout_path,
+)
 
 # astronomix containers
 from astronomix import (
@@ -87,6 +98,11 @@ from astronomix import (
     get_helper_data,
     get_registered_variables,
     time_integration,
+)
+from astronomix.plotting_helpers.paper_style import (
+    figure_legend,
+    use_paper_style,
+    variant_style,
 )
 from astronomix.plotting_helpers.power_law_indicators import add_power_law_indicators
 
@@ -123,39 +139,38 @@ class Scheme(NamedTuple):
     style: dict
 
 
-# Backend colours shared with the other paper figures: FD (JAX) light blue,
-# FD (Pallas) violet, FV (JAX) orange (green next to the orange exact line of
-# the gradient figure), FV (Pallas) brown. The JAX variants are drawn as thick
-# solid lines / dots, the Pallas variants thinner dashed / crosses on top, so
-# both stay visible where they coincide.
+# The colours of the schemes in all figures of the paper; the Pallas runs are
+# drawn as filled markers on solid lines on top of the native-JAX runs, which
+# are the dashed, hollow variant, so that both stay visible where they
+# coincide.
 CONVERGENCE_SCHEMES = (
     Scheme(
         "FD WENO-Z (JAX)",
         FINITE_DIFFERENCE,
         NATIVE_JAX,
         False,
-        dict(color="cornflowerblue", marker="o", linestyle="-", linewidth=3.0, markersize=6, zorder=2),
+        dict(marker="o", markersize=7, zorder=2, **variant_style(FD_COLOR)),
     ),
     Scheme(
         "FD WENO-Z (Pallas)",
         FINITE_DIFFERENCE,
         PALLAS,
         False,
-        dict(color="darkviolet", marker="x", linestyle="--", linewidth=1.8, markersize=7, zorder=3),
+        dict(color=FD_COLOR, marker="o", linestyle="-", zorder=3),
     ),
     Scheme(
         "FV VL2 (JAX)",
         FINITE_VOLUME,
         NATIVE_JAX,
         False,
-        dict(color="tab:orange", marker="o", linestyle="-", linewidth=3.0, markersize=6, zorder=2),
+        dict(marker="s", markersize=7, zorder=2, **variant_style(FV_COLOR)),
     ),
     Scheme(
         "FV VL2 (Pallas)",
         FINITE_VOLUME,
         PALLAS,
         False,
-        dict(color="saddlebrown", marker="x", linestyle="--", linewidth=1.8, markersize=7, zorder=3),
+        dict(color=FV_COLOR, marker="s", linestyle="-", zorder=3),
     ),
 )
 
@@ -165,28 +180,28 @@ GAUSSIAN_SCHEMES = (
         FINITE_DIFFERENCE,
         NATIVE_JAX,
         False,
-        dict(color="cornflowerblue", marker="o", s=20, zorder=2),
+        dict(edgecolors=FD_COLOR, facecolors="none", marker="o", s=24, linewidths=1.0, zorder=2),
     ),
     Scheme(
         "FD WENO-Z (Pallas)",
         FINITE_DIFFERENCE,
         PALLAS,
         False,
-        dict(color="darkviolet", marker="x", s=26, zorder=3, linewidths=1.3),
+        dict(color=FD_COLOR, marker="x", s=14, linewidths=1.0, zorder=3),
     ),
     Scheme(
         "FV VL2 (JAX)",
         FINITE_VOLUME,
         NATIVE_JAX,
         False,
-        dict(color="tab:green", marker="o", s=20, zorder=1),
+        dict(edgecolors=FV_COLOR, facecolors="none", marker="s", s=24, linewidths=1.0, zorder=2),
     ),
     Scheme(
         "FV VL2 (Pallas)",
         FINITE_VOLUME,
         PALLAS,
         False,
-        dict(color="saddlebrown", marker="x", s=26, zorder=2, linewidths=1.3),
+        dict(color=FV_COLOR, marker="x", s=14, linewidths=1.0, zorder=3),
     ),
 )
 
@@ -628,29 +643,52 @@ def run_gaussian_gradient_test(dimensionality=3, num_cells=64):
     DATA_DIRECTORY.mkdir(exist_ok=True)
     np.savez(DATA_DIRECTORY / f"gradient_{dimensionality}d_gaussian.npz", **slices)
 
-    figure, axes = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
+    plot_gaussian_gradient(slices, dimensionality)
+
+
+def plot_gaussian_gradient(slices, dimensionality):
+    """
+    Draw ``figures/gradient_{dimensionality}d_gaussian.svg``: the central slice
+    of the AD gradient of every scheme against the exact one, for the initial
+    density (left) and velocity (right).
+
+    Args:
+        slices: The slices written by ``run_gaussian_gradient_test`` (or
+            loaded from its ``.npz``).
+        dimensionality: 1, 2 or 3.
+    """
+    use_paper_style()
+    # Side by side in the single-column layout, stacked in one column in the
+    # two-column layout.
+    if TWO_COLUMN:
+        figure, axes = plt.subplots(2, 1, figsize=(COLUMN_WIDTH, 5.0), sharex=True, layout="constrained")
+    else:
+        figure, axes = plt.subplots(1, 2, figsize=(TEXT_WIDTH, 2.9), sharex=True, layout="constrained")
     panels = (
-        ("density", "exact_density", "orange", r"sensitivity to the initial density, $\partial_{U_0} J$ for $\rho$"),
-        ("velocity_x", "exact_velocity_x", "red", r"sensitivity to the initial velocity, $\partial_{U_0} J$ for $v_x$"),
+        ("density", "exact_density", r"$\partial J / \partial \rho_0$"),
+        ("velocity_x", "exact_velocity_x", r"$\partial J / \partial v_{x,0}$"),
     )
-    for axis, (field, exact_key, exact_color, title) in zip(axes, panels):
+    x_axis = slices["x"]
+    for axis, (field, exact_key, title) in zip(axes, panels):
+        axis.plot(x_axis, slices[exact_key], "-", color=REFERENCE_COLOR, linewidth=1.0, label="exact gradient")
         for scheme in GAUSSIAN_SCHEMES:
             axis.scatter(
                 x_axis,
                 slices[f"{scheme.label}_{field}"],
-                alpha=0.55,
                 label=f"AD: {scheme.label}",
                 **scheme.style,
             )
-        axis.plot(x_axis, slices[exact_key], "-", color=exact_color, linewidth=3, label="exact Fourier gradient")
-        axis.set_title(f"{dimensionality}D Gaussian: " + title)
-        axis.set_ylabel("gradient amplitude")
-        axis.legend()
-        axis.grid(True, linestyle="--", alpha=0.6)
-    axes[1].set_xlabel("spatial coordinate $x$ (central slice)")
-    figure.tight_layout()
-    figure_path = FIGURES_DIRECTORY / f"gradient_{dimensionality}d_gaussian.svg"
-    figure.savefig(figure_path, bbox_inches="tight")
+        axis.set_title(title)
+        if TWO_COLUMN:
+            axis.set_ylabel("gradient")
+        else:
+            axis.set_xlabel("$x$ (central slice)")
+    axes[-1].set_xlabel("$x$ (central slice)")
+    axes[0].set_ylabel("gradient")
+    figure_legend(figure, ncols=2 if TWO_COLUMN else 3)
+    FIGURES_DIRECTORY.mkdir(exist_ok=True)
+    figure_path = layout_path(FIGURES_DIRECTORY / f"gradient_{dimensionality}d_gaussian.svg")
+    figure.savefig(figure_path)
     plt.close(figure)
     print(f"  saved {figure_path}")
 
@@ -733,7 +771,8 @@ def plot_gradient_convergence(num_cells_values, errors):
         num_cells_values: The resolutions N.
         errors: The mean L1 gradient errors per scheme label.
     """
-    figure, axis = plt.subplots(1, 1, figsize=(8, 6))
+    use_paper_style()
+    figure, axis = plt.subplots(1, 1, figsize=(SINGLE_PANEL_WIDTH, 3.1), layout="constrained")
     num_cells_array = np.array(num_cells_values)
     for scheme in CONVERGENCE_SCHEMES:
         axis.loglog(num_cells_array, errors[scheme.label], label=scheme.label, **scheme.style)
@@ -751,21 +790,19 @@ def plot_gradient_convergence(num_cells_values, errors):
         scales=[finite_volume_scale, finite_difference_scale],
         x_span=2.0,
         x_label="N",
-        text_kwargs=dict(fontsize=11, ha="left", va="center"),
+        line_kwargs=dict(color=GUIDE_COLOR, linestyle="--", linewidth=1.0),
+        text_kwargs=dict(fontsize=8, ha="left", va="center", color=GUIDE_COLOR),
     )
 
-    axis.set_xlabel("grid resolution N", fontsize=12)
-    axis.set_ylabel(r"mean $L_1$ error of $\partial J/\partial U_0$ against the exact gradient", fontsize=12)
-    axis.set_title("AD gradient convergence to the exact Fourier-space gradient", fontsize=14)
+    axis.set_xlabel("$N$")
+    axis.set_ylabel(r"mean $L_1$ error of $\partial J/\partial U_0$")
     # Integer N ticks only; the default log minor-tick labels (2x10^1, ...)
     # would overlap them.
     axis.set_xticks(list(num_cells_values))
     axis.set_xticklabels([str(num_cells) for num_cells in num_cells_values])
     axis.xaxis.set_minor_formatter(mticker.NullFormatter())
-    axis.legend(loc="lower left", fontsize=9)
-    axis.grid(True, which="both", ls="-", alpha=0.2)
-    figure.tight_layout()
-    figure_path = FIGURES_DIRECTORY / "gradient_convergence_test.svg"
+    axis.legend(loc="lower left")
+    figure_path = layout_path(FIGURES_DIRECTORY / "gradient_convergence_test.svg")
     figure.savefig(figure_path)
     plt.close(figure)
     print(f"  saved {figure_path}")
@@ -777,6 +814,7 @@ def plot_gradient_convergence(num_cells_values, errors):
 
 
 if __name__ == "__main__" and "--plot-only" in _sys.argv:
+    plot_gaussian_gradient(dict(np.load(DATA_DIRECTORY / "gradient_3d_gaussian.npz")), dimensionality=3)
     cached = np.load(DATA_DIRECTORY / "gradient_convergence_test.npz")
     plot_gradient_convergence(
         tuple(int(num_cells) for num_cells in cached["num_cells"]),

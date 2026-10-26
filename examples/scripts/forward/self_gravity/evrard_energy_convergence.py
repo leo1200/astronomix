@@ -66,7 +66,11 @@ from _common import (
     CORRECTED_SCHEME,
     DATA_DIR,
     SIMPLE_SCHEME,
+    COLUMN_WIDTH,
+    TEXT_WIDTH,
+    TWO_COLUMN,
     apply_paper_style,
+    figure_legend,
     save_figure,
 )
 
@@ -176,7 +180,12 @@ def plot_convergence():
         ("flux-based (conservative) sources", conservative_schemes, CORRECTED_SCHEME, 3),
     ]
 
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5), sharex=True)
+    # Side by side in the single-column layout, stacked in one column in the
+    # two-column layout.
+    if TWO_COLUMN:
+        fig, axes = plt.subplots(2, 1, figsize=(COLUMN_WIDTH, 6.0), sharex=True, layout="constrained")
+    else:
+        fig, axes = plt.subplots(1, 2, figsize=(TEXT_WIDTH, 3.2), sharex=True, layout="constrained")
     for ax, (subtitle, schemes, fit_scheme, fit_n_last) in zip(axes, panels):
         for scheme in schemes:
             ax.plot(
@@ -205,7 +214,7 @@ def plot_convergence():
                 A * n_line**p,
                 color="0.25",
                 linestyle="-",
-                linewidth=1.5,
+                linewidth=0.9,
                 zorder=0,
                 label=rf"fit: $\propto N^{{{p:.2f}}}$",
             )
@@ -214,17 +223,12 @@ def plot_convergence():
         ax.set_xticks(list(resolutions))
         ax.set_xticklabels([str(int(r)) for r in resolutions])
         ax.minorticks_off()
-        ax.set_xlabel("number of cells per dimension $N$")
+        if not TWO_COLUMN or ax is axes[-1]:
+            ax.set_xlabel("number of cells per dimension $N$")
         ax.set_title(subtitle)
-        ax.grid(True, which="both", alpha=0.3)
-        ax.legend(fontsize=9)
-    axes[0].set_ylabel(r"final relative total energy error $|\Delta E| / |E_0|$")
-
-    fig.suptitle(
-        f"Mild Evrard collapse ($e_{{th,0}} = {MILD_INITIAL_ENERGY}$, {PRECISION_LABEL}): "
-        "energy conservation vs resolution"
-    )
-    fig.tight_layout()
+    for ax in axes if TWO_COLUMN else axes[:1]:
+        ax.set_ylabel(r"final relative energy error $|\Delta E| / |E_0|$")
+    figure_legend(fig, ncols=1 if TWO_COLUMN else 3)
     print(f"Saved -> {save_figure(fig, FIGURE_STEM)}")
 
 

@@ -53,7 +53,6 @@ import numpy as np
 
 # plotting
 import matplotlib.pyplot as plt
-from mpl_toolkits.axes_grid1.axes_divider import make_axes_locatable
 
 # astronomix constants
 from astronomix import (
@@ -66,6 +65,10 @@ from astronomix import (
     VL2,
 )
 from astronomix.option_classes.simulation_config import POSITIVITY_HARD_FLOOR
+from astronomix.plotting_helpers.paper_style import (
+    SEQUENTIAL_COLORMAP,
+    TEXT_WIDTH,
+)
 
 # astronomix containers
 from astronomix import (
@@ -85,13 +88,19 @@ from astronomix import (
     initialize_interface_fields,
     construct_primitive_state,
 )
+from astronomix.plotting_helpers.paper_style import (
+    attach_colorbar,
+    figure_legend,
+    reserve_colorbar_space,
+    use_paper_style,
+)
 
 # shared figure helpers
 from _common import DATA_DIR
 from _common import FIG_DIR
 from _common import rerun_requested
 from _common import FD_COLOR
-from _common import FV_HLL_COLOR
+from _common import FV_COLOR
 
 
 # -------------------------------------------------------------
@@ -431,11 +440,12 @@ def make_oscillation_comparison():
     resolutions = RESOLUTIONS
     configs = CONFIGS
 
-    panel_size = 3
+    use_paper_style()
+    panel_size = 0.8 * TEXT_WIDTH / len(configs)
     fig, axs = plt.subplots(
         len(resolutions),
         len(configs),
-        figsize=(panel_size * len(configs), panel_size * len(resolutions)),
+        figsize=(panel_size * len(configs), panel_size * len(resolutions) + 0.3),
         squeeze=False,
     )
 
@@ -460,29 +470,31 @@ def make_oscillation_comparison():
                 density_slice,
                 vmin=density_min,
                 vmax=density_max,
-                cmap="jet",
+                cmap=SEQUENTIAL_COLORMAP,
             )
             if row_index == 0:
                 axs[row_index, column_index].set_title(title)
             axs[row_index, column_index].set_xticks([])
             axs[row_index, column_index].set_yticks([])
+            axs[row_index, column_index].grid(False)
+            # One colorbar per row, of the height of the panels, on the right;
+            # the other panels keep the same size.
+            if column_index == len(configs) - 1:
+                attach_colorbar(fig, image, axs[row_index, column_index], label="density")
+            else:
+                reserve_colorbar_space(axs[row_index, column_index])
 
     for row_index, num_cells in enumerate(resolutions):
-        axs[row_index, 0].set_ylabel(f"{num_cells}$^3$ cells", fontsize=12)
+        axs[row_index, 0].set_ylabel(f"{num_cells}$^3$ cells")
 
     # -------------------------------------------------------------
     # ============= ↑ Density slices per panel ↑ =================
     # -------------------------------------------------------------
 
-    # A single shared horizontal colour bar underneath the grid.
-    fig.subplots_adjust(bottom=0.18)
-    cbar_ax = fig.add_axes([0.15, 0.06, 0.7, 0.035])
-    cbar = fig.colorbar(image, cax=cbar_ax, orientation="horizontal")
-    cbar.set_label("density", rotation=0, labelpad=8, fontsize=11)
-    cbar.ax.xaxis.set_label_position("bottom")
+    fig.tight_layout()
 
     out = FIG_DIR / "mhd_blast_oscillations_comparison.png"
-    fig.savefig(out, dpi=400, bbox_inches="tight")
+    fig.savefig(out)
     plt.close(fig)
     print(f"saved {out}")
 
@@ -537,15 +549,42 @@ def make_fd_with_profiles(num_cells):
     # ============ ↑ Load states and extract slices ↑ ============
     # -------------------------------------------------------------
 
-    fig, axs = plt.subplots(2, 3, figsize=(11, 6.5))
+    use_paper_style()
+    # The panels are placed explicitly (in inches): two columns of square
+    # slices, each with its colour bar, and a column with the two diagonal
+    # profiles, which share their axis; the slices share the box of the setup
+    # and carry no axis ticks, their field is the panel title.
+    figure_height = 4.6
+    fig = plt.figure(figsize=(TEXT_WIDTH, figure_height))
+    slice_size = 1.6
+    slice_box_width = 1.1 * slice_size  # slice, colour-bar gap and colour bar
+    colorbar_labels = 0.32
+    row_bottoms = (0.8 + slice_size + 0.32, 0.8)
+    column_lefts = (0.08, 0.08 + slice_box_width + colorbar_labels + 0.15)
+    profile_left = column_lefts[1] + slice_box_width + colorbar_labels + 0.62
+    profile_width = TEXT_WIDTH - 0.06 - profile_left
+
+    def axes_at(left, bottom, width, height):
+        """An axes at a position given in inches."""
+        return fig.add_axes(
+            [left / TEXT_WIDTH, bottom / figure_height, width / TEXT_WIDTH, height / figure_height]
+        )
+
+    axs = np.empty((2, 3), dtype=object)
+    for row, bottom in enumerate(row_bottoms):
+        for column, left in enumerate(column_lefts):
+            axs[row, column] = axes_at(left, bottom, slice_box_width, slice_size)
+        axs[row, 2] = axes_at(profile_left, bottom, profile_width, slice_size)
+    axs[0, 2].sharex(axs[1, 2])
 
     def imshow_panel(ax, field, label):
         """Draw one field slice as an image panel with an attached colour bar."""
-        image = ax.imshow(field.T, origin="lower", extent=extent, cmap="jet")
-        cbar = make_axes_locatable(ax).append_axes("right", size="5%", pad=0.1)
-        fig.colorbar(image, cax=cbar, label=label)
-        ax.set_xlabel("x")
-        ax.set_ylabel("y")
+        image = ax.imshow(field.T, origin="lower", extent=extent, cmap=SEQUENTIAL_COLORMAP)
+        attach_colorbar(fig, image, ax)
+        ax.set_title(label)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.grid(False)
 
     # -------------------------------------------------------------
     # ============= ↓ Columns 0-1: FD slices ↓ ===================
@@ -582,20 +621,19 @@ def make_fd_with_profiles(num_cells):
     axs[0, 2].plot(
         r_diagonal,
         b_diagonal_fv,
-        color=FV_HLL_COLOR,
-        ls="--",
+        color=FV_COLOR,
+        linestyle="--",
         label=FV_LABEL,
     )
     axs[0, 2].plot(
         r_diagonal,
         turbulence_b_sq[diagonal, diagonal],
         color=FD_COLOR,
-        ls=":",
+        linestyle=":",
         label=FD_TURBULENCE_LABEL,
     )
-    axs[0, 2].set_ylabel(r"$|B|^2$")
-    axs[0, 2].set_xlabel("diagonal")
-    axs[0, 2].legend(fontsize=8, loc="lower right")
+    axs[0, 2].set_ylabel(r"$B^2$")
+    axs[0, 2].tick_params(labelbottom=False)
 
     pressure_diagonal_fd = pressure[diagonal, diagonal]
     pressure_diagonal_fv = fv_pressure_slice[diagonal, diagonal]
@@ -603,28 +641,30 @@ def make_fd_with_profiles(num_cells):
     axs[1, 2].plot(
         r_diagonal,
         pressure_diagonal_fv,
-        color=FV_HLL_COLOR,
-        ls="--",
+        color=FV_COLOR,
+        linestyle="--",
         label=FV_LABEL,
     )
     axs[1, 2].plot(
         r_diagonal,
         turbulence_pressure_slice[diagonal, diagonal],
         color=FD_COLOR,
-        ls=":",
+        linestyle=":",
         label=FD_TURBULENCE_LABEL,
     )
     axs[1, 2].set_ylabel("pressure")
     axs[1, 2].set_xlabel("diagonal")
-    axs[1, 2].legend(fontsize=8, loc="lower right")
+    # The panels are placed explicitly, so the legend goes below them directly
+    # (``figure_legend`` would rearrange them with the tight layout).
+    handles, labels = axs[1, 2].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", ncols=3, bbox_to_anchor=(0.5, 0.0))
 
     # -------------------------------------------------------------
     # ======== ↑ Column 2: diagonal profiles, FD vs FV ↑ =========
     # -------------------------------------------------------------
 
-    plt.tight_layout()
     out = FIG_DIR / f"mhd_blast_test1_{num_cells}cells.png"
-    fig.savefig(out, dpi=400)
+    fig.savefig(out)
     plt.close(fig)
     print(f"saved {out}")
 

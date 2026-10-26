@@ -53,6 +53,7 @@ import numpy as np
 
 # plotting
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 
 # exact solution
 from exactpack.solvers.sedov.sedov import Sedov
@@ -68,6 +69,10 @@ from astronomix import (
     VL2,
 )
 from astronomix.option_classes.simulation_config import POSITIVITY_HARD_FLOOR
+from astronomix.plotting_helpers.paper_style import (
+    GUIDE_COLOR,
+    TEXT_WIDTH,
+)
 
 # astronomix containers
 from astronomix import (
@@ -86,11 +91,16 @@ from astronomix import (
     time_integration,
     construct_primitive_state,
 )
+from astronomix.plotting_helpers.paper_style import (
+    figure_legend,
+    use_paper_style,
+)
 
 
 # shared hydro-figure helpers
 from _common import (
     DATA_DIR,
+    EXACT_COLOR,
     FIG_DIR,
     FD_COLOR,
     FV_HLLC_COLOR,
@@ -436,8 +446,13 @@ def plot(num_cells, strong_shock_safeguards, rerun):
             first-order flux correction and the floors.
         rerun: When True, recompute each run's cache before plotting.
     """
+    use_paper_style()
     fig, axes = plt.subplots(
-        len(RUNS), 3, figsize=(12, 3.2 * len(RUNS)), sharex=True
+        len(RUNS),
+        3,
+        figsize=(TEXT_WIDTH, 1.85 * len(RUNS) + 0.35),
+        sharex=True,
+        layout="constrained",
     )
 
     col_labels = ["density", r"$|v|$", "pressure"]
@@ -474,11 +489,20 @@ def plot(num_cells, strong_shock_safeguards, rerun):
                 label="simulation (sampled)",
             )
             ax.plot(
-                run_data["bin_centers"], mean, "-", color=color, lw=1.8,
+                run_data["bin_centers"],
+                mean,
+                "-",
+                color=color,
                 label="binned mean",
             )
-            ax.plot(r_exact, exact, "--", color="black", lw=1.5, label="exact solution")
-            ax.grid(True, ls=":", alpha=0.6)
+            ax.plot(
+                r_exact,
+                exact,
+                "--",
+                color=EXACT_COLOR,
+                linewidth=1.2,
+                label="exact solution",
+            )
             ax.set_xlim(0, domain_max_r)
             if log_y:
                 ax.set_yscale("log")
@@ -491,29 +515,31 @@ def plot(num_cells, strong_shock_safeguards, rerun):
         axes[row_index, 0].annotate(
             label,
             xy=(0, 0.5),
-            xytext=(-axes[row_index, 0].yaxis.labelpad - 28, 0),
+            xytext=(-axes[row_index, 0].yaxis.labelpad - 12, 0),
             xycoords=axes[row_index, 0].yaxis.label,
             textcoords="offset points",
             ha="right",
             va="center",
             rotation=90,
-            fontsize=11,
         )
 
     for col_index in range(3):
         axes[-1, col_index].set_xlabel("radius")
 
+    # The binned mean carries the colour of the scheme of its row, so its
+    # legend entry is drawn in a neutral grey.
     handles, labels = axes[0, 0].get_legend_handles_labels()
-    fig.legend(
-        handles, labels, loc="lower center", ncol=3, bbox_to_anchor=(0.5, 0.005)
-    )
+    handles = [
+        Line2D([], [], color=GUIDE_COLOR) if label == "binned mean" else handle
+        for handle, label in zip(handles, labels)
+    ]
+    figure_legend(fig, handles, labels, markerscale=4)
 
-    plt.tight_layout(rect=[0.04, 0.04, 1, 1])
     figure_name = f"sedov_blast_{num_cells}"
     if not strong_shock_safeguards:
         figure_name += "_without_fofc"
     out = FIG_DIR / f"{figure_name}.png"
-    fig.savefig(out, dpi=200)
+    fig.savefig(out)
     fig.savefig(out.with_suffix(".pdf"))
     plt.close(fig)
     print(f"saved {out}")

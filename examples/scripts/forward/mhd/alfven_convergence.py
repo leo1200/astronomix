@@ -102,6 +102,18 @@ from astronomix.option_classes.simulation_config import (
     PALLAS,
     VL2,
 )
+from astronomix.plotting_helpers.paper_style import (
+    ATHENAPK_COLOR,
+    ATHENAPK_THIRD_ORDER_COLOR,
+    FD_COLOR,
+    FV_COLOR,
+    GUIDE_COLOR,
+    COLUMN_WIDTH,
+    SINGLE_PANEL_WIDTH,
+    TEXT_WIDTH,
+    TWO_COLUMN,
+    layout_path,
+)
 
 # astronomix containers
 from astronomix import (
@@ -122,6 +134,11 @@ from astronomix.test_setups.mhd.alfven_wave3D import (
     _wave_primitive_state,
     cp_alfven_wave_solution,
     setup_cp_alfven_wave,
+)
+from astronomix.plotting_helpers.paper_style import (
+    figure_legend,
+    use_paper_style,
+    variant_style,
 )
 
 # The shared benchmark helpers live under pytests/; put that directory on the
@@ -244,15 +261,17 @@ BENCHMARKS = dict(
 CONVERGENCE_FIGURE_KEYS = ("fv_vl2", "fd_wenoz", "fd_wenoz_pp_uct")
 RUNTIME_FIGURE_KEYS = ("fv_vl2", "fd_wenoz")
 
-# Fixed colours, so a scheme looks the same in both figures.
+# The colours of the schemes in all figures of the paper; the options of the
+# finite-difference scheme are drawn as variants of it.
 COLORS = {
-    FV_LABEL: "tab:blue",
-    FD_LABEL: "tab:orange",
-    FD_PP_LABEL: "tab:green",
-    FD_TURBULENCE_LABEL: "tab:green",
-    "AthenaPK (VL2+PLM)": "tab:red",
-    "AthenaPK (RK3+PPM)": "tab:purple",
+    FV_LABEL: FV_COLOR,
+    FD_LABEL: FD_COLOR,
+    FD_PP_LABEL: FD_COLOR,
+    FD_TURBULENCE_LABEL: FD_COLOR,
+    "AthenaPK (VL2+PLM)": ATHENAPK_COLOR,
+    "AthenaPK (RK3+PPM)": ATHENAPK_THIRD_ORDER_COLOR,
 }
+VARIANT_LABELS = (FD_PP_LABEL, FD_TURBULENCE_LABEL)
 
 
 def error_indices(registered_variables):
@@ -483,16 +502,18 @@ def save_figure(figure, directory: Path, stem: str) -> None:
     """Write a figure as SVG (paper), PDF and PNG."""
     directory.mkdir(parents=True, exist_ok=True)
     for extension in ("svg", "pdf", "png"):
-        figure.savefig(directory / f"{stem}.{extension}", dpi=200 if extension == "png" else None)
+        figure.savefig(layout_path(directory / f"{stem}.{extension}"))
 
 
 def plot(node: str) -> None:
     """
     The convergence figure (L1 error against N) and the runtime figure (error
-    against runtime, runtime against N, time per iteration against N) of one
-    node, in the style of ``_benchmark_utils.plot_convergence_and_runtime``.
-    The AthenaPK curves are dashed with open markers so that the coinciding FV
-    (VL2) curve stays visible underneath.
+    against runtime, time per step against N) of one node. The AthenaPK
+    curves are dashed with large open markers so that the coinciding FV (VL2)
+    curve stays visible underneath. The total runtime against N is not drawn:
+    it is the time per step times the number of steps, which the larger
+    admissible CFL number of the finite-difference scheme reduces; the error
+    against runtime already accounts for it.
 
     Args:
         node: The storage tag.
@@ -503,55 +524,61 @@ def plot(node: str) -> None:
         raise SystemExit(f"no data for node {node!r}")
     resolutions = sorted({int(value) for data in results.values() for value in data["N_values"]})
 
-    astronomix_style = dict(marker="o", linewidth=2)
     reference_markers = {"AthenaPK (VL2+PLM)": "s", "AthenaPK (RK3+PPM)": "D"}
+
+    def astronomix_style(label):
+        # Every astronomix run uses the Pallas backend, which the paper states
+        # once; the legend leaves the backend out.
+        shown = label.replace(" (Pallas)", "")
+        if label in VARIANT_LABELS:
+            return dict(marker="o", label=shown, **variant_style(COLORS[label]))
+        return dict(marker="o", color=COLORS[label], label=shown)
 
     def reference_style(label):
         return dict(
             marker=reference_markers[label],
-            markersize=10,
+            markersize=7,
             markerfacecolor="none",
-            markeredgewidth=1.5,
             linestyle="--",
-            linewidth=2,
             color=COLORS[label],
             label=label,
         )
 
+    use_paper_style()
+
     # -------------------------------------------------------------
     # =============== ↓ Convergence figure ↓ ======================
     # -------------------------------------------------------------
-    figure_error, axis_error = plt.subplots(1, 1, figsize=(8, 6))
+    figure_error, axis_error = plt.subplots(figsize=(SINGLE_PANEL_WIDTH, 4.6 if TWO_COLUMN else 3.9), layout="constrained")
     for label, data in results.items():
-        axis_error.loglog(data["N_values"], data["l1_errors"], color=COLORS[label], label=label, **astronomix_style)
+        axis_error.loglog(data["N_values"], data["l1_errors"], **astronomix_style(label))
     for label, data in references.items():
         axis_error.loglog(data["N_values"], data["l1_errors_plotted"], **reference_style(label))
 
     # Guide slopes for second (FV) and fifth (FD) order, anchored at the
-    # coarsest-grid errors as in the earlier figure.
+    # coarsest-grid errors.
     resolution_array = np.array(resolutions, dtype=float)
     first_errors = [data["l1_errors"][0] for data in results.values()]
     axis_error.loglog(
         resolution_array,
         max(first_errors) * (resolution_array / resolution_array[0]) ** -2.0,
-        "k--",
-        alpha=0.7,
-        label="$O(N^{-2})$ reference",
+        color=GUIDE_COLOR,
+        linestyle="--",
+        linewidth=1.0,
+        label=r"$\propto N^{-2}$",
     )
     axis_error.loglog(
         resolution_array,
         min(first_errors) * (resolution_array / resolution_array[0]) ** -5.0,
-        "k:",
-        alpha=0.7,
-        label="$O(N^{-5})$ reference",
+        color=GUIDE_COLOR,
+        linestyle=":",
+        linewidth=1.0,
+        label=r"$\propto N^{-5}$",
     )
-    axis_error.set_xlabel("N (grid size: 2N x N x N)", fontsize=12)
-    axis_error.set_ylabel("Average $L_1$ error", fontsize=12)
-    axis_error.set_title(f"{TITLE}: convergence", fontsize=14)
+    axis_error.set_xlabel(r"$N$ (grid $2N \times N \times N$)")
+    axis_error.set_ylabel(r"average $L_1$ error")
     format_resolution_axis(axis_error, resolutions)
-    axis_error.legend(loc="lower left", fontsize=9)
-    axis_error.grid(True, which="major", ls="-", alpha=0.2)
-    figure_error.tight_layout()
+    figure_legend(figure_error, ncols=1 if TWO_COLUMN else 2)
     save_figure(figure_error, FIGURE_ROOT / node, f"{NAME}_convergence")
     # -------------------------------------------------------------
     # =============== ↑ Convergence figure ↑ ======================
@@ -560,34 +587,31 @@ def plot(node: str) -> None:
     # -------------------------------------------------------------
     # =============== ↓ Runtime figure ↓ ==========================
     # -------------------------------------------------------------
-    figure_runtime, axes_runtime = plt.subplots(3, 1, figsize=(8, 12))
+    # Side by side in the single-column layout, stacked in one column in the
+    # two-column layout.
+    figure_runtime, (axis_error_runtime, axis_step) = plt.subplots(
+        2 if TWO_COLUMN else 1,
+        1 if TWO_COLUMN else 2,
+        figsize=(COLUMN_WIDTH, 5.0) if TWO_COLUMN else (TEXT_WIDTH, 2.7),
+        layout="constrained",
+    )
     curves = []
     for label in (BENCHMARKS[key].label for key in RUNTIME_FIGURE_KEYS):
         if label in results:
-            curves.append((results[label], results[label]["l1_errors"], dict(color=COLORS[label], label=label, **astronomix_style)))
+            curves.append((results[label], results[label]["l1_errors"], astronomix_style(label)))
     for label, data in references.items():
         curves.append((data, data["l1_errors_plotted"], reference_style(label)))
     for data, errors, style in curves:
-        time_per_iteration = np.asarray(data["runtimes"]) / np.asarray(data["iterations"])
-        axes_runtime[0].loglog(data["runtimes"], errors, **style)
-        axes_runtime[1].loglog(data["N_values"], data["runtimes"], **style)
-        axes_runtime[2].loglog(data["N_values"], time_per_iteration, **style)
+        milliseconds_per_step = 1e3 * np.asarray(data["runtimes"]) / np.asarray(data["iterations"])
+        axis_error_runtime.loglog(data["runtimes"], errors, **style)
+        axis_step.loglog(data["N_values"], milliseconds_per_step, **style)
 
-    axes_runtime[0].set_xlabel("Runtime (s)", fontsize=12)
-    axes_runtime[0].set_ylabel("Average $L_1$ error", fontsize=12)
-    axes_runtime[0].set_title(f"{TITLE} — {node.upper()}: error vs runtime", fontsize=13)
-    axes_runtime[1].set_xlabel("N (grid size: 2N x N x N)", fontsize=12)
-    axes_runtime[1].set_ylabel("Runtime (s)", fontsize=12)
-    axes_runtime[1].set_title("Runtime vs N", fontsize=13)
-    axes_runtime[2].set_xlabel("N (grid size: 2N x N x N)", fontsize=12)
-    axes_runtime[2].set_ylabel("Time per iteration (s)", fontsize=12)
-    axes_runtime[2].set_title("Time per iteration vs N", fontsize=13)
-    for axis in axes_runtime[1:]:
-        format_resolution_axis(axis, resolutions)
-    for axis in axes_runtime:
-        axis.legend(loc="best", fontsize=9)
-        axis.grid(True, which="major", ls="-", alpha=0.2)
-    figure_runtime.tight_layout()
+    axis_error_runtime.set_xlabel("runtime (s)")
+    axis_error_runtime.set_ylabel(r"average $L_1$ error")
+    axis_step.set_xlabel(r"$N$ (grid $2N \times N \times N$)")
+    axis_step.set_ylabel("time per step (ms)")
+    format_resolution_axis(axis_step, resolutions)
+    figure_legend(figure_runtime, ncols=2 if TWO_COLUMN else None)
     save_figure(figure_runtime, FIGURE_ROOT / node, f"{NAME}_runtime")
     # -------------------------------------------------------------
     # =============== ↑ Runtime figure ↑ ==========================

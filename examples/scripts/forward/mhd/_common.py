@@ -15,6 +15,9 @@ with the repo on ``PYTHONPATH`` to pick up this worktree, e.g.
 import sys
 from pathlib import Path
 
+# astronomix constants
+from astronomix.plotting_helpers import paper_style
+
 
 # The figures and their input caches live next to this helper module, so all
 # paths are resolved relative to it rather than the (arbitrary) working
@@ -33,8 +36,9 @@ FIG_DIR.mkdir(exist_ok=True)
 FD_LABEL = "FD"
 FV_HLL_LABEL = "FV (HLL, minmod)"
 
-FD_COLOR = "#d62728"      # red — finite-difference WENO
-FV_HLL_COLOR = "#1f77b4"  # blue — finite-volume HLL
+FD_COLOR = paper_style.FD_COLOR
+FV_COLOR = paper_style.FV_COLOR
+FV_HLLE_COLOR = paper_style.FV_HLLE_COLOR
 
 
 def rerun_requested() -> bool:

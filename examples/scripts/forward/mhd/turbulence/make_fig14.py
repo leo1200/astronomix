@@ -29,6 +29,19 @@ import numpy as np
 # plotting
 import matplotlib.pyplot as plt
 
+# astronomix constants
+from astronomix.plotting_helpers.paper_style import (
+    SEQUENTIAL_COLORMAP,
+    TEXT_WIDTH,
+)
+
+# astronomix functions
+from astronomix.plotting_helpers.paper_style import (
+    attach_colorbar,
+    reserve_colorbar_space,
+    use_paper_style,
+)
+
 
 #: Script-relative directories (data/ is shared with paper_turbulence.py).
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -132,7 +145,8 @@ def main():
     FIGURE_DIR.mkdir(exist_ok=True)
     rows = [(label, *lowest_and_highest_resolution(case), color_range) for case, label, color_range in ROWS]
 
-    figure, axes = plt.subplots(2, 2, figsize=(9.0, 8.6))
+    use_paper_style()
+    figure, axes = plt.subplots(2, 2, figsize=(0.85 * TEXT_WIDTH, 5.6))
     # One representative image per row: both columns share the colour range.
     row_images = {}
     for row, (label, low_resolution_run, high_resolution_run, (vmin, vmax)) in enumerate(rows):
@@ -140,6 +154,7 @@ def main():
             axis = axes[row, column]
             axis.set_xticks([])
             axis.set_yticks([])
+            axis.grid(False)
             if run is None:
                 axis.text(
                     0.5,
@@ -148,7 +163,6 @@ def main():
                     ha="center",
                     va="center",
                     transform=axis.transAxes,
-                    fontsize=12,
                     color="0.4",
                 )
                 continue
@@ -156,32 +170,28 @@ def main():
                 log_magnetic_energy_paper_units(run).T,
                 origin="lower",
                 extent=EXTENT,
-                cmap="Blues",
+                cmap=SEQUENTIAL_COLORMAP,
                 vmin=vmin,
                 vmax=vmax,
                 interpolation="nearest",
                 aspect="equal",
             )
             axis.set_title(
-                rf"$N={int(run['N'])}^3$,  $M_S={slice_mach_number(run):.1f}$,  "
+                rf"$N={int(run['N'])}^3$,  $M_S={slice_mach_number(run):.2f}$,  "
                 rf"$\beta_p={beta_label(run['beta'])}$",
-                fontsize=13,
-                pad=12,
             )
 
-    figure.tight_layout()
-    # Bring the two columns close together and attach one colour bar per row
-    # on the far right (the columns share the range); the extra title pad
-    # keeps the titles clear of the panels above.
-    figure.subplots_adjust(wspace=0.03, hspace=0.12)
+    # One colour bar per row, of the height of the panels, on the far right
+    # (the columns share the range); the left panels keep the same size.
     for row, image in row_images.items():
-        colorbar = figure.colorbar(image, ax=list(axes[row, :]), fraction=0.046, pad=0.02)
-        colorbar.set_label(r"$\log_{10} E_B$")
+        reserve_colorbar_space(axes[row, 0])
+        attach_colorbar(figure, image, axes[row, 1], label=r"$\log_{10} E_B$")
+    figure.tight_layout()
 
     out = FIGURE_DIR / "turbulence_slices"
-    figure.savefig(str(out) + ".svg", bbox_inches="tight")
-    figure.savefig(str(out) + ".pdf", bbox_inches="tight")
-    figure.savefig(str(out) + ".png", dpi=200, bbox_inches="tight")
+    figure.savefig(str(out) + ".svg")
+    figure.savefig(str(out) + ".pdf")
+    figure.savefig(str(out) + ".png")
     print("wrote", str(out) + ".svg/.pdf/.png")
 
     for label, low_resolution_run, high_resolution_run, _ in rows:
