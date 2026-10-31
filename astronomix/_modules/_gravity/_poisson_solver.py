@@ -24,12 +24,14 @@ from jax.numpy.fft import fftn, ifftn
 
 try:  # the stable alias (newer jax)
     from jax import shard_map as _shard_map
+    _SHARD_MAP_CHECK_OPTIONS = {"check_vma": False}
 except ImportError:  # pragma: no cover - older jax
     from jax.experimental.shard_map import shard_map as _shard_map
+    _SHARD_MAP_CHECK_OPTIONS = {"check_rep": False}
 
 # astronomix helpers
 from astronomix._pallas_helpers import _current_pallas_mesh
-from astronomix.parallel.distributed_fft import FIELD_SPEC, X_NAME, fft_block, ifft_block, local_part, spectral_mesh
+from astronomix.parallel.distributed_fft import FIELD_SPEC, X_NAME, local_part, spectral_mesh
 
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
@@ -106,12 +108,15 @@ def _periodic_poisson_3d_sharded(
     The SPMD partitioner replicates the operand of an FFT along its
     transform dimensions, so the plain ``fftn`` path costs *global*-grid
     memory and work per device.  This version keeps everything slab-local
-    with the distributed transform of ``astronomix.parallel.distributed_fft``:
+    with the mesh conventions of ``astronomix.parallel.distributed_fft``:
     FFT over (y, z) batched over the local X slab, an ``all_to_all``
     transpose of the slab decomposition from X to Y, the X-axis FFT, the
     Green's-function multiply on the local k-slab, and the mirrored
-    inverse.  Per-device memory and FLOPs then stay proportional to the
-    local shard, which is what makes self-gravity weak scaling flat.
+    inverse. The real density uses a Hermitian half-spectrum along z, so the
+    exchanges do not move the redundant negative-z frequencies. The public
+    distributed transform keeps its full-spectrum contract; this pure-X
+    Poisson path uses real transforms locally. Per-device memory and FLOPs
+    stay proportional to the local shard.
 
     Mathematically identical to the replicated branch (same discrete
     transform, Green's function and regularisation); only the data layout
@@ -121,12 +126,16 @@ def _periodic_poisson_3d_sharded(
 
     k_base_x = jnp.fft.fftfreq(num_cells_x, d=grid_spacing) * 2 * jnp.pi
     k_base_y = jnp.fft.fftfreq(num_cells_y, d=grid_spacing) * 2 * jnp.pi
-    k_base_z = jnp.fft.fftfreq(num_cells_z, d=grid_spacing) * 2 * jnp.pi
+    k_base_z = jnp.fft.rfftfreq(num_cells_z, d=grid_spacing) * 2 * jnp.pi
 
     def _local_solve(density_block):
-        # density_block: the local X slab, (num_cells_x / P, ny, nz); its
-        # transform is the local k-slab (nx, ny / P, nz).
-        density_k = fft_block(density_block)
+        # The local X slab becomes a Y slab of the Hermitian half-spectrum.
+        # Keep all Y modes and only the non-negative Z frequencies.
+        density_k = jnp.fft.rfftn(density_block, axes=(1, 2))
+        density_k = jax.lax.all_to_all(
+            density_k, X_NAME, split_axis=1, concat_axis=0, tiled=True
+        )
+        density_k = jnp.fft.fft(density_k, axis=0)
 
         # Green's function on this device's k-slab (same regularisation as
         # the replicated branch: the k = 0 mode maps to -1/(4 pi), harmless
@@ -142,13 +151,23 @@ def _periodic_poisson_3d_sharded(
             k_squared > 1e-12, -4 * jnp.pi * G / k_squared, -1 / (4 * jnp.pi)
         )
         potential_k = greens_function * density_k
-        return ifft_block(potential_k)
+        # Invert X, restore the X slabs, then invert Y/Z to the original
+        # real shape. Explicit sizes also preserve odd Z lengths.
+        potential_k = jnp.fft.ifft(potential_k, axis=0)
+        potential_k = jax.lax.all_to_all(
+            potential_k, X_NAME, split_axis=0, concat_axis=1, tiled=True
+        )
+        return jnp.fft.irfftn(potential_k, s=(num_cells_y, num_cells_z), axes=(1, 2))
 
+    # Real-FFT transposition uses nested linear transformations that the
+    # manual-axis checker cannot propagate on all supported JAX versions.
+    # The input/output layout is explicit; derivatives are checked separately.
     return _shard_map(
         _local_solve,
         mesh=spectral_mesh(mesh),
         in_specs=(FIELD_SPEC,),
         out_specs=FIELD_SPEC,
+        **_SHARD_MAP_CHECK_OPTIONS,
     )(gas_density)
 
 

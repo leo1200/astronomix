@@ -118,23 +118,37 @@ def test_one_device_without_a_mesh():
 
 
 @pytest.mark.parametrize("discrete_laplacian", [False, True])
-def test_sharded_poisson_solve_equals_replicated(discrete_laplacian):
+@pytest.mark.parametrize("shape", [(16, 16, 16), (16, 12, 9)])
+def test_sharded_poisson_solve_equals_replicated(discrete_laplacian, shape):
     """The self-gravity solve on a (4, 1, 1) mesh, built on the distributed transform."""
     mesh = state_mesh((4, 1, 1))
     periodic = BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY)
     config = SimulationConfig(
-        dimensionality=3, num_cells=StaticIntVector(16, 16, 16),
+        dimensionality=3, num_cells=StaticIntVector(*shape),
         boundary_settings=BoundarySettings(periodic, periodic, periodic),
         gravity_config=GravityConfig(poisson_discrete_laplacian=discrete_laplacian),
     )
-    (density,) = random_fields((16, 16, 16), 1)
+    density, direction, weights = random_fields(shape, 3)
     density = 1.0 + 0.1 * density
+
+    def potential(rho):
+        return _compute_gravitational_potential(rho, 1.0 / 16, config)
+
+    def derivatives(rho, tangent, cotangent):
+        forward = jax.jvp(potential, (rho,), (tangent,))[1]
+        reverse = jax.vjp(potential, rho)[1](cotangent)[0]
+        return forward, reverse
+
     jax.clear_caches()  # the mesh context is read when the solver is traced
     with pallas_mesh_context(mesh, PartitionSpec(0, 1, 2, 3)):
-        solve = jax.jit(lambda rho: _compute_gravitational_potential(rho, 1.0 / 16, config)).lower(split(density, mesh))
+        solve = jax.jit(potential).lower(split(density, mesh))
+        sharded_derivatives = jax.jit(derivatives)(*[split(f, mesh) for f in (density, direction, weights)])
     assert "all_to_all" in solve.as_text()
     jax.clear_caches()
-    assert_round_off(solve.compile()(split(density, mesh)), _compute_gravitational_potential(density, 1.0 / 16, config))
+    assert_round_off(solve.compile()(split(density, mesh)), potential(density))
+    # The real half-spectrum path must preserve odd lengths and both AD modes.
+    for result, reference in zip(sharded_derivatives, derivatives(density, direction, weights)):
+        assert_round_off(result, reference)
 
 
 @pytest.mark.parametrize("layout", LAYOUTS)
