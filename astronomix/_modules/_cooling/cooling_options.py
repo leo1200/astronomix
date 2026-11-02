@@ -206,6 +206,18 @@ class CoolingParams(NamedTuple):
     #: thermal-instability equilibrium (Lambda = Gamma).
     heating_rate: float = 0.0
 
+    #: Optional temperature dependence of the heating, Gamma(T) =
+    #: heating_rate * f(T~), tabulated as log10 of the rescaled temperature
+    #: (ascending) and the dimensionless factor f. Empty tables (default) mean
+    #: f = 1, i.e. the old constant heating. Needed for TIGRESS-style
+    #: photoelectric heating that switches off in ionised gas: without the
+    #: cut-off, constant heating spuriously heats a hot rarefied wind
+    #: (n_H Gamma ~ n_H^2 Lambda already at n_H ~ 1e-3 cm^-3, T ~ 1e6-1e7 K).
+    heating_log10_T_table: jnp.ndarray = jnp.array([])
+
+    #: The heating factor f at ``heating_log10_T_table`` (linear in log10 T~).
+    heating_factor_table: jnp.ndarray = jnp.array([])
+
     #: The parameters of the cooling curve selected by
     #: ``CoolingCurveConfig.cooling_curve_type``.
     cooling_curve_params: COOLING_CURVE_TYPE = SimplePowerLawParams()
