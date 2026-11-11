@@ -25,9 +25,6 @@ from astronomix.option_classes.simulation_config import SimulationConfig
 from astronomix.variable_registry.registered_variables import AxisInfo, RegisteredVariables
 
 # astronomix functions
-from astronomix._modules._cosmic_rays.cr_fluid_equations import (
-    total_energy_from_primitives_with_crs,
-)
 from astronomix._fluid_equations._equations import (
     get_absolute_velocity,
     total_energy_from_primitives,
@@ -69,10 +66,7 @@ def _euler_flux(
     # Compute the total energy that enters the energy flux.
     utotal = get_absolute_velocity(primitive_state, config, registered_variables)
 
-    if registered_variables.cosmic_ray_n_active:
-        E = total_energy_from_primitives_with_crs(primitive_state, registered_variables)
-    else:
-        E = total_energy_from_primitives(rho, utotal, p, gamma)
+    E = total_energy_from_primitives(rho, utotal, p, gamma)
 
     # Add the total energy onto the pressure slot of the flux vector (the
     # pressure index doubles as the energy slot in the conserved layout).

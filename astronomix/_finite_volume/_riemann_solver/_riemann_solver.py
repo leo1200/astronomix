@@ -36,7 +36,6 @@ from astronomix.variable_registry.registered_variables import RegisteredVariable
 from astronomix.option_classes.simulation_config import SimulationConfig
 
 # astronomix functions
-from astronomix._modules._cosmic_rays.cr_fluid_equations import speed_of_sound_crs
 from astronomix._finite_volume._riemann_solver._lax_friedrichs import _lax_friedrichs_solver
 from astronomix._finite_volume._riemann_solver.hll import _am_hllc_solver, _hll_solver, _hllc_solver
 from astronomix._fluid_equations._equations import conserved_state_from_primitive, speed_of_sound

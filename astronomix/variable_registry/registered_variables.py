@@ -138,14 +138,6 @@ class RegisteredVariables(NamedTuple):
     wind_density_index: int = -1
     wind_density_active: bool = False
 
-    #: simplified cosmic rays
-    # in the simplest CR model witout CR diffusion,
-    # streaming and no explicitly modeled magnetic field
-    # n_CR = P_CR^(1/gamma_CR) is a conserved quantity.
-    # This is the cosmic_ray_n, the index below points to.
-    cosmic_ray_n_index: int = -1
-    cosmic_ray_n_active: bool = False
-
     #: Dual-energy internal-energy density ``g = rho e`` (Bryan et al. 1995).
     #: Stored behind all other variables except the passive scalars (for MHD
     #: behind the interface magnetic field). ``_evolve_state_fd`` splits it off
@@ -182,7 +174,7 @@ def get_registered_variables(config: SimulationConfig) -> RegisteredVariables:
 
     Starts from the baseline (density, velocity, pressure) registry and grows /
     re-indexes it for the active solver mode, dimensionality, equation of state
-    and any extra tracked fields (MHD, stellar-wind density, cosmic rays, the
+    and any extra tracked fields (MHD, stellar-wind density, the
     dual-energy internal energy, passive scalars and the shock history), so
     that every field lands at the index the rest of the code expects.
 
@@ -210,8 +202,8 @@ def get_registered_variables(config: SimulationConfig) -> RegisteredVariables:
             magnetic_psi_active=True,
             num_vars=9,
         )
-        # NOTE: this layout registers no extra tracers (stellar-wind density,
-        # cosmic rays); the VL2 scheme does not evolve them.
+        # NOTE: this layout does not register the stellar-wind density; the
+        # VL2 scheme does not evolve it.
 
         if config.vl2_constrained_transport:
             # VL2 with constrained transport: no cleaning scalar; the
@@ -292,16 +284,6 @@ def get_registered_variables(config: SimulationConfig) -> RegisteredVariables:
                 num_vars=registered_variables.num_vars + 1
             )
             registered_variables = registered_variables._replace(wind_density_active=True)
-
-        # NOTE: CURRENTLY ONLY IMPLEMENTED FOR FINITE VOLUME MODE
-        if config.cosmic_ray_config.cosmic_rays:
-            registered_variables = registered_variables._replace(
-                cosmic_ray_n_index=registered_variables.num_vars
-            )
-            registered_variables = registered_variables._replace(
-                num_vars=registered_variables.num_vars + 1
-            )
-            registered_variables = registered_variables._replace(cosmic_ray_n_active=True)
 
     if config.solver_mode == FINITE_DIFFERENCE:
 

@@ -54,9 +54,3 @@
 - Jeans linear waves (has analytical solution)
 - Propagating slabs (has analytical solution)
 - Spherical collapse
-
-## Cosmic rays
-
-### 1D cartesian
-
-- Cosmic ray modified shocks with and without shock injection (has analytical solution)

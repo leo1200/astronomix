@@ -22,9 +22,8 @@ What is checked:
   there, so a scalar sitting on its bound would lose half of its sensitivity
   every step), and the smooth shock latch leaves the primal unchanged while
   giving the latch a derivative;
-* ``finalize_config`` refuses cosmic rays under the FD solver and an unknown
-  ``ad_remat`` mode, and ``OPTIMAL_BACKEND`` resolves to NATIVE_JAX when JAX
-  runs on the CPU.
+* ``finalize_config`` refuses an unknown ``ad_remat`` mode, and
+  ``OPTIMAL_BACKEND`` resolves to NATIVE_JAX when JAX runs on the CPU.
 
 Run on the CPU (the preamble then selects fast-compiling XLA flags)::
 
@@ -78,7 +77,6 @@ from astronomix.variable_registry.registered_variables import (
 
 # astronomix containers
 from astronomix import BackendConfig
-from astronomix._modules._cosmic_rays.cosmic_ray_options import CosmicRayConfig
 
 # astronomix functions
 from astronomix import (
@@ -840,17 +838,11 @@ def test_scalar_lean_same_gradient():
 
 def test_config_guards():
     """
-    ``finalize_config`` refuses cosmic rays under the finite-difference solver and
-    an unknown ``ad_remat`` mode, and ``OPTIMAL_BACKEND`` resolves to NATIVE_JAX
-    when JAX runs on the CPU.
+    ``finalize_config`` refuses an unknown ``ad_remat`` mode, and
+    ``OPTIMAL_BACKEND`` resolves to NATIVE_JAX when JAX runs on the CPU.
     """
     num_vars = get_registered_variables(blast_config()).num_vars
     state_shape = (num_vars, NUM_CELLS, NUM_CELLS, NUM_CELLS)
-    with pytest.raises(ValueError, match="cosmic"):
-        finalize_config(
-            blast_config(cosmic_ray_config=CosmicRayConfig(cosmic_rays=True)),
-            state_shape,
-        )
     with pytest.raises(ValueError, match="ad_remat"):
         finalize_config(blast_config(ad_remat="everything"), state_shape)
     if jax.devices()[0].platform == "cpu":

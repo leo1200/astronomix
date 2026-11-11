@@ -589,8 +589,8 @@ output across many timesteps.
 
 **Constraints (gated by `_fv_pallas_evolve_supported`):**
 
-- ideal-gas EOS, Cartesian geometry, no self-gravity / cosmic rays /
-  viscosity, periodic or block-divisible ghost-cell layouts;
+- ideal-gas EOS, Cartesian geometry, no self-gravity / viscosity,
+  periodic or block-divisible ghost-cell layouts;
 - `config.riemann_solver ∈ {HLL, LAX_FRIEDRICHS}` (HLLC / HLLC_LM /
   AM_HLLC not ported — same kernel skeleton, additional algebra);
 - `config.limiter ∈ {MINMOD, VAN_ALBADA, VAN_ALBADA_PP, OSHER}`;

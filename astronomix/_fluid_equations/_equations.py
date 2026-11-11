@@ -27,10 +27,6 @@ from astronomix.variable_registry.registered_variables import RegisteredVariable
 
 # astronomix functions
 from astronomix._fluid_equations._dual_energy_switch import dual_energy_internal_energy
-from astronomix._modules._cosmic_rays.cr_fluid_equations import (
-    total_energy_from_primitives_with_crs,
-    total_pressure_from_conserved_with_crs,
-)
 
 
 # -------------------------------------------------------------
@@ -116,11 +112,7 @@ def primitive_state_from_conserved(
         uz = conserved_state[registered_variables.velocity_index.z] / rho
         u = jnp.sqrt(ux**2 + uy**2 + uz**2 + 1e-20)
 
-    if registered_variables.cosmic_ray_n_active:
-        p = total_pressure_from_conserved_with_crs(
-            conserved_state, registered_variables
-        )
-    elif internal_energy_density is not None:
+    if internal_energy_density is not None:
         p = dual_switched_pressure_hydro(
             E,
             rho,
@@ -194,10 +186,7 @@ def conserved_state_from_primitive(
     u = get_absolute_velocity(primitive_state, config, registered_variables)
     p = primitive_state[registered_variables.pressure_index]
 
-    if registered_variables.cosmic_ray_n_active:
-        E = total_energy_from_primitives_with_crs(primitive_state, registered_variables)
-    else:
-        E = total_energy_from_primitives(rho, u, p, gamma)
+    E = total_energy_from_primitives(rho, u, p, gamma)
 
     conserved_state = primitive_state.at[registered_variables.pressure_index].set(E)
 

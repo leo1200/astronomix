@@ -5,7 +5,7 @@ Given the per-variable fields (density, velocities, magnetic field components,
 pressures, passive scalars, ...) this stacks them into the single state array
 used throughout the solver, placing each field at the index dictated by
 ``registered_variables`` for the active configuration (dimensionality, MHD,
-solver mode, equation of state, cosmic rays, dual energy, passive scalars and
+solver mode, equation of state, dual energy, passive scalars and
 the shock history).
 """
 
@@ -61,7 +61,6 @@ def _assemble_primitive_state(
     interface_magnetic_field_y: Union[FIELD_TYPE, NoneType] = None,
     interface_magnetic_field_z: Union[FIELD_TYPE, NoneType] = None,
     gas_pressure: Union[FIELD_TYPE, NoneType] = None,
-    cosmic_ray_pressure: Union[FIELD_TYPE, NoneType] = None,
     passive_scalars: Union[STATE_TYPE, NoneType] = None,
     gamma: Union[float, NoneType] = None,
     sharding=None,
@@ -88,7 +87,6 @@ def _assemble_primitive_state(
         interface_magnetic_field_z: The z-component of the face-centered
             (interface) magnetic field, used by the finite-difference solver.
         gas_pressure: The thermal pressure of the fluid.
-        cosmic_ray_pressure: The cosmic ray pressure of the fluid.
         passive_scalars: The user-defined passive scalars, stacked along a
             leading axis with shape ``(config.num_passive_scalars,) + grid``.
             The library-managed shock-history scalars are NOT included here.
@@ -200,21 +198,6 @@ def _assemble_primitive_state(
     if config.equation_of_state == IDEAL_GAS:
         state = state.at[registered_variables.pressure_index].set(gas_pressure)
 
-    if registered_variables.cosmic_ray_n_active:
-        # TODO: take the cosmic-ray adiabatic index from params instead of
-        # hard-coding the relativistic value 4/3.
-        gamma_cr = 4 / 3
-
-        # The stored pressure is the combined gas + cosmic-ray pressure, while
-        # the cosmic-ray number variable encodes the CR pressure to the power
-        # 1/gamma_cr.
-        state = state.at[registered_variables.pressure_index].set(
-            gas_pressure + cosmic_ray_pressure
-        )
-        state = state.at[registered_variables.cosmic_ray_n_index].set(
-            cosmic_ray_pressure ** (1 / gamma_cr)
-        )
-
     if registered_variables.passive_scalars_active:
         num_user_scalars = registered_variables.num_passive_scalars
         if registered_variables.shock_history_active:
@@ -275,7 +258,6 @@ def construct_primitive_state(
     interface_magnetic_field_y: Union[FIELD_TYPE, NoneType] = None,
     interface_magnetic_field_z: Union[FIELD_TYPE, NoneType] = None,
     gas_pressure: Union[FIELD_TYPE, NoneType] = None,
-    cosmic_ray_pressure: Union[FIELD_TYPE, NoneType] = None,
     passive_scalars: Union[STATE_TYPE, NoneType] = None,
     gamma: Union[float, NoneType] = None,
     sharding=None,
@@ -379,7 +361,6 @@ def construct_primitive_state(
         interface_magnetic_field_y=interface_magnetic_field_y,
         interface_magnetic_field_z=interface_magnetic_field_z,
         gas_pressure=gas_pressure,
-        cosmic_ray_pressure=cosmic_ray_pressure,
         passive_scalars=passive_scalars,
         gamma=gamma,
         sharding=sharding,

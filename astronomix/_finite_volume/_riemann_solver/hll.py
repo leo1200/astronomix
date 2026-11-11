@@ -31,7 +31,6 @@ from astronomix.variable_registry.registered_variables import RegisteredVariable
 from astronomix.option_classes.simulation_config import SimulationConfig
 
 # astronomix functions
-from astronomix._modules._cosmic_rays.cr_fluid_equations import speed_of_sound_crs
 from astronomix._stencil_operations._stencil_operations import _stencil_add
 from astronomix._fluid_equations._equations import (
     conserved_state_from_primitive,
@@ -78,12 +77,8 @@ def _hll_solver(
     p_R = primitives_right[registered_variables.pressure_index]
 
     # calculate the sound speeds
-    if not config.cosmic_ray_config.cosmic_rays:
-        c_L = speed_of_sound(rho_L, p_L, gamma)
-        c_R = speed_of_sound(rho_R, p_R, gamma)
-    else:
-        c_L = speed_of_sound_crs(primitives_left, registered_variables)
-        c_R = speed_of_sound_crs(primitives_right, registered_variables)
+    c_L = speed_of_sound(rho_L, p_L, gamma)
+    c_R = speed_of_sound(rho_R, p_R, gamma)
 
     # get the left and right states and fluxes
     fluxes_left = _euler_flux(
@@ -178,12 +173,8 @@ def _hllc_solver(
     p_R = primitives_right[registered_variables.pressure_index]
 
     # calculate the sound speeds
-    if not config.cosmic_ray_config.cosmic_rays:
-        c_L = speed_of_sound(rho_L, p_L, gamma)
-        c_R = speed_of_sound(rho_R, p_R, gamma)
-    else:
-        c_L = speed_of_sound_crs(primitives_left, registered_variables)
-        c_R = speed_of_sound_crs(primitives_right, registered_variables)
+    c_L = speed_of_sound(rho_L, p_L, gamma)
+    c_R = speed_of_sound(rho_R, p_R, gamma)
 
     # get the left and right states and fluxes
     F_L = _euler_flux(

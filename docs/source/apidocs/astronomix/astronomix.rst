@@ -21,4 +21,3 @@ Subpackages
    astronomix.time_stepping
    astronomix.setup_helpers
    astronomix.plotting_helpers
-   astronomix.shock_finder

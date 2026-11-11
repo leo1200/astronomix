@@ -26,7 +26,6 @@ from astronomix._modules._cnn_mhd_corrector._cnn_mhd_corrector_options import (
     CNNMHDconfig,
 )
 from astronomix._modules._cooling.cooling_options import CoolingConfig
-from astronomix._modules._cosmic_rays.cosmic_ray_options import CosmicRayConfig
 from astronomix._modules._neural_net_force._neural_net_force_options import (
     NeuralNetForceConfig,
 )
@@ -149,8 +148,8 @@ RK4_LSRK = 3
 #: carries the cell-centred field together with the GLM cleaning scalar psi
 #: (Dedner et al. 2002). The scheme is Cartesian. Self-gravity and an external
 #: potential enter through Athena++'s coupling (``ATHENA_SECOND_ORDER``); the
-#: scheme has no stellar-wind-tracer or cosmic-ray terms, and
-#: ``finalize_config`` rejects those combinations (spherical geometry, as for
+#: scheme has no stellar-wind-tracer term, and
+#: ``finalize_config`` rejects that combination (spherical geometry, as for
 #: every spherical configuration, is switched to MUSCL instead).
 VL2 = 4
 
@@ -1140,9 +1139,6 @@ class SimulationConfig(NamedTuple):
     #: The configuration for the stellar wind module.
     wind_config: WindConfig = WindConfig()
 
-    #: Cosmic rays
-    cosmic_ray_config: CosmicRayConfig = CosmicRayConfig()
-
     #: The configuration for the cooling module.
     cooling_config: CoolingConfig = CoolingConfig()
 
@@ -1237,8 +1233,8 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
     of cells per axis, the grid spacing, the geometry- and solver-specific
     overrides, the master gravity switch, the boundary defaults, and the
     disk-snapshot requirements. Combinations the solvers do not implement
-    (e.g. cosmic rays with the finite-difference solver, self-gravity or
-    non-Cartesian geometry with VL2, HLLD outside VL2) raise a ``ValueError``.
+    (e.g. self-gravity or non-Cartesian geometry with VL2, HLLD outside VL2)
+    raise a ``ValueError``.
 
     Args:
         config: The user-supplied simulation configuration.
@@ -1272,21 +1268,6 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
             config = config._replace(
                 backend_config=config.backend_config._replace(backend=NATIVE_JAX)
             )
-
-    # Cosmic rays exist only in the finite-volume solver. Under the
-    # finite-difference solver the registry does not add the CR variable, so
-    # the CR code paths that still run (DSA injection, energy totals) index
-    # variable -1 -- the pressure in 1D, the last passive scalar when scalars
-    # are carried -- and the run silently returns a CR-free (and corrupted)
-    # solution. Refuse instead.
-    if config.cosmic_ray_config.cosmic_rays and config.solver_mode == FINITE_DIFFERENCE:
-        raise ValueError(
-            "cosmic_ray_config.cosmic_rays is not implemented for the "
-            "finite-difference solver (the default solver_mode): the CR "
-            "configuration would be silently ignored and the CR modules would "
-            "write into variable -1. Use solver_mode=FINITE_VOLUME for cosmic "
-            "rays."
-        )
 
     # Reverse-mode / AD options.
     if config.ad_remat not in AD_REMAT_MODES:
@@ -1492,11 +1473,10 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
             )
         if config.geometry != CARTESIAN:
             raise ValueError("The VL2 scheme is implemented for Cartesian geometry only.")
-        if config.wind_config.trace_wind_density or config.cosmic_ray_config.cosmic_rays:
+        if config.wind_config.trace_wind_density:
             raise ValueError(
                 "The VL2 scheme does not evolve the stellar-wind tracer "
-                "(wind_config.trace_wind_density) or the cosmic-ray variable "
-                "(cosmic_ray_config.cosmic_rays)."
+                "(wind_config.trace_wind_density)."
             )
 
         if config.split != UNSPLIT:

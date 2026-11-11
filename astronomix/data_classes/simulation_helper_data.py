@@ -137,7 +137,7 @@ def _helper_data_requirements(config: SimulationConfig) -> HelperDataRequirement
         needs_r_hat_alpha = True
         # 1D curvilinear get_helper_data also produces cell_volumes
         # and inner/outer boundaries; downstream code reads them in
-        # the wind / cosmic-ray paths, gated by their own flags.
+        # the wind path, gated by its own flag.
 
     # Stellar wind injection.
     if config.wind_config.stellar_wind:
@@ -147,11 +147,6 @@ def _helper_data_requirements(config: SimulationConfig) -> HelperDataRequirement
         if dimensionality > 1:
             needs_geometric_centers = True
             needs_r = True
-
-    # Cosmic-ray diffusive shock acceleration.
-    if config.cosmic_ray_config.diffusive_shock_acceleration:
-        needs_geometric_centers = True
-        needs_cell_volumes = True
 
     # Neural-network body force / cnn corrector positions.
     if config.neural_net_force_config.neural_net_force:

@@ -1348,13 +1348,6 @@ API
 
       .. autodoc2-docstring:: astronomix.option_classes.simulation_config.SimulationConfig.wind_config
 
-   .. py:attribute:: cosmic_ray_config
-      :canonical: astronomix.option_classes.simulation_config.SimulationConfig.cosmic_ray_config
-      :type: astronomix._modules._cosmic_rays.cosmic_ray_options.CosmicRayConfig
-      :value: 'CosmicRayConfig(...)'
-
-      .. autodoc2-docstring:: astronomix.option_classes.simulation_config.SimulationConfig.cosmic_ray_config
-
    .. py:attribute:: cooling_config
       :canonical: astronomix.option_classes.simulation_config.SimulationConfig.cooling_config
       :type: astronomix._modules._cooling.cooling_options.CoolingConfig

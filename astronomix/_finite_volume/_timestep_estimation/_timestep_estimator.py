@@ -43,10 +43,6 @@ from astronomix._finite_volume._riemann_solver._athena_riemann_solvers import (
     fast_magnetosonic_speed,
 )
 from astronomix.time_stepping._utils import _unpad
-from astronomix._modules._cosmic_rays.cr_fluid_equations import (
-    gas_pressure_from_primitives_with_crs,
-    speed_of_sound_crs,
-)
 
 
 # NOTE: these wave speeds are computed without the reconstruction. For the
@@ -92,12 +88,8 @@ def get_wave_speeds(
     p_R = primitives_right[registered_variables.pressure_index]
 
     # calculate the sound speeds
-    if not config.cosmic_ray_config.cosmic_rays:
-        c_L = speed_of_sound(rho_L, p_L, gamma)
-        c_R = speed_of_sound(rho_R, p_R, gamma)
-    else:
-        c_L = speed_of_sound_crs(primitives_left, registered_variables)
-        c_R = speed_of_sound_crs(primitives_right, registered_variables)
+    c_L = speed_of_sound(rho_L, p_L, gamma)
+    c_R = speed_of_sound(rho_R, p_R, gamma)
 
     # A simple symmetric estimate of the maximum signal speed on either side of
     # the interface; the |u| + c form is sufficient for the time-step bound.

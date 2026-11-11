@@ -13,7 +13,6 @@ Subpackages
    astronomix.option_classes
    astronomix.plotting_helpers
    astronomix.setup_helpers
-   astronomix.shock_finder
    astronomix.time_stepping
    astronomix.units
 

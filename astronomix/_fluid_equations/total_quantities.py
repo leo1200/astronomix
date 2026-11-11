@@ -28,9 +28,6 @@ from astronomix.data_classes.simulation_helper_data import HelperData
 from astronomix.option_classes.simulation_params import SimulationParams
 
 # astronomix functions
-from astronomix._modules._cosmic_rays.cr_fluid_equations import (
-    total_energy_from_primitives_with_crs,
-)
 from astronomix._modules._gravity._poisson_solver import (
     _compute_gravitational_potential,
 )
@@ -45,10 +42,6 @@ from astronomix._fluid_equations._equations import (
 @partial(jax.jit, static_argnames=["config", "registered_variables"])
 def calculate_internal_energy(state, helper_data, gamma, config, registered_variables):
     p = state[registered_variables.pressure_index]
-
-    if config.cosmic_ray_config.cosmic_rays:
-        gamma_cr = 4 / 3
-        p = p - state[registered_variables.cosmic_ray_n_index] ** gamma_cr
 
     internal_energy = p / (gamma - 1)
 
@@ -163,12 +156,7 @@ def calculate_total_energy(
     u = get_absolute_velocity(primitive_state, config, registered_variables)
     p = primitive_state[registered_variables.pressure_index]
 
-    if config.cosmic_ray_config.cosmic_rays:
-        energy = total_energy_from_primitives_with_crs(
-            primitive_state, registered_variables
-        )
-    else:
-        energy = total_energy_from_primitives(rho, u, p, gamma)
+    energy = total_energy_from_primitives(rho, u, p, gamma)
 
     # self-gravity carries the factor 1/2 (mutual interaction); a fixed
     # external potential contributes its full potential energy rho * phi_ext.
