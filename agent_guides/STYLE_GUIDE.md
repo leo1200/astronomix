@@ -230,7 +230,7 @@ conversion:
   paths (`/export/data/...`). State what the code does and why, in general
   terms; measurements belong in the validation notes under `examples/`.
 
-Genuine, configurable features are **not** cruft (e.g. `coldcrush_blend` is a
+Genuine, configurable features are **not** cruft (e.g. `step_retry` is a
 real `PositivityConfig` option and `weno_positivity_preserving` a real
 `SimulationConfig` option; both stay).
 

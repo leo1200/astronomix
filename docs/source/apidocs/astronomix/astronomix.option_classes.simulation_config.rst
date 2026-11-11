@@ -910,33 +910,12 @@ API
 
       .. autodoc2-docstring:: astronomix.option_classes.simulation_config.PositivityConfig.per_step_mode
 
-   .. py:attribute:: per_step_specific_floor
-      :canonical: astronomix.option_classes.simulation_config.PositivityConfig.per_step_specific_floor
-      :type: bool
-      :value: False
-
-      .. autodoc2-docstring:: astronomix.option_classes.simulation_config.PositivityConfig.per_step_specific_floor
-
    .. py:attribute:: clamp_in_estimates
       :canonical: astronomix.option_classes.simulation_config.PositivityConfig.clamp_in_estimates
       :type: bool
       :value: True
 
       .. autodoc2-docstring:: astronomix.option_classes.simulation_config.PositivityConfig.clamp_in_estimates
-
-   .. py:attribute:: coldcrush_blend
-      :canonical: astronomix.option_classes.simulation_config.PositivityConfig.coldcrush_blend
-      :type: bool
-      :value: False
-
-      .. autodoc2-docstring:: astronomix.option_classes.simulation_config.PositivityConfig.coldcrush_blend
-
-   .. py:attribute:: coldcrush_blend_factor
-      :canonical: astronomix.option_classes.simulation_config.PositivityConfig.coldcrush_blend_factor
-      :type: float
-      :value: 8.0
-
-      .. autodoc2-docstring:: astronomix.option_classes.simulation_config.PositivityConfig.coldcrush_blend_factor
 
 .. py:class:: SimulationConfig
    :canonical: astronomix.option_classes.simulation_config.SimulationConfig

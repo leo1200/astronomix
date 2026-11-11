@@ -3,7 +3,7 @@ Cost of one optimisation step of the field-level inference: the memory and
 wall time of a value-and-grad of the projected-density loss with respect to the
 3 x N^3 initial velocity, for several reverse-mode settings.
 
-For each (ad_remat, num_checkpoints) and each reverse mode of the WENO flux
+For each (stage rematerialisation, num_checkpoints) and each reverse mode of the WENO flux
 (the transposed native tangent, ``native``, and the Pallas adjoint, ``pallas``)
 the compiled memory of the gradient is read before it runs (so configurations that cannot fit are reported without
 running them), then the gradient is timed over a fraction of the loss time.
@@ -73,7 +73,7 @@ def parse_arguments():
         "--settings",
         type=str,
         default="stage:16,none:16",
-        help="comma-separated ad_remat:num_checkpoints pairs",
+        help="comma-separated remat:num_checkpoints pairs (remat: stage or none)",
     )
     parser.add_argument(
         "--data-directory",
@@ -172,13 +172,13 @@ def main():
     ]
     gradients = {}
     for setting, flux_adjoint in runs:
-        ad_remat, num_checkpoints = setting.split(":")
+        remat, num_checkpoints = setting.split(":")
         num_checkpoints = int(num_checkpoints)
         _, backward_config = finalized(make_config(
             resolution,
             backward=True,
             num_checkpoints=num_checkpoints,
-            ad_remat=ad_remat,
+            rematerialize_stages={"stage": True, "none": False}[remat],
             backend=PALLAS if args.backward_backend == "pallas" else NATIVE_JAX,
             pallas_adjoint=flux_adjoint == "pallas",
         ))
@@ -191,7 +191,7 @@ def main():
         )
         label = (
             f"{args.backward_backend} flux adjoint={flux_adjoint:6s} "
-            f"ad_remat={ad_remat:5s} checkpoints={num_checkpoints:3d}"
+            f"remat={remat:5s} checkpoints={num_checkpoints:3d}"
         )
         start = timer()
         compiled = jax.jit(jax.value_and_grad(loss)).lower(velocity).compile()

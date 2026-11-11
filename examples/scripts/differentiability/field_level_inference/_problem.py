@@ -83,7 +83,7 @@ def make_config(
     turbulent_forcing=False,
     backward=False,
     num_checkpoints=16,
-    ad_remat="stage",
+    rematerialize_stages=True,
     return_snapshots=False,
     backend=PALLAS,
     pallas_adjoint=False,
@@ -96,7 +96,7 @@ def make_config(
         turbulent_forcing: Drive the turbulence (the background generation).
         backward: Reverse-mode differentiable time loop (checkpointed).
         num_checkpoints: Checkpoints of the reverse-mode time loop.
-        ad_remat: Rematerialisation of the Runge-Kutta stages in the backward.
+        rematerialize_stages: Rematerialise the Runge-Kutta stages in the backward.
         return_snapshots: Return snapshot data (used to count time steps).
         backend: The backend of the primal (PALLAS or NATIVE_JAX).
         pallas_adjoint: Differentiate the WENO flux of the reverse-mode time
@@ -119,7 +119,7 @@ def make_config(
         num_cells=num_cells,
         differentiation_mode=BACKWARDS if backward else FORWARDS,
         num_checkpoints=num_checkpoints,
-        ad_remat=ad_remat,
+        rematerialize_stages=rematerialize_stages,
         return_snapshots=return_snapshots,
         num_snapshots=2,
         turbulent_forcing_config=TurbulentForcingConfig(turbulent_forcing=turbulent_forcing),

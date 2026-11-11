@@ -5,7 +5,7 @@ Branch `weno-stability`, worktree `/export/home/lstorcks/jf1uids-weno-stability`
 **Goal:** replace the post-hoc stabilisers that the high-Mach turbulence and
 self-gravity runs need by a principled change inside the WENO scheme. The
 stabilisers in question: vacuum `prot`, per-stage/per-step hard floors,
-`vacuum_rest`, deep-void / cold-crush LLF blending, the Zalesak flux limiter,
+`vacuum_rest`, deep-void LLF blending, the Zalesak flux limiter,
 and a 0.02 density floor.
 
 All measurements below use **no** positivity machinery
@@ -562,7 +562,7 @@ SSPRK4 + CT, OU forcing, PP on, `clamp_in_estimates = False`, rho_min = p_min = 
 
 * `clamp_in_estimates`, rho_min / p_min floors;
 * `prot`, hard floors, `vacuum_rest`;
-* deep-void / cold-crush blends, the Zalesak `preserving_flux`;
+* the deep-void blend, the Zalesak `preserving_flux`;
 * dual energy.
 
 **Caveat on the defaults:** `clamp_in_estimates = True` is the default. It is
@@ -591,8 +591,7 @@ documented as read-only but is not:
 * `vacuum_rest`, `nan_safe`, `cons_*`, `default_positivity_protection`,
   `positivity_max_velocity`;
 * the forcing `prot` (`vacuum_protection` + params);
-* the deep-void blend, the Zalesak `preserving_flux`, the HLLC fallback and
-  `ad_tangent_llf_cold_factor`;
+* the deep-void blend, the Zalesak `preserving_flux` and the HLLC fallback;
 * the gravity work backstop.
 
 **Kept**, none of them a positivity patch:
@@ -600,8 +599,6 @@ documented as read-only but is not:
   temperature floor of cooled runs;
 * the read-only `clamp_in_estimates` (fixed: it no longer writes into the
   carried MHD state);
-* the cold-crush blend: radiative crushes at >= 512³ with cooling;
-  unvalidated without it;
 * dual energy (accuracy);
 * the conservative `work_flux_correction`.
 
@@ -716,10 +713,6 @@ Things that are not hiding:
   cells, as in 2D/3D. Measured orders are now 4.93 / 5.00 / 5.00.
 * Isothermal hydro crashed in 1D (`momentum_index.x` on an int). It now runs
   and matches the exact isothermal Riemann solutions.
-* `_lsrk4_with_ct` never applied the flux blending, so for MHD under
-  `RK4_LSRK` every blend option was silently off. It now blends exactly like
-  the SSPRK path: the deep-void blend changes rho by 0.142 under both
-  integrators.
 
 ## Open
 

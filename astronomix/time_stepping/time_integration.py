@@ -592,12 +592,6 @@ def _prepare_padded_state(primitive_state, config, params, registered_variables)
     disk restart consistent with an uninterrupted run. The dual-energy ``g``
     must already be initialised (:func:`_seed_internal_energy`).
 
-    NOTE: the shock-history scalars are deliberately NOT re-derived here.
-    Unlike the dual-energy ``g``, which is a function of the current state and
-    so can be re-derived on every restart, they are genuine history variables:
-    ``entropy_initial`` is seeded once in ``construct_primitive_state`` and a
-    checkpointed value must be restored as-is.
-
     Args:
         primitive_state: The unpadded primitive state.
         config: The simulation configuration.

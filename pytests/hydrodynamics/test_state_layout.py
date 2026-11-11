@@ -4,10 +4,10 @@ gas / field variables.
 
 The finite-difference state can carry, behind the gas variables (and for MHD
 the cell-centred and interface magnetic fields), the dual-energy internal
-energy ``g`` and a passive-scalar block ending in the shock history. Checked:
+energy ``g`` and a passive-scalar block. Checked:
 
-* the registry's ``shock_history_index`` and slot constants match the layout
-  ``construct_primitive_state`` seeds, and ``magnetic_psi_active`` marks only
+* the registry's ``passive_scalar_index`` matches the layout
+  ``construct_primitive_state`` fills, and ``magnetic_psi_active`` marks only
   the VL2 GLM-MHD layout;
 * a ``g``-less input state with passive scalars active gets ``g`` inserted in
   front of the scalar block, so it evolves exactly like the full state;
@@ -45,11 +45,6 @@ from astronomix import (
     REFLECTIVE_BOUNDARY,
     VL2,
 )
-from astronomix.variable_registry.registered_variables import (
-    ENTROPY_INITIAL_SLOT,
-    NUM_SHOCK_HISTORY_SCALARS,
-    SHOCKED_FRACTION_SLOT,
-)
 
 # astronomix containers
 from astronomix import (
@@ -66,10 +61,7 @@ from astronomix import (
     get_registered_variables,
     time_integration,
 )
-from astronomix._fluid_equations._passive_scalars import (
-    _fill_scalar_ghost_cells,
-    specific_entropy,
-)
+from astronomix._fluid_equations._passive_scalars import _fill_scalar_ghost_cells
 from astronomix._geometry.boundaries import _boundary_handler
 from astronomix.time_stepping._progress_bar import (
     _reset_progress_log,
@@ -117,15 +109,15 @@ def _blast_state(config, num_scalars):
         config=config,
         registered_variables=registered_variables,
         passive_scalars=scalars,
-        gamma=GAMMA,
         **fields,
     )
     return finalize_config(config, state.shape), registered_variables, state
 
 
-def test_registry_shock_history_and_psi_flags():
-    """``shock_history_index`` locates the block construct_primitive_state seeds;
-    ``magnetic_psi_active`` marks only the VL2 GLM-MHD layout."""
+def test_registry_passive_scalars_and_psi_flags():
+    """``passive_scalar_index`` locates the block construct_primitive_state fills,
+    the last rows of the state; ``magnetic_psi_active`` marks only the VL2
+    GLM-MHD layout."""
     for mhd, dual_energy in ((False, False), (False, True), (True, True)):
         config = SimulationConfig(
             dimensionality=2,
@@ -133,24 +125,17 @@ def test_registry_shock_history_and_psi_flags():
             mhd=mhd,
             dual_energy=dual_energy,
             num_passive_scalars=2,
-            track_shock_history=True,
             boundary_settings=BoundarySettings(PERIODIC, PERIODIC),
         )
         config, registered_variables, state = _blast_state(config, num_scalars=2)
-        assert registered_variables.shock_history_index == (
-            registered_variables.passive_scalar_index
-            + registered_variables.num_passive_scalars
-            - NUM_SHOCK_HISTORY_SCALARS
-        )
-        assert registered_variables.shock_history_index + NUM_SHOCK_HISTORY_SCALARS == (
-            registered_variables.num_vars
-        )
-        history = state[registered_variables.shock_history_index:]
-        np.testing.assert_array_equal(
-            np.asarray(history[ENTROPY_INITIAL_SLOT]),
-            np.asarray(specific_entropy(state, GAMMA, registered_variables)),
-        )
-        np.testing.assert_array_equal(np.asarray(history[SHOCKED_FRACTION_SLOT]), 0.0)
+        assert registered_variables.num_passive_scalars == 2
+        assert registered_variables.passive_scalar_index + 2 == registered_variables.num_vars
+        assert state.shape[0] == registered_variables.num_vars
+        # The scalars of ``_blast_state`` are the first and second power of one
+        # profile that reaches 1 at the centre of the blob's support.
+        scalars = np.asarray(state[registered_variables.passive_scalar_index:])
+        assert scalars[0].max() > 0.9
+        np.testing.assert_allclose(scalars[1], scalars[0] ** 2, rtol=1e-6)
         assert not registered_variables.magnetic_psi_active
 
     vl2 = get_registered_variables(
@@ -158,7 +143,7 @@ def test_registry_shock_history_and_psi_flags():
     )
     assert vl2.magnetic_psi_active and vl2.magnetic_psi_index == 8
     no_scalars = get_registered_variables(SimulationConfig(solver_mode=FINITE_DIFFERENCE))
-    assert no_scalars.shock_history_index == -1 and not no_scalars.shock_history_active
+    assert no_scalars.passive_scalar_index == -1 and not no_scalars.passive_scalars_active
 
 
 def test_g_less_state_with_passive_scalars():
@@ -169,7 +154,6 @@ def test_g_less_state_with_passive_scalars():
         num_cells=32,
         dual_energy=True,
         num_passive_scalars=2,
-        track_shock_history=True,
         passive_scalar_bounds=((0.0, 1.0), (0.0, 1.0)),
         boundary_settings=PERIODIC,
         progress_bar=False,
@@ -210,7 +194,6 @@ def test_fd_mhd_ghost_fill_with_trailing_rows():
         mhd=True,
         dual_energy=True,
         num_passive_scalars=1,
-        track_shock_history=True,
         boundary_settings=boundaries,
     )
     config, registered_variables, state = _blast_state(config, num_scalars=1)

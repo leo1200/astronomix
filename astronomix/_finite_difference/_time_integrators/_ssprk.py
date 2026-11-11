@@ -5,10 +5,10 @@ One time step of the hydrodynamics and of the MHD equations with Constrained
 Transport (CT), either with the 5-stage, 4th-order Strong Stability Preserving
 Runge-Kutta scheme (SSPRK4, Spiteri & Ruuth 2002) or with the 2N-storage
 low-storage RK4 (LSRK4, Carpenter & Kennedy 1994). The drivers build the
-stage right-hand sides (WENO interface fluxes, optional cold-crush flux
-blending, flux divergence, physics sources) and hand them to the generic
-schemes in ``_integrators/_explicit_rk.py``; the helpers at the top wrap the
-stages for reverse-mode rematerialisation (``SimulationConfig.ad_remat``).
+stage right-hand sides (WENO interface fluxes, flux divergence, physics
+sources) and hand them to the generic schemes in
+``_integrators/_explicit_rk.py``; ``_stage_remat`` wraps the stages for
+reverse-mode rematerialisation (``SimulationConfig.rematerialize_stages``).
 
 See _magnetic_update/_constrained_transport.py for more details on the
 Constrained Transport (CT) implementation following (Seo & Ryu 2023,
@@ -24,12 +24,9 @@ from typing import Union
 # jax
 import jax
 import jax.numpy as jnp
-from jax.sharding import NamedSharding, PartitionSpec
 
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
-    AD_REMAT_AXIS,
-    AD_REMAT_NONE,
     CONSERVATIVE_GAS_STATE,
     GHOST_CELLS,
     IDEAL_GAS,
@@ -58,9 +55,6 @@ from astronomix._finite_difference._interface_fluxes._weno_pallas import (
 from astronomix._finite_difference._interface_fluxes._weno_positivity_pallas import (
     mhd_inflow_reference_dispatch,
 )
-from astronomix._finite_difference._interface_fluxes._flux_blending import (
-    _blend_interface_flux,
-)
 from astronomix._finite_difference._time_integrators._ssprk_pallas import (
     _div_axis_pallas_shape_ok,
     _hydro_flux_div_axis_native,
@@ -82,8 +76,6 @@ from astronomix._modules._time_integrator_sources import _time_integrator_source
 from astronomix._modules._resistivity._resistivity import fd_ohmic_interface_rhs
 from astronomix._pallas_helpers import (
     _backend_is_pallas,
-    _current_pallas_mesh,
-    _current_pallas_spec,
     _pallas_mesh_splits_axis,
     diffable_pallas_call_n,
     pl,
@@ -94,15 +86,15 @@ from astronomix._stencil_operations._stencil_operations import _shift
 def _stage_remat(fn, config):
     """
     Wrap a Runge-Kutta stage function in ``jax.checkpoint`` when reverse-mode
-    rematerialisation is requested (``config.ad_remat != "none"``).
+    rematerialisation is requested (``config.rematerialize_stages``).
 
     Applied to the right-hand side and to the per-stage boundary and
     cell-centred-field hooks. The backward pass then stores only their inputs
-    and recomputes the internals (WENO reconstruction, flux blending,
-    divergence, sources) when it needs them: about one extra forward
-    evaluation per stage in exchange for not holding every stage's residuals
-    across the whole step. Under a plain forward evaluation, or forward-mode
-    AD, ``jax.checkpoint`` is inlined and changes nothing.
+    and recomputes the internals (WENO reconstruction, divergence, sources)
+    when it needs them: about one extra forward evaluation per stage in
+    exchange for not holding every stage's residuals across the whole step.
+    Under a plain forward evaluation, or forward-mode AD, ``jax.checkpoint``
+    is inlined and changes nothing.
 
     Args:
         fn: The stage function.
@@ -111,112 +103,9 @@ def _stage_remat(fn, config):
     Returns:
         ``fn`` itself, or its checkpointed version.
     """
-    if config.ad_remat == AD_REMAT_NONE:
+    if not config.rematerialize_stages:
         return fn
     return jax.checkpoint(fn)
-
-
-def _remat_axis_call(
-    axis_increment,
-    conserved_state,
-    dt_over_dx,
-    internal_energy_density,
-    axis: int,
-    chunks: int,
-):
-    """
-    Evaluate the checkpointed increment of one axis (``ad_remat == "axis"``).
-
-    With ``chunks > 1`` (3D only) the increment is evaluated as a
-    ``lax.map`` over ``chunks`` slabs of a perpendicular axis, each slab
-    checkpointed on its own, so the backward pass holds one slab's WENO and
-    blending internals instead of the whole block's. The slabs are cut along
-    z for the x and y fluxes and along y for the z flux, never along the
-    first spatial axis, which is the axis split over devices.
-
-    The slab evaluation is exact: the WENO flux (its local Lax-Friedrichs
-    splitting speed included), the flux blending and the divergence are
-    stencils along ``axis`` only, so a slab needs no halo.
-
-    Args:
-        axis_increment: ``axis_increment(state, dt_over_dx,
-            internal_energy_density) -> (increment, density flux or None)``.
-        conserved_state: The conserved state ``(var, x, y, z)``.
-        dt_over_dx: The stage time step over the cell size.
-        internal_energy_density: The dual-energy ``g`` with shape
-            ``(x, y, z)``, or None.
-        axis: The spatial axis of the fluxes.
-        chunks: The number of slabs.
-
-    Returns:
-        The ``(increment, density flux or None)`` pair of the whole block.
-    """
-    num_spatial_dims = conserved_state.ndim - 1
-    slab_axis = 2 if axis != 2 else 1
-    if (
-        chunks <= 1
-        or num_spatial_dims != 3
-        or conserved_state.shape[1 + slab_axis] % chunks
-    ):
-        return jax.checkpoint(axis_increment)(
-            conserved_state,
-            dt_over_dx,
-            internal_energy_density,
-        )
-    slab_size = conserved_state.shape[1 + slab_axis] // chunks
-
-    # On a multi-device mesh the stacked slabs must keep the (var, x, y, z)
-    # sharding of the state, or GSPMD reshards the whole block.
-    mesh, spec = _current_pallas_mesh(), _current_pallas_spec()
-    state_spec = None
-    if mesh is not None and mesh.size > 1 and spec is not None:
-        state_spec = tuple(spec) + (None,) * (4 - len(tuple(spec)))
-
-    def constrain(array, num_leading_axes):
-        """Keep the (var, x, y, z) layout of the state on the stacked slabs."""
-        if state_spec is None:
-            return array
-        if array.ndim - num_leading_axes == 4:
-            slab_spec = (None,) * num_leading_axes + state_spec
-        else:
-            slab_spec = (None,) * num_leading_axes + state_spec[1:]
-        return jax.lax.with_sharding_constraint(
-            array,
-            NamedSharding(mesh, PartitionSpec(*slab_spec)),
-        )
-
-    def split(array):
-        """Stack the slabs of ``array`` along a new leading axis."""
-        array_slab_axis = array.ndim - 3 + slab_axis
-        leading_shape = array.shape[:array_slab_axis]
-        trailing_shape = array.shape[array_slab_axis + 1:]
-        array = array.reshape(leading_shape + (chunks, slab_size) + trailing_shape)
-        return constrain(jnp.moveaxis(array, array_slab_axis, 0), 1)
-
-    def merge(array):
-        """Undo ``split`` on one stacked output: move the leading slab index
-        back in front of the slab axis and fuse the two."""
-        array_slab_axis = array.ndim - 4 + slab_axis
-        array = jnp.moveaxis(array, 0, array_slab_axis)
-        leading_shape = array.shape[:array_slab_axis]
-        trailing_shape = array.shape[array_slab_axis + 2:]
-        array = array.reshape(leading_shape + (chunks * slab_size,) + trailing_shape)
-        return constrain(array, 0)
-
-    def slab_increment(slab):
-        state_slab, internal_energy_slab = slab
-        return axis_increment(state_slab, dt_over_dx, internal_energy_slab)
-
-    slab_increment = jax.checkpoint(slab_increment)
-    stacked_state = split(conserved_state)
-    stacked_internal_energy = (
-        None if internal_energy_density is None else split(internal_energy_density)
-    )
-    stacked_output = jax.lax.map(
-        slab_increment,
-        (stacked_state, stacked_internal_energy),
-    )
-    return jax.tree.map(merge, stacked_output)
 
 
 @partial(
@@ -320,13 +209,6 @@ def _ssprk4_with_ct(
         magnetic_index = registered_variables.magnetic_index
         density_index = registered_variables.density_index
 
-        # Cold-crush flux blending (radiatively cooled crushes; see _flux_blending):
-        # apply to the full interface flux BEFORE the transverse magnetic-flux
-        # slices are extracted, so CT consumes the blended (locally-diffusive)
-        # induction flux. CT stays div(B)=0 by construction (single-valued edge
-        # EMFs from consistent face fluxes).
-        blend = config.positivity_config.coldcrush_blend
-
         # --------------- ↓ x-axis ↓ ----------------
         dF_x = _weno_flux_x(
             current_q,
@@ -336,16 +218,6 @@ def _ssprk4_with_ct(
             internal_energy_density=internal_energy_density,
             inflow_reference=inflow_reference,
         )
-        if blend:
-            dF_x = _blend_interface_flux(
-                dF_x,
-                current_q,
-                0,
-                params,
-                config,
-                registered_variables,
-                internal_energy_density=internal_energy_density,
-            )
         By_flux_x = dF_x[magnetic_index.y]
         Bz_flux_x = dF_x[magnetic_index.z]
         density_flux_x = dF_x[density_index]
@@ -366,16 +238,6 @@ def _ssprk4_with_ct(
                 internal_energy_density=internal_energy_density,
                 inflow_reference=inflow_reference,
             )
-            if blend:
-                dF_y = _blend_interface_flux(
-                    dF_y,
-                    current_q,
-                    1,
-                    params,
-                    config,
-                    registered_variables,
-                    internal_energy_density=internal_energy_density,
-                )
             Bx_flux_y = dF_y[magnetic_index.x]
             Bz_flux_y = dF_y[magnetic_index.z]
             density_flux_y = dF_y[density_index]
@@ -401,16 +263,6 @@ def _ssprk4_with_ct(
                 internal_energy_density=internal_energy_density,
                 inflow_reference=inflow_reference,
             )
-            if blend:
-                dF_z = _blend_interface_flux(
-                    dF_z,
-                    current_q,
-                    2,
-                    params,
-                    config,
-                    registered_variables,
-                    internal_energy_density=internal_energy_density,
-                )
             Bx_flux_z = dF_z[magnetic_index.x]
             By_flux_z = dF_z[magnetic_index.y]
             density_flux_z = dF_z[density_index]
@@ -622,13 +474,9 @@ def _hydro_step_rhs(
     # coexist.  Falls back to the explicit flux + divergence path when (a)
     # Pallas is unavailable / unsupported or (b) a physics module needs the
     # standalone density flux slices.
-    # The cold-crush blend post-processes each assembled interface flux before
-    # the divergence, so it needs the standalone per-axis flux and cannot use
-    # the fused WENO+divergence kernel either.
     use_fused_pallas = (
         _hydro_pallas_flux_supported(current_q, config)
         and not density_fluxes_needed
-        and not config.positivity_config.coldcrush_blend
     )
 
     if use_fused_pallas:
@@ -676,64 +524,10 @@ def _hydro_step_rhs(
             del dF_z
 
         density_fluxes = None
-    elif config.ad_remat == AD_REMAT_AXIS:
-        # Reverse-mode rematerialisation per AXIS (config.ad_remat == "axis"):
-        # the same per-axis flux + blend + divergence as the path below, each
-        # axis inside its own jax.checkpoint, so the backward of a stage holds
-        # one axis' WENO / blend internals at a time instead of all three.
-        blend = config.positivity_config.coldcrush_blend
-        weno_fluxes = (_weno_flux_x, _weno_flux_y, _weno_flux_z)
-
-        def axis_increment(state, dt_over_dx, internal_energy, axis):
-            interface_flux = weno_fluxes[axis](
-                state,
-                params,
-                config,
-                registered_variables,
-                internal_energy_density=internal_energy,
-            )
-            if blend:
-                interface_flux = _blend_interface_flux(
-                    interface_flux,
-                    state,
-                    axis,
-                    params,
-                    config,
-                    registered_variables,
-                    internal_energy_density=internal_energy,
-                )
-            flux_divergence_increment = -dt_over_dx * (
-                interface_flux - _shift(interface_flux, 1, axis=axis + 1)
-            )
-            if density_fluxes_needed:
-                return flux_divergence_increment, interface_flux[registered_variables.density_index]
-            return flux_divergence_increment, None
-
-        dt_over_dx_per_axis = (dtdx, dtdy, dtdz)
-        rhs_q = None
-        density_fluxes = [] if density_fluxes_needed else None
-        for axis in range(config.dimensionality):
-            flux_divergence_increment, density_flux = _remat_axis_call(
-                partial(axis_increment, axis=axis),
-                current_q,
-                dt_over_dx_per_axis[axis],
-                internal_energy_density,
-                axis,
-                int(config.ad_remat_chunks),
-            )
-            if rhs_q is None:
-                rhs_q = flux_divergence_increment
-            else:
-                rhs_q = rhs_q + flux_divergence_increment
-            if density_fluxes_needed:
-                density_fluxes.append(density_flux)
-        if density_fluxes_needed:
-            density_fluxes = tuple(density_fluxes)
     else:
         # Per-axis flux + divergence path.  Accumulate axis-by-axis rather
         # than holding all three flux arrays live simultaneously, so XLA
         # can reuse buffers between axes.
-        blend = config.positivity_config.coldcrush_blend
         dF_x = _weno_flux_x(
             current_q,
             params,
@@ -741,16 +535,6 @@ def _hydro_step_rhs(
             registered_variables,
             internal_energy_density=internal_energy_density,
         )
-        if blend:
-            dF_x = _blend_interface_flux(
-                dF_x,
-                current_q,
-                0,
-                params,
-                config,
-                registered_variables,
-                internal_energy_density=internal_energy_density,
-            )
         rhs_q = -dtdx * (dF_x - _shift(dF_x, 1, axis=1))
         if density_fluxes_needed:
             density_fluxes = [dF_x[registered_variables.density_index]]
@@ -766,16 +550,6 @@ def _hydro_step_rhs(
                 registered_variables,
                 internal_energy_density=internal_energy_density,
             )
-            if blend:
-                dF_y = _blend_interface_flux(
-                    dF_y,
-                    current_q,
-                    1,
-                    params,
-                    config,
-                    registered_variables,
-                    internal_energy_density=internal_energy_density,
-                )
             rhs_q = rhs_q - dtdy * (dF_y - _shift(dF_y, 1, axis=2))
             if density_fluxes_needed:
                 density_fluxes.append(dF_y[registered_variables.density_index])
@@ -789,16 +563,6 @@ def _hydro_step_rhs(
                 registered_variables,
                 internal_energy_density=internal_energy_density,
             )
-            if blend:
-                dF_z = _blend_interface_flux(
-                    dF_z,
-                    current_q,
-                    2,
-                    params,
-                    config,
-                    registered_variables,
-                    internal_energy_density=internal_energy_density,
-                )
             rhs_q = rhs_q - dtdz * (dF_z - _shift(dF_z, 1, axis=3))
             if density_fluxes_needed:
                 density_fluxes.append(dF_z[registered_variables.density_index])
@@ -972,12 +736,9 @@ def _lsrk4_hydro(
         # rhs/``L(q)``-sized scratch register is never materialised, which is
         # what gets us below the 3-buffer floor of the explicit
         # rhs-then-update path.
-        # The fused divergence path never calls ``_blend_interface_flux``, so
-        # the cold-crush blend must force the explicit rhs route.
         use_fused_pallas = (
             _hydro_pallas_flux_supported(q, config)
             and not density_fluxes_needed
-            and not config.positivity_config.coldcrush_blend
         )
 
         if use_fused_pallas:
@@ -1146,8 +907,8 @@ def _lsrk4_with_ct(
     # exchange; the x parts of the constrained-transport modified fluxes are
     # computed in the same shard_map, and with the Pallas CT kernels the
     # cell-centred field update is fused into it as well. The fused kernels
-    # implement the plain WENO flux only, so positivity-preserving WENO, dual
-    # energy and the cold-crush blend take the standard path.
+    # implement the plain WENO flux only, so positivity-preserving WENO and
+    # dual energy take the standard path.
     use_kept_x_flux_halo = (
         use_pallas_div
         and int(config.dimensionality) == 3
@@ -1155,7 +916,6 @@ def _lsrk4_with_ct(
         and _mhd_pallas_flux_supported(conserved_state, config)
         and not config.weno_positivity_preserving
         and internal_energy_density is None
-        and not config.positivity_config.coldcrush_blend
     )
     fuse_cell_center_update = (
         use_kept_x_flux_halo and _ct_rhs_pallas_supported(conserved_state, config)
@@ -1230,11 +990,6 @@ def _lsrk4_with_ct(
         magnetic_index = registered_variables.magnetic_index
         density_index = registered_variables.density_index
 
-        # Cold-crush flux blending, as in the SSPRK4-with-CT path: applied to
-        # the full interface flux before the magnetic-flux slices are
-        # extracted, so CT consumes the blended induction flux.
-        blend = config.positivity_config.coldcrush_blend
-
         # -------------------------------------------------------------
         # ======================= ↓ x-axis ↓ ==========================
         # -------------------------------------------------------------
@@ -1273,16 +1028,6 @@ def _lsrk4_with_ct(
                 internal_energy_density=internal_energy_density,
                 inflow_reference=inflow_reference,
             )
-            if blend:
-                dF_x = _blend_interface_flux(
-                    dF_x,
-                    current_q,
-                    0,
-                    params,
-                    config,
-                    registered_variables,
-                    internal_energy_density=internal_energy_density,
-                )
         By_flux_x = dF_x[magnetic_index.y]
         Bz_flux_x = dF_x[magnetic_index.z]
         density_flux_x = dF_x[density_index]
@@ -1351,16 +1096,6 @@ def _lsrk4_with_ct(
                 internal_energy_density=internal_energy_density,
                 inflow_reference=inflow_reference,
             )
-            if blend:
-                dF_y = _blend_interface_flux(
-                    dF_y,
-                    current_q,
-                    1,
-                    params,
-                    config,
-                    registered_variables,
-                    internal_energy_density=internal_energy_density,
-                )
             Bx_flux_y = dF_y[magnetic_index.x]
             Bz_flux_y = dF_y[magnetic_index.z]
             density_flux_y = dF_y[density_index]
@@ -1411,16 +1146,6 @@ def _lsrk4_with_ct(
                 internal_energy_density=internal_energy_density,
                 inflow_reference=inflow_reference,
             )
-            if blend:
-                dF_z = _blend_interface_flux(
-                    dF_z,
-                    current_q,
-                    2,
-                    params,
-                    config,
-                    registered_variables,
-                    internal_energy_density=internal_energy_density,
-                )
             Bx_flux_z = dF_z[magnetic_index.x]
             By_flux_z = dF_z[magnetic_index.y]
             density_flux_z = dF_z[density_index]

@@ -5,8 +5,7 @@ A dense, homologously expanding ejecta ball drives a Mach ~8 shock into a cold
 ambient medium in a periodic box. It is evolved with the finite-difference WENO
 solver in the configuration a supernova-remnant inference differentiates: the
 positivity-preserving reconstruction, the dual-energy formalism, five bounded
-composition passive scalars, the library's shock history, the cold-crush flux
-blend and frozen WENO weights in the tangent.
+composition passive scalars and frozen WENO weights in the tangent.
 
 This is a helper module, not a test module; the tests import it as a sibling
 module (pytest puts the test directory on ``sys.path``).
@@ -22,14 +21,12 @@ from astronomix import (
     NATIVE_JAX,
     PERIODIC_BOUNDARY,
 )
-from astronomix.variable_registry.registered_variables import NUM_SHOCK_HISTORY_SCALARS
 
 # astronomix containers
 from astronomix import (
     BackendConfig,
     BoundarySettings,
     BoundarySettings1D,
-    PositivityConfig,
     SimulationConfig,
     SimulationParams,
 )
@@ -48,7 +45,7 @@ GAMMA = 5.0 / 3.0
 #: Cells per axis of the cubic box.
 NUM_CELLS = 16
 
-#: The user's (composition) passive scalars; the shock-history scalars come on top.
+#: The number of (composition) passive scalars.
 NUM_PASSIVE_SCALARS = 5
 
 #: Position of the ejecta fraction ``C_ej`` among the user's passive scalars. It
@@ -97,15 +94,10 @@ def blast_config(**overrides):
             periodic_boundaries,
             periodic_boundaries,
         ),
-        positivity_config=PositivityConfig(
-            coldcrush_blend=True,
-            coldcrush_blend_factor=8.0,
-        ),
         weno_positivity_preserving=True,
         dual_energy=True,
         weno_ad_frozen_weights=True,
         num_passive_scalars=NUM_PASSIVE_SCALARS,
-        track_shock_history=True,
         passive_scalar_bounds=tuple((0.0, 1.0) for _ in range(NUM_PASSIVE_SCALARS)),
         backend_config=BackendConfig(backend=NATIVE_JAX),
         progress_bar=False,
@@ -131,7 +123,6 @@ def blast_params(t_end=T_END):
         t_end=t_end,
         minimum_density=1e-6,
         minimum_pressure=1e-8,
-        minimum_specific_pressure=1e-4,
     )
 
 
@@ -214,7 +205,6 @@ def setup_blast(**overrides):
         velocity_y=radial_velocity * y / radius_away_from_zero,
         velocity_z=radial_velocity * z / radius_away_from_zero,
         gas_pressure=pressure,
-        gamma=GAMMA,
         passive_scalars=passive_scalars,
     )
     config = finalize_config(config, state.shape)
@@ -225,9 +215,9 @@ def fluid_only_registry(registered_variables):
     """
     The registry of the state with the passive-scalar block split off.
 
-    The passive-scalar routines (advection, shock-history update) receive the
-    fluid state without the scalar block, as in the solver's own update; this
-    registry describes that state (the dual-energy row stays).
+    The passive-scalar advection receives the fluid state without the scalar
+    block, as in the solver's own update; this registry describes that state
+    (the dual-energy row stays).
 
     Args:
         registered_variables: The registered variables of the full state.
@@ -240,17 +230,9 @@ def fluid_only_registry(registered_variables):
         passive_scalar_index=-1,
         num_passive_scalars=0,
         passive_scalars_active=False,
-        shock_history_index=-1,
-        shock_history_active=False,
     )
 
 
 def get_fluid_state(state, registered_variables):
     """The rows of the state in front of the passive-scalar block (hydro and dual energy)."""
     return state[:registered_variables.passive_scalar_index]
-
-
-def get_shock_history(state, registered_variables):
-    """The shock-history rows of the state, ordered as the registry's ``*_SLOT`` constants."""
-    history_start = registered_variables.shock_history_index
-    return state[history_start:history_start + NUM_SHOCK_HISTORY_SCALARS]

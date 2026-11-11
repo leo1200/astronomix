@@ -3,9 +3,9 @@ Reverse-mode automatic differentiation through the finite-difference solver.
 
 The problem is the 16^3 blast of ``_blast_setup``: FD/WENO hydro with the
 positivity-preserving reconstruction, the dual-energy formalism, five
-composition passive scalars with physical bounds, the library's shock history,
-the cold-crush flux blend and frozen WENO weights in the tangent. Everything
-runs in float64 with the NATIVE_JAX backend, over a few steps.
+composition passive scalars with physical bounds and frozen WENO weights in
+the tangent. Everything runs in float64 with the NATIVE_JAX backend, over a
+few steps.
 
 What is checked:
 
@@ -16,13 +16,11 @@ What is checked:
   (JVP and VJP of the same code), and between the ``FORWARDS`` JVP (while loop,
   traced sub-step count) and the ``BACKWARDS`` VJP (adaptive steps);
 * the masked sub-cycling reproduces the dynamic one when the flow needs several
-  sub-steps, and the reverse-mode memory options (``ad_remat``,
-  ``ad_scalar_lean``) do not change the gradient;
-* the bound clamps keep derivative 1 on their bounds (``jnp.clip`` gives 0.5
+  sub-steps, and ``rematerialize_stages`` does not change the gradient;
+* the bound clamp keeps derivative 1 on its bounds (``jnp.clip`` gives 0.5
   there, so a scalar sitting on its bound would lose half of its sensitivity
-  every step), and the smooth shock latch leaves the primal unchanged while
-  giving the latch a derivative;
-* ``finalize_config`` refuses an unknown ``ad_remat`` mode, and
+  every step);
+* ``finalize_config`` refuses a passive-scalar sub-step cap below 1, and
   ``OPTIMAL_BACKEND`` resolves to NATIVE_JAX when JAX runs on the CPU.
 
 Run on the CPU (the preamble then selects fast-compiling XLA flags)::
@@ -61,19 +59,6 @@ from astronomix import (
     NATIVE_JAX,
     OPTIMAL_BACKEND,
 )
-from astronomix.option_classes.simulation_config import (
-    AD_REMAT_AXIS,
-    AD_REMAT_NONE,
-    AD_REMAT_STAGE,
-    SUBSTEPS_DYNAMIC,
-    SUBSTEPS_MASKED,
-)
-from astronomix.variable_registry.registered_variables import (
-    DENSITY_TIME_SLOT,
-    ENTROPY_INITIAL_SLOT,
-    SHOCKED_FRACTION_SLOT,
-    TIME_SINCE_SHOCK_SLOT,
-)
 
 # astronomix containers
 from astronomix import BackendConfig
@@ -86,26 +71,21 @@ from astronomix import (
 )
 from astronomix._fluid_equations._passive_scalars import (
     _clip_keep_derivative,
-    _max_keep_derivative,
     _substep_count,
     _velocity_components,
     advect_passive_scalars,
-    update_shock_history,
 )
 
 # shared blast setup (a sibling module of this test)
 from _blast_setup import (
     DT_FIXED,
     EJECTA_FRACTION_SCALAR,
-    GAMMA,
     NUM_CELLS,
     NUM_FIXED_STEPS,
-    T_END,
     blast_config,
     blast_params,
     fluid_only_registry,
     get_fluid_state,
-    get_shock_history,
     setup_blast,
 )
 
@@ -203,27 +183,21 @@ def _jitted_gradient_and_final_state(config, params, registered_variables, initi
 
 def test_bound_clamps_keep_derivative():
     """
-    The tie-preserving clamps have the primal of ``jnp.clip`` / ``jnp.maximum``
-    bit for bit (signed zeros and NaN included) and derivative 1 on their bounds,
-    where ``jnp.clip`` splits the derivative evenly between value and bound.
+    The tie-preserving clamp has the primal of ``jnp.clip`` bit for bit (signed
+    zeros and NaN included) and derivative 1 on its bounds, where ``jnp.clip``
+    splits the derivative evenly between value and bound.
     """
     values = jnp.array([-1.0, -0.0, 0.0, 0.3, 1.0, 1.0 + 1e-12, 2.0, jnp.nan])
 
-    # The primal is jnp.clip / jnp.maximum, bit for bit.
+    # The primal is jnp.clip, bit for bit.
     np.testing.assert_array_equal(
         _bits(_clip_keep_derivative(values, 0.0, 1.0)),
         _bits(jnp.clip(values, 0.0, 1.0)),
-    )
-    np.testing.assert_array_equal(
-        _bits(_max_keep_derivative(values, 0.0)),
-        _bits(jnp.maximum(values, 0.0)),
     )
 
     # Derivative 1 inside and on the bounds, 0 strictly outside.
     clip_gradient = jax.grad(lambda v: jnp.sum(_clip_keep_derivative(v, 0.0, 1.0)))(values)
     np.testing.assert_array_equal(np.asarray(clip_gradient), [0, 1, 1, 1, 1, 0, 0, 1])
-    max_gradient = jax.grad(lambda v: jnp.sum(_max_keep_derivative(v, 0.0)))(values)
-    np.testing.assert_array_equal(np.asarray(max_gradient), [0, 1, 1, 1, 1, 1, 1, 1])
 
     # What the tie-preserving clamp is for: jnp.clip halves the derivative on the bound.
     assert float(jax.grad(lambda v: jnp.clip(v, 0.0, 1.0))(0.0)) == 0.5
@@ -274,266 +248,20 @@ def test_advection_keeps_bound_derivative():
     np.testing.assert_allclose(np.asarray(advected_tangent), 1.0, rtol=0, atol=1e-12)
 
 
-def test_shock_history_clamps_keep_derivative():
-    """
-    A never-shocked parcel has ``time_since_shock = density_time = 0`` exactly;
-    their clamp at 0 must pass the transported derivative through rather than
-    halve it.
-    """
-    config, registered_variables, state = setup_blast()
-    fluid_registry = fluid_only_registry(registered_variables)
-    fluid_state = get_fluid_state(state, registered_variables)
-    history = get_shock_history(state, registered_variables)
-    dt = 1e-3
-
-    def update(history):
-        """One shock-history update in the initial flow."""
-        return update_shock_history(
-            history,
-            fluid_state,
-            dt,
-            GAMMA,
-            config.shock_entropy_jump,
-            config,
-            fluid_registry,
-        )
-
-    # A unit tangent on the shocked fraction and the two accumulators, none on
-    # the entropy label.
-    history_tangent = jnp.ones_like(history).at[ENTROPY_INITIAL_SLOT].set(0.0)
-    updated_history, updated_tangent = jax.jvp(update, (history,), (history_tangent,))
-    latched = np.asarray(updated_history[SHOCKED_FRACTION_SLOT]) == 1.0
-    assert (~latched).mean() > 0.5
-
-    # Where the latch did not fire, d(shocked fraction) is the carried one (where
-    # it fired, the carried fraction is overwritten).
-    np.testing.assert_array_equal(
-        np.asarray(updated_tangent[SHOCKED_FRACTION_SLOT])[~latched],
-        1.0,
-    )
-    # d(time since shock) = d(carried time since shock) + dt d(shocked fraction).
-    np.testing.assert_allclose(
-        np.asarray(updated_tangent[TIME_SINCE_SHOCK_SLOT])[~latched],
-        1.0 + dt,
-        rtol=1e-14,
-    )
-
-
-def test_smooth_shock_latch():
-    """
-    ``ad_smooth_shock_latch`` leaves the primal of the shock-history update
-    unchanged bit for bit, gives the shocked-fraction latch a derivative near the
-    shock (the boolean latch has none), and leaks no derivative into quiescent,
-    never-shocked gas.
-    """
-    config, registered_variables, state = setup_blast()
-    smooth_latch_config = config._replace(ad_smooth_shock_latch=True)
-    fluid_registry = fluid_only_registry(registered_variables)
-    pressure_index = registered_variables.pressure_index
-    relative_pressure_perturbation = 1e-2
-
-    def history_update_of_pressure(latch_config, fluid_state, history):
-        """The shock-history update under ``latch_config`` as a function of the pressure."""
-
-        def update(pressure):
-            return update_shock_history(
-                history,
-                fluid_state.at[pressure_index].set(pressure),
-                1e-3,
-                GAMMA,
-                latch_config.shock_entropy_jump,
-                latch_config,
-                fluid_registry,
-            )
-
-        return update
-
-    # --------------- ↓ Near the shock ↓ ----------------
-
-    # Two steps in, there is a real shock to latch on.
-    evolved_state = time_integration(
-        state,
-        config,
-        blast_params(t_end=2 * DT_FIXED),
-        registered_variables,
-    )
-    evolved_fluid = get_fluid_state(evolved_state, registered_variables)
-    evolved_history = get_shock_history(evolved_state, registered_variables)
-    evolved_pressure = evolved_fluid[pressure_index]
-    pressure_tangent = evolved_pressure * relative_pressure_perturbation
-
-    hard_history, hard_tangent = jax.jvp(
-        history_update_of_pressure(config, evolved_fluid, evolved_history),
-        (evolved_pressure,),
-        (pressure_tangent,),
-    )
-    smooth_history, smooth_tangent = jax.jvp(
-        history_update_of_pressure(smooth_latch_config, evolved_fluid, evolved_history),
-        (evolved_pressure,),
-        (pressure_tangent,),
-    )
-    np.testing.assert_array_equal(_bits(hard_history), _bits(smooth_history))
-    # The boolean latch has no derivative; the surrogate is sensitive near the shock.
-    assert float(jnp.abs(hard_tangent[SHOCKED_FRACTION_SLOT]).max()) == 0.0
-    assert float(jnp.abs(smooth_tangent[SHOCKED_FRACTION_SLOT]).max()) > 1e-4
-    assert bool(jnp.all(jnp.isfinite(smooth_tangent)))
-
-    # --------------- ↑ Near the shock ↑ ----------------
-
-    # --------------- ↓ Quiescent gas ↓ ----------------
-
-    # Quiescent, never-shocked gas (the initial ambient medium: entropy rise 0, at
-    # rest) must not leak surrogate derivative, which would accumulate every step
-    # in the carried fraction.
-    initial_fluid = get_fluid_state(state, registered_variables)
-    initial_history = get_shock_history(state, registered_variables)
-    initial_pressure = initial_fluid[pressure_index]
-    _, quiescent_tangent = jax.jvp(
-        history_update_of_pressure(smooth_latch_config, initial_fluid, initial_history),
-        (initial_pressure,),
-        (initial_pressure * relative_pressure_perturbation,),
-    )
-    ejecta_fraction_index = registered_variables.passive_scalar_index + EJECTA_FRACTION_SCALAR
-    ambient = np.asarray(state[ejecta_fraction_index] == 0.0)
-
-    # The surrogate's response to the pressure perturbation in a resting cell at
-    # the entropy threshold: the compression sigmoid is 1/2 at div v = 0 and the
-    # entropy sigmoid has slope 1 / (4 width) there. With the default width the
-    # quiescent leak is ~0.4 % of this; the test allows 1 %.
-    compression_sigmoid_at_rest = 0.5
-    entropy_sigmoid_slope_at_threshold = 0.25
-    response_at_threshold = (
-        compression_sigmoid_at_rest
-        * entropy_sigmoid_slope_at_threshold
-        / smooth_latch_config.ad_shock_latch_entropy_width
-        * relative_pressure_perturbation
-    )
-    quiescent_leak = np.abs(np.asarray(quiescent_tangent[SHOCKED_FRACTION_SLOT]))[ambient]
-    assert quiescent_leak.max() < 0.01 * response_at_threshold
-
-    # --------------- ↑ Quiescent gas ↑ ----------------
-
-
-def test_shock_arrival_tangent():
-    """
-    ``ad_shock_arrival`` leaves the primal of the shock-history update unchanged
-    bit for bit, adds nothing in quiescent never-shocked gas, and gives the
-    accumulators the derivative of the shock ARRIVAL time: on the blast, the
-    derivative of the time since shock and of the ionization age with respect to
-    the ejecta speed (which moves the arrival) matches central finite
-    differences, where the boolean latch's tangent (transport only) misses most
-    of it. The comparison uses the exact WENO-weight tangent: the frozen-weight
-    linearisation misplaces the shock front itself (it gave 57 % of the
-    finite-difference value for the time since shock).
-    """
-    config, registered_variables, state = setup_blast()
-    arrival_config = config._replace(ad_shock_arrival=True)
-    fluid_registry = fluid_only_registry(registered_variables)
-
-    # --------------- ↓ The update: primal and quiescent gas ↓ ----------------
-
-    evolved_state = time_integration(state, config, blast_params(t_end=2 * DT_FIXED), registered_variables)
-    previous_fluid = get_fluid_state(state, registered_variables)
-    evolved_fluid = get_fluid_state(evolved_state, registered_variables)
-    evolved_history = get_shock_history(evolved_state, registered_variables)
-    pressure_index = registered_variables.pressure_index
-
-    def history_update(latch_config, fluid_state, previous, history):
-        def update(pressure):
-            return update_shock_history(
-                history,
-                fluid_state.at[pressure_index].set(pressure),
-                1e-3,
-                GAMMA,
-                latch_config.shock_entropy_jump,
-                latch_config,
-                fluid_registry,
-                previous_primitive_state=previous,
-            )
-        return update
-
-    pressure = evolved_fluid[pressure_index]
-    plain, plain_tangent = jax.jvp(history_update(config, evolved_fluid, previous_fluid, evolved_history),
-                                   (pressure,), (pressure * 1e-2,))
-    arrival, arrival_tangent = jax.jvp(history_update(arrival_config, evolved_fluid, previous_fluid,
-                                                      evolved_history), (pressure,), (pressure * 1e-2,))
-    np.testing.assert_array_equal(_bits(plain), _bits(arrival))
-    assert bool(jnp.all(jnp.isfinite(arrival_tangent)))
-    # the arrival term acts on the accumulators only, and only where a crossing happened
-    changed = np.asarray(arrival_tangent[TIME_SINCE_SHOCK_SLOT] != plain_tangent[TIME_SINCE_SHOCK_SLOT])
-    assert changed.any()
-    np.testing.assert_array_equal(np.asarray(arrival_tangent[SHOCKED_FRACTION_SLOT]),
-                                  np.asarray(plain_tangent[SHOCKED_FRACTION_SLOT]))
-
-    # quiescent, never-shocked gas: the initial state, unchanged from the previous one
-    initial_fluid = get_fluid_state(state, registered_variables)
-    initial_history = get_shock_history(state, registered_variables)
-    initial_pressure = initial_fluid[pressure_index]
-    _, quiet_plain = jax.jvp(history_update(config, initial_fluid, initial_fluid, initial_history),
-                             (initial_pressure,), (initial_pressure * 1e-2,))
-    _, quiet_arrival = jax.jvp(history_update(arrival_config, initial_fluid, initial_fluid, initial_history),
-                               (initial_pressure,), (initial_pressure * 1e-2,))
-    np.testing.assert_array_equal(np.asarray(quiet_arrival), np.asarray(quiet_plain))
-
-    # --------------- ↑ The update: primal and quiescent gas ↑ ----------------
-
-    # --------------- ↓ The blast: arrival-time derivative vs FD ↓ ----------------
-
-    weights = jnp.asarray(np.random.default_rng(0).random(state.shape[1:]))
-    velocity_rows = [registered_variables.velocity_index.x, registered_variables.velocity_index.y,
-                     registered_variables.velocity_index.z]
-    params = blast_params(t_end=0.06)
-
-    def accumulators(latch_config):
-        def objective(speed_factor):
-            scaled = state
-            for row in velocity_rows:
-                scaled = scaled.at[row].set(state[row] * speed_factor)
-            history = get_shock_history(time_integration(scaled, latch_config, params, registered_variables),
-                                        registered_variables)
-            return jnp.stack([jnp.sum(weights * history[TIME_SINCE_SHOCK_SLOT]),
-                              jnp.sum(weights * history[DENSITY_TIME_SLOT])])
-        return objective
-
-    exact = dict(weno_ad_frozen_weights=False)
-    step = 0.02
-    finite_difference = (accumulators(config._replace(**exact))(1.0 + step)
-                         - accumulators(config._replace(**exact))(1.0 - step)) / (2 * step)
-    _, latch_derivative = jax.jvp(accumulators(config._replace(**exact)), (1.0,), (1.0,))
-    _, arrival_derivative = jax.jvp(accumulators(config._replace(ad_shock_arrival=True, **exact)), (1.0,), (1.0,))
-    ratio = np.asarray(arrival_derivative / finite_difference)
-    # 2026-10-12: 0.96 (time since shock), 1.07 (ionization age); the latch alone 0.06 / 0.34
-    assert np.all((ratio > 0.85) & (ratio < 1.15)), ratio
-    assert np.all(np.asarray(latch_derivative / finite_difference) < 0.5)
-
-    # --------------- ↑ The blast: arrival-time derivative vs FD ↑ ----------------
-
-
 def test_masked_substeps_reverse_vs_dynamic_jvp():
     """
     With several passive-scalar sub-steps (some taken, some masked off), the VJP
-    of the masked sub-step loop is the transpose of the JVP of the dynamic loop,
-    through the scalar advection and the smooth-latch shock-history update (whose
-    custom JVP is transposed here).
+    of the masked sub-step loop (``BACKWARDS``) is the transpose of the JVP of
+    the dynamic loop (``FORWARDS``) of the scalar advection.
     """
-    configs = {}
-    for substep_loop in (SUBSTEPS_DYNAMIC, SUBSTEPS_MASKED):
-        configs[substep_loop], registered_variables, state = setup_blast(
-            passive_scalar_cfl=0.02,
-            max_passive_scalar_substeps=6,
-            passive_scalar_substep_loop=substep_loop,
-            ad_smooth_shock_latch=True,
-        )
+    sub_cycling = dict(passive_scalar_cfl=0.02, max_passive_scalar_substeps=6)
+    dynamic_config, registered_variables, state = setup_blast(**sub_cycling)
+    masked_config, _, _ = setup_blast(differentiation_mode=BACKWARDS, **sub_cycling)
     fluid_registry = fluid_only_registry(registered_variables)
     fluid_state = get_fluid_state(state, registered_variables)
     passive_scalars = state[registered_variables.passive_scalar_index:]
-    # Where the shock history starts within the passive-scalar block.
-    history_offset = (
-        registered_variables.shock_history_index - registered_variables.passive_scalar_index
-    )
     dt = 4e-3
 
-    dynamic_config = configs[SUBSTEPS_DYNAMIC]
     num_substeps = int(
         _substep_count(
             _velocity_components(fluid_state, dynamic_config, fluid_registry),
@@ -545,10 +273,10 @@ def test_masked_substeps_reverse_vs_dynamic_jvp():
     assert 1 < num_substeps < 6
 
     def make_scalar_step(scalar_config):
-        """One passive-scalar step (advection, then shock history) under ``scalar_config``."""
+        """One advection step of the passive scalars under ``scalar_config``."""
 
         def scalar_step(fluid_state, passive_scalars, dt):
-            advected = advect_passive_scalars(
+            return advect_passive_scalars(
                 passive_scalars,
                 fluid_state,
                 dt,
@@ -556,16 +284,6 @@ def test_masked_substeps_reverse_vs_dynamic_jvp():
                 scalar_config,
                 fluid_registry,
             )
-            history = update_shock_history(
-                advected[history_offset:],
-                fluid_state,
-                dt,
-                GAMMA,
-                scalar_config.shock_entropy_jump,
-                scalar_config,
-                fluid_registry,
-            )
-            return jnp.concatenate([advected[:history_offset], history], axis=0)
 
         return scalar_step
 
@@ -579,12 +297,12 @@ def test_masked_substeps_reverse_vs_dynamic_jvp():
     cotangent = jnp.asarray(rng.normal(size=passive_scalars.shape))
 
     dynamic_result, jacobian_direction = jax.jvp(
-        make_scalar_step(configs[SUBSTEPS_DYNAMIC]),
+        make_scalar_step(dynamic_config),
         (fluid_state, passive_scalars, dt),
         (fluid_direction, scalar_direction, dt_direction),
     )
     masked_result, masked_vjp = jax.vjp(
-        make_scalar_step(configs[SUBSTEPS_MASKED]),
+        make_scalar_step(masked_config),
         fluid_state,
         passive_scalars,
         dt,
@@ -609,22 +327,19 @@ def test_masked_substeps_reverse_vs_dynamic_jvp():
 def test_masked_substeps_match_dynamic():
     """
     With several passive-scalar sub-steps forced (a small ``passive_scalar_cfl``),
-    the reverse-differentiable masked sub-step loop gives the result of the loop
-    with a traced trip count: round-off apart in the passive scalars, bit for bit
-    in the fluid.
+    a ``BACKWARDS`` run (the reverse-differentiable masked sub-step loop) gives
+    the result of a ``FORWARDS`` run (the loop with a traced trip count),
+    round-off apart.
     """
-    final_states = {}
-    for substep_loop in (SUBSTEPS_DYNAMIC, SUBSTEPS_MASKED):
-        config, registered_variables, state = setup_blast(
-            passive_scalar_cfl=0.02,
-            max_passive_scalar_substeps=6,
-            passive_scalar_substep_loop=substep_loop,
-        )
-        final_states[substep_loop] = np.asarray(
-            time_integration(state, config, blast_params(), registered_variables)
-        )
-    masked_state = final_states[SUBSTEPS_MASKED]
-    dynamic_state = final_states[SUBSTEPS_DYNAMIC]
+    sub_cycling = dict(passive_scalar_cfl=0.02, max_passive_scalar_substeps=6)
+    dynamic_config, registered_variables, state = setup_blast(**sub_cycling)
+    masked_config, _, _ = setup_blast(differentiation_mode=BACKWARDS, **sub_cycling)
+    dynamic_state = np.asarray(
+        time_integration(state, dynamic_config, blast_params(), registered_variables)
+    )
+    masked_state = np.asarray(
+        time_integration(state, masked_config, blast_params(), registered_variables)
+    )
 
     # The sub-cycling really happened: the result differs from a run with a
     # single sub-step.
@@ -639,17 +354,13 @@ def test_masked_substeps_match_dynamic():
     assert np.abs(substep_effect).max() > 1e-8
 
     # The same arithmetic, compiled in different contexts: round-off apart.
-    for row in range(passive_scalar_index, registered_variables.num_vars):
+    for row in range(registered_variables.num_vars):
         np.testing.assert_allclose(
             masked_state[row],
             dynamic_state[row],
             rtol=0,
             atol=1e-13 * max(np.abs(dynamic_state[row]).max(), 1e-30),
         )
-    np.testing.assert_array_equal(
-        masked_state[:passive_scalar_index],
-        dynamic_state[:passive_scalar_index],
-    )
 
 
 def test_grad_backwards_and_dot_product_fixed_step():
@@ -658,13 +369,13 @@ def test_grad_backwards_and_dot_product_fixed_step():
     ``BACKWARDS`` run (masked sub-steps, scan time loop, stage rematerialisation
     on the reverse side, which the JVP does not see) satisfy
     ``<J^T w, u> = w . J u`` to round-off, and the gradient reaches the
-    composition scalars and the shock history.
+    composition scalars.
     """
     config, registered_variables, state = setup_blast(
         fixed_timestep=True,
         num_timesteps=NUM_FIXED_STEPS,
         differentiation_mode=BACKWARDS,
-        ad_remat=AD_REMAT_STAGE,
+        rematerialize_stages=True,
     )
     params = blast_params(t_end=NUM_FIXED_STEPS * DT_FIXED)
 
@@ -689,12 +400,9 @@ def test_grad_backwards_and_dot_product_fixed_step():
     rhs = float(jnp.vdot(cotangent, jacobian_direction))
     assert abs(lhs - rhs) <= 1e-11 * max(abs(lhs), abs(rhs)), (lhs, rhs)
 
-    # The gradient reaches the ejecta fraction, which mostly sits on its bounds,
-    # and the shock history.
+    # The gradient reaches the ejecta fraction, which mostly sits on its bounds.
     ejecta_fraction_index = registered_variables.passive_scalar_index + EJECTA_FRACTION_SCALAR
-    density_time_index = registered_variables.shock_history_index + DENSITY_TIME_SLOT
     assert float(jnp.abs(jacobian_transpose_cotangent[ejecta_fraction_index]).max()) > 0.0
-    assert float(jnp.abs(jacobian_transpose_cotangent[density_time_index]).max()) > 0.0
 
 
 def test_grad_adaptive_backwards_vs_forward_jvp():
@@ -752,22 +460,18 @@ def test_grad_adaptive_backwards_vs_forward_jvp():
 
 def test_remat_same_gradient():
     """
-    ``ad_remat`` changes what the backward pass stores, not what it computes.
-
-    ``"stage"`` is covered by the dot-product test above. ``"axis"`` adds per-axis
-    and per-scalar checkpoints; with ``ad_remat_chunks = 4`` each axis' increment
-    is in addition split into four checkpointed z / y slabs, which leaves the
-    forward pass bit for bit unchanged.
+    ``rematerialize_stages`` changes what the backward pass stores, not what it
+    computes: the gradient agrees with that of the plain reverse pass to
+    round-off, and the forward result is the same bit for bit.
     """
     gradients = {}
     final_states = {}
-    for remat_mode, remat_chunks in ((AD_REMAT_NONE, 1), (AD_REMAT_AXIS, 1), (AD_REMAT_AXIS, 4)):
+    for rematerialize_stages in (False, True):
         config, registered_variables, state = setup_blast(
             fixed_timestep=True,
             num_timesteps=1,
             differentiation_mode=BACKWARDS,
-            ad_remat=remat_mode,
-            ad_remat_chunks=remat_chunks,
+            rematerialize_stages=rematerialize_stages,
         )
         weights = jnp.asarray(np.random.default_rng(4).normal(size=state.shape))
         gradient, final_state = _jitted_gradient_and_final_state(
@@ -777,74 +481,23 @@ def test_remat_same_gradient():
             state,
             weights,
         )
-        gradients[remat_mode, remat_chunks] = gradient
-        final_states[remat_mode, remat_chunks] = final_state
+        gradients[rematerialize_stages] = gradient
+        final_states[rematerialize_stages] = final_state
 
-    scale = np.abs(gradients[AD_REMAT_NONE, 1]).max()
-    np.testing.assert_allclose(
-        gradients[AD_REMAT_AXIS, 1],
-        gradients[AD_REMAT_NONE, 1],
-        rtol=0,
-        atol=1e-12 * scale,
-    )
-    np.testing.assert_allclose(
-        gradients[AD_REMAT_AXIS, 4],
-        gradients[AD_REMAT_AXIS, 1],
-        rtol=0,
-        atol=1e-12 * scale,
-    )
-    np.testing.assert_array_equal(final_states[AD_REMAT_AXIS, 4], final_states[AD_REMAT_AXIS, 1])
-
-
-def test_scalar_lean_same_gradient():
-    """
-    ``ad_scalar_lean`` (the reverse-mode memory layout of the passive-scalar
-    block: an equinox loop over the flow-derived sub-step count, checkpointed
-    ratio recovery and shock history) changes what the backward pass stores, not
-    what it computes, with sub-cycling active (several sub-steps), on the
-    fixed-step and on the adaptive, equinox-checkpointed path.
-    """
-    for fixed_timestep in (True, False):
-        if fixed_timestep:
-            step_options = dict(fixed_timestep=True, num_timesteps=1)
-            t_end = DT_FIXED
-        else:
-            step_options = {}
-            t_end = T_END
-        gradients = {}
-        final_states = {}
-        for scalar_lean in (False, True):
-            config, registered_variables, state = setup_blast(
-                differentiation_mode=BACKWARDS,
-                ad_remat=AD_REMAT_AXIS,
-                ad_scalar_lean=scalar_lean,
-                passive_scalar_cfl=0.02,
-                max_passive_scalar_substeps=6,
-                **step_options,
-            )
-            weights = jnp.asarray(np.random.default_rng(5).normal(size=state.shape))
-            gradients[scalar_lean], final_states[scalar_lean] = _jitted_gradient_and_final_state(
-                config,
-                blast_params(t_end=t_end),
-                registered_variables,
-                state,
-                weights,
-            )
-        scale = np.abs(gradients[False]).max()
-        assert np.all(np.isfinite(gradients[True]))
-        np.testing.assert_allclose(gradients[True], gradients[False], rtol=0, atol=1e-11 * scale)
-        np.testing.assert_allclose(final_states[True], final_states[False], rtol=1e-13, atol=0)
+    scale = np.abs(gradients[False]).max()
+    np.testing.assert_allclose(gradients[True], gradients[False], rtol=0, atol=1e-12 * scale)
+    np.testing.assert_array_equal(final_states[True], final_states[False])
 
 
 def test_config_guards():
     """
-    ``finalize_config`` refuses an unknown ``ad_remat`` mode, and
+    ``finalize_config`` refuses a passive-scalar sub-step cap below 1, and
     ``OPTIMAL_BACKEND`` resolves to NATIVE_JAX when JAX runs on the CPU.
     """
     num_vars = get_registered_variables(blast_config()).num_vars
     state_shape = (num_vars, NUM_CELLS, NUM_CELLS, NUM_CELLS)
-    with pytest.raises(ValueError, match="ad_remat"):
-        finalize_config(blast_config(ad_remat="everything"), state_shape)
+    with pytest.raises(ValueError, match="max_passive_scalar_substeps"):
+        finalize_config(blast_config(max_passive_scalar_substeps=0), state_shape)
     if jax.devices()[0].platform == "cpu":
         config = finalize_config(
             blast_config(backend_config=BackendConfig(backend=OPTIMAL_BACKEND)),

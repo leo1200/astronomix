@@ -5,10 +5,10 @@ JAX differentiates the weight quotient ``alpha_0 / alpha_sum`` through
 ``alpha_sum^-2``. Where every smoothness indicator of a stencil is large (a field
 with an O(1e5) jump across the stencil) ``alpha_sum`` falls below ~5e-20 and
 ``alpha_sum^-2`` overflows float32, so even a ZERO cotangent gives
-``0 * inf = NaN``. An unbounded passive scalar, the shock-history
-``entropy_initial`` label, can develop such a jump in a single collapsed cell;
-the NaN of the passive-scalar WENO backward pass then spreads through the shared
-mass flux over the whole state gradient while the objective stays finite.
+``0 * inf = NaN``. An unbounded passive scalar can develop such a jump in a
+single collapsed cell; the NaN of the passive-scalar WENO backward pass then
+spreads through the shared mass flux over the whole state gradient while the
+objective stays finite.
 ``_weno_omega_weights_ad`` evaluates the same derivative as a log-derivative with
 bounded factors; its primal is unchanged bit for bit.
 
@@ -19,8 +19,8 @@ What is checked:
   is finite;
 * on a recorded float32 stencil the plain VJP is NaN, the overflow-free one is
   finite and matches central differences;
-* the VJP of the passive-scalar advection stays finite with that stencil in the
-  ``entropy_initial`` label.
+* the VJP of the passive-scalar advection stays finite with that stencil in an
+  unbounded passive scalar.
 
 Run on the CPU (the preamble then selects fast-compiling XLA flags)::
 
@@ -51,7 +51,6 @@ import numpy as np
 
 # astronomix constants
 from astronomix import BACKWARDS
-from astronomix.variable_registry.registered_variables import ENTROPY_INITIAL_SLOT
 
 # astronomix functions
 from astronomix._finite_difference._interface_fluxes._weno_weights import (
@@ -66,6 +65,7 @@ from astronomix._fluid_equations._passive_scalars import (
 # shared blast setup (a sibling module of this test)
 from _blast_setup import (
     NUM_CELLS,
+    NUM_PASSIVE_SCALARS,
     fluid_only_registry,
     get_fluid_state,
     setup_blast,
@@ -74,7 +74,7 @@ from _blast_setup import (
 jax.config.update("jax_enable_x64", True)
 
 
-#: The ``entropy_initial`` label along x through a collapsed cell of a float32
+#: An unbounded passive scalar along x through a collapsed cell of a float32
 #: remnant run, where the plain weights' VJP was NaN: an O(1e5) spike on a
 #: background of about -20.
 OVERFLOW_STENCIL = [
@@ -276,27 +276,31 @@ def test_weno_weights_ad_no_nan_on_overflow_stencil():
     # --------------- ↑ float64 central differences ↑ ----------------
 
 
-def test_passive_scalar_advection_vjp_finite_with_huge_label():
+def test_passive_scalar_advection_vjp_finite_with_overflow_stencil():
     """
     End to end through ``advect_passive_scalars`` in float32: with the overflow
-    stencil in the unbounded ``entropy_initial`` label, the advected scalars and
-    the VJP are finite, and the VJP is zero for a zero cotangent.
+    stencil in an unbounded passive scalar, the advected scalars and the VJP
+    are finite, and the VJP is zero for a zero cotangent.
     """
-    # BACKWARDS selects the masked (static) sub-step loop.
-    config, registered_variables, state = setup_blast(differentiation_mode=BACKWARDS)
+    # BACKWARDS selects the masked (static) sub-step loop. Bounds are declared
+    # for all but the last passive scalar, which is therefore unbounded.
+    config, registered_variables, state = setup_blast(
+        differentiation_mode=BACKWARDS,
+        passive_scalar_bounds=tuple((0.0, 1.0) for _ in range(NUM_PASSIVE_SCALARS - 1)),
+    )
     state = state.astype(jnp.float32)
 
-    # A uniform label at the stencil's background value, with the overflow
-    # stencil along x through the centre of the box.
-    entropy_label_index = registered_variables.shock_history_index + ENTROPY_INITIAL_SLOT
+    # The unbounded scalar: uniform at the stencil's background value, with the
+    # overflow stencil along x through the centre of the box.
+    unbounded_scalar_index = registered_variables.passive_scalar_index + NUM_PASSIVE_SCALARS - 1
     stencil_start = 5
     stencil_stop = stencil_start + len(OVERFLOW_STENCIL)
     box_centre = NUM_CELLS // 2
-    entropy_label = jnp.full(state.shape[1:], -19.6, jnp.float32)
-    entropy_label = entropy_label.at[stencil_start:stencil_stop, box_centre, box_centre].set(
+    unbounded_scalar = jnp.full(state.shape[1:], -19.6, jnp.float32)
+    unbounded_scalar = unbounded_scalar.at[stencil_start:stencil_stop, box_centre, box_centre].set(
         jnp.asarray(OVERFLOW_STENCIL, jnp.float32)
     )
-    state = state.at[entropy_label_index].set(entropy_label)
+    state = state.at[unbounded_scalar_index].set(unbounded_scalar)
 
     fluid_registry = fluid_only_registry(registered_variables)
     fluid_state = get_fluid_state(state, registered_variables)

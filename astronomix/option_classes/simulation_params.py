@@ -90,8 +90,8 @@ class SimulationParams(NamedTuple):
     #: positivity-preserving WENO scalings (capped at half the state being
     #: scaled), the per-step HARD_FLOOR (which in the VL2 finite-volume scheme
     #: also switches on AthenaPK's floors in every stage), the finite-difference
-    #: MHD primitive recovery, the cold-crush flux blend and the read-only
-    #: clamps of the flux, wave-speed and time-step estimates.
+    #: MHD primitive recovery and the read-only clamps of the flux, wave-speed
+    #: and time-step estimates.
     minimum_density: float = 1e-14
 
     #: Minimum pressure, in the same roles as ``minimum_density``.
@@ -102,13 +102,6 @@ class SimulationParams(NamedTuple):
     #: |B|^2 / maximum_alfven_speed^2, momentum and total energy kept (see
     #: ``_apply_density_floor``). ``inf`` (the default) switches it off.
     maximum_alfven_speed: float = float("inf")
-
-    #: Temperature-floor scale ``p/rho`` (``= k_B T_floor / (mu m_p)`` in code
-    #: units). It defines the radiatively crushed interfaces that
-    #: ``PositivityConfig.coldcrush_blend`` blends towards first order and,
-    #: with ``PositivityConfig.per_step_specific_floor``, the per-step
-    #: temperature floor. 0.0 disables both.
-    minimum_specific_pressure: float = 0.0
 
     #: Ratio of the diffusive to the advective time scale of the GLM divergence
     #: cleaning in the VL2 finite-volume MHD scheme (AthenaPK ``glmmhd_alpha``,

@@ -33,8 +33,8 @@ ap.add_argument("--budget", type=float, default=14400.0,
 ap.add_argument("--diag-every", type=int, default=1,
                 help="evaluate the fine-grid diagnostic loss every N steps during coarse stage.")
 ap.add_argument("--num-checkpoints", type=int, default=16)
-ap.add_argument("--ad-remat", type=str, default="stage",
-                help="reverse-mode rematerialisation of the Runge-Kutta stages (none/stage/axis).")
+ap.add_argument("--rematerialize-stages", action=argparse.BooleanOptionalAction, default=True,
+                help="reverse-mode rematerialisation of the Runge-Kutta stages.")
 ap.add_argument("--lr", type=float, default=3e-3)
 ap.add_argument("--save-every", type=int, default=2, help="save npz every N logged points.")
 ap.add_argument("--out", type=str, default="data/bench_money128.npz")
@@ -166,7 +166,7 @@ def make_cfg(N, forcing, backward):
         box_size=1.0, num_cells=N,
         differentiation_mode=BACKWARDS if backward else FORWARDS,
         num_checkpoints=args.num_checkpoints,
-        ad_remat=args.ad_remat,
+        rematerialize_stages=args.rematerialize_stages,
         turbulent_forcing_config=TurbulentForcingConfig(turbulent_forcing=forcing),
         boundary_settings=BoundarySettings(
             *[BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY) for _ in range(3)]),

@@ -5,8 +5,7 @@ Given the per-variable fields (density, velocities, magnetic field components,
 pressures, passive scalars, ...) this stacks them into the single state array
 used throughout the solver, placing each field at the index dictated by
 ``registered_variables`` for the active configuration (dimensionality, MHD,
-solver mode, equation of state, dual energy, passive scalars and
-the shock history).
+solver mode, equation of state, dual energy and passive scalars).
 """
 
 # general
@@ -27,10 +26,6 @@ from astronomix.option_classes.simulation_config import (
     IDEAL_GAS,
     STATE_TYPE,
 )
-from astronomix.variable_registry.registered_variables import (
-    ENTROPY_INITIAL_SLOT,
-    NUM_SHOCK_HISTORY_SCALARS,
-)
 
 # astronomix containers
 from astronomix.option_classes.simulation_config import (
@@ -43,7 +38,6 @@ from astronomix.variable_registry.registered_variables import RegisteredVariable
 from astronomix._finite_difference._magnetic_update._constrained_transport import (
     initialize_interface_fields,
 )
-from astronomix._fluid_equations._passive_scalars import specific_entropy
 
 
 @partial(jax.jit, static_argnames=["registered_variables", "config", "sharding"])
@@ -62,7 +56,6 @@ def _assemble_primitive_state(
     interface_magnetic_field_z: Union[FIELD_TYPE, NoneType] = None,
     gas_pressure: Union[FIELD_TYPE, NoneType] = None,
     passive_scalars: Union[STATE_TYPE, NoneType] = None,
-    gamma: Union[float, NoneType] = None,
     sharding=None,
 ) -> STATE_TYPE:
     """Stack the primitive variables into the state array.
@@ -89,10 +82,6 @@ def _assemble_primitive_state(
         gas_pressure: The thermal pressure of the fluid.
         passive_scalars: The user-defined passive scalars, stacked along a
             leading axis with shape ``(config.num_passive_scalars,) + grid``.
-            The library-managed shock-history scalars are NOT included here.
-        gamma: The adiabatic index. Required only when
-            ``config.track_shock_history`` is set, to seed the parcels' initial
-            specific entropy.
         sharding: An optional sharding to apply to the allocated state array.
 
     Returns:
@@ -199,47 +188,20 @@ def _assemble_primitive_state(
         state = state.at[registered_variables.pressure_index].set(gas_pressure)
 
     if registered_variables.passive_scalars_active:
-        num_user_scalars = registered_variables.num_passive_scalars
-        if registered_variables.shock_history_active:
-            num_user_scalars -= NUM_SHOCK_HISTORY_SCALARS
+        num_scalars = registered_variables.num_passive_scalars
         if passive_scalars is None:
-            if num_user_scalars > 0:
-                raise ValueError(
-                    f"config.num_passive_scalars = {num_user_scalars} but no "
-                    "`passive_scalars` were supplied to construct_primitive_state"
-                )
-        else:
-            passive_scalars = jnp.asarray(passive_scalars)
-            if passive_scalars.shape[0] != num_user_scalars:
-                raise ValueError(
-                    f"expected {num_user_scalars} passive scalars (config."
-                    f"num_passive_scalars), got {passive_scalars.shape[0]}"
-                )
-            user_scalars_start = registered_variables.passive_scalar_index
-            state = state.at[user_scalars_start:user_scalars_start + num_user_scalars].set(
-                passive_scalars
+            raise ValueError(
+                f"config.num_passive_scalars = {num_scalars} but no "
+                "`passive_scalars` were supplied to construct_primitive_state"
             )
-
-        # The shock-history block is library-managed: the shocked fraction and
-        # the two accumulators start empty, but ``entropy_initial`` is the
-        # parcel's t = 0 specific entropy and must be seeded from the assembled
-        # state. It is seeded HERE, once, and never again: unlike the
-        # dual-energy ``g`` (a function of the current state, so safely
-        # re-derived at every restart) it is a genuine history variable, and a
-        # checkpointed value has to survive untouched.
-        if registered_variables.shock_history_active:
-            if gamma is None:
-                raise ValueError(
-                    "config.track_shock_history requires `gamma` to be passed to "
-                    "construct_primitive_state, to seed the parcels' initial "
-                    "specific entropy log(p / rho^gamma)"
-                )
-            entropy_label_index = (
-                registered_variables.shock_history_index + ENTROPY_INITIAL_SLOT
+        passive_scalars = jnp.asarray(passive_scalars)
+        if passive_scalars.shape[0] != num_scalars:
+            raise ValueError(
+                f"expected {num_scalars} passive scalars (config."
+                f"num_passive_scalars), got {passive_scalars.shape[0]}"
             )
-            state = state.at[entropy_label_index].set(
-                specific_entropy(state, gamma, registered_variables)
-            )
+        scalars_start = registered_variables.passive_scalar_index
+        state = state.at[scalars_start:scalars_start + num_scalars].set(passive_scalars)
 
     return state
 
@@ -259,7 +221,6 @@ def construct_primitive_state(
     interface_magnetic_field_z: Union[FIELD_TYPE, NoneType] = None,
     gas_pressure: Union[FIELD_TYPE, NoneType] = None,
     passive_scalars: Union[STATE_TYPE, NoneType] = None,
-    gamma: Union[float, NoneType] = None,
     sharding=None,
 ) -> STATE_TYPE:
     """Stack the primitive variables into the state array, checking for NaNs.
@@ -362,7 +323,6 @@ def construct_primitive_state(
         interface_magnetic_field_z=interface_magnetic_field_z,
         gas_pressure=gas_pressure,
         passive_scalars=passive_scalars,
-        gamma=gamma,
         sharding=sharding,
     )
 

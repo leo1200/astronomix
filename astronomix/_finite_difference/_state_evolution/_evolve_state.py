@@ -10,8 +10,8 @@ The rows the finite-difference solver appends behind the gas / field variables
 are handled around that update by operator splitting: the passive-scalar block
 and the dual-energy internal-energy density ``g`` are split off first and
 advected with the pre-step flow (``g`` also enters the coupled pressure
-recovery), then ``g`` is re-synced from the recovered pressure, the shock
-history is updated against the new state, and both are reattached.
+recovery), then ``g`` is re-synced from the recovered pressure and both are
+reattached.
 """
 
 # general
@@ -30,6 +30,7 @@ import jax.numpy as jnp
 
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
+    BACKWARDS,
     GHOST_CELLS,
     IDEAL_GAS,
     ISOTHERMAL,
@@ -57,10 +58,7 @@ from astronomix._fluid_equations._equations_mhd import (
 from astronomix._fluid_equations._dual_energy import advect_internal_energy
 from astronomix._fluid_equations._passive_scalars import (
     _fill_scalar_ghost_cells,
-    _masked_substeps,
-    _scalar_lean,
     advect_passive_scalars,
-    update_shock_history,
 )
 from astronomix._finite_difference._time_integrators._ssprk import (
     _lsrk4_hydro,
@@ -92,8 +90,7 @@ def _evolve_state_fd(
     advected operator-split with the pre-step flow, so the Runge-Kutta update
     sees the plain gas / field state (``g`` enters it only through the coupled
     pressure recovery). Afterwards ``g`` is re-synced from the recovered
-    pressure, the shock history is updated against the new state, and both are
-    reattached in the registered order.
+    pressure and both are reattached in the registered order.
 
     Args:
         primitive_state: The primitive state array.
@@ -118,28 +115,16 @@ def _evolve_state_fd(
     # sees exactly the state it was written for; they are advected
     # operator-split with the pre-step flow and reattached at the end.
     passive_scalars_active = registered_variables.passive_scalars_active
-    shock_history_active = registered_variables.shock_history_active
     passive_scalars = None
     if passive_scalars_active:
         passive_scalar_index = registered_variables.passive_scalar_index
-        if shock_history_active:
-            # Where the shock-history block starts within the scalar block.
-            shock_history_offset = (
-                registered_variables.shock_history_index - passive_scalar_index
-            )
         passive_scalars = primitive_state[passive_scalar_index:]
         primitive_state = primitive_state[:passive_scalar_index]
-        # the pre-step fluid state, for the arrival-time tangent of the shock
-        # history (``config.ad_shock_arrival``; same layout as the state the
-        # history update receives)
-        previous_fluid_state = primitive_state if config.ad_shock_arrival else None
         registered_variables = registered_variables._replace(
             num_vars=passive_scalar_index,
             passive_scalar_index=-1,
             num_passive_scalars=0,
             passive_scalars_active=False,
-            shock_history_index=-1,
-            shock_history_active=False,
         )
         # Advect with the pre-step flow (operator splitting);
         # ``advect_passive_scalars`` sub-cycles internally when the flow
@@ -152,7 +137,7 @@ def _evolve_state_fd(
             config,
             registered_variables,
         )
-        if _masked_substeps(config):
+        if config.differentiation_mode == BACKWARDS:
             # Reverse-mode memory: the scalars never feed back on the hydro, so
             # the backward pass of their advection is independent of the hydro
             # backward pass and XLA is free to schedule the two together,
@@ -371,43 +356,18 @@ def _evolve_state_fd(
     # -------------------------------------------------------------
 
     # -------------------------------------------------------------
-    # ========= ↓ Shock history and reattaching the scalars ↓ ======
+    # =================== ↓ Reattaching the scalars ↓ ==============
     # -------------------------------------------------------------
 
-    # Apply the shock bookkeeping against the UPDATED state (the entropy
-    # comparison needs the post-shock entropy), fill the scalars' ghost cells,
-    # and reattach the block at the end of the state.
+    # Fill the scalars' ghost cells and reattach the block at the end of the
+    # state.
     if passive_scalars_active:
-        if shock_history_active:
-            shock_history_update = partial(
-                update_shock_history,
-                config=config,
-                registered_variables=registered_variables,
-            )
-            if _scalar_lean(config):
-                # With ``config.ad_scalar_lean`` the latch and clamp masks are
-                # recomputed in the backward pass instead of being stored.
-                shock_history_update = jax.checkpoint(shock_history_update)
-            passive_scalars = jnp.concatenate(
-                [
-                    passive_scalars[:shock_history_offset],
-                    shock_history_update(
-                        passive_scalars[shock_history_offset:],
-                        primitive_state,
-                        dt,
-                        gamma,
-                        config.shock_entropy_jump,
-                        previous_primitive_state=previous_fluid_state,
-                    ),
-                ],
-                axis=0,
-            )
         if config.boundary_handling == GHOST_CELLS:
             passive_scalars = _fill_scalar_ghost_cells(passive_scalars, config)
         primitive_state = jnp.concatenate([primitive_state, passive_scalars], axis=0)
 
     # -------------------------------------------------------------
-    # ========= ↑ Shock history and reattaching the scalars ↑ ======
+    # =================== ↑ Reattaching the scalars ↑ ==============
     # -------------------------------------------------------------
 
     return primitive_state

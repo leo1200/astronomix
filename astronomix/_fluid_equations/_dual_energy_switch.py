@@ -13,8 +13,8 @@ selects, cell by cell,
                                        cancellation)
 
 This module holds the one switch formula shared by the pressure recoveries of
-the finite-difference scheme (primitive recovery, eigenstructure, cold-crush
-flux blending): ``dual_energy_internal_energy`` switches an internal energy,
+the finite-difference scheme (primitive recovery, eigenstructure):
+``dual_energy_internal_energy`` switches an internal energy,
 ``dual_energy_switched_pressure`` a gas pressure recovered from the total
 energy. Both are plain elementwise ``jax.numpy``, so they apply to whole arrays
 and to the per-cell values inside a kernel alike.

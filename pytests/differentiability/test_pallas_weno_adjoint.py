@@ -14,7 +14,7 @@ tangent. What is checked, in Pallas interpret mode on the CPU (float64):
   the Pallas forward: a dot test against its central finite difference (the
   native flux takes a slightly different value in those cells, so it is not the
   reference there);
-* the gradient of a few positivity-preserving, dual-energy, cold-crush-blended
+* the gradient of a few positivity-preserving, dual-energy
   steps through ``time_integration`` with the Pallas adjoint is the one through
   the native tangent.
 
@@ -50,7 +50,6 @@ from astronomix import (
     BackendConfig,
     BoundarySettings,
     BoundarySettings1D,
-    PositivityConfig,
     SimulationConfig,
     SimulationParams,
 )
@@ -169,8 +168,7 @@ def test_time_integration_gradient_matches_the_native_tangent():
     density = jnp.asarray(1.0 + 0.3 * rng.random(shape))
     velocity = [jnp.asarray(0.3 * rng.standard_normal(shape)) for _ in range(3)]
     pressure = jnp.asarray(0.5 + 0.2 * rng.random(shape))
-    params = SimulationParams(C_cfl=0.3, t_end=0.02, minimum_density=1e-6, minimum_pressure=1e-8,
-                              minimum_specific_pressure=1e-3)
+    params = SimulationParams(C_cfl=0.3, t_end=0.02, minimum_density=1e-6, minimum_pressure=1e-8)
     gradients = {}
     for pallas_adjoint in (False, True):
         config = SimulationConfig(
@@ -182,7 +180,6 @@ def test_time_integration_gradient_matches_the_native_tangent():
                                          pallas_adjoint=pallas_adjoint),
             boundary_settings=BoundarySettings(periodic, periodic, periodic),
             weno_positivity_preserving=True,
-            positivity_config=PositivityConfig(coldcrush_blend=True),
             dual_energy=True,
             weno_ad_frozen_weights=True,
             differentiation_mode=BACKWARDS,

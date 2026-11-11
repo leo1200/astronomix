@@ -51,9 +51,9 @@ OPTIMAL_BACKEND = 2
 
 # Per-step state floor (``PositivityConfig.per_step_mode``). Positivity of the
 # finite-difference scheme itself comes from ``weno_positivity_preserving``; the
-# floor remains for the finite-volume solver and as the temperature floor of
-# radiatively cooled runs (``per_step_specific_floor``). HARD_FLOOR clamps
-# density (and, for an ideal gas, pressure) pointwise; it is not conservative.
+# floor remains for the finite-volume solver and for near-vacuum, strongly
+# magnetised cells (``maximum_alfven_speed``). HARD_FLOOR clamps density (and,
+# for an ideal gas, pressure) pointwise; it is not conservative.
 POSITIVITY_NONE = 0
 POSITIVITY_HARD_FLOOR = 1
 
@@ -68,36 +68,6 @@ FINITE_DIFFERENCE = 1
 # differentiation modes
 FORWARDS = 0
 BACKWARDS = 1
-
-# Passive-scalar sub-cycling loop (``SimulationConfig.passive_scalar_substep_loop``).
-#   SUBSTEPS_AUTO     - DYNAMIC under FORWARDS, MASKED under BACKWARDS (default)
-#   SUBSTEPS_DYNAMIC  - a traced trip count (lowers to a while loop): exactly the
-#                       flow-derived number of sub-steps runs; forward-mode AD
-#                       only (reverse mode cannot differentiate a while loop)
-#   SUBSTEPS_MASKED   - a static loop over ``max_passive_scalar_substeps`` in
-#                       which sub-steps beyond the flow-derived count are masked
-#                       out (``lax.cond``): reverse-mode differentiable, same
-#                       primal
-SUBSTEPS_AUTO = 0
-SUBSTEPS_DYNAMIC = 1
-SUBSTEPS_MASKED = 2
-
-# Rematerialisation in reverse mode (``SimulationConfig.ad_remat``). Unlike the
-# integer enumerations, the modes are strings, so ``ad_remat="stage"`` works
-# without importing the constants.
-#   "none"  - store every residual of the step (fastest backward, most memory)
-#   "stage" - ``jax.checkpoint`` around every Runge-Kutta-stage RHS (hydro WENO
-#             fluxes + blends + divergence + sources, and the passive-scalar
-#             advection RHS): the backward keeps only the stage inputs and
-#             recomputes each stage's internals (about one extra forward)
-#   "axis"  - "stage" plus nested checkpoints: each axis' flux + blend +
-#             divergence inside the hydro RHS (non-fused flux path), and in the
-#             passive-scalar RHS each axis and each scalar separately, so the
-#             backward holds one axis' (one scalar's) internals at a time
-AD_REMAT_NONE = "none"
-AD_REMAT_STAGE = "stage"
-AD_REMAT_AXIS = "axis"
-AD_REMAT_MODES = (AD_REMAT_NONE, AD_REMAT_STAGE, AD_REMAT_AXIS)
 
 # limiter types
 MINMOD = 0
@@ -415,10 +385,8 @@ class PositivityConfig(NamedTuple):
     The finite-difference scheme keeps density and pressure positive through
     ``SimulationConfig.weno_positivity_preserving`` (every stage a convex
     combination of admissible states). What is left here is not a positivity
-    patch: the per-step floor serves the finite-volume solver and the
-    temperature floor of radiatively cooled runs, the clamps keep wave-speed
-    and time-step estimates finite, and the cold-crush blend damps the
-    runaway compression of radiatively cooled shells.
+    patch: the per-step floor serves the finite-volume solver, and the clamps
+    keep wave-speed and time-step estimates finite.
     """
 
     #: State floor applied once per step before the evolve (on the primitive
@@ -426,17 +394,6 @@ class PositivityConfig(NamedTuple):
     #: ``time_integrator=VL2`` the hard floor also switches on AthenaPK's
     #: density / pressure floors inside every stage's primitive recovery.
     per_step_mode: int = POSITIVITY_NONE
-
-    #: Upgrade the per-step HARD_FLOOR pressure clamp to the density-scaled
-    #: temperature floor ``p >= max(minimum_pressure,
-    #: rho * params.minimum_specific_pressure)`` (Athena-style temperature
-    #: floor). Meant for radiatively cooled runs: a radiatively cooled shock
-    #: layer compresses to the isothermal jump, and without isothermal pressure
-    #: support (p ∝ rho) the constant floor leaves it effectively pressureless,
-    #: so it is crushed by the ram pressure without bound. With cooling active
-    #: the floor's energy input is radiated away (the isothermal balance).
-    #: No-op when ``params.minimum_specific_pressure == 0``.
-    per_step_specific_floor: bool = False
 
     #: Read-only density/pressure clamp in the flux / eigenvalue / timestep
     #: estimates. It never modifies the evolved state (the step-end primitive
@@ -453,28 +410,6 @@ class PositivityConfig(NamedTuple):
     #: repeated instead of carrying a negative density into the next one.
     #: Adaptive time stepping and forward-mode runs only.
     step_retry: bool = False
-
-    #: Cold-crush first-order flux blending (the FD counterpart of Athena's
-    #: first-order flux correction for radiatively cooled gas): blend the WENO
-    #: interface flux toward LLF at interfaces with a COLD side under
-    #: COMPRESSION. The weight is a temperature ramp on the COLDER adjacent
-    #: cell's recovered ``p/rho`` (1 at the effective temperature floor
-    #: ``params.minimum_specific_pressure``, 0 at ``coldcrush_blend_factor``
-    #: times it) times a compressive-velocity gate, so freely expanding cold
-    #: gas and a static ambient medium never activate it. It catches both
-    #: cold-cold isothermal collapse and the crushing of a cold dense clump by
-    #: hot surroundings; the trade is locally first-order shock fronts into
-    #: cold gas (classic flux-correction behaviour). Radiatively cooled cells
-    #: crushed by ram pressure otherwise collapse without bound once the grid
-    #: resolves the cooling layer: the local first-order diffusion saturates
-    #: the collapse the way coarse-grid numerical diffusion does at lower
-    #: resolution. Inert unless ``params.minimum_specific_pressure > 0``.
-    coldcrush_blend: bool = False
-
-    #: Upper end of the temperature ramp of ``coldcrush_blend``, in units of
-    #: ``params.minimum_specific_pressure``: interfaces whose colder side has
-    #: ``p/rho`` above this multiple of the floor are not blended.
-    coldcrush_blend_factor: float = 8.0
 
 
 class BackendConfig(NamedTuple):
@@ -644,9 +579,9 @@ class SimulationConfig(NamedTuple):
     #: AthenaPK's ``first_order_flux_correct``).
     first_order_flux_correction: bool = False
 
-    #: State floors, estimate clamps and the cold-crush flux blend (see
-    #: PositivityConfig). Positivity of the finite-difference scheme itself
-    #: comes from ``weno_positivity_preserving``.
+    #: State floors and estimate clamps (see PositivityConfig). Positivity of
+    #: the finite-difference scheme itself comes from
+    #: ``weno_positivity_preserving``.
     positivity_config: PositivityConfig = PositivityConfig()
 
     #: Dual-energy formalism (Bryan et al. 1995 switch) for adiabatic FD
@@ -695,132 +630,11 @@ class SimulationConfig(NamedTuple):
     #: Cap on the derived sub-step count, so a single pathological cell cannot
     #: stall a run. Hitting the cap means the scalars are being integrated
     #: outside their stability limit in some cells; the physical bounds in
-    #: ``passive_scalar_bounds`` are the backstop for that.
+    #: ``passive_scalar_bounds`` are the backstop for that. Under
+    #: ``differentiation_mode == BACKWARDS`` the loop runs to this static cap
+    #: and skips the sub-steps beyond the derived count (same primal), so lower
+    #: it in reverse-mode runs whose flow never needs more than one or two.
     max_passive_scalar_substeps: int = 8
-
-    #: How the sub-cycling loop is built (``SUBSTEPS_AUTO`` / ``_DYNAMIC`` /
-    #: ``_MASKED``, see the constants). The flow-derived count is a traced
-    #: integer, and a loop with a traced trip count is a while loop, which
-    #: reverse-mode AD cannot differentiate. The MASKED loop runs to the static
-    #: cap ``max_passive_scalar_substeps`` and skips (``lax.cond``) the sub-steps
-    #: beyond the flow-derived count, so its primal is the same computation. The
-    #: default AUTO keeps the dynamic loop under ``differentiation_mode ==
-    #: FORWARDS`` (forward results unchanged, bit for bit) and switches to the
-    #: masked one under BACKWARDS. In the masked loop every sub-step (the first
-    #: included) is one iteration of a scan whose body is ``jax.checkpoint``-ed
-    #: (its RHS too, whatever ``ad_remat`` says), so the backward stores one
-    #: scalar-stack copy per iteration and recomputes the rest: reverse-mode
-    #: memory grows only mildly with the cap, compute by one extra advection
-    #: evaluation. A cap of 1 is a straight-line single sub-step (no loop).
-    #: Lower ``max_passive_scalar_substeps`` in reverse-mode runs whose flow
-    #: never needs more than one or two sub-steps.
-    passive_scalar_substep_loop: int = SUBSTEPS_AUTO
-
-    #: Track when each parcel was shocked, adding three further library-managed
-    #: scalars (``entropy_initial``, ``time_since_shock``, ``density_time``)
-    #: after the user's. ``density_time`` is the ionization age up to a unit
-    #: conversion, and ``time_since_shock`` drives electron/ion temperature
-    #: relaxation — the Dwarkadas, Dewey & Bauer (2010) proxy that makes
-    #: non-equilibrium-ionization spectral synthesis possible without an
-    #: ionization network.
-    track_shock_history: bool = False
-
-    #: Entropy rise (in nats, above the parcel's own ``t = 0`` value) that counts
-    #: as having been shocked. Because the Rankine-Hugoniot jump fixes the
-    #: entropy rise as a function of Mach number alone, this threshold is
-    #: equivalent to a minimum shock strength; for ``gamma = 5/3``:
-    #:
-    #: ===========  ==========
-    #: Mach number  rise [nats]
-    #: ===========  ==========
-    #: 2            0.18
-    #: 3            0.57
-    #: **3.3**      **0.69**
-    #: 5            1.31
-    #: 10           2.57
-    #: 100          7.12
-    #: ===========  ==========
-    #:
-    #: The default ``log(2)`` therefore flags everything above Mach ~3.3 —
-    #: comfortably below a supernova remnant's Mach ~100 forward and reverse
-    #: shocks, while ignoring the weak compressions and sound waves that carry
-    #: no ionization. Lower it if weak shocks matter for the problem at hand.
-    shock_entropy_jump: float = 0.6931471805599453
-
-    #: Give the shock-history latch a derivative (straight-through estimator).
-    #: The primal is UNCHANGED: a parcel is still flagged by the boolean test
-    #: ``entropy rise > shock_entropy_jump AND div v < 0``. With the switch off
-    #: that boolean has zero derivative, so d(shocked_fraction, time_since_shock,
-    #: density_time)/d(state) only transports the existing history, and an
-    #: adjoint cannot see that moving a shock changes which parcels are freshly
-    #: shocked. With it on, the tangent (and cotangent) of the latch is taken
-    #: through the smooth surrogate
-    #:
-    #:     soft = sigmoid((ds - shock_entropy_jump) / ad_shock_latch_entropy_width)
-    #:          * sigmoid(-div_v / (ad_shock_latch_compression_width * c_s))
-    #:
-    #: (the same two criteria; ``div_v`` is the undivided central difference
-    #: the latch uses and ``c_s`` the local sound speed, held constant), merged
-    #: with the carried fraction as a probabilistic OR:
-    #: ``d sf = (1 - latch) d sf_old + (1 - sf_old) d soft``. Away from the
-    #: threshold soft saturates and the derivative reduces to transport -- but
-    #: only if the entropy sigmoid is narrow enough: quiescent, never-shocked
-    #: gas (entropy rise 0, div_v = 0) sits at the steepest point of the
-    #: compression sigmoid, so its leak is set by sigmoid(-jump / width) alone,
-    #: and it ACCUMULATES step after step in the carried fraction. With width
-    #: 0.25 about 22 % of the at-threshold response leaks into every ambient
-    #: cell per step; with width 0.1 (the default) about 0.4 %. This is a
-    #: surrogate gradient, not the derivative of the primal (which is zero
-    #: almost everywhere); check it with a finite-difference Taylor test at the
-    #: amplitudes the optimiser uses.
-    ad_smooth_shock_latch: bool = False
-
-    #: Width in nats of the entropy-rise sigmoid of the smooth latch. Keep it
-    #: well below ``shock_entropy_jump`` (see the leak above).
-    ad_shock_latch_entropy_width: float = 0.1
-
-    #: Width of the compression sigmoid of the smooth latch, in units of the
-    #: local sound speed (``div_v`` is an undivided difference, i.e. a velocity).
-    ad_shock_latch_compression_width: float = 0.05
-
-    #: Give the shock-history ACCUMULATORS the derivative of the shock arrival
-    #: time (tangent only; the primal is unchanged bit for bit). A parcel's
-    #: ``time_since_shock`` is t - t_s and its ``density_time`` the integral of rho
-    #: since t_s; with the boolean latch their derivative is transport only, so an
-    #: adjoint cannot see that moving a shock changes WHEN gas is shocked -- the
-    #: ionization age that thermal X-ray emission depends on. With this on, a
-    #: cell whose entropy rise crosses ``shock_entropy_jump`` during a step (under
-    #: compression) gets the derivative of f dt (resp. rho f dt), f = a_now /
-    #: (a_now - a_prev) the fraction of the step after the linearly interpolated
-    #: crossing (a = rise - jump, before and after the step): a shock arriving
-    #: delta_t earlier gives d(f dt) = delta_t exactly, for any shock strength
-    #: and any number of steps per crossing. Nothing is added outside the
-    #: crossing step, so -- unlike ``ad_smooth_shock_latch``, whose small per-step
-    #: leak in quiescent gas accumulates into the accumulators over many steps and
-    #: is carried into the gas when it is shocked later -- nothing leaks or
-    #: accumulates. The shocked fraction's own tangent stays transport. Mutually
-    #: exclusive with ``ad_smooth_shock_latch``.
-    ad_shock_arrival: bool = False
-
-    #: Whether the accumulators' per-step increments (``shocked_fraction * dt``,
-    #: ``shocked_fraction * rho * dt``) carry the tangent of the advected shocked
-    #: fraction (default, the exact derivative of the update). False: the
-    #: increments see the shocked fraction as a constant (tangent only; the primal
-    #: is unchanged bit for bit), so the accumulators change only through their
-    #: own transport, the density and the arrival term. In the primal the edge of
-    #: the shocked region is set by the shock criterion, not by advection, so the
-    #: transport tangent of the latch field at that edge is not a derivative the
-    #: primal follows; over thousands of steps it is integrated into the
-    #: accumulators of every cell the front passes (2026-10-13, under test).
-    ad_shock_latch_transport: bool = True
-
-    #: Damping of the arrival term (``ad_shock_arrival``) for crossings whose
-    #: entropy rise barely changes within the step: the term is weighted by
-    #: d^2 / (d^2 + w^2), d = rise_now - rise_previous (nats), w this width
-    #: (a constant of the step, tangent only). A slow crossing turns a modest
-    #: tangent of the rise into a large shift of the interpolated arrival; 0
-    #: (default): undamped.
-    ad_shock_arrival_damping: float = 0.0
 
     #: Self-gravity / external-potential configuration (see GravityConfig).
     gravity_config: GravityConfig = GravityConfig()
@@ -970,37 +784,13 @@ class SimulationConfig(NamedTuple):
     #: time stepping.
     num_checkpoints: int = 100
 
-    #: Rematerialisation for reverse-mode AD: ``"none"`` (default), ``"stage"``
-    #: or ``"axis"`` (see ``AD_REMAT_*``). Changes only what the backward pass
-    #: stores versus recomputes; the primal is the same computation, and under
-    #: forward-only evaluation or forward-mode AD ``jax.checkpoint`` is inlined
-    #: (no cost). For a finite-difference WENO step, "stage" roughly halves and
-    #: "axis" roughly quarters the temporary memory of the backward pass, at
-    #: the cost of about one ("stage") or two ("axis") extra forward
-    #: evaluations of the rematerialised pieces.
-    ad_remat: str = AD_REMAT_NONE
-
-    #: ``ad_remat == "axis"`` only: split each axis' flux + blend + divergence
-    #: into this many slabs along a PERPENDICULAR axis (z for the x / y fluxes,
-    #: y for the z flux; never the first spatial axis, the one a multi-GPU run
-    #: splits), a ``lax.map`` with one ``jax.checkpoint`` per slab. The
-    #: backward then holds one slab's WENO / blend internals at a time. Exact
-    #: (every piece is a stencil along the flux axis only); 1 = off; a count
-    #: that does not divide the slab axis falls back to 1.
-    ad_remat_chunks: int = 1
-
-    #: Reverse-mode memory of the passive-scalar block (``ad_remat != "none"``
-    #: only; default False = unchanged). With many scalars, the backward of the
-    #: scalar advection dominates the memory of a reverse-mode gradient: the
-    #: masked sub-step scan's stack of ``max_passive_scalar_substeps``
-    #: scalar-stack copies and the tie-preserving clips' mask residuals of the
-    #: ratio recovery and of the shock history. With True: the sub-steps run in
-    #: an equinox checkpointed while loop over the flow-derived count (two
-    #: scalar-stack checkpoints instead of the cap's), and the ratio recovery /
-    #: bounds and the shock-history update are ``jax.checkpoint``-ed (their
-    #: masks are recomputed, not stored). Same arithmetic in the primal;
-    #: derivatives equal up to rounding (a different XLA program).
-    ad_scalar_lean: bool = False
+    #: Reverse-mode memory saving of the finite-difference solver: wrap every
+    #: Runge-Kutta-stage right-hand side (and that of the passive-scalar
+    #: advection) in ``jax.checkpoint``. The backward pass then keeps only the
+    #: stage inputs and recomputes each stage's internals, about one extra
+    #: forward evaluation for roughly half the temporary memory. The primal is
+    #: the same computation; without reverse mode the wrapper is inlined.
+    rematerialize_stages: bool = False
 
     #: Return intermediate snapshots of the time evolution
     #: instead of only the final fluid state.
@@ -1110,19 +900,6 @@ class SimulationConfig(NamedTuple):
     #: IS_k << weno_epsilon, d alpha / d IS ~ 2 / epsilon^3 ~ 1e21, and the
     #: float32 tangent overflows long before the end of such a run.
     weno_ad_frozen_weights: bool = False
-
-    #: If > 0: on interfaces whose colder side is below this factor times
-    #: ``params.minimum_specific_pressure``, take the DERIVATIVE of the flux
-    #: through the monotone Lax-Friedrichs flux; the primal value is
-    #: unchanged. In cold, kinetic-dominated gas (freely expanding ejecta, far
-    #: below the temperature floor) the linearised WENO flux -- with or without
-    #: frozen weights -- advances the tangent with a linear high-order scheme
-    #: that is not stable at sharp density edges, and the tangent grows by
-    #: orders of magnitude per year while the true perturbation does not. A
-    #: tangent-only linearisation, so ``jax.jvp`` / ``jax.grad`` are those of a
-    #: locally first-order scheme there. Lives in the cold-crush blend, so it
-    #: requires ``positivity_config.coldcrush_blend`` (ideal gas).
-    ad_tangent_llf_cold_factor: float = 0.0
 
     # physical modules
 
@@ -1262,44 +1039,8 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
                 backend_config=config.backend_config._replace(backend=NATIVE_JAX)
             )
 
-    # Reverse-mode / AD options.
-    if config.ad_remat not in AD_REMAT_MODES:
-        raise ValueError(
-            f"ad_remat must be one of {AD_REMAT_MODES}, got {config.ad_remat!r}."
-        )
-    if int(config.ad_remat_chunks) < 1:
-        raise ValueError(f"ad_remat_chunks must be >= 1, got {config.ad_remat_chunks!r}.")
-    if config.ad_tangent_llf_cold_factor > 0.0 and not (
-        config.positivity_config.coldcrush_blend and config.equation_of_state == IDEAL_GAS
-    ):
-        raise ValueError(
-            "ad_tangent_llf_cold_factor acts inside the cold-crush flux blend; it "
-            "needs positivity_config.coldcrush_blend=True and an ideal gas."
-        )
-    if config.passive_scalar_substep_loop not in (SUBSTEPS_AUTO, SUBSTEPS_DYNAMIC, SUBSTEPS_MASKED):
-        raise ValueError(
-            "passive_scalar_substep_loop must be SUBSTEPS_AUTO, SUBSTEPS_DYNAMIC "
-            f"or SUBSTEPS_MASKED, got {config.passive_scalar_substep_loop!r}."
-        )
     if int(config.max_passive_scalar_substeps) < 1:
         raise ValueError("max_passive_scalar_substeps must be >= 1.")
-    if (config.passive_scalar_substep_loop == SUBSTEPS_DYNAMIC
-            and config.differentiation_mode == BACKWARDS
-            and (config.num_passive_scalars > 0 or config.track_shock_history)):
-        print(
-            "NOTE: passive_scalar_substep_loop = SUBSTEPS_DYNAMIC uses a traced "
-            "trip count (a while loop); reverse-mode AD through the passive "
-            "scalars will fail. Use SUBSTEPS_AUTO or SUBSTEPS_MASKED."
-        )
-    if config.ad_smooth_shock_latch and not config.track_shock_history:
-        print("NOTE: ad_smooth_shock_latch has no effect without track_shock_history.")
-    if config.ad_shock_arrival and config.ad_smooth_shock_latch:
-        raise ValueError(
-            "ad_shock_arrival and ad_smooth_shock_latch are alternative tangents of the "
-            "shock history; switch on at most one."
-        )
-    if config.ad_shock_arrival and not config.track_shock_history:
-        print("NOTE: ad_shock_arrival has no effect without track_shock_history.")
 
     # The conduction source only distinguishes order 4 from everything else,
     # so any other value would silently run the second-order discretisation.

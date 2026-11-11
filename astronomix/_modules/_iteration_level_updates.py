@@ -261,12 +261,10 @@ def _iteration_level_updates(
     # The finite-difference scheme stays positive through the
     # positivity-preserving WENO; there the density floor bounds the Alfven
     # speed of near-vacuum, strongly magnetised cells, which would otherwise
-    # set a vanishing time step. It also serves the finite-volume solver and,
-    # with ``per_step_specific_floor``, acts as the temperature floor of
-    # radiatively cooled runs. The time loop applies the density floor once
-    # more right after the state update, so the time step and the snapshots
-    # see the floored state; here it then only acts on density that a module
-    # above has changed.
+    # set a vanishing time step. It also serves the finite-volume solver. The
+    # time loop applies the density floor once more right after the state
+    # update, so the time step and the snapshots see the floored state; here
+    # it then only acts on density that a module above has changed.
     if config.positivity_config.per_step_mode == POSITIVITY_HARD_FLOOR:
         primitive_state = _apply_density_floor(
             primitive_state,
@@ -277,21 +275,10 @@ def _iteration_level_updates(
             params.maximum_alfven_speed,
         )
         if config.equation_of_state == IDEAL_GAS:
-            pressure_floor = params.minimum_pressure
-            if config.positivity_config.per_step_specific_floor:
-                # With the density-scaled temperature floor
-                # p >= rho * minimum_specific_pressure, radiatively cooled
-                # dense layers keep isothermal pressure support instead of
-                # falling onto the comparatively negligible constant floor.
-                pressure_floor = jnp.maximum(
-                    pressure_floor,
-                    primitive_state[registered_variables.density_index]
-                    * params.minimum_specific_pressure,
-                )
             primitive_state = primitive_state.at[registered_variables.pressure_index].set(
                 jnp.maximum(
                     primitive_state[registered_variables.pressure_index],
-                    pressure_floor,
+                    params.minimum_pressure,
                 )
             )
 
