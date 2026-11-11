@@ -41,7 +41,7 @@ from astronomix._finite_difference._magnetic_update._constrained_transport impor
     _constrained_transport_rhs_from_slices, update_cell_center_fields,
 )
 from astronomix._finite_difference._time_integrators import _ssprk as ssprk_module
-from astronomix.option_classes.simulation_config import IDEAL_GAS, SINGLE_PRECISION
+from astronomix.option_classes.simulation_config import IDEAL_GAS
 
 GAMMA = 5.0 / 3.0
 primitive = np.load(args.state)
@@ -55,7 +55,7 @@ periodic = BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY)
 def make(pp_on):
     config = SimulationConfig(
         equation_of_state=IDEAL_GAS, dimensionality=3, num_cells=n, box_size=1.0, mhd=True,
-        numerical_precision=SINGLE_PRECISION, backend_config=BackendConfig(backend=PALLAS),
+        backend_config=BackendConfig(backend=PALLAS),
         boundary_settings=BoundarySettings(periodic, periodic, periodic),
         positivity_config=PositivityConfig(clamp_in_estimates=False),
         weno_positivity_preserving=pp_on,

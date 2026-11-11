@@ -40,7 +40,6 @@ from astronomix import (
     PERIODIC_BOUNDARY,
 )
 from astronomix.option_classes.simulation_config import (
-    DOUBLE_PRECISION,
     IDEAL_GAS,
 )
 
@@ -92,7 +91,6 @@ def test_low_beta_blast(ct_upwind_dissipation):
         num_cells=num_cells,
         box_size=1.0,
         mhd=True,
-        numerical_precision=DOUBLE_PRECISION,
         backend_config=BackendConfig(backend=NATIVE_JAX),
         boundary_settings=BoundarySettings(periodic, periodic, periodic),
         positivity_config=_LIMITER_ONLY_POSITIVITY,
@@ -146,7 +144,6 @@ def test_low_beta_alfven_wave_order(ct_upwind_dissipation):
     for num_cells_y in (8, 16):
         config = SimulationConfig(
             num_cells=StaticIntVector(2 * num_cells_y, num_cells_y, num_cells_y),
-            numerical_precision=DOUBLE_PRECISION,
             backend_config=BackendConfig(backend=NATIVE_JAX),
             positivity_config=_LIMITER_ONLY_POSITIVITY,
             return_snapshots=True,

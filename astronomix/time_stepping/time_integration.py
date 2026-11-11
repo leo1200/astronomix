@@ -51,7 +51,6 @@ from astronomix.option_classes.simulation_config import (
 
 # astronomix containers
 from astronomix.option_classes.simulation_config import SimulationConfig
-from astronomix.data_classes.simulation_state_struct import StateStruct
 from astronomix.data_classes.simulation_helper_data import HelperData
 from astronomix.variable_registry.registered_variables import RegisteredVariables
 from astronomix.option_classes.simulation_params import SimulationParams
@@ -138,8 +137,8 @@ def _raise_with_time_integration_hint(error: Exception, config: SimulationConfig
       on the finite-difference path, plus donating the input state buffers.
     - The solver going unstable and producing NaNs (caught by ``checkify`` when
       ``runtime_debugging`` is on). We suggest the stability knobs: the
-      positivity-preserving WENO (finite difference), a positivity-preserving
-      limiter (finite volume), and a smaller CFL number.
+      positivity-preserving WENO (finite difference), the MINMOD limiter
+      (finite volume), and a smaller CFL number.
 
     The original error is always re-raised so callers and tracebacks are
     unchanged; the hints are printed alongside it as a convenience.
@@ -198,8 +197,8 @@ def _raise_with_time_integration_hint(error: Exception, config: SimulationConfig
             "C_cfl <= 0.75 with SSPRK4)."
         )
         hints.append(
-            "  - finite volume: use a positivity-preserving limiter such as "
-            "VAN_ALBADA_PP (config.limiter)."
+            "  - finite volume: use the most diffusive limiter, MINMOD "
+            "(config.limiter)."
         )
         hints.append(
             "  - reduce the CFL number (params.C_cfl) for smaller, safer time "
@@ -1047,19 +1046,19 @@ def _integrate_core(
 
 
 def _time_integration(
-    state: Union[STATE_TYPE, StateStruct],
+    state: STATE_TYPE,
     config: SimulationConfig,
     params: SimulationParams,
     registered_variables: RegisteredVariables,
     helper_data_pad: Union[HelperData, NoneType],
     snapshot_callable = None,
     initial_loop_state: Union["LoopState", NoneType] = None,
-) -> Union[STATE_TYPE, StateStruct, SnapshotData]:
+) -> Union[STATE_TYPE, SnapshotData]:
     """
     Time integration (the body jitted by :func:`time_integration`).
 
     Args:
-        state: The primitive state array (or state struct).
+        state: The primitive state array.
         config: The simulation configuration.
         params: The simulation parameters.
         registered_variables: The registered variables.
@@ -1075,13 +1074,7 @@ def _time_integration(
         or snapshots of the time evolution.
     """
 
-    # in simulations, where we also follow e.g. star particles,
-    # the state may be a struct containing the primitive state
-    # and the star particle data
-    if config.state_struct:
-        primitive_state = state.primitive_state
-    else:
-        primitive_state = state
+    primitive_state = state
 
     # Initialise the dual-energy g first, so the unpadded shape that sizes the
     # snapshot buffers includes its slot, then pad the state with ghost cells
@@ -1130,9 +1123,6 @@ def _time_integration(
     # No-snapshot path (also the snapshot-callback case): return the state.
     if config.boundary_handling != PERIODIC_ROLL:
         primitive_state = _unpad(primitive_state, config)
-
-    if config.state_struct:
-        return StateStruct(primitive_state=primitive_state)
 
     return primitive_state
 
@@ -1221,10 +1211,7 @@ def _time_integration_to_disk(
         save_loop_checkpoint,
     )
 
-    if config.state_struct:
-        primitive_state = state.primitive_state
-    else:
-        primitive_state = state
+    primitive_state = state
 
     # The carry between segments is the unpadded state plus the stochastic
     # bits (PRNG key, OU forcing). On a restart these come from the checkpoint.
@@ -1338,8 +1325,5 @@ def _time_integration_to_disk(
                 forcing=store_forcing,
                 num_iterations=cumulative_iterations,
             )
-
-    if config.state_struct:
-        return StateStruct(primitive_state=primitive_state)
 
     return primitive_state

@@ -83,12 +83,10 @@ from astronomix._modules._turbulent_forcing._turbulent_forcing_options import (
     TurbulentForcingParams,
 )
 from astronomix.option_classes.simulation_config import (
-    DOUBLE_PRECISION,
     IDEAL_GAS,
     ISOTHERMAL,
     POSITIVITY_HARD_FLOOR,
     POSITIVITY_NONE,
-    SINGLE_PRECISION,
 )
 
 POSITIVITY_MODES = dict(none=POSITIVITY_NONE, floor=POSITIVITY_HARD_FLOOR)
@@ -111,7 +109,6 @@ config = SimulationConfig(
     box_size=1.0,
     mhd=bool(args.mhd),
     random_seed=args.seed,
-    numerical_precision=DOUBLE_PRECISION if args.precision == 64 else SINGLE_PRECISION,
     backend_config=BackendConfig(backend=NATIVE_JAX if args.backend == "native" else PALLAS),
     boundary_settings=BoundarySettings(periodic, periodic, periodic),
     turbulent_forcing_config=TurbulentForcingConfig(

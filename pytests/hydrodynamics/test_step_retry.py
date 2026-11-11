@@ -34,7 +34,6 @@ import numpy as np
 
 # astronomix constants
 from astronomix import OPEN_BOUNDARY
-from astronomix.option_classes.simulation_config import DOUBLE_PRECISION
 
 # astronomix containers
 from astronomix import (
@@ -71,7 +70,6 @@ def _run_double_rarefaction(C_cfl, step_retry):
     config = SimulationConfig(
         dimensionality=1,
         num_cells=400,
-        numerical_precision=DOUBLE_PRECISION,
         boundary_settings=BoundarySettings1D(
             left_boundary=OPEN_BOUNDARY,
             right_boundary=OPEN_BOUNDARY,

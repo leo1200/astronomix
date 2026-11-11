@@ -39,7 +39,6 @@ import jax.numpy as jnp
 
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
-    DOUBLE_PRECISION,
     FINITE_DIFFERENCE,
     FINITE_VOLUME,
     IDEAL_GAS,
@@ -98,7 +97,6 @@ def _config(ct_upwind_strength=1.0, backend=NATIVE_JAX):
             backend=backend,
             pallas_interpret=jax.default_backend() == "cpu",
         ),
-        numerical_precision=DOUBLE_PRECISION,
         weno_z=True,
         weno_positivity_preserving=True,
         positivity_config=PositivityConfig(),

@@ -3,8 +3,8 @@ Iteration-level updates applied once before each hydro step.
 
 These are the physics modules that run as a discrete update on the primitive
 state at the start of every time step — stellar wind, cooling, the
-neural-net / CNN correctors, viscosity, turbulent forcing, frame tracking and
-the per-step positivity floor. Their counterpart is
+user-supplied ``config.per_step_update``, viscosity, turbulent forcing and the
+per-step positivity floor. Their counterpart is
 ``_time_integrator_sources``, which instead enters the hydro integrator as a
 right-hand-side source term.
 """
@@ -35,10 +35,7 @@ from astronomix.option_classes.simulation_params import SimulationParams
 from astronomix.variable_registry.registered_variables import RegisteredVariables
 
 # astronomix functions
-from astronomix._modules._cnn_mhd_corrector._cnn_mhd_corrector import _cnn_mhd_corrector
 from astronomix._modules._cooling._cooling import update_pressure_by_cooling
-from astronomix._modules._frame_tracking._frame_tracking import _frame_tracking
-from astronomix._modules._neural_net_force._neural_net_force import _neural_net_force
 from astronomix._modules._stellar_wind.stellar_wind import _wind_injection
 from astronomix._modules._turbulent_forcing._turbulent_forcing import (
     _apply_forcing,
@@ -185,26 +182,16 @@ def _iteration_level_updates(
             grid_spacing=config.grid_spacing,
         )
 
-    # Neural-network body force.
-    if config.neural_net_force_config.neural_net_force:
-        primitive_state = _neural_net_force(
+    # User-supplied per-step update (config.per_step_update).
+    if config.per_step_update is not None:
+        primitive_state = config.per_step_update(
             primitive_state,
-            config,
-            registered_variables,
-            params,
-            helper_data,
             dt,
             current_time,
-        )
-
-    # CNN-based MHD corrector.
-    if config.cnn_mhd_corrector_config.cnn_mhd_corrector:
-        primitive_state = _cnn_mhd_corrector(
-            primitive_state,
             config,
-            registered_variables,
             params,
-            dt,
+            helper_data,
+            registered_variables,
         )
 
     # Viscosity.
@@ -244,17 +231,6 @@ def _iteration_level_updates(
                 config,
                 registered_variables,
             )
-
-    # Frame tracking. Preliminary and currently very specialized; only 3D is
-    # supported at the moment.
-    if config.frame_tracking:
-        primitive_state = _frame_tracking(
-            primitive_state,
-            config,
-            params,
-            registered_variables,
-            helper_data,
-        )
 
     # Per-step state floor (HARD_FLOOR): AthenaPK's density floor, momentum and
     # total energy kept (see _apply_density_floor), then the pressure floor.

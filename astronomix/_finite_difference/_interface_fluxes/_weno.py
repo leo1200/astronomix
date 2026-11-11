@@ -76,9 +76,7 @@ We calculate the flux as follows:
     IS_1 = 13 (b - c)^2 + 3 (b + c)^2
     IS_2 = 13 (c - d)^2 + 3 (3c - d)^2
 
-    ε is a small parameter to avoid division by zero:
-    ``config.weno_epsilon``, plus ``config.weno_epsilon_relative * (alpha^s q_s_i)^2``
-    when the relative epsilon is set.
+    ε is a small parameter to avoid division by zero (``config.weno_epsilon``).
 
 NOTE: I have seen formulations where the first part of the flux
 is also calculated in characteristic space and then transformed back,
@@ -212,7 +210,6 @@ def _weno_flux_x_native(
     dual_eta = config.dual_energy_eta
 
     epsilon = config.weno_epsilon
-    relative_epsilon = config.weno_epsilon_relative
     # ``_weno_omega_weights_ad`` gives the same weights bit for bit as the
     # plain Jiang-Shu weights, with an overflow-free derivative for the
     # exact-weight tangent (see its docstring).
@@ -560,15 +557,6 @@ def _weno_flux_x_native(
         if positivity_preserving:
             amx = jnp.where(keeps_own_speed[mode], amx, common_speed)
 
-        # Optional RELATIVE epsilon: compare the smoothness indicators against
-        # the local data scale (amx * |q|)^2 rather than an absolute constant,
-        # so a smooth solution stays on the optimal linear weights whatever the
-        # magnitude of the characteristic variables happens to be.
-        if relative_epsilon > 0.0:
-            smoothness_epsilon = epsilon + relative_epsilon * (amx * q2) ** 2
-        else:
-            smoothness_epsilon = epsilon
-
         # The left-biased reconstruction of the split flux ΔF_s^+ (the
         # arguments a, b, c, d of phi in the module docstring).
         aterm_p = 0.5 * (d0 + amx * dq0)
@@ -580,7 +568,7 @@ def _weno_flux_x_native(
         IS1_p = 13.0 * (bterm_p - cterm_p)**2 + 3.0 * (bterm_p + cterm_p)**2
         IS2_p = 13.0 * (cterm_p - dterm_p)**2 + 3.0 * (3.0*cterm_p - dterm_p)**2
 
-        omega0_p, omega2_p = omega_weights(IS0_p, IS1_p, IS2_p, smoothness_epsilon, 1e-14)
+        omega0_p, omega2_p = omega_weights(IS0_p, IS1_p, IS2_p, epsilon, 1e-14)
 
         second = (omega0_p * (aterm_p - 2.0*bterm_p + cterm_p) * (1.0 / 3.0)
                   + (omega2_p - 0.5) * (bterm_p - 2.0*cterm_p + dterm_p) * (1.0 / 6.0))
@@ -595,7 +583,7 @@ def _weno_flux_x_native(
         IS1_m = 13.0 * (bterm_m - cterm_m)**2 + 3.0 * (bterm_m + cterm_m)**2
         IS2_m = 13.0 * (cterm_m - dterm_m)**2 + 3.0 * (3.0*cterm_m - dterm_m)**2
 
-        omega0_m, omega2_m = omega_weights(IS0_m, IS1_m, IS2_m, smoothness_epsilon, 1e-14)
+        omega0_m, omega2_m = omega_weights(IS0_m, IS1_m, IS2_m, epsilon, 1e-14)
 
         third = (omega0_m * (aterm_m - 2.0*bterm_m + cterm_m) * (1.0 / 3.0)
                  + (omega2_m - 0.5) * (bterm_m - 2.0*cterm_m + dterm_m) * (1.0 / 6.0))

@@ -15,20 +15,14 @@ import subprocess
 
 # typing
 from types import NoneType
-from typing import NamedTuple, Optional, Tuple, Union
+from typing import Callable, NamedTuple, Optional, Tuple, Union
 from jaxtyping import Array, Float
 
 # jax
 import jax
 
 # astronomix containers
-from astronomix._modules._cnn_mhd_corrector._cnn_mhd_corrector_options import (
-    CNNMHDconfig,
-)
 from astronomix._modules._cooling.cooling_options import CoolingConfig
-from astronomix._modules._neural_net_force._neural_net_force_options import (
-    NeuralNetForceConfig,
-)
 from astronomix._modules._stellar_wind.stellar_wind_options import WindConfig
 from astronomix._modules._turbulent_forcing._turbulent_forcing_options import (
     TurbulentForcingConfig,
@@ -71,11 +65,8 @@ BACKWARDS = 1
 
 # limiter types
 MINMOD = 0
-OSHER = 1
 DOUBLE_MINMOD = 2
 SUPERBEE = 3
-VAN_ALBADA = 4
-VAN_ALBADA_PP = 5
 #: The harmonic-mean (van Leer) slope of AthenaPK's / Athena++'s piecewise
 #: linear reconstruction. This is the slope of the VL2 scheme, which always
 #: uses it and does not read ``limiter`` (its choice between piecewise-linear
@@ -92,10 +83,7 @@ SPLIT = 1
 # Riemann solvers
 HLL = 0
 HLLC = 1
-HLLC_LM = 2
 LAX_FRIEDRICHS = 3
-HYBRID_HLLC = 4
-AM_HLLC = 5
 #: The HLLD solver of Miyoshi & Kusano (2005) for ideal MHD, in AthenaPK's
 #: GLM form. Only implemented in the VL2 scheme (which also maps HLL, HLLC and
 #: LAX_FRIEDRICHS onto AthenaPK's HLLE, HLLC and LLF solvers); ``finalize_config``
@@ -138,7 +126,6 @@ MAGNETIC_FIELD_ONLY = 3
 
 # geometry types
 CARTESIAN = 0
-CYLINDRICAL = 1
 SPHERICAL = 2
 
 # axes
@@ -165,10 +152,6 @@ SIMPLE_SOURCE = 0
 SECOND_ORDER_CONSERVATIVE = 1
 FOURTH_ORDER_CONSERVATIVE = 2
 ATHENA_SECOND_ORDER = 3
-
-# Numerical precision
-SINGLE_PRECISION = 0
-DOUBLE_PRECISION = 1
 
 # Viscosity types
 KINEMATIC_VISCOSITY = 0
@@ -500,9 +483,6 @@ class SimulationConfig(NamedTuple):
     #: Dongsu Ryu, 2023), which is the recommended solver.
     solver_mode: int = FINITE_DIFFERENCE
 
-    #: Precision mode.
-    numerical_precision: int = SINGLE_PRECISION
-
     #: Debug runtime errors, throws exceptions
     #: on e.g. negative pressure or density.
     #: Significantly reduces performance.
@@ -518,14 +498,6 @@ class SimulationConfig(NamedTuple):
     #: function
     memory_analysis: bool = False
 
-    #: Build the simulation helper data on the host (CPU) and
-    #: only move the fields that are actually needed by the
-    #: enabled subsystems onto the accelerator. Useful in
-    #: production runs where a large meshgrid like
-    #: ``geometric_centers`` is not required on device and the
-    #: per-field memory footprint matters.
-    host_helper_data: bool = False
-
     #: Print the elapsed time of the simulation
     print_elapsed_time: bool = False
 
@@ -534,9 +506,6 @@ class SimulationConfig(NamedTuple):
 
     #: The number of dimensions of the simulation.
     dimensionality: int = 1
-
-    #: Use a struct for the state.
-    state_struct: bool = False
 
     #: The geometry of the simulation.
     geometry: int = CARTESIAN
@@ -708,12 +677,6 @@ class SimulationConfig(NamedTuple):
     #: The number of cells in the simulation.
     num_cells: Union[int, StaticIntVector] = 400
 
-    #: The reconstruction order is the number of
-    #: cells on each side of the cell of interest
-    #: used to calculate the gradients for the
-    #: reconstruction at the interfaces.
-    reconstruction_order: int = 1
-
     #: The limiter for the reconstruction of the classic finite-volume
     #: scheme. The VL2 scheme does not read it (see ``VAN_LEER``).
     limiter: int = MINMOD
@@ -744,7 +707,7 @@ class SimulationConfig(NamedTuple):
     # --> all others are ghost cells
 
     #: The number of ghost cells.
-    num_ghost_cells: int = reconstruction_order + 1
+    num_ghost_cells: int = 2
 
     #: Grid spacing.
     grid_spacing: float = box_size / num_cells
@@ -771,9 +734,6 @@ class SimulationConfig(NamedTuple):
 
     #: The number of timesteps for the fixed timestep mode.
     num_timesteps: int = 1000
-
-    #: Use a maximum timestep in adaptive timestep mode.
-    use_max_adaptive_timestep: bool = True
 
     #: The differentiation mode one whats to use
     #: the solver in (forwards or backwards).
@@ -881,16 +841,6 @@ class SimulationConfig(NamedTuple):
     #: and Pallas (not the fused WENO+divergence kernel, which is then skipped).
     weno_positivity_preserving: bool = False
 
-    #: If > 0, ADD a relative contribution ``weno_epsilon_relative * (amx*|q|)^2``
-    #: to the WENO epsilon, where ``q`` is the local characteristic variable and
-    #: ``amx`` the family's dissipation coefficient — i.e. compare the
-    #: smoothness indicators against the local DATA SCALE instead of an
-    #: absolute constant. With ``weno_epsilon`` alone the weights are fully
-    #: nonlinear whenever the variables are O(10) or larger, regardless of how
-    #: smooth the solution is. NATIVE backend only (``finalize_config`` rejects
-    #: it with the Pallas backend).
-    weno_epsilon_relative: float = 0.0
-
     #: Differentiate through the WENO reconstruction with its nonlinear
     #: weights, characteristic eigenvectors and Lax-Friedrichs splitting speed
     #: FROZEN (``stop_gradient``): the tangent / adjoint is then that of the
@@ -912,16 +862,15 @@ class SimulationConfig(NamedTuple):
     #: The configuration for the cooling module.
     cooling_config: CoolingConfig = CoolingConfig()
 
-    #: Frame tracking in z-direction
-    #: shifting the frame to follow a
-    #: turbulent radiative mixing layer
-    frame_tracking: bool = False
-
-    #: Configuration of the neural network force module.
-    neural_net_force_config: NeuralNetForceConfig = NeuralNetForceConfig()
-
-    #: Configuration of the CNN MHD corrector module.
-    cnn_mhd_corrector_config: CNNMHDconfig = CNNMHDconfig()
+    #: User-supplied update of the primitive state, called once per time
+    #: step before the hydro update (after the stellar wind and cooling
+    #: updates, before viscosity and turbulent forcing):
+    #: ``per_step_update(primitive_state, dt, current_time, config, params,
+    #: helper_data, registered_variables)`` returns the new primitive state
+    #: (same shape, ghost cells included). ``helper_data`` only holds the
+    #: fields the built-in modules need. Differentiable inputs (for example
+    #: network weights) go into ``params.per_step_update_params``.
+    per_step_update: Callable | None = None
 
 
 def _parse_compute_capability(compute_capability):
@@ -1047,13 +996,6 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
     if config.conduction_order not in (2, 4):
         raise ValueError(f"conduction_order must be 2 or 4, got {config.conduction_order!r}.")
 
-    # weno_epsilon_relative is native-only.
-    if config.weno_epsilon_relative > 0.0 and config.backend_config.backend == PALLAS:
-        raise ValueError(
-            "weno_epsilon_relative is implemented for the NATIVE_JAX backend "
-            "only; pass BackendConfig(backend=NATIVE_JAX)."
-        )
-
     # Approximate-rsqrt fast path: the forward MHD WENO kernel is switched to the
     # refined approximate rsqrt, but the native tangent behind the Pallas
     # derivatives still uses IEEE sqrt.  Purely forward runs (convergence, runtime) are unaffected; warn
@@ -1066,11 +1008,6 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
             "sqrt, so reverse-mode gradients are ~1 ULP inconsistent with the "
             "forward. Fine for forward-only runs; turn off for exact AD."
         )
-
-    if jax.config.jax_enable_x64:
-        config = config._replace(numerical_precision=DOUBLE_PRECISION)
-    else:
-        config = config._replace(numerical_precision=SINGLE_PRECISION)
 
     # set the number of cells
     if config.dimensionality == 1:
@@ -1136,10 +1073,6 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
             print("Setting unsplit mode for spherical geometry")
             config = config._replace(split=SPLIT)
 
-        if config.limiter == VAN_ALBADA or config.limiter == VAN_ALBADA_PP:
-            print("Setting minmod limiter for spherical geometry")
-            config = config._replace(limiter=MINMOD)
-
         if config.time_integrator != MUSCL:
             print("Setting MUSCL time integrator for spherical geometry")
             config = config._replace(time_integrator=MUSCL)
@@ -1160,9 +1093,6 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
         )
 
     if config.gravity_config.gravity and (config.limiter != MINMOD) and not uses_vl2:
-        print(
-            "Curiously, in self-gravitating systems, the VAN_ALBADA limiters seem to cause crashes."
-        )
         print("Setting MINMOD limiter for gravity.")
         config = config._replace(limiter=MINMOD)
 
@@ -1316,7 +1246,7 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
     if config.solver_mode == FINITE_DIFFERENCE:
 
         # The WENO5 stencil reaches three cells beyond each interface, so the
-        # default ghost-cell count (reconstruction_order + 1 = 2) is too few:
+        # default ghost-cell count (2) is too few:
         # 1D runs then read wrapped / stale values at the edges, and smooth
         # periodic problems converged at first order. Same rule as 2D/3D.
         if config.dimensionality == 1:
@@ -1450,14 +1380,8 @@ def riemann_solver_to_string(riemann_solver: int) -> str:
         return "HLL"
     elif riemann_solver == HLLC:
         return "HLLC"
-    elif riemann_solver == HLLC_LM:
-        return "HLLC_LM"
     elif riemann_solver == LAX_FRIEDRICHS:
         return "Lax-Friedrichs"
-    elif riemann_solver == HYBRID_HLLC:
-        return "Hybrid HLLC"
-    elif riemann_solver == AM_HLLC:
-        return "AM HLLC"
     elif riemann_solver == HLLD:
         return "HLLD"
 
@@ -1468,14 +1392,8 @@ def limiter_to_string(limiter: int) -> str:
         return "Minmod"
     elif limiter == SUPERBEE:
         return "Superbee"
-    elif limiter == OSHER:
-        return "Osher"
     elif limiter == DOUBLE_MINMOD:
         return "Double Minmod"
-    elif limiter == VAN_ALBADA:
-        return "Van Albada"
-    elif limiter == VAN_ALBADA_PP:
-        return "Van Albada PP"
     elif limiter == VAN_LEER:
         return "Van Leer"
 

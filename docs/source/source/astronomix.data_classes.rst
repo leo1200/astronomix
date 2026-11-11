@@ -9,7 +9,6 @@ Submodules
 
    astronomix.data_classes.simulation_helper_data
    astronomix.data_classes.simulation_snapshot_data
-   astronomix.data_classes.simulation_state_struct
 
 Module contents
 ---------------

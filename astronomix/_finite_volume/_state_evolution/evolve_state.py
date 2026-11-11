@@ -27,7 +27,6 @@ from astronomix.option_classes.simulation_config import (
     SPHERICAL,
     STATE_TYPE,
     UNSPLIT,
-    VAN_ALBADA_PP,
     VL2,
 )
 
@@ -45,7 +44,6 @@ from astronomix._stencil_operations._stencil_operations import _stencil_add
 from astronomix._geometry.geometric_terms import _pressure_nozzling_source
 from astronomix._finite_volume._state_evolution.reconstruction import (
     _reconstruct_at_interface_split,
-    _reconstruct_at_interface_unsplit,
     _reconstruct_at_interface_unsplit_single,
 )
 from astronomix._finite_volume._state_evolution._pallas_evolve import (
@@ -442,35 +440,16 @@ def _evolve_gas_state_unsplit_inner(
             registered_variables,
         )
 
-    # in case of the van albada pp limiter, the limited
-    # gradients along all dimensions are needed at once for
-    # the proper multidimensional limiting
-    if config.limiter == VAN_ALBADA_PP:
-        # get left and right states along all dimensions
-        pls, prs = _reconstruct_at_interface_unsplit(
-            primitive_state,
-            dt,
-            gamma,
-            config,
-            params,
-            helper_data,
-            registered_variables
-        )
-
     for axis in range(1, config.dimensionality + 1):
 
         if config.boundary_handling == GHOST_CELLS:
             primitive_state = _boundary_handler(primitive_state, config, registered_variables, params)
 
-        if config.limiter == VAN_ALBADA_PP:
-            primitives_left_interface = pls[axis - 1]
-            primitives_right_interface = prs[axis - 1]
-        else:
-            primitives_left_interface, primitives_right_interface = (
-                _reconstruct_at_interface_unsplit_single(
-                    primitive_state, config, helper_data, axis
-                )
+        primitives_left_interface, primitives_right_interface = (
+            _reconstruct_at_interface_unsplit_single(
+                primitive_state, config, helper_data, axis
             )
+        )
 
         # get the fluxes at the interfaces
         fluxes = _riemann_solver(

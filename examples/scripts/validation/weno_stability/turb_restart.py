@@ -49,9 +49,7 @@ from astronomix import (
     time_integration,
 )
 from astronomix.option_classes.simulation_config import (
-    DOUBLE_PRECISION,
     ISOTHERMAL,
-    SINGLE_PRECISION,
 )
 
 data = np.load(args.state_file)
@@ -65,7 +63,6 @@ config = SimulationConfig(
     num_cells=n,
     box_size=1.0,
     mhd=bool(args.mhd),
-    numerical_precision=DOUBLE_PRECISION if args.precision == 64 else SINGLE_PRECISION,
     backend_config=BackendConfig(backend=NATIVE_JAX if args.backend == "native" else PALLAS),
     boundary_settings=BoundarySettings(periodic, periodic, periodic),
     positivity_config=PositivityConfig(clamp_in_estimates=False),

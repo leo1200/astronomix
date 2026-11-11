@@ -28,7 +28,7 @@ from astronomix import (
 from astronomix._fluid_equations._equations_mhd import conserved_state_from_primitive_mhd
 from astronomix._finite_difference._time_integrators import _ssprk as ssprk_module
 from astronomix._finite_difference._timestep_estimation._timestep_estimator import _cfl_time_step_fd
-from astronomix.option_classes.simulation_config import DOUBLE_PRECISION, IDEAL_GAS
+from astronomix.option_classes.simulation_config import IDEAL_GAS
 
 GAMMA = 1.4
 dump = np.load(sys.argv[1])
@@ -48,7 +48,7 @@ ssprk_module.ssprk4 = fe_step
 
 config = SimulationConfig(
     equation_of_state=IDEAL_GAS, dimensionality=2, num_cells=n_padded - 8, box_size=1.0, mhd=True,
-    numerical_precision=DOUBLE_PRECISION, backend_config=BackendConfig(backend=NATIVE_JAX),
+    backend_config=BackendConfig(backend=NATIVE_JAX),
     boundary_settings=BoundarySettings(periodic, periodic, periodic),
     positivity_config=PositivityConfig(clamp_in_estimates=False), **weno_variant_kwargs(),
 )

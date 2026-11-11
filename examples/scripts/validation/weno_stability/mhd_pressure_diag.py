@@ -34,7 +34,7 @@ from astronomix import (
 from astronomix._finite_difference._interface_fluxes._weno import _weno_flux_native_for_axis
 from astronomix._fluid_equations._equations_mhd import conserved_state_from_primitive_mhd
 from astronomix._stencil_operations._stencil_operations import _shift
-from astronomix.option_classes.simulation_config import DOUBLE_PRECISION, IDEAL_GAS
+from astronomix.option_classes.simulation_config import IDEAL_GAS
 
 parser = argparse.ArgumentParser()
 parser.add_argument("snapshot")
@@ -48,7 +48,7 @@ n = primitive.shape[-1]
 periodic = BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY)
 config = SimulationConfig(
     equation_of_state=IDEAL_GAS, dimensionality=3, num_cells=n, box_size=1.0, mhd=True,
-    numerical_precision=DOUBLE_PRECISION, backend_config=BackendConfig(backend=NATIVE_JAX),
+    backend_config=BackendConfig(backend=NATIVE_JAX),
     boundary_settings=BoundarySettings(periodic, periodic, periodic),
     positivity_config=PositivityConfig(clamp_in_estimates=False),
     weno_positivity_preserving=True,

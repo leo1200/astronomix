@@ -41,7 +41,6 @@ import numpy as np
 
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
-    DOUBLE_PRECISION,
     FINITE_DIFFERENCE,
     ISOTHERMAL,
     PERIODIC_BOUNDARY,
@@ -111,7 +110,6 @@ def build_case(args, field_direction):
         num_cells=StaticIntVector(args.N, args.N, SLAB_CELLS),
         box_size=StaticFloatVector(1.0, 1.0, SLAB_CELLS * grid_spacing),
         boundary_settings=BoundarySettings(periodic, periodic, periodic),
-        numerical_precision=DOUBLE_PRECISION,
         weno_z=True,
         weno_positivity_preserving=True,
         positivity_config=PositivityConfig(),

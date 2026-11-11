@@ -571,8 +571,8 @@ output across many timesteps.
 **What's in the kernel:**
 
 - Single fused per-axis pass: reads primitives with halo 2, computes
-  limited gradients (Python static-switched between MINMOD / VAN_ALBADA
-  / OSHER / first-order fallback), reconstructs `q_L`/`q_R` at both
+  limited gradients (MINMOD / first-order fallback), reconstructs
+  `q_L`/`q_R` at both
   interfaces bordering each cell, evaluates the Riemann solver
   (HLL / LAX_FRIEDRICHS, selected at compile time via
   `config.riemann_solver`), and emits the divergence
@@ -591,9 +591,9 @@ output across many timesteps.
 
 - ideal-gas EOS, Cartesian geometry, no self-gravity / viscosity,
   periodic or block-divisible ghost-cell layouts;
-- `config.riemann_solver ∈ {HLL, LAX_FRIEDRICHS}` (HLLC / HLLC_LM /
-  AM_HLLC not ported — same kernel skeleton, additional algebra);
-- `config.limiter ∈ {MINMOD, VAN_ALBADA, VAN_ALBADA_PP, OSHER}`;
+- `config.riemann_solver ∈ {HLL, LAX_FRIEDRICHS}` (HLLC not ported —
+  same kernel skeleton, additional algebra);
+- `config.limiter == MINMOD`;
 - x32 only (same Triton-x64-with-complex-kernels caveat as the FD MHD
   path);
 - block shape must divide every spatial dim (including ghost-cell
@@ -614,7 +614,7 @@ output across many timesteps.
   AND `state.shape[0] != 8`) and returns False, so the MHD path uses
   the native gas update and the magnetic update stays native too.
   TODO: narrow down the Triton lowering and remove this gate.
-- HLLC / HLLC_LM / AM_HLLC solvers: not ported.  Same predicate-stub
+- HLLC solver: not ported.  Same predicate-stub
   pattern would extend the kernel; algebra is in
   `astronomix/_finite_volume/_riemann_solver/hll.py`.
 - Split scheme (`config.split == SPLIT`) uses the MUSCL predictor +
@@ -632,7 +632,7 @@ The FV scheme has three stages, each a candidate Pallas kernel:
    and two faces per cell, ncomp doubles relative to the WENO case.
 2. **Riemann solver kernel** — `(q_L, q_R) → flux` per face.  Pure
    pointwise op, ideal Pallas workload.  Each solver (HLL, HLLC,
-   HLLC_LM, AM_HLLC, LAX_FRIEDRICHS) is a separate kernel selected at
+   LAX_FRIEDRICHS) is a separate kernel selected at
    compile time via the `config.riemann_solver` static value (Python
    `if config.riemann_solver == HLL:` branches in a dispatcher,
    matching the existing `_riemann_solver.py` structure).

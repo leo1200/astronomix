@@ -42,7 +42,7 @@ from astronomix._finite_difference._interface_fluxes import _weno as weno_module
 from astronomix._finite_difference._interface_fluxes import _weno_positivity as pp
 from astronomix._finite_difference._magnetic_update._constrained_transport import update_cell_center_fields
 from astronomix._finite_difference._timestep_estimation._timestep_estimator import _cfl_time_step_fd
-from astronomix.option_classes.simulation_config import DOUBLE_PRECISION, IDEAL_GAS
+from astronomix.option_classes.simulation_config import IDEAL_GAS
 
 GAMMA = 5.0 / 3.0
 data = np.load(args.failstep)
@@ -54,7 +54,7 @@ c = half
 periodic = BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY)
 config = SimulationConfig(
     equation_of_state=IDEAL_GAS, dimensionality=3, num_cells=args.patch, box_size=args.patch / 256.0, mhd=True,
-    numerical_precision=DOUBLE_PRECISION, backend_config=BackendConfig(backend=NATIVE_JAX),
+    backend_config=BackendConfig(backend=NATIVE_JAX),
     boundary_settings=BoundarySettings(periodic, periodic, periodic),
     positivity_config=PositivityConfig(clamp_in_estimates=False), **weno_variant_kwargs(),
 )

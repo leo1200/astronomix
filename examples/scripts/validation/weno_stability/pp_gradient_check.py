@@ -20,7 +20,7 @@ from astronomix import (
     SimulationParams, construct_primitive_state, finalize_config, get_registered_variables,
     initialize_interface_fields, time_integration,
 )
-from astronomix.option_classes.simulation_config import DOUBLE_PRECISION, IDEAL_GAS, ISOTHERMAL
+from astronomix.option_classes.simulation_config import IDEAL_GAS, ISOTHERMAL
 
 n = 12
 periodic = BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY)
@@ -35,7 +35,7 @@ for case in ("hydro", "ideal_mhd", "iso_mhd"):
     eos = ISOTHERMAL if case == "iso_mhd" else IDEAL_GAS
     config = SimulationConfig(
         equation_of_state=eos, dimensionality=3, num_cells=n, box_size=1.0, mhd=mhd,
-        numerical_precision=DOUBLE_PRECISION, backend_config=BackendConfig(backend=NATIVE_JAX),
+        backend_config=BackendConfig(backend=NATIVE_JAX),
         boundary_settings=BoundarySettings(periodic, periodic, periodic),
         weno_positivity_preserving=True, fixed_timestep=True, num_timesteps=3,
     )

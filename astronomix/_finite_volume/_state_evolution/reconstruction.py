@@ -2,9 +2,8 @@
 Interface reconstruction for the finite-volume scheme.
 
 Provides the MUSCL split reconstruction (with the predictor half-step) and the
-unsplit reconstructions (including the positivity-preserving van Albada-PP
-variant) that extrapolate the cell-centred primitive state to the left/right
-states at each interface.
+unsplit reconstruction that extrapolate the cell-centred primitive state to the
+left/right states at each interface.
 """
 
 # general
@@ -25,21 +24,17 @@ from astronomix.option_classes.simulation_config import (
     MUSCL,
     STATE_TYPE,
     STATE_TYPE_ALTERED,
-    VAN_ALBADA,
-    VAN_ALBADA_PP,
 )
 
 # astronomix containers
 from astronomix.option_classes.simulation_config import SimulationConfig
 from astronomix.data_classes.simulation_helper_data import HelperData
 from astronomix.variable_registry.registered_variables import RegisteredVariables
-from astronomix.option_classes.simulation_params import SimulationParams
 
 # astronomix functions
 from astronomix._modules._gravity._poisson_solver import (
     _compute_gravitational_potential,
 )
-from astronomix._finite_volume._state_evolution.limiters import _van_albada_limiter, _minmod
 from astronomix._stencil_operations._stencil_operations import _stencil_add
 from astronomix._fluid_equations._equations import speed_of_sound
 from astronomix._finite_volume._state_evolution.limited_gradients import _calculate_limited_gradients
@@ -134,274 +129,6 @@ def _reconstruct_at_interface_split(
     p_right_interface = primitives_left
 
     return p_left_interface, p_right_interface
-
-
-# @jaxtyped(typechecker=typechecker)
-@partial(jax.jit, static_argnames=["config", "registered_variables"])
-def _reconstruct_at_interface_unsplit(
-    primitive_state: STATE_TYPE,
-    dt: Union[float, Float[Array, ""]],
-    gamma: Union[float, Float[Array, ""]],
-    config: SimulationConfig,
-    params: SimulationParams,
-    helper_data: HelperData,
-    registered_variables: RegisteredVariables,
-):
-    """
-    Unsplit reconstruction (all axes at once).
-
-    Computes the limited gradients along every axis simultaneously, which is
-    needed for the multidimensional positivity-preserving van Albada-PP
-    limiting. NOTE: this materialises a full ``(dimensionality, *state_shape)``
-    gradient buffer and is therefore comparatively memory-hungry.
-    """
-
-    # Limited gradients buffer, shape (dimensionality, *state_shape).
-    limited_gradients = jnp.zeros((config.dimensionality,) + primitive_state.shape)
-
-    for axis in range(1, config.dimensionality + 1):
-        limited_gradients = limited_gradients.at[axis - 1].set(
-            _calculate_limited_gradients(
-                primitive_state, config, helper_data, axis=axis
-            )
-        )
-
-    differences = limited_gradients * config.grid_spacing / 2
-
-    primitives_left_interface = jnp.zeros(
-        (config.dimensionality,) + primitive_state.shape
-    )
-    primitives_right_interface = jnp.zeros(
-        (config.dimensionality,) + primitive_state.shape
-    )
-
-    if config.limiter == VAN_ALBADA_PP:
-        # positivity preserving reconstruction
-
-        eps = 1e-14
-
-        rho = primitive_state[registered_variables.density_index]
-        p = primitive_state[registered_variables.pressure_index]
-        c = speed_of_sound(rho, p, gamma)
-        alpha_lax = jnp.zeros((config.dimensionality,))
-        for axis in range(1, config.dimensionality + 1):
-            u = primitive_state[axis]
-            alpha_lax_i = jnp.max(jnp.abs(u) + c)
-            alpha_lax = alpha_lax.at[axis - 1].set(alpha_lax_i)
-
-        # NOTE: formula will change for different grid spacings along dimensions!!!
-
-        C = alpha_lax / jnp.sum(alpha_lax)
-
-        if config.mhd:
-            # in the MHD case we go half-time steps as of
-            # the strang splitting, so effectively, for the
-            # hydro part we use C_cfl / 2, so 1 / (C_cfl / 2)
-            # = 2 / C_cfl
-            q = 2 / params.C_cfl
-        else:
-            q = 1 / params.C_cfl
-
-        density_diff_protected = jnp.where(
-            jnp.abs(differences[:, registered_variables.density_index]) > eps,
-            differences[:, registered_variables.density_index],
-            eps,
-        )
-
-        pressure_diff_protected = jnp.where(
-            jnp.abs(differences[:, registered_variables.pressure_index]) > eps,
-            differences[:, registered_variables.pressure_index],
-            eps,
-        )
-
-        alpha_density = jnp.where(
-            jnp.abs(differences[:, registered_variables.density_index]) > eps,
-            jnp.minimum(
-                primitive_state[registered_variables.density_index]
-                / (jnp.abs(density_diff_protected) * (1 + eps)),
-                1,
-            ),
-            1,
-        )
-
-        kappa_pressure = jnp.where(
-            jnp.abs(differences[:, registered_variables.pressure_index]) > eps,
-            jnp.minimum(
-                primitive_state[registered_variables.pressure_index]
-                / (jnp.abs(pressure_diff_protected) * (1 + eps)),
-                1,
-            ),
-            1,
-        )
-
-        if config.dimensionality == 1:
-            A1 = jnp.sum(
-                jnp.sum(
-                    C[:, None]
-                    * alpha_density
-                    * differences[:, registered_variables.density_index]
-                    * differences[:, registered_variables.velocity_index],
-                    axis=0,
-                )
-                ** 2,
-                axis=0,
-            )
-            A2 = jnp.sum(
-                C[:, None]
-                * jnp.sum(
-                    differences[:, registered_variables.velocity_index] ** 2, axis=1
-                ),
-                axis=0,
-            )
-        elif config.dimensionality == 2:
-            A1 = jnp.sum(
-                jnp.sum(
-                    C[:, None, None]
-                    * alpha_density
-                    * differences[:, registered_variables.density_index]
-                    * differences[
-                        :,
-                        registered_variables.velocity_index.x : registered_variables.velocity_index.x
-                        + config.dimensionality,
-                    ],
-                    axis=0,
-                )
-                ** 2,
-                axis=0,
-            )
-            A2 = jnp.sum(
-                C[:, None, None]
-                * jnp.sum(
-                    differences[
-                        :,
-                        registered_variables.velocity_index.x : registered_variables.velocity_index.x
-                        + config.dimensionality,
-                    ]
-                    ** 2,
-                    axis=1,
-                ),
-                axis=0,
-            )
-        elif config.dimensionality == 3:
-            A1 = jnp.sum(
-                jnp.sum(
-                    C[:, None, None, None]
-                    * alpha_density
-                    * differences[:, registered_variables.density_index]
-                    * differences[
-                        :,
-                        registered_variables.velocity_index.x : registered_variables.velocity_index.x
-                        + config.dimensionality,
-                    ],
-                    axis=0,
-                )
-                ** 2,
-                axis=0,
-            )
-            A2 = jnp.sum(
-                C[:, None, None, None]
-                * jnp.sum(
-                    differences[
-                        :,
-                        registered_variables.velocity_index.x : registered_variables.velocity_index.x
-                        + config.dimensionality,
-                    ]
-                    ** 2,
-                    axis=1,
-                ),
-                axis=0,
-            )
-        vsum = jnp.sum(
-            jnp.sum(
-                differences[
-                    :,
-                    registered_variables.velocity_index.x : registered_variables.velocity_index.x
-                    + config.dimensionality,
-                ]
-                ** 2,
-                axis=1,
-            ),
-            axis=0,
-        )
-        A1 = jnp.where(vsum > eps, A1, eps)
-        A2 = jnp.where(vsum > eps, A2, eps)
-
-        beta = jnp.where(
-            vsum > eps,
-            jnp.minimum(
-                jnp.sqrt(
-                    (
-                        (q - 2) ** 2
-                        * primitive_state[registered_variables.density_index]
-                        * primitive_state[registered_variables.pressure_index]
-                    )
-                    / (
-                        (gamma - 1)
-                        * (
-                            2 * A1
-                            + (q - 2)
-                            * primitive_state[registered_variables.density_index] ** 2
-                            * A2
-                        )
-                    )
-                ),
-                1,
-            ),
-            1,
-        )
-
-        differences_pp = differences
-
-        differences_pp = differences_pp.at[:, registered_variables.density_index].set(
-            differences[:, registered_variables.density_index] * alpha_density
-        )
-
-        differences_pp = differences_pp.at[:, registered_variables.pressure_index].set(
-            differences[:, registered_variables.pressure_index] * kappa_pressure
-        )
-
-        differences_pp = differences_pp.at[
-            :,
-            registered_variables.velocity_index.x : registered_variables.velocity_index.x
-            + config.dimensionality,
-        ].set(
-            differences[
-                :,
-                registered_variables.velocity_index.x : registered_variables.velocity_index.x
-                + config.dimensionality,
-            ]
-            * beta
-        )
-
-        differences = differences_pp
-
-    for axis in range(1, config.dimensionality + 1):
-        # i-1/2R, ...
-        primitives_left_center = (
-            primitive_state - differences[axis - 1]
-        )  # left of the cell center but the right of the interface
-        # i+1/2L, ...
-        primitives_right_center = (
-            primitive_state + differences[axis - 1]
-        )  # right of the cell center but the left of the interface
-
-        # primitives left at i is the left state at the interface
-        # between i-1 and i so the right extrapolation from the cell i-1
-        p_left_interface = jnp.roll(primitives_right_center, shift=1, axis=axis)
-
-        # primitives right at i is the right state at the interface
-        # between i-1 and i so the left extrapolation from the cell i
-        p_right_interface = primitives_left_center
-
-        # set the values
-        primitives_left_interface = primitives_left_interface.at[axis - 1].set(
-            p_left_interface
-        )
-        primitives_right_interface = primitives_right_interface.at[axis - 1].set(
-            p_right_interface
-        )
-
-    return primitives_left_interface, primitives_right_interface
 
 
 # @jaxtyped(typechecker=typechecker)

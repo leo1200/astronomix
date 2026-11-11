@@ -55,7 +55,7 @@ one-name-per-line in parentheses.
      (`STATE_TYPE`, `FIELD_TYPE`, any `*_TYPE`).
    - `# astronomix containers` — the configuration / data container classes
      (`SimulationConfig`, `SimulationParams`, `HelperData`, `RegisteredVariables`,
-     `StateStruct`, `SnapshotData`, the `*Config` / `*Settings` option classes, ...).
+     `SnapshotData`, the `*Config` / `*Settings` option classes, ...).
    - `# astronomix functions` — function imports (everything else: `lower_case`
      or `_lower_case` callables).
    A more specific descriptive label may be used for a self-contained group when
@@ -87,7 +87,7 @@ from astronomix.option_classes.simulation_config import (
 
 # astronomix containers
 from astronomix.option_classes.simulation_config import SimulationConfig
-from astronomix.data_classes.simulation_state_struct import StateStruct
+from astronomix.data_classes.simulation_helper_data import HelperData
 
 # astronomix functions
 from astronomix._finite_volume._state_evolution.evolve_state import _evolve_state_fv

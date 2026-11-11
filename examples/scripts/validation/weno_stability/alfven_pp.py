@@ -38,7 +38,7 @@ from astronomix import (
     BackendConfig, NATIVE_JAX, PALLAS, PositivityConfig, SimulationConfig, SimulationParams,
     SnapshotSettings, get_helper_data, get_registered_variables, time_integration,
 )
-from astronomix.option_classes.simulation_config import DOUBLE_PRECISION, StaticIntVector
+from astronomix.option_classes.simulation_config import StaticIntVector
 from astronomix.test_setups.mhd.alfven_wave3D import (
     CPAlfvenWave3DSettings, cp_alfven_wave_solution, setup_cp_alfven_wave,
 )
@@ -50,7 +50,6 @@ resolutions = [int(r) for r in args.resolutions.split(",")]
 for n in resolutions:
     config = SimulationConfig(
         num_cells=StaticIntVector(2 * n, n, n),
-        numerical_precision=DOUBLE_PRECISION,
         backend_config=BackendConfig(backend=NATIVE_JAX if args.backend == "native" else PALLAS),
         positivity_config=PositivityConfig(clamp_in_estimates=False),
         return_snapshots=True,

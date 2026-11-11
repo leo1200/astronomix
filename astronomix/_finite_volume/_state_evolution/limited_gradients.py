@@ -16,20 +16,16 @@ from jaxtyping import jaxtyped
 
 # jax
 import jax
-import jax.numpy as jnp
 
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
     CARTESIAN,
     MINMOD,
-    OSHER,
     DOUBLE_MINMOD,
     SUPERBEE,
     SPHERICAL,
     STATE_TYPE,
     STATE_TYPE_ALTERED,
-    VAN_ALBADA,
-    VAN_ALBADA_PP,
 )
 
 # astronomix containers
@@ -38,7 +34,7 @@ from astronomix.option_classes.simulation_config import SimulationConfig
 
 # astronomix functions
 from astronomix._stencil_operations._stencil_operations import _stencil_add
-from astronomix._finite_volume._state_evolution.limiters import _double_minmod, _minmod, _superbee, _van_albada_limiter
+from astronomix._finite_volume._state_evolution.limiters import _double_minmod, _minmod, _superbee
 
 
 # @jaxtyped(typechecker=typechecker)
@@ -86,26 +82,6 @@ def _calculate_limited_gradients(
         limited_gradients = _superbee(backward_diff, forward_diff)
     elif config.limiter == DOUBLE_MINMOD:
         limited_gradients = _double_minmod(backward_diff, forward_diff)
-    elif config.limiter == VAN_ALBADA or config.limiter == VAN_ALBADA_PP:
-        # van Albada limiter
-        limited_gradients = _van_albada_limiter(
-            backward_diff,
-            forward_diff,
-            config
-        )
-    elif config.limiter == OSHER:
-        # Quotient formulation: limit on the ratio of forward to backward
-        # differences. The epsilon guards the division when the backward
-        # difference is (near) zero.
-        epsilon = 1e-11
-        g = jnp.where(
-            jnp.abs(backward_diff) > epsilon,
-            forward_diff / (backward_diff + epsilon),
-            jnp.zeros_like(backward_diff)
-        )
-        # Osher limiter with beta = 1.3.
-        slope_limited = jnp.maximum(0, jnp.minimum(1.3, g))
-        limited_gradients = slope_limited * backward_diff
     else:
         raise ValueError("Unknown limiter.")
 

@@ -8,15 +8,13 @@ per-module parameter containers are bundled in here too.
 """
 
 # typing
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 # jax
 import jax.numpy as jnp
 
 # astronomix containers
-from astronomix._modules._cnn_mhd_corrector._cnn_mhd_corrector_options import CNNMHDconfig
 from astronomix._modules._cooling.cooling_options import CoolingParams
-from astronomix._modules._neural_net_force._neural_net_force_options import NeuralNetForceParams
 from astronomix._modules._stellar_wind.stellar_wind_options import WindParams
 from astronomix._modules._turbulent_forcing._turbulent_forcing_options import TurbulentForcingParams
 
@@ -139,8 +137,7 @@ class SimulationParams(NamedTuple):
     #: The parameters of the cooling module.
     cooling_params: CoolingParams = CoolingParams()
 
-    #: The parameters of the neural network force module.
-    neural_net_force_params: NeuralNetForceParams = NeuralNetForceParams()
-
-    #: The parameters of the CNN MHD corrector module.
-    cnn_mhd_corrector_params: CNNMHDconfig = CNNMHDconfig()
+    #: Parameters of the user-supplied ``config.per_step_update`` (any
+    #: pytree, for example network weights). The simulation can be
+    #: differentiated with respect to them.
+    per_step_update_params: Any = None

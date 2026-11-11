@@ -162,8 +162,7 @@ def test_weno_weights_ad_tangent_exact():
     """
     The overflow-free tangent is the derivative of the plain weights by autodiff
     wherever that is finite (float64), for three indicator scales, and so is the
-    derivative with respect to a traced epsilon (the ``weno_epsilon_relative``
-    path).
+    derivative with respect to a traced epsilon.
     """
 
     def plain_weights(indicator_0, indicator_1, indicator_2):

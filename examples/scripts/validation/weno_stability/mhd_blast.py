@@ -41,13 +41,12 @@ from astronomix import (
     SimulationConfig, SimulationParams, construct_primitive_state, finalize_config, get_registered_variables,
     initialize_interface_fields, time_integration,
 )
-from astronomix.option_classes.simulation_config import DOUBLE_PRECISION, IDEAL_GAS, SINGLE_PRECISION
+from astronomix.option_classes.simulation_config import IDEAL_GAS
 
 GAMMA = 1.4
 periodic = BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY)
 config = SimulationConfig(
     equation_of_state=IDEAL_GAS, dimensionality=2, num_cells=args.n, box_size=1.0, mhd=True,
-    numerical_precision=DOUBLE_PRECISION if args.precision == 64 else SINGLE_PRECISION,
     backend_config=BackendConfig(backend=NATIVE_JAX),
     boundary_settings=BoundarySettings(periodic, periodic, periodic),
     positivity_config=PositivityConfig(clamp_in_estimates=False),

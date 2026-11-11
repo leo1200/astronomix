@@ -2,8 +2,7 @@
 Geometric source terms for curvilinear finite-volume updates.
 
 Provides the pressure-nozzling source term that accounts for the changing cell
-cross-section in cylindrical and spherical geometry (Crittenden & Balachandar,
-2018).
+cross-section in spherical geometry (Crittenden & Balachandar, 2018).
 """
 
 # general

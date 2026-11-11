@@ -4,7 +4,7 @@ Fuses three steps that used to materialise separate full-state buffers in
 the native FV pipeline into one pass per axis:
 
     primitive[i-2..i+2]
-      -> limited gradients at i-1, i, i+1   (MINMOD / VAN_ALBADA / OSHER)
+      -> limited gradients at i-1, i, i+1   (MINMOD)
       -> q_L, q_R at the two interfaces bordering cell i
       -> Riemann flux at each interface     (HLL / LAX_FRIEDRICHS)
       -> conserved_change[i] = -(dt/dx) * (F_{i+1/2} - F_{i-1/2})
@@ -17,7 +17,7 @@ Supports:
 - Hydro ideal-gas (Euler, 5 vars in 3D)
 - MHD ideal-gas (8 vars in 3D) — B_normal-flux is identically zero
 - HLL or LAX_FRIEDRICHS Riemann solver (selected via ``config.riemann_solver``)
-- MINMOD, VAN_ALBADA, OSHER limiters (selected via ``config.limiter``)
+- MINMOD limiter
 - ``first_order_fallback`` (zero slope) when set on the config
 
 x64 falls back to native (same Triton-on-MHD caveat documented in
@@ -38,10 +38,7 @@ from astronomix.option_classes.simulation_config import (
     IDEAL_GAS,
     LAX_FRIEDRICHS,
     MINMOD,
-    OSHER,
     PALLAS,
-    VAN_ALBADA,
-    VAN_ALBADA_PP,
 )
 
 # astronomix containers
@@ -134,7 +131,7 @@ def _fv_pallas_evolve_supported(state, config: SimulationConfig) -> bool:
         return False
     if config.riemann_solver not in (HLL, LAX_FRIEDRICHS):
         return False
-    if config.limiter not in (MINMOD, VAN_ALBADA, VAN_ALBADA_PP, OSHER):
+    if config.limiter != MINMOD:
         return False
     if config.gravity_config.gravity:
         # The MUSCL-based reconstruction in the split path is paired with
@@ -210,10 +207,7 @@ def _fv_evolve_axis_pallas(
     accumulate = conserved_accumulator is not None
     use_hll = (config.riemann_solver == HLL)
     use_lf = (config.riemann_solver == LAX_FRIEDRICHS)
-    limiter = int(config.limiter)
     first_order = config.first_order_fallback
-    epsilon = 1e-11
-    grid_spacing_for_limiter = float(config.grid_spacing)
 
     # ---- BlockSpecs ----
     if ndim == 1:
@@ -281,22 +275,8 @@ def _fv_evolve_axis_pallas(
         def apply_limiter(a, b):
             """``a`` = backward diff, ``b`` = forward diff.  Returns a
             slope (per-cell limited gradient w.r.t. local x)."""
-            if limiter == MINMOD:
-                # 0.5 * (sign(a) + sign(b)) * min(|a|, |b|)
-                return 0.5 * (jnp.sign(a) + jnp.sign(b)) * jnp.minimum(jnp.abs(a), jnp.abs(b))
-            if limiter == OSHER:
-                # Same logic as the native OSHER path.
-                g = jnp.where(jnp.abs(a) > epsilon, b / (a + epsilon), 0.0)
-                slope_limited = jnp.maximum(0.0, jnp.minimum(1.3, g))
-                return slope_limited * a
-            # VAN_ALBADA / VAN_ALBADA_PP (we apply the basic VA form;
-            # the PP cross-axis post-correction is not handled here, so
-            # the predicate excludes VAN_ALBADA_PP unless the user opts in
-            # to the simple variant).
-            eps_va = 3.0 * grid_spacing_for_limiter
-            return (
-                (b * b + eps_va) * a + (a * a + eps_va) * b
-            ) / (a * a + b * b + 2.0 * eps_va)
+            # MINMOD: 0.5 * (sign(a) + sign(b)) * min(|a|, |b|)
+            return 0.5 * (jnp.sign(a) + jnp.sign(b)) * jnp.minimum(jnp.abs(a), jnp.abs(b))
 
         def limited_slope(offset_center: int):
             """Limited gradient at cell ``offset_center`` (per component)."""

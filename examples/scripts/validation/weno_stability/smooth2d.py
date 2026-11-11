@@ -27,7 +27,6 @@ from astronomix import (
     time_integration,
 )
 from astronomix.option_classes.simulation_config import (
-    DOUBLE_PRECISION,
     ISOTHERMAL,
     IDEAL_GAS,
     PERIODIC_BOUNDARY,
@@ -45,7 +44,6 @@ for n in [16, 32, 64]:
     config = SimulationConfig(
         dimensionality=2,
         num_cells=n,
-        numerical_precision=DOUBLE_PRECISION,
         equation_of_state=ISOTHERMAL if eos == "iso" else IDEAL_GAS,
         boundary_settings=BoundarySettings(periodic, periodic),
         **weno_variant_kwargs(),

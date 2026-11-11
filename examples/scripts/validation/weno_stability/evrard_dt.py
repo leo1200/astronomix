@@ -53,7 +53,6 @@ from astronomix import (
     time_integration,
 )
 from astronomix.option_classes.simulation_config import (
-    DOUBLE_PRECISION,
     FOURTH_ORDER_CONSERVATIVE,
     SECOND_ORDER_CONSERVATIVE,
 )
@@ -76,7 +75,6 @@ for num_timesteps in [int(s) for s in args.steps.split(",")]:
         dimensionality=3,
         box_size=4.0,
         num_cells=args.n,
-        numerical_precision=DOUBLE_PRECISION,
         backend_config=BackendConfig(backend=NATIVE_JAX),
         positivity_config=PositivityConfig(),
         boundary_settings=BoundarySettings(periodic, periodic, periodic),

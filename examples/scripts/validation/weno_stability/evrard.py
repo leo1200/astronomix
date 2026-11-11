@@ -62,11 +62,9 @@ from astronomix import (
     time_integration,
 )
 from astronomix.option_classes.simulation_config import (
-    DOUBLE_PRECISION,
     FOURTH_ORDER_CONSERVATIVE,
     SECOND_ORDER_CONSERVATIVE,
     SIMPLE_SOURCE,
-    SINGLE_PRECISION,
 )
 
 GRAVITY = dict(
@@ -84,7 +82,6 @@ config = SimulationConfig(
     dimensionality=3,
     box_size=4.0,
     num_cells=args.n,
-    numerical_precision=DOUBLE_PRECISION if args.precision == 64 else SINGLE_PRECISION,
     backend_config=BackendConfig(backend=NATIVE_JAX),
     positivity_config=PositivityConfig(clamp_in_estimates=False),
     dual_energy=bool(args.dual),

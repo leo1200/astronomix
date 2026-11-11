@@ -14,6 +14,9 @@ autocvd(num_gpus=1)
 # ruff: noqa: E402
 # =======================
 
+# general
+import os
+
 # jax
 import jax
 import jax.numpy as jnp
@@ -35,11 +38,6 @@ from astronomix import (
     SimulationParams,
     SnapshotSettings,
 )
-from astronomix._modules._cnn_mhd_corrector._cnn_mhd_corrector import CorrectorCNN
-from astronomix._modules._cnn_mhd_corrector._cnn_mhd_corrector_options import (
-    CNNMHDParams,
-    CNNMHDconfig,
-)
 
 # astronomix functions
 from astronomix import (
@@ -50,8 +48,8 @@ from astronomix import (
     finalize_config,
 )
 
-
-# CNN corrector
+# CNN corrector and its per-step update (network_updates.py next to this script)
+from network_updates import CorrectorCNN, cnn_mhd_corrector_update
 
 # figures are written to the local figures/ directory
 from pathlib import Path
@@ -59,8 +57,8 @@ figures_dir = Path(__file__).resolve().parent / "figures"
 figures_dir.mkdir(exist_ok=True)
 
 # configure a differentiable 2D MHD blast (reverse-mode)
-num_cells_high_res = 128
-num_cells_low_res = 32
+num_cells_high_res = int(os.environ.get("NUM_CELLS_HIGH_RES", 128))
+num_cells_low_res = int(os.environ.get("NUM_CELLS_LOW_RES", 32))
 snapshot_timepoints = jnp.array([0.05, 0.1, 0.15, 0.2])
 
 baseline_config = SimulationConfig(
@@ -146,14 +144,12 @@ model = CorrectorCNN(
 )
 neural_net_params, neural_net_static = eqx.partition(model, eqx.is_array)
 
-cnn_mhd_corrector_config = CNNMHDconfig(
-    cnn_mhd_corrector = True,
-    network_static = neural_net_static,
+# the corrector enters the solver through the per-step update hook; the
+# trainable weights travel in the simulation parameters
+config_low_res_cnn = config_low_res._replace(
+    per_step_update = cnn_mhd_corrector_update(neural_net_static)
 )
-cnn_mhd_corrector_params = CNNMHDParams(network_params = neural_net_params)
-
-config_low_res_cnn = config_low_res._replace(cnn_mhd_corrector_config = cnn_mhd_corrector_config)
-params_low_res_cnn = params._replace(cnn_mhd_corrector_params = cnn_mhd_corrector_params)
+params_low_res_cnn = params._replace(per_step_update_params = neural_net_params)
 
 
 @eqx.filter_jit
@@ -162,11 +158,7 @@ def loss_fn(network_params_arrays):
     results_low_res = time_integration(
         initial_state_low_res,
         config_low_res_cnn,
-        params_low_res_cnn._replace(
-            cnn_mhd_corrector_params = cnn_mhd_corrector_params._replace(
-                network_params = network_params_arrays
-            )
-        ),
+        params_low_res_cnn._replace(per_step_update_params = network_params_arrays),
         registered_variables,
     )
     return jnp.mean((results_low_res.states - states_target) ** 2)
@@ -187,7 +179,7 @@ def train_step(network_params_arrays, opt_state):
 # train the corrector end-to-end through the solver
 trained_params = neural_net_params
 losses = []
-for step in range(40):
+for step in range(int(os.environ.get("NUM_TRAINING_STEPS", 40))):
     trained_params, opt_state, loss = train_step(trained_params, opt_state)
     losses.append(float(loss))
     print(f"step {step:3d}: loss = {loss:.4e}")
@@ -196,9 +188,7 @@ for step in range(40):
 result_low_res_cnn = time_integration(
     initial_state_low_res,
     config_low_res_cnn,
-    params_low_res_cnn._replace(
-        cnn_mhd_corrector_params = cnn_mhd_corrector_params._replace(network_params = trained_params)
-    ),
+    params_low_res_cnn._replace(per_step_update_params = trained_params),
     registered_variables,
 )
 

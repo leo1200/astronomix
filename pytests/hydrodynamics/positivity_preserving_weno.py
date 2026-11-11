@@ -35,7 +35,6 @@ from astronomix import (
     OPEN_BOUNDARY,
     PERIODIC_BOUNDARY,
 )
-from astronomix.option_classes.simulation_config import DOUBLE_PRECISION
 
 # astronomix containers
 from astronomix import (
@@ -78,7 +77,6 @@ def _run_riemann(left, right, gamma, t_end, num_cells, **options):
     config = SimulationConfig(
         dimensionality=1,
         num_cells=num_cells,
-        numerical_precision=DOUBLE_PRECISION,
         boundary_settings=BoundarySettings1D(
             left_boundary=OPEN_BOUNDARY,
             right_boundary=OPEN_BOUNDARY,
@@ -154,7 +152,6 @@ def test_smooth_fifth_order():
         config = SimulationConfig(
             dimensionality=1,
             num_cells=num_cells,
-            numerical_precision=DOUBLE_PRECISION,
             boundary_settings=BoundarySettings1D(
                 left_boundary=PERIODIC_BOUNDARY,
                 right_boundary=PERIODIC_BOUNDARY,

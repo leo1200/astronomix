@@ -1,9 +1,9 @@
 """
 Dispatch wrapper selecting the finite-volume Riemann solver.
 
-Routes to the configured solver (HLL, HLLC / HLLC-LM, AM-HLLC / hybrid HLLC, or
-Lax-Friedrichs) and returns the conservative interface fluxes. Also carries a
-back-compatibility shim for the FV-Pallas support predicate.
+Routes to the configured solver (HLL, HLLC or Lax-Friedrichs) and returns the
+conservative interface fluxes. Also carries a back-compatibility shim for the
+FV-Pallas support predicate.
 """
 
 # general
@@ -20,11 +20,8 @@ import jax.numpy as jnp
 
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
-    AM_HLLC,
     HLL,
     HLLC,
-    HLLC_LM,
-    HYBRID_HLLC,
     LAX_FRIEDRICHS,
     PALLAS,
     STATE_TYPE,
@@ -37,7 +34,7 @@ from astronomix.option_classes.simulation_config import SimulationConfig
 
 # astronomix functions
 from astronomix._finite_volume._riemann_solver._lax_friedrichs import _lax_friedrichs_solver
-from astronomix._finite_volume._riemann_solver.hll import _am_hllc_solver, _hll_solver, _hllc_solver
+from astronomix._finite_volume._riemann_solver.hll import _hll_solver, _hllc_solver
 from astronomix._fluid_equations._equations import conserved_state_from_primitive, speed_of_sound
 from astronomix._fluid_equations._fluxes import _euler_flux
 
@@ -77,20 +74,10 @@ def _riemann_solver(
             registered_variables,
             flux_direction_index,
         )
-    elif config.riemann_solver == HLLC or config.riemann_solver == HLLC_LM:
+    elif config.riemann_solver == HLLC:
         return _hllc_solver(
             primitives_left,
             primitives_right,
-            gamma,
-            config,
-            registered_variables,
-            flux_direction_index,
-        )
-    elif config.riemann_solver == AM_HLLC or config.riemann_solver == HYBRID_HLLC:
-        return _am_hllc_solver(
-            primitives_left,
-            primitives_right,
-            primitive_state,
             gamma,
             config,
             registered_variables,

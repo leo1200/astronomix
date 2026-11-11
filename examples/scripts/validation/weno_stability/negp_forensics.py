@@ -60,16 +60,16 @@ from astronomix._fluid_equations._equations_mhd import (
 from astronomix._finite_difference._magnetic_update._constrained_transport import update_cell_center_fields
 from astronomix._finite_difference._time_integrators import _ssprk as ssprk_module
 from astronomix._finite_difference._timestep_estimation._timestep_estimator import _cfl_time_step_fd
-from astronomix.option_classes.simulation_config import DOUBLE_PRECISION, IDEAL_GAS, SINGLE_PRECISION
+from astronomix.option_classes.simulation_config import IDEAL_GAS
 
 GAMMA = 5.0 / 3.0
 periodic = BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY)
 
 
-def make_config(shape, backend, precision):
+def make_config(shape, backend):
     config = SimulationConfig(
         equation_of_state=IDEAL_GAS, dimensionality=3, num_cells=shape[-1], box_size=shape[-1] / 256.0,
-        mhd=True, numerical_precision=precision, backend_config=BackendConfig(backend=backend),
+        mhd=True, backend_config=BackendConfig(backend=backend),
         boundary_settings=BoundarySettings(periodic, periodic, periodic),
         positivity_config=PositivityConfig(clamp_in_estimates=False), **weno_variant_kwargs(),
     )
@@ -97,7 +97,7 @@ def one_step(primitive, dt, config, params, rv, helper_data):
 
 if args.phase == "step":
     primitive = jnp.asarray(np.load(args.inputs[0]))
-    config, params, rv = make_config(primitive.shape, PALLAS, SINGLE_PRECISION)
+    config, params, rv = make_config(primitive.shape, PALLAS)
     helper_data = get_helper_data(config)
     for step in range(args.max_steps):
         dt = float(_cfl_time_step_fd(primitive, config.grid_spacing, jnp.inf, GAMMA, config, params, rv, args.cfl))
@@ -126,7 +126,7 @@ full = data["state"].astype(np.float64)
 patch = np.roll(full, shift=[0] + [half - c for c in cell], axis=(0, 1, 2, 3))[:, :args.patch, :args.patch, :args.patch]
 centre = (half, half, half)
 primitive = jnp.asarray(patch)
-config, params, rv = make_config(primitive.shape, NATIVE_JAX, DOUBLE_PRECISION)
+config, params, rv = make_config(primitive.shape, NATIVE_JAX)
 helper_data = get_helper_data(config)
 dx = config.grid_spacing
 

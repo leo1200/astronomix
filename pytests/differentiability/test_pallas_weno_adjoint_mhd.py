@@ -44,7 +44,7 @@ import pytest
 
 # astronomix constants
 from astronomix import BACKWARDS, PALLAS, PERIODIC_BOUNDARY
-from astronomix.option_classes.simulation_config import DOUBLE_PRECISION, FINITE_DIFFERENCE
+from astronomix.option_classes.simulation_config import FINITE_DIFFERENCE
 
 # astronomix containers
 from astronomix import (
@@ -100,7 +100,6 @@ def flux_config(positivity_preserving, frozen):
         weno_z=True,
         weno_positivity_preserving=positivity_preserving,
         weno_ad_frozen_weights=frozen,
-        numerical_precision=DOUBLE_PRECISION,
     )
     return config, get_registered_variables(config)
 
@@ -230,7 +229,6 @@ def test_time_integration_gradient_matches_the_native_tangent():
             weno_positivity_preserving=True,
             differentiation_mode=BACKWARDS,
             num_checkpoints=2,
-            numerical_precision=DOUBLE_PRECISION,
         )
         registered_variables = get_registered_variables(config)
         state = construct_primitive_state(

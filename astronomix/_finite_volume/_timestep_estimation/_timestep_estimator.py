@@ -201,8 +201,7 @@ def _cfl_time_step(
             registered_variables,
         )
         dt = C_CFL * grid_spacing / maximum_speed
-        if config.use_max_adaptive_timestep:
-            dt = jnp.minimum(dt, dt_max)
+        dt = jnp.minimum(dt, dt_max)
         return dt
 
     if config.split == UNSPLIT:
@@ -302,8 +301,7 @@ def _cfl_time_step(
         # calculate the time step
         dt = C_CFL * grid_spacing / max_wave_speed
 
-        if config.use_max_adaptive_timestep:
-            dt = jnp.minimum(dt, dt_max)
+        dt = jnp.minimum(dt, dt_max)
 
     # viscous time step constraint
     if config.diffusion:
@@ -361,7 +359,6 @@ def _source_term_aware_time_step(
         registered_variables,
     )
 
-    # independent of config.use_max_adaptive_timestep
     dt = jnp.minimum(dt, params.dt_max)
 
     # ONLY ADD THE STELLAR WIND SOURCE TERM

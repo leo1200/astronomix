@@ -33,6 +33,7 @@ autocvd(num_gpus=1)
 # =======================
 
 # general
+import os
 from pathlib import Path
 
 # jax
@@ -67,6 +68,7 @@ from astronomix.option_classes.simulation_params import (
     FixedBoundaryState,
     FixedBoundaryState1D,
 )
+from astronomix.data_classes.simulation_helper_data import HelperDataRequirements
 from astronomix.option_classes.simulation_config import (
     StaticFloatVector,
     StaticIntVector,
@@ -87,6 +89,9 @@ from astronomix import (
     finalize_config,
 )
 
+# frame tracking (frame_tracking.py next to this script)
+from frame_tracking import frame_tracking_update
+
 
 # figures are written to the local figures/ directory
 figures_dir = Path(__file__).resolve().parent / "figures"
@@ -97,7 +102,7 @@ figures_dir.mkdir(exist_ok=True)
 # -------------------------------------------------------------
 # num_cells_x in the ~96-160 range develops a visible mixing layer in a few
 # minutes on one GPU; raise to 256 / 512 to match the paper figure.
-num_cells_x = 128
+num_cells_x = int(os.environ.get("NUM_CELLS_X", 128))
 num_cells_y = num_cells_x
 num_cells_z = int(1.5 * num_cells_x)
 box_size = 1.0
@@ -114,7 +119,7 @@ L_x, L_y, L_z = box_size, box_size, 1.5 * box_size
 # -------------------------------------------------------------
 # Long enough for the KH-seeded shear layer to roll up and mix; the reference
 # runs to 30 t_sh, 20 t_sh already yields a well-developed layer here.
-t_end_in_t_sh = 20.0
+t_end_in_t_sh = float(os.environ.get("T_END_IN_T_SH", 20.0))
 density_contrast = 100.0
 # cooling timescale ratio; higher xi (stronger cooling) needs the
 # positivity-preserving WENO enabled in the config below to stay stable
@@ -162,7 +167,6 @@ config = SimulationConfig(
             cooling_curve_type=SIMPLE_MIXING_LAYER_COOLING,
         ),
     ),
-    frame_tracking=True,
 )
 
 registered_variables = get_registered_variables(config)
@@ -278,6 +282,16 @@ params = SimulationParams(
 )
 
 config = finalize_config(config, initial_state.shape)
+
+# frame tracking: keep the mixing layer centred in z, applied once per time
+# step through the per-step update hook; it needs the z cell centres with
+# the ghost cells included
+cell_centers_z = get_helper_data(
+    config,
+    padded=True,
+    requirements=HelperDataRequirements(needs_cell_centers_z=True),
+).cell_centers_z
+config = config._replace(per_step_update=frame_tracking_update(cell_centers_z))
 
 
 # -------------------------------------------------------------
