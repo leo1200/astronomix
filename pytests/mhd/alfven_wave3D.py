@@ -2,7 +2,7 @@
 3D CP Alfvén wave benchmark (MHD methods-paper test).
 
 Configurations:
-    - FV  (NATIVE_JAX)
+    - FV  (VL2 with GLM cleaning, NATIVE_JAX)
     - FD  (Pallas)
     - AthenaPK overlay (loaded from npz)
 
@@ -57,6 +57,7 @@ import jax
 from astronomix import (
     FINITE_VOLUME,
     NATIVE_JAX,
+    VL2,
 )
 
 # astronomix containers
@@ -105,13 +106,14 @@ _common_kwargs = dict(
 
 BENCHMARKS = [
     BenchmarkSpec(
-        label="FV (JAX)",
+        label="FV VL2 (JAX)",
         base_config=SimulationConfig(
             backend_config=BackendConfig(backend=NATIVE_JAX),
             solver_mode=FINITE_VOLUME,
+            time_integrator=VL2,
             **_common_kwargs,
         ),
-        cfl=0.4,
+        cfl=0.3,
     ),
     BenchmarkSpec(
         label="FD (Pallas)",
@@ -157,9 +159,9 @@ def test_alfven_wave_convergence():
     for precision in PRECISIONS:
         jax.config.update("jax_enable_x64", precision == "dp")
         jax.clear_caches()
-        # Per-benchmark tolerances: at N=16 the 2nd-order FV scheme sits at
-        # L1 ~ 2.8e-2 while the 5th-order FD scheme reaches ~1.2e-3 (both
-        # precisions) — see the committed sweep NPZs in data/astronomix.
+        # Per-benchmark tolerances: at N=16 the 2nd-order VL2 scheme sits at
+        # L1 ~ 2.2e-2 while the 5th-order FD scheme reaches ~1.2e-3 (both
+        # precisions).
         for spec, tol in zip(BENCHMARKS, (0.05, 0.005), strict=True):
             assert_correctness_at_resolution(
                 [spec],

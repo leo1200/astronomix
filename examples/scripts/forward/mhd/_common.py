@@ -44,33 +44,3 @@ FV_HLLE_COLOR = paper_style.FV_HLLE_COLOR
 def rerun_requested() -> bool:
     """Return whether the user passed ``--rerun`` on the command line."""
     return "--rerun" in sys.argv
-
-
-def mhd_registered_variables(solver_mode, dimensionality=3):
-    """Build the variable registry for an MHD run.
-
-    The registry lets figures index ``final_state`` by name
-    (``rv.density_index`` etc.) instead of by hard-coded integers. Because the
-    ``solver_mode`` (FINITE_VOLUME / FINITE_DIFFERENCE) determines the state
-    layout, the registry is rebuilt for whichever backend produced the cached
-    array being plotted.
-
-    Args:
-        solver_mode: The solver mode (FINITE_VOLUME or FINITE_DIFFERENCE) whose
-            state layout the registry should describe.
-        dimensionality: The spatial dimensionality of the run.
-
-    Returns:
-        The RegisteredVariables instance describing the state-array layout.
-    """
-    # Imported locally so that importing this helper module stays cheap and
-    # does not pull in the full astronomix package for callers that only need
-    # the path constants above.
-    from astronomix import SimulationConfig, get_registered_variables
-
-    config = SimulationConfig(
-        mhd=True,
-        dimensionality=dimensionality,
-        solver_mode=solver_mode,
-    )
-    return get_registered_variables(config)

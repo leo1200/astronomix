@@ -78,6 +78,7 @@ from astronomix.option_classes.simulation_config import (  # noqa: E402
     PALLAS,
     RK4_LSRK,
     SIMPLE_SOURCE,
+    VL2,
     GravityConfig,
     SimulationConfig,
     SnapshotSettings,
@@ -164,7 +165,7 @@ def _hydro_specs():
 
 def _mhd_specs():
     return [
-        BenchmarkSpec("FV (JAX)", _fv(**_MHD), 0.4),
+        BenchmarkSpec("FV VL2 (JAX)", _fv(time_integrator=VL2, **_MHD), 0.3),
         BenchmarkSpec("FD (JAX)", _fd_jax(**_MHD), 1.5),
         BenchmarkSpec("FD (Pallas)", _fd_pallas(**_MHD), 1.5),
     ]

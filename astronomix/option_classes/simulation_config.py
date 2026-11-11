@@ -196,10 +196,6 @@ SECOND_ORDER_CONSERVATIVE = 1
 FOURTH_ORDER_CONSERVATIVE = 2
 ATHENA_SECOND_ORDER = 3
 
-# Magnetic part integrators for split MHD
-IMPLICIT_MIDPOINT = 0
-IMPLICIT_EULER = 1
-
 # Numerical precision
 SINGLE_PRECISION = 0
 DOUBLE_PRECISION = 1
@@ -621,9 +617,6 @@ class SimulationConfig(NamedTuple):
 
     #: Magnetohydrodynamics switch.
     mhd: bool = False
-
-    #: Integrator used for the magnetic part in the FV MHD scheme.
-    fv_magnetic_integrator: int = IMPLICIT_MIDPOINT
 
     #: VL2 scheme only: add the non-conservative Dedner et al. (2002) sources,
     #: ``-(div B) B`` in the momentum and ``-B . grad(psi)`` in the energy
@@ -1418,6 +1411,12 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
     ))
 
     uses_vl2 = config.solver_mode == FINITE_VOLUME and config.time_integrator == VL2
+
+    if config.solver_mode == FINITE_VOLUME and config.mhd and not uses_vl2:
+        raise ValueError(
+            "Finite-volume MHD is available with the VL2 scheme only "
+            "(time_integrator=VL2)."
+        )
 
     if config.gravity_config.gravity and (config.limiter != MINMOD) and not uses_vl2:
         print(

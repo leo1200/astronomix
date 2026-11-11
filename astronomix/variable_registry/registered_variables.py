@@ -6,10 +6,10 @@ modular and readable; every consumer indexes the state through the registry
 rather than through hard-coded positions. New variables, e.g. densities of
 chemical species, are registered here.
 
-NOTE: For MHD the magnetic field occupies three consecutive slots behind the
-gas variables: for the finite-volume solver the cell-centred field, for the
-finite-difference solver the interface (face-centred) field of constrained
-transport, behind the cell-centred one. The finite-difference solver may append
+NOTE: For MHD the cell-centred magnetic field occupies three consecutive slots
+behind the gas variables. The finite-volume VL2 scheme appends the cleaning
+scalar psi or, with constrained transport, the interface (face-centred) field;
+the finite-difference solver appends the interface field and may append
 further rows behind the interface field: first the dual-energy internal-energy
 density ``g``, then the passive-scalar block (the user's scalars followed by the
 shock-history scalars). ``_evolve_state_fd`` splits these trailing rows off
@@ -222,6 +222,12 @@ def get_registered_variables(config: SimulationConfig) -> RegisteredVariables:
 
     elif config.solver_mode == FINITE_VOLUME:
 
+        if config.mhd:
+            raise ValueError(
+                "Finite-volume MHD is available with the VL2 scheme only "
+                "(time_integrator=VL2)."
+            )
+
         if config.dimensionality == 2:
             # we have two velocity components
             registered_variables = registered_variables._replace(
@@ -233,22 +239,10 @@ def get_registered_variables(config: SimulationConfig) -> RegisteredVariables:
                 velocity_index=StaticIntVector(1, 2, -1)
             )
 
-            # TODO: unified MHD approach in 1D/2D/3D
-            # magnetic field index
-            if config.mhd:
-                # TODO: better indexing
-                registered_variables = registered_variables._replace(pressure_index=3)
-                registered_variables = registered_variables._replace(
-                    magnetic_index=StaticIntVector(4, 5, 6)
-                )
-                registered_variables = registered_variables._replace(
-                    num_vars=registered_variables.num_vars + 3
-                )
-            else:
-                # update the pressure index
-                registered_variables = registered_variables._replace(
-                    pressure_index=registered_variables.num_vars - 1
-                )
+            # update the pressure index
+            registered_variables = registered_variables._replace(
+                pressure_index=registered_variables.num_vars - 1
+            )
 
         if config.dimensionality == 3:
             # we have three velocity components
@@ -265,15 +259,6 @@ def get_registered_variables(config: SimulationConfig) -> RegisteredVariables:
             registered_variables = registered_variables._replace(
                 pressure_index=registered_variables.num_vars - 1
             )
-
-            # update the magnetic field index
-            if config.mhd:
-                registered_variables = registered_variables._replace(
-                    magnetic_index=StaticIntVector(5, 6, 7)
-                )
-                registered_variables = registered_variables._replace(
-                    num_vars=registered_variables.num_vars + 3
-                )
 
         # NOTE: CURRENTLY ONLY IMPLEMENTED FOR FINITE VOLUME MODE
         if config.wind_config.trace_wind_density:

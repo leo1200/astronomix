@@ -144,15 +144,8 @@ def _fv_pallas_evolve_supported(state, config: SimulationConfig) -> bool:
         return False
     if config.geometry != 0:  # CARTESIAN == 0
         return False
-    if config.mhd and state.shape[0] != 8:
-        # The FV MHD pipeline strips magnetics first and calls the gas
-        # update on a (5, N, N, N) sub-state; in that nested context Triton
-        # produces NaN even though the same kernel passes in pallas_interpret
-        # mode (so the kernel math is correct).  TODO: debug the Triton
-        # lowering of the MHD-context gas update.  For now we keep the
-        # MHD FV path on the native gas update — Pallas runs the
-        # magnetic_update side natively too — so MHD FV transparently uses
-        # native and Pallas is reserved for pure FV hydro.
+    if config.mhd:
+        # Finite-volume MHD is the VL2 scheme, which has its own kernels.
         return False
     ndim = int(config.dimensionality)
     if ndim not in (1, 2, 3):

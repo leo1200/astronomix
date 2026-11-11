@@ -39,7 +39,6 @@ from astronomix.option_classes.simulation_params import SimulationParams
 
 # astronomix functions
 from astronomix._finite_volume._riemann_solver._riemann_solver import _riemann_solver
-from astronomix._finite_volume._magnetic_update._magnetic_field_update import magnetic_update
 from astronomix._integrators._explicit_rk import rk2_ssp
 from astronomix._modules._time_integrator_sources import _time_integrator_sources
 from astronomix._stencil_operations._stencil_operations import _stencil_add
@@ -606,93 +605,24 @@ def _evolve_state_fv(
             registered_variables,
         )
 
-    if config.mhd:
-        if config.dimensionality > 1:
-
-            # WARNING: this relies on the last three state indices being the
-            # magnetic-field components, so that stripping them off yields the
-            # pure gas sub-state and a matching gas variable registry.
-            registered_variables_gas = registered_variables._replace(
-                num_vars=registered_variables.num_vars - 3
-            )
-
-            gas_state = primitive_state[:-3, ...]
-            magnetic_field = primitive_state[-3:, ...]
-
-            if config.split == UNSPLIT:
-                evolved_gas = _evolve_gas_state_unsplit(
-                    gas_state,
-                    dt / 2,
-                    gamma,
-                    config,
-                    params,
-                    helper_data,
-                    registered_variables_gas,
-                )
-            else:
-                evolved_gas = _evolve_gas_state_split(
-                    gas_state,
-                    dt / 2,
-                    gamma,
-                    config,
-                    params,
-                    helper_data,
-                    registered_variables_gas,
-                )
-
-            magnetic_field, evolved_gas = magnetic_update(
-                magnetic_field,
-                evolved_gas,
-                config.grid_spacing,
-                dt,
-                registered_variables,
-                config,
-                params
-            )
-
-            if config.split == UNSPLIT:
-                evolved_gas = _evolve_gas_state_unsplit(
-                    evolved_gas,
-                    dt / 2,
-                    gamma,
-                    config,
-                    params,
-                    helper_data,
-                    registered_variables_gas,
-                )
-            else:
-                evolved_gas = _evolve_gas_state_split(
-                    evolved_gas,
-                    dt / 2,
-                    gamma,
-                    config,
-                    params,
-                    helper_data,
-                    registered_variables_gas,
-                )
-
-            return jnp.concatenate((evolved_gas, magnetic_field), axis=0)
-        else:
-            raise ValueError("MHD currently not supported in 1D.")
-
-    else:
-        if config.split == UNSPLIT:
-            return _evolve_gas_state_unsplit(
-                primitive_state,
-                dt,
-                gamma,
-                config,
-                params,
-                helper_data,
-                registered_variables,
-            )
-        else:
-            return _evolve_gas_state_split(
-                primitive_state,
-                dt,
-                gamma,
-                config,
-                params,
-                helper_data,
-                registered_variables,
-            )
+    # The split and unsplit schemes are hydrodynamic: finite-volume MHD is the
+    # VL2 scheme above (finalize_config rejects other combinations).
+    if config.split == UNSPLIT:
+        return _evolve_gas_state_unsplit(
+            primitive_state,
+            dt,
+            gamma,
+            config,
+            params,
+            helper_data,
+            registered_variables,
+        )
+    return _evolve_gas_state_split(
+        primitive_state,
+        dt,
+        gamma,
+        config,
+        params,
+        helper_data,
+        registered_variables,
+    )

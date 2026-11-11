@@ -221,12 +221,6 @@ Data
    * - :py:obj:`FOURTH_ORDER_CONSERVATIVE <astronomix.option_classes.simulation_config.FOURTH_ORDER_CONSERVATIVE>`
      - .. autodoc2-docstring:: astronomix.option_classes.simulation_config.FOURTH_ORDER_CONSERVATIVE
           :summary:
-   * - :py:obj:`IMPLICIT_MIDPOINT <astronomix.option_classes.simulation_config.IMPLICIT_MIDPOINT>`
-     - .. autodoc2-docstring:: astronomix.option_classes.simulation_config.IMPLICIT_MIDPOINT
-          :summary:
-   * - :py:obj:`IMPLICIT_EULER <astronomix.option_classes.simulation_config.IMPLICIT_EULER>`
-     - .. autodoc2-docstring:: astronomix.option_classes.simulation_config.IMPLICIT_EULER
-          :summary:
    * - :py:obj:`SINGLE_PRECISION <astronomix.option_classes.simulation_config.SINGLE_PRECISION>`
      - .. autodoc2-docstring:: astronomix.option_classes.simulation_config.SINGLE_PRECISION
           :summary:
@@ -557,18 +551,6 @@ API
    :value: 2
 
    .. autodoc2-docstring:: astronomix.option_classes.simulation_config.FOURTH_ORDER_CONSERVATIVE
-
-.. py:data:: IMPLICIT_MIDPOINT
-   :canonical: astronomix.option_classes.simulation_config.IMPLICIT_MIDPOINT
-   :value: 0
-
-   .. autodoc2-docstring:: astronomix.option_classes.simulation_config.IMPLICIT_MIDPOINT
-
-.. py:data:: IMPLICIT_EULER
-   :canonical: astronomix.option_classes.simulation_config.IMPLICIT_EULER
-   :value: 1
-
-   .. autodoc2-docstring:: astronomix.option_classes.simulation_config.IMPLICIT_EULER
 
 .. py:data:: SINGLE_PRECISION
    :canonical: astronomix.option_classes.simulation_config.SINGLE_PRECISION
@@ -1102,13 +1084,6 @@ API
       :value: False
 
       .. autodoc2-docstring:: astronomix.option_classes.simulation_config.SimulationConfig.mhd
-
-   .. py:attribute:: fv_magnetic_integrator
-      :canonical: astronomix.option_classes.simulation_config.SimulationConfig.fv_magnetic_integrator
-      :type: int
-      :value: None
-
-      .. autodoc2-docstring:: astronomix.option_classes.simulation_config.SimulationConfig.fv_magnetic_integrator
 
    .. py:attribute:: positivity_config
       :canonical: astronomix.option_classes.simulation_config.SimulationConfig.positivity_config
