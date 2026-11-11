@@ -213,6 +213,21 @@ def get_registered_variables(config: SimulationConfig) -> RegisteredVariables:
         # NOTE: this layout registers no extra tracers (stellar-wind density,
         # cosmic rays); the VL2 scheme does not evolve them.
 
+        if config.vl2_constrained_transport:
+            # VL2 with constrained transport: no cleaning scalar; the
+            # face-centred field (the primary magnetic variable, index i
+            # holding the value at i + 1/2 as in the finite-difference layout)
+            # follows the cell-centred one: (rho, v_x, v_y, v_z, p, B_x, B_y,
+            # B_z, b_x, b_y, b_z).
+            registered_variables = RegisteredVariables(
+                density_index=0,
+                velocity_index=StaticIntVector(1, 2, 3),
+                pressure_index=4,
+                magnetic_index=StaticIntVector(5, 6, 7),
+                interface_magnetic_field_index=StaticIntVector(8, 9, 10),
+                num_vars=11,
+            )
+
     elif config.solver_mode == FINITE_VOLUME:
 
         if config.dimensionality == 2:

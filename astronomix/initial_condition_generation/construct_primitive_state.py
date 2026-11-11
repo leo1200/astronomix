@@ -130,8 +130,11 @@ def _assemble_primitive_state(
     # The VL2 GLM-MHD layout carries the divergence-cleaning scalar psi, which
     # simply starts at zero, and stores all three velocity and field components
     # in any dimensionality.
+    # The VL2 layout with constrained transport stores all three components
+    # too, and the face-centred field next to the cell-centred one.
+    is_vl2_ct = config.vl2_constrained_transport
     if config.mhd:
-        if config.dimensionality >= 2 or registered_variables.magnetic_psi_active:
+        if config.dimensionality >= 2 or registered_variables.magnetic_psi_active or is_vl2_ct:
             if magnetic_field_x is not None:
                 state = state.at[registered_variables.magnetic_index.x].set(
                     magnetic_field_x
@@ -145,7 +148,11 @@ def _assemble_primitive_state(
                     magnetic_field_z
                 )
 
-        if config.solver_mode == FINITE_DIFFERENCE or registered_variables.magnetic_psi_active:
+        if (
+            config.solver_mode == FINITE_DIFFERENCE
+            or registered_variables.magnetic_psi_active
+            or is_vl2_ct
+        ):
             # The finite-difference and VL2 MHD states always carry all three
             # velocity components; any not supplied stay zero by default.
             if velocity_y is not None:
@@ -153,9 +160,11 @@ def _assemble_primitive_state(
             if velocity_z is not None:
                 state = state.at[registered_variables.velocity_index.z].set(velocity_z)
 
-        # Only the finite-difference layout stores face-centred fields; the
-        # cell-centred VL2 layout ignores any that a shared setup passes.
-        if config.solver_mode == FINITE_DIFFERENCE:
+        # Only the finite-difference layout and the VL2 layout with
+        # constrained transport store face-centred fields (index i holds the
+        # value at i + 1/2); the cell-centred VL2 GLM layout ignores any that a
+        # shared setup passes.
+        if config.solver_mode == FINITE_DIFFERENCE or is_vl2_ct:
             if interface_magnetic_field_x is not None:
                 state = state.at[
                     registered_variables.interface_magnetic_field_index.x
@@ -168,6 +177,23 @@ def _assemble_primitive_state(
                 state = state.at[
                     registered_variables.interface_magnetic_field_index.z
                 ].set(interface_magnetic_field_z)
+
+    # VL2 with constrained transport: the cell-centred field is by definition
+    # the average of the two faces of the cell (Stone & Gardiner 2009, eq. 13),
+    # B_d(i) = [b_d(i - 1/2) + b_d(i + 1/2)] / 2, so it is derived here from the
+    # face field and replaces any cell-centred values given above. Along an
+    # axis the grid does not have (1D, 2D) the two faces coincide.
+    if config.mhd and is_vl2_ct:
+        for component, (cell_index, face_index) in enumerate(
+            zip(
+                tuple(registered_variables.magnetic_index),
+                tuple(registered_variables.interface_magnetic_field_index),
+            )
+        ):
+            face_field = state[face_index]
+            if component < config.dimensionality:
+                face_field = 0.5 * (jnp.roll(face_field, 1, axis=component) + face_field)
+            state = state.at[cell_index].set(face_field)
 
     # For an ideal gas the pressure is an independent variable; in the
     # isothermal case it instead follows from p = c_s^2 * rho and is not stored.
@@ -310,6 +336,34 @@ def construct_primitive_state(
             magnetic_field_z if magnetic_field_z is not None else zero_field,
             config.dimensionality,
         )
+
+    # VL2 with constrained transport evolves the face-centred field. If no
+    # face component is given, each is set to the average of the two adjacent
+    # cell-centred values (periodic), b_x(i + 1/2) = [B_x(i) + B_x(i + 1)] / 2.
+    # The face divergence of this field equals the central-difference
+    # divergence of the cell-centred field: zero for uniform fields and for
+    # fields that vary along one axis only, but not in general. Any other field
+    # must be given on the faces (from a vector potential on the cell edges).
+    if (
+        config.mhd
+        and config.vl2_constrained_transport
+        and interface_fields_missing
+        and cell_centered_field_given
+    ):
+        zero_field = jnp.zeros_like(density)
+        face_fields = []
+        for component, cell_field in enumerate(
+            (magnetic_field_x, magnetic_field_y, magnetic_field_z)
+        ):
+            cell_field = zero_field if cell_field is None else jnp.asarray(cell_field)
+            if component < config.dimensionality:
+                cell_field = 0.5 * (cell_field + jnp.roll(cell_field, -1, axis=component))
+            face_fields.append(cell_field)
+        (
+            interface_magnetic_field_x,
+            interface_magnetic_field_y,
+            interface_magnetic_field_z,
+        ) = face_fields
 
     state = _assemble_primitive_state(
         config,

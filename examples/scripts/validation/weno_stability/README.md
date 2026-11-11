@@ -161,11 +161,16 @@ weight set by admissibility instead of smoothness. In smooth flow `theta = 1`.
 **Which splitting speeds.** Fields that carry mass use the common `alpha`.
 That makes the splitting in the frozen basis monotone for *every* cell on the
 stencil, however badly the face basis represents it (a void with a large fast
-speed next to dense gas). Fields that carry no mass keep their own speed:
-hydrodynamic shear waves and isothermal-MHD Alfven waves. Their correction
-leaves the density alone and changes the pressure by
-`(gamma-1) kappa rho dv^2 [1 - kappa rho/(2 rho_w)] >= 0`, so vortical modes
-keep the default dissipation.
+speed next to dense gas). For an isothermal gas, whose admissibility is a
+density condition only, the fields that carry no mass keep their own speed
+(shear waves, MHD Alfven waves), so vortical modes keep the default
+dissipation. For an ideal gas every field uses `alpha` (since 2026-10-27).
+The ideal-gas shear waves could keep their own speed too: in a cell's update
+the shifts of the two cells at a face combine into the shift jump
+`z_nb - z_own`, which raises the pressure of the first-order inflow state by
+`2(gamma-1) kappa (1 - kappa/s) rho_i^2 rho_nb/(rho_i + rho_nb)^2 |dv_t|^2 >= 0`,
+and the face check has to include that jump (it does,
+`test_positivity_shear_shift.py`).
 
 *Explored and rejected* (commits 25e1312, 96a191f): moving every field's speed
 toward `alpha` only as far as needed to keep the split states admissible.

@@ -633,6 +633,18 @@ class SimulationConfig(NamedTuple):
     #: only (AthenaPK's default ``dedner_plain``).
     glm_extended_source: bool = False
 
+    #: VL2 scheme only (MHD): constrained transport instead of GLM cleaning,
+    #: as in Athena's VL2 + CT integrator (Stone & Gardiner 2009, New
+    #: Astronomy 14, 139). The face-centred field is the primary variable
+    #: (state rows ``interface_magnetic_field_index``; index ``i`` holds the
+    #: value at ``i + 1/2``, as in the finite-difference layout), the
+    #: cell-centred field is the average of the two faces of a cell, the edge
+    #: electromotive forces come from the upwind formula of Gardiner & Stone
+    #: (2005, 2008), and there is no cleaning scalar psi. The face divergence
+    #: stays at rounding. Periodic boundaries on every axis, no gravity, native
+    #: JAX only (see ``_finite_volume/_state_evolution/_van_leer_ct.py``).
+    vl2_constrained_transport: bool = False
+
     #: VL2 scheme only: AthenaPK's first-order flux correction. After each
     #: stage, every cell whose update would produce a non-positive density or
     #: pressure has all its face fluxes replaced by first-order local
@@ -1067,8 +1079,8 @@ class SimulationConfig(NamedTuple):
     #: w^+- = q +- F/alpha - sum_s (1 - alpha_s/alpha) R_s L_s q. Every field
     #: that carries mass is split with the common alpha (the stencil's spectral
     #: radius), which makes the frozen-basis splitting monotone for every
-    #: stencil cell; mass-free fields (hydro shear, isothermal-MHD Alfven) keep
-    #: their own speed alpha_s. Each WENO face value is then pulled toward its
+    #: stencil cell; for an isothermal gas the mass-free fields (shear waves,
+    #: MHD Alfven waves) keep their own speed alpha_s. Each WENO face value is then pulled toward its
     #: upwind split state by the largest theta in [0, 1] keeping it, and its
     #: mirror about q +- F/alpha, admissible (positive density; positive
     #: pressure for an ideal gas; closed form, as pressure is concave). theta = 1
@@ -1446,6 +1458,12 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
             "with the VL2 finite-volume scheme (time_integrator=VL2)."
         )
 
+    if config.vl2_constrained_transport and not uses_vl2:
+        raise ValueError(
+            "vl2_constrained_transport is an option of the VL2 finite-volume "
+            "scheme (solver_mode=FINITE_VOLUME, time_integrator=VL2)."
+        )
+
     # The AthenaPK-equivalent VL2 finite-volume scheme. Its piecewise-linear
     # stencil needs two ghost cells; with periodic boundaries on every axis the
     # wrap-around is done by rolling the arrays instead (as in the FD solver).
@@ -1517,6 +1535,28 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
             config = config._replace(boundary_handling=PERIODIC_ROLL, num_ghost_cells=0)
         else:
             config = config._replace(boundary_handling=GHOST_CELLS, num_ghost_cells=2)
+
+        # VL2 with constrained transport: the staggered update is written for
+        # the periodic-roll layout only and has no counterpart of the GLM
+        # sources or of the gravity coupling.
+        if config.vl2_constrained_transport:
+            if not config.mhd:
+                raise ValueError("vl2_constrained_transport requires mhd=True.")
+            if not fully_periodic:
+                raise ValueError(
+                    "VL2 with constrained transport (vl2_constrained_transport) "
+                    "is implemented for periodic boundaries on every axis only."
+                )
+            if config.gravity_config.gravity:
+                raise ValueError(
+                    "VL2 with constrained transport (vl2_constrained_transport) "
+                    "has no gravity coupling."
+                )
+            if config.glm_extended_source:
+                raise ValueError(
+                    "glm_extended_source belongs to the GLM cleaning, which "
+                    "vl2_constrained_transport replaces."
+                )
 
         # The Poisson solve takes the density array as it is, so with ghost
         # cells it would treat the halo as part of the domain. Isolated

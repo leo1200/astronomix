@@ -53,6 +53,9 @@ from astronomix._finite_volume._state_evolution._pallas_evolve import (
     _evolve_gas_state_unsplit_pallas,
     _fv_pallas_evolve_supported,
 )
+from astronomix._finite_volume._state_evolution._van_leer_ct import (
+    _evolve_state_vl2_ct,
+)
 from astronomix._finite_volume._state_evolution._van_leer_integrator import (
     _evolve_state_vl2,
 )
@@ -582,6 +585,17 @@ def _evolve_state_fv(
     # self-gravity coupling. It has no geometric source terms (applied by the
     # split / unsplit schemes below); finalize_config rejects that combination.
     if config.time_integrator == VL2:
+        # Constrained transport instead of GLM cleaning (Athena's VL2 + CT).
+        if config.vl2_constrained_transport:
+            return _evolve_state_vl2_ct(
+                primitive_state,
+                dt,
+                gamma,
+                config,
+                params,
+                helper_data,
+                registered_variables,
+            )
         return _evolve_state_vl2(
             primitive_state,
             dt,
