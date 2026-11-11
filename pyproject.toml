@@ -8,7 +8,10 @@ packages = [{include = "astronomix"}]
 
 [tool.poetry.dependencies]
 python = ">=3.9"
-jax = ">=0.4.0"
+# Pinned to the 0.9 line: the Pallas kernels use the Triton lowering, which
+# JAX deprecated in 0.11.0 in favour of Mosaic GPU. The pin is lifted once the
+# kernels are ported or the Triton lowering is confirmed on a newer release.
+jax = ">=0.9.2,<0.10"
 scipy = ">=1.0.0"
 astropy = ">=6.0.0"
 numpy = ">=1.0.0"
