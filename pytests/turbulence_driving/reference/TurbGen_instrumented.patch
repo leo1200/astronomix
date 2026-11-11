@@ -1,0 +1,13 @@
+--- TurbGen.h
++++ TurbGen_instrumented.h
+@@ -1048,8 +1048,10 @@
+         double r1 = ran1s(&seed);
+         double r2 = ran1s(&seed);
+         double g1 = sqrt(2.0*log(1.0/r1))*cos(2*M_PI*r2);
++        deviate_log.push_back(g1); // INSTRUMENTATION (astronomix reference driver): record every Gaussian deviate drawn
+         return g1;
+     }; // get_random_number
++    public: std::vector<double> deviate_log; // INSTRUMENTATION (astronomix reference driver)
+
+     // ************** Numerical recipes ran1s ***************
+     private: double ran1s(int * idum) {
