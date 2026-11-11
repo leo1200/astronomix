@@ -42,6 +42,7 @@ import jax.numpy as jnp
 
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
+    FINITE_DIFFERENCE,
     FINITE_VOLUME,
     HLLD,
     NATIVE_JAX,
@@ -358,7 +359,8 @@ def test_alfven_wave_converges_at_second_order():
 @pytest.mark.parametrize(
     "overrides, message",
     [
-        (dict(time_integrator=RK2_SSP), "option of the VL2"),
+        (dict(time_integrator=RK2_SSP), "VL2 scheme only"),
+        (dict(solver_mode=FINITE_DIFFERENCE), "option of the VL2"),
         (dict(mhd=False), "requires mhd=True"),
         (
             dict(
