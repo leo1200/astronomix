@@ -1,8 +1,8 @@
 """
 AthenaPK's first-order flux correction of the finite-volume stage.
 
-A cell whose update would leave a non-positive density or pressure
-(``_positivity_failure_code``) gets the fluxes of all its faces replaced by
+A cell whose update would leave a non-positive density or pressure (the
+density alone for a barotropic gas; ``_positivity_failure_code``) gets the fluxes of all its faces replaced by
 first-order ones, donor cell with the local Lax-Friedrichs solver
 (``_corrected_fluxes``); the stage computes them with the flux function of its
 divergence control and passes them in. Replacing a face flux also
@@ -35,6 +35,7 @@ from astronomix._finite_volume._reconstruction import (
     _cell_distances,
     _limited_gradients,
 )
+from astronomix._fluid_equations._equation_of_state import is_barotropic
 from astronomix._geometry.geometric_terms import _pressure_nozzling_source
 
 
@@ -96,8 +97,9 @@ def _positivity_failure_code(
     Classify an updated conserved state as AthenaPK's flux correction does:
     ``POSITIVE`` if density and pressure are positive, ``PRESSURE_FAILURE`` if
     only the pressure is negative (AthenaPK leaves these to the floors in its
-    last attempt), ``DENSITY_FAILURE`` otherwise. Elementwise on per-variable
-    values, so shared by the native path and the Pallas kernels.
+    last attempt), ``DENSITY_FAILURE`` otherwise. A barotropic gas has the
+    density criterion only. Elementwise on per-variable values, so shared by
+    the native path and the Pallas kernels.
 
     Args:
         conserved_components: The updated conserved values, indexed like the state.
@@ -108,6 +110,8 @@ def _positivity_failure_code(
         The failure code per cell.
     """
     density = conserved_components[registered_variables.density_index]
+    if is_barotropic(config):
+        return jnp.where(density > 0.0, POSITIVE, DENSITY_FAILURE)
 
     # This is the internal energy density p / (gamma - 1); only its sign is
     # needed.
@@ -191,7 +195,7 @@ def _flux_divergence(fluxes_per_axis, axes, config: SimulationConfig):
 
 def _spherical_flux_divergence(
     fluxes: STATE_TYPE,
-    primitive_state: STATE_TYPE,
+    pressure,
     config: SimulationConfig,
     helper_data: HelperData,
     registered_variables: RegisteredVariables,
@@ -209,7 +213,7 @@ def _spherical_flux_divergence(
 
     Args:
         fluxes: The radial interface fluxes (at ``i - 1/2``).
-        primitive_state: The primitive state the fluxes were computed from.
+        pressure: The gas pressure of the state the fluxes were computed from.
         config: The simulation configuration.
         helper_data: The helper data (radii of the grid).
         registered_variables: The registered variables.
@@ -223,7 +227,6 @@ def _spherical_flux_divergence(
     inner_area = (radius - config.grid_spacing / 2) ** area_exponent
     outer_area = (radius + config.grid_spacing / 2) ** area_exponent
 
-    pressure = primitive_state[registered_variables.pressure_index]
     pressure_gradient = _limited_gradients(
         jnp.roll(pressure, 1),
         pressure,
@@ -232,7 +235,7 @@ def _spherical_flux_divergence(
         _cell_distances(config, helper_data),
     )
     pressure_source = _pressure_nozzling_source(
-        primitive_state,
+        pressure,
         pressure_gradient,
         config,
         helper_data,

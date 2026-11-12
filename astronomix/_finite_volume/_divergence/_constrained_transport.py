@@ -138,6 +138,7 @@ from astronomix.variable_registry.registered_variables import RegisteredVariable
 
 # astronomix functions
 from astronomix._finite_volume._interface_frame import (
+    BarotropicLaw,
     _interface_flux_from_states,
     _state_components_from_frame,
 )
@@ -147,17 +148,24 @@ from astronomix._finite_volume._reconstruction import _reconstructed_face_states
 # ===================== ↓ Module constants ↓ ===================
 # -------------------------------------------------------------
 
-#: The gas variables and the cell-centred field, ``(rho, v_x, v_y, v_z, p, B_x,
-#: B_y, B_z)``: the leading rows of the state, on which the fluxes act.
-NUM_CELL_CENTRED_VARIABLES = 8
-
-#: Position of the normal field in the interface frame ``(rho, v_n, v_t1,
-#: v_t2, p, B_n, B_t1, B_t2)``.
+#: The interface frame of the fluxes, ``(rho, v_n, v_t1, v_t2, p, B_n, B_t1,
+#: B_t2)``: its size and the position of the normal field.
+NUM_FRAME_VARIABLES = 8
 FRAME_NORMAL_FIELD = 5
 
 # -------------------------------------------------------------
 # ===================== ↑ Module constants ↑ ===================
 # -------------------------------------------------------------
+
+
+def _num_cell_centred_variables(registered_variables: RegisteredVariables) -> int:
+    """
+    The number of leading state rows on which the fluxes act: the gas
+    variables and the cell-centred field, ``(rho, v_x, v_y, v_z, p, B_x, B_y,
+    B_z)``, without the pressure for a barotropic gas. The face field follows.
+    """
+    return max(registered_variables.magnetic_index) + 1
+
 
 # -------------------------------------------------------------
 # ================== ↓ Interface fluxes ↓ ======================
@@ -175,10 +183,12 @@ def _ct_frame_indices(axis: int, registered_variables: RegisteredVariables):
         registered_variables: The registered variables.
 
     Returns:
-        The state indices of ``(rho, v_n, v_t1, v_t2, p, B_n, B_t1, B_t2)``.
+        The state indices of ``(rho, v_n, v_t1, v_t2, p, B_n, B_t1, B_t2)``
+        (``None`` for the pressure of a layout without pressure slot).
     """
     velocity = tuple(registered_variables.velocity_index)
     field = tuple(registered_variables.magnetic_index)
+    pressure_index = registered_variables.pressure_index
     normal = axis - 1
     transverse_1 = axis % 3
     transverse_2 = (axis + 1) % 3
@@ -187,7 +197,7 @@ def _ct_frame_indices(axis: int, registered_variables: RegisteredVariables):
         velocity[normal],
         velocity[transverse_1],
         velocity[transverse_2],
-        registered_variables.pressure_index,
+        pressure_index if pressure_index >= 0 else None,
         field[normal],
         field[transverse_1],
         field[transverse_2],
@@ -203,6 +213,7 @@ def _ct_interface_fluxes(
     riemann_solver: int,
     gamma,
     registered_variables: RegisteredVariables,
+    barotropic_law: BarotropicLaw = None,
 ) -> STATE_TYPE:
     """
     The interface fluxes along one axis with the face field as the normal
@@ -221,6 +232,7 @@ def _ct_interface_fluxes(
         riemann_solver: The Riemann solver.
         gamma: The adiabatic index.
         registered_variables: The registered variables.
+        barotropic_law: ``None`` for the ideal gas, or the law of a barotropic gas.
 
     Returns:
         The flux array, laid out like ``cell_state``.
@@ -230,7 +242,8 @@ def _ct_interface_fluxes(
     zero = jnp.zeros_like(normal_face_field)
 
     def frame_values(states):
-        values = [states[index] for index in frame_indices]
+        # A layout without pressure slot: the solver call fills the pressure of the barotropic law in.
+        values = [states[index] if index is not None else zero for index in frame_indices]
         values[FRAME_NORMAL_FIELD] = normal_face_field
         # The solvers of the GLM scheme take psi as a ninth value.
         return tuple(values) + (zero,)
@@ -245,11 +258,12 @@ def _ct_interface_fluxes(
         1.0,
         riemann_solver,
         True,
+        barotropic_law,
     )
-    flux_values = list(flux[:NUM_CELL_CENTRED_VARIABLES])
+    flux_values = list(flux[:NUM_FRAME_VARIABLES])
     flux_values[FRAME_NORMAL_FIELD] = zero
     return jnp.stack(
-        _state_components_from_frame(flux_values, frame_indices, NUM_CELL_CENTRED_VARIABLES),
+        _state_components_from_frame(flux_values, frame_indices, cell_state.shape[0]),
         axis=0,
     )
 
@@ -261,6 +275,7 @@ def _ct_fluxes_per_axis(
     riemann_solver: int,
     gamma,
     registered_variables: RegisteredVariables,
+    barotropic_law: BarotropicLaw = None,
 ):
     """
     The interface fluxes of all three axes (see ``_ct_interface_fluxes``), laid
@@ -275,11 +290,12 @@ def _ct_fluxes_per_axis(
         riemann_solver: The Riemann solver.
         gamma: The adiabatic index.
         registered_variables: The registered variables.
+        barotropic_law: ``None`` for the ideal gas, or the law of a barotropic gas.
 
     Returns:
         The interface fluxes per axis.
     """
-    cell_state = primitive_state[:NUM_CELL_CENTRED_VARIABLES]
+    cell_state = primitive_state[: _num_cell_centred_variables(registered_variables)]
     face_indices = tuple(registered_variables.interface_magnetic_field_index)
     fluxes_per_axis = tuple(
         _ct_interface_fluxes(
@@ -291,6 +307,7 @@ def _ct_fluxes_per_axis(
             riemann_solver,
             gamma,
             registered_variables,
+            barotropic_law,
         )
         for axis in (1, 2, 3)
     )
@@ -307,7 +324,7 @@ def _ct_fluxes_per_axis(
     # flux array would hold them in memory (measured at 128^3 with the flux
     # correction on one GPU in double precision: a peak of 3.5 GiB and 26.2 ms
     # per step in front of the barrier, 2.9 GiB and 22.4 ms behind it).
-    num_face_rows = registered_variables.num_vars - NUM_CELL_CENTRED_VARIABLES
+    num_face_rows = registered_variables.num_vars - cell_state.shape[0]
     return [jnp.pad(fluxes, ((0, num_face_rows), (0, 0), (0, 0), (0, 0))) for fluxes in fluxes_per_axis]
 
 
@@ -569,7 +586,7 @@ def _ct_layout_from_state(
         The primitive state in the layout of this module.
     """
     face_indices = tuple(registered_variables.interface_magnetic_field_index)
-    if min(face_indices) < NUM_CELL_CENTRED_VARIABLES:
+    if min(face_indices) < _num_cell_centred_variables(registered_variables):
         raise ValueError("The VL2 + CT layout keeps the face field behind the cell-centred rows.")
 
     # One code path for every dimensionality: singleton trailing axes.

@@ -23,6 +23,7 @@ from astronomix.option_classes.simulation_config import (
     DYNAMIC_VISCOSITY,
     GHOST_CELLS,
     KINEMATIC_VISCOSITY,
+    MUSCL_HANCOCK,
     RK2_SSP,
     STATE_TYPE,
     VL2,
@@ -37,6 +38,10 @@ from astronomix.variable_registry.registered_variables import RegisteredVariable
 # astronomix functions
 from astronomix._modules._stellar_wind.stellar_wind import _wind_injection
 from astronomix._fluid_equations._fluxes import _euler_flux
+from astronomix._fluid_equations._equation_of_state import (
+    is_barotropic,
+    sound_speed_squared,
+)
 from astronomix._fluid_equations._equations import speed_of_sound
 from astronomix._finite_volume._riemann._face_state import (
     adiabatic_sound_speed,
@@ -132,7 +137,13 @@ def _maximum_signal_speed_vl2(
         primitive_state = _unpad(primitive_state, config)
 
     density = primitive_state[registered_variables.density_index]
-    pressure = primitive_state[registered_variables.pressure_index]
+    if is_barotropic(config):
+        # With an adiabatic index of one the speeds below read the sound speed of the law from rho a^2.
+        adiabatic_index = 1.0
+        pressure = density * sound_speed_squared(density, None, params, config)
+    else:
+        adiabatic_index = params.gamma
+        pressure = primitive_state[registered_variables.pressure_index]
 
     # The 1D hydro layout stores a single velocity component as a plain index.
     if isinstance(registered_variables.velocity_index, int):
@@ -149,7 +160,7 @@ def _maximum_signal_speed_vl2(
             # The fast speed along an axis treats that axis' field component
             # as the normal one and the other two as transverse.
             signal_speed = fast_magnetosonic_speed(
-                params.gamma,
+                adiabatic_index,
                 density,
                 pressure,
                 primitive_state[magnetic_indices[axis]],
@@ -157,7 +168,7 @@ def _maximum_signal_speed_vl2(
                 primitive_state[magnetic_indices[(axis + 2) % 3]],
             )
         else:
-            signal_speed = adiabatic_sound_speed(params.gamma, density, pressure)
+            signal_speed = adiabatic_sound_speed(adiabatic_index, density, pressure)
         axis_maximum = jnp.max(jnp.abs(primitive_state[velocity_indices[axis]]) + signal_speed)
         if maximum_speed is None:
             maximum_speed = axis_maximum
@@ -193,7 +204,10 @@ def _cfl_time_step(
     dt_max = params.dt_max
     gamma = params.gamma
 
-    if config.solver_config.time_integrator == VL2:
+    # A barotropic gas under the split scheme takes the cell criterion as well: the interface estimate below is
+    # the same maximum of |v_d| + c_d, read from the pressure slot.
+    is_barotropic_split = is_barotropic(config) and config.solver_config.time_integrator == MUSCL_HANCOCK
+    if config.solver_config.time_integrator == VL2 or is_barotropic_split:
         maximum_speed = _maximum_signal_speed_vl2(
             primitive_state,
             config,
@@ -206,8 +220,11 @@ def _cfl_time_step(
 
     if config.solver_config.time_integrator == RK2_SSP:
         rho = primitive_state[registered_variables.density_index]
-        p = primitive_state[registered_variables.pressure_index]
-        c = speed_of_sound(rho, p, gamma)
+        if is_barotropic(config):
+            c = jnp.sqrt(sound_speed_squared(rho, None, params, config))
+        else:
+            p = primitive_state[registered_variables.pressure_index]
+            c = speed_of_sound(rho, p, gamma)
         alpha_lax = jnp.zeros((config.dimensionality,))
         for axis in range(1, config.dimensionality + 1):
             u = primitive_state[axis]

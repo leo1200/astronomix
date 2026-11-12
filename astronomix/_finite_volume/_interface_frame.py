@@ -6,12 +6,19 @@ of the interface: the normal component of velocity and field first, then the
 two transverse components in AthenaPK's cyclic order. This file holds the
 layout between that frame and the state (which state rows are the normal and
 the transverse components, and the way back from frame order to state order)
-and the call of the configured solver on values in frame order. It imports
-nothing of the stage, so the stage (``_stage.py``), the fused kernel
+and the call of the configured solver on values in frame order, with the
+pressure and the sound speed of a barotropic law where the state has no
+pressure slot (``BarotropicLaw``). It imports nothing of the stage, so the stage (``_stage.py``), the fused kernel
 (``_stage_pallas.py``), the first-order flux correction
 (``_flux_correction.py``) and the constrained transport
 (``_divergence/_constrained_transport.py``) share it.
 """
+
+# typing
+from typing import (
+    Callable,
+    NamedTuple,
+)
 
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
@@ -23,9 +30,15 @@ from astronomix.option_classes.simulation_config import (
 
 # astronomix containers
 from astronomix.option_classes.simulation_config import SimulationConfig
+from astronomix.option_classes.simulation_params import SimulationParams
 from astronomix.variable_registry.registered_variables import RegisteredVariables
 
 # astronomix functions
+from astronomix._fluid_equations._equation_of_state import (
+    barotropic_pressure,
+    is_barotropic,
+    sound_speed_squared,
+)
 from astronomix._finite_volume._riemann._face_state import (
     HydroFaceState,
     MHDFaceState,
@@ -45,6 +58,10 @@ from astronomix._finite_volume._riemann._llf import (
 # -------------------------------------------------------------
 # ===================== ↓ State layout ↓ ======================
 # -------------------------------------------------------------
+
+#: Positions of density and pressure in the interface frame (:class:`HydroFaceState`, :class:`MHDFaceState`).
+FRAME_DENSITY = 0
+FRAME_PRESSURE = 4
 
 
 def _velocity_component_indices(registered_variables: RegisteredVariables):
@@ -89,12 +106,14 @@ def _interface_frame_indices(
     transverse_1 = axis % 3
     transverse_2 = (axis + 1) % 3
 
+    # The layout of a barotropic gas has no pressure slot (and no energy row for the flux).
+    pressure_index = registered_variables.pressure_index
     hydro_indices = (
         registered_variables.density_index,
         velocity[normal],
         velocity[transverse_1],
         velocity[transverse_2],
-        registered_variables.pressure_index,
+        pressure_index if pressure_index >= 0 else None,
     )
     if not config.mhd:
         return hydro_indices
@@ -137,6 +156,42 @@ def _state_components_from_frame(frame_values, frame_indices, num_vars: int):
 # -------------------------------------------------------------
 
 
+class BarotropicLaw(NamedTuple):
+    """
+    Pressure and squared sound speed of a barotropic gas as functions of the
+    density: the form in which the Riemann solvers and the Hancock predictor
+    take the equation of state.
+    """
+
+    pressure_of: Callable
+    sound_speed_squared_of: Callable
+
+
+def _barotropic_law(params: SimulationParams, config: SimulationConfig):
+    """
+    The barotropic law of the configured equation of state.
+
+    Args:
+        params: The simulation parameters.
+        config: The simulation configuration.
+
+    Returns:
+        The :class:`BarotropicLaw`, or ``None`` for the ideal gas.
+    """
+    if not is_barotropic(config):
+        return None
+    return BarotropicLaw(
+        pressure_of=lambda density: barotropic_pressure(density, params, config),
+        sound_speed_squared_of=lambda density: sound_speed_squared(density, None, params, config),
+    )
+
+
+def _with_pressure_of_law(frame_values, barotropic_law: BarotropicLaw):
+    """Return the frame values with the pressure of the barotropic law at the pressure position."""
+    pressure = barotropic_law.pressure_of(frame_values[FRAME_DENSITY])
+    return frame_values[:FRAME_PRESSURE] + (pressure,) + frame_values[FRAME_PRESSURE + 1 :]
+
+
 def _interface_flux_from_states(
     left_values,
     right_values,
@@ -144,31 +199,46 @@ def _interface_flux_from_states(
     cleaning_speed,
     riemann_solver: int,
     mhd: bool,
+    barotropic_law: BarotropicLaw = None,
 ):
     """
     Evaluate the configured Riemann solver on interface-frame value tuples.
 
+    Under a barotropic law the state has no pressure slot: the face values get
+    the pressure of the law from their density here, and the solver bounds its
+    waves with the sound speed of the law. The energy value of the flux then
+    has no meaning.
+
     Args:
         left_values: Tuple of left-state values (interface frame).
         right_values: Tuple of right-state values (interface frame).
-        gamma: The adiabatic index.
+        gamma: The adiabatic index (ideal gas only).
         cleaning_speed: The GLM cleaning speed (MHD only).
         riemann_solver: The configured Riemann solver.
         mhd: Whether this is GLM-MHD.
+        barotropic_law: ``None`` for the ideal gas, or the law of a barotropic gas.
 
     Returns:
         The interface flux (:class:`MHDFlux` or :class:`HydroFlux`, interface
         frame).
     """
+    sound_speed_squared_of = None
+    if barotropic_law is not None:
+        left_values = _with_pressure_of_law(left_values, barotropic_law)
+        right_values = _with_pressure_of_law(right_values, barotropic_law)
+        sound_speed_squared_of = barotropic_law.sound_speed_squared_of
+        if riemann_solver not in (HLL, LAX_FRIEDRICHS):
+            raise ValueError("A barotropic equation of state needs the HLL or the LAX_FRIEDRICHS Riemann solver.")
+
     if mhd:
         left = MHDFaceState(*left_values)
         right = MHDFaceState(*right_values)
         if riemann_solver == HLLD:
             return hlld_flux(left, right, gamma, cleaning_speed)
         if riemann_solver == HLL:
-            return hlle_mhd_flux(left, right, gamma, cleaning_speed)
+            return hlle_mhd_flux(left, right, gamma, cleaning_speed, sound_speed_squared_of)
         if riemann_solver == LAX_FRIEDRICHS:
-            return llf_mhd_flux(left, right, gamma, cleaning_speed)
+            return llf_mhd_flux(left, right, gamma, cleaning_speed, sound_speed_squared_of)
         raise ValueError("Unsupported Riemann solver for VL2 MHD.")
 
     left = HydroFaceState(*left_values)
@@ -176,9 +246,9 @@ def _interface_flux_from_states(
     if riemann_solver == HLLC:
         return hllc_hydro_flux(left, right, gamma)
     if riemann_solver == HLL:
-        return hlle_hydro_flux(left, right, gamma)
+        return hlle_hydro_flux(left, right, gamma, sound_speed_squared_of)
     if riemann_solver == LAX_FRIEDRICHS:
-        return llf_hydro_flux(left, right, gamma)
+        return llf_hydro_flux(left, right, gamma, sound_speed_squared_of)
     raise ValueError("Unsupported Riemann solver for finite-volume hydrodynamics.")
 
 

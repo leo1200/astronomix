@@ -159,6 +159,70 @@ def adiabatic_sound_speed(gamma, density, pressure):
     return jnp.sqrt(gamma * pressure / density)
 
 
+def face_sound_speed(state, gamma, sound_speed_squared_of=None):
+    """
+    The sound speed of a face state: of the ideal gas, or of a barotropic law
+    given by its squared sound speed as a function of the density.
+
+    Args:
+        state: The primitive face state.
+        gamma: The adiabatic index (ideal gas only).
+        sound_speed_squared_of: ``None`` for the ideal gas, or the squared
+            sound speed of a barotropic law as a function of the density.
+
+    Returns:
+        The sound speed.
+    """
+    if sound_speed_squared_of is None:
+        return adiabatic_sound_speed(gamma, state.density, state.pressure)
+    return jnp.sqrt(sound_speed_squared_of(state.density))
+
+
+def face_fast_speed(state: MHDFaceState, gamma, sound_speed_squared_of=None):
+    """
+    The fast magnetosonic speed of a face state along the interface normal, for
+    the ideal gas or a barotropic law (arguments as ``face_sound_speed``).
+    """
+    if sound_speed_squared_of is None:
+        adiabatic_index, pressure = gamma, state.pressure
+    else:
+        # With an adiabatic index of one the fast speed reads its sound speed from ``rho a^2``.
+        adiabatic_index, pressure = 1.0, state.density * sound_speed_squared_of(state.density)
+    return fast_magnetosonic_speed(
+        adiabatic_index,
+        state.density,
+        pressure,
+        state.field_normal,
+        state.field_transverse_1,
+        state.field_transverse_2,
+    )
+
+
+def barotropic_roe_sound_speed_squared(left, right, sound_speed_squared_of):
+    """
+    The squared sound speed of the Roe average of two barotropic states: the
+    secant ``(p_R - p_L) / (rho_R - rho_L)``. With it the Roe matrix maps the
+    jump of the state onto the jump of the flux, so the Einfeldt bound
+    ``v_roe -/+ a_roe`` is the exact speed of an isolated shock. The secant is
+    clipped to the range of the two side values (where a monotone dp / drho
+    puts it anyway): this gives the limit of equal densities and the
+    isothermal constant without rounding error.
+
+    Args:
+        left: The primitive state left of the interface (with the pressure of the law).
+        right: The primitive state right of the interface.
+        sound_speed_squared_of: The squared sound speed as a function of the density.
+
+    Returns:
+        The squared sound speed of the averaged state.
+    """
+    squared_left = sound_speed_squared_of(left.density)
+    squared_right = sound_speed_squared_of(right.density)
+    density_jump = right.density - left.density
+    secant = (right.pressure - left.pressure) / jnp.where(density_jump != 0.0, density_jump, 1.0)
+    return jnp.clip(secant, jnp.minimum(squared_left, squared_right), jnp.maximum(squared_left, squared_right))
+
+
 def _glm_interface_field_and_psi(left: MHDFaceState, right: MHDFaceState, cleaning_speed):
     """
     Solve the decoupled ``(B_normal, psi)`` GLM subsystem exactly

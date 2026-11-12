@@ -1,5 +1,6 @@
 """
-The HLLE Riemann solvers for GLM-MHD and for adiabatic hydrodynamics, as in AthenaPK.
+The HLLE Riemann solvers for GLM-MHD and for hydrodynamics, as in AthenaPK. The gas is an ideal gas or, with
+the sound-speed function of a barotropic law, a gas without energy equation (Athena++'s isothermal branch).
 
 Conventions (interface frame, elementwise evaluation) and shared helpers: ``_face_state.py``.
 """
@@ -19,28 +20,40 @@ from astronomix._finite_volume._riemann._face_state import (
     _hydro_energy,
     _hydro_flux_minus_speed_times_state,
     _square,
-    adiabatic_sound_speed,
-    fast_magnetosonic_speed,
+    barotropic_roe_sound_speed_squared,
+    face_fast_speed,
+    face_sound_speed,
 )
 
 
-def hlle_mhd_flux(left: MHDFaceState, right: MHDFaceState, gamma, cleaning_speed) -> MHDFlux:
+def hlle_mhd_flux(
+    left: MHDFaceState,
+    right: MHDFaceState,
+    gamma,
+    cleaning_speed,
+    sound_speed_squared_of=None,
+) -> MHDFlux:
     """
     The HLLE flux for GLM-MHD with Roe-averaged (Einfeldt) wave speeds,
     as AthenaPK's ``glmmhd_hlle.hpp``.
 
+    Under a barotropic law the Roe-averaged fast speed is the one of Athena++'s
+    isothermal solver (Stone et al. 2008, eq. B18 without the energy), with
+    the averaged sound speed of ``barotropic_roe_sound_speed_squared``. The face
+    states then carry the pressure of the law, and the energy value of the
+    result has no meaning (the caller drops it).
+
     Args:
         left: The primitive state left of the interface.
         right: The primitive state right of the interface.
-        gamma: The adiabatic index.
+        gamma: The adiabatic index (ideal gas only).
         cleaning_speed: The hyperbolic divergence-cleaning speed ``c_h``.
+        sound_speed_squared_of: ``None`` for the ideal gas, or the squared
+            sound speed of a barotropic law as a function of the density.
 
     Returns:
         The GLM-MHD interface flux.
     """
-    gamma_minus_one = gamma - 1.0
-    gamma_minus_two = gamma_minus_one - 1.0
-
     # The fluxes use the normal field of the exact GLM interface solution; the
     # reconstructed ``left.field_normal`` / ``right.field_normal`` only enter
     # the fast speeds below.
@@ -90,7 +103,6 @@ def hlle_mhd_flux(left: MHDFaceState, right: MHDFaceState, gamma, cleaning_speed
     )
     density_ratio_term = 0.5 * (left.density + right.density) / roe_density
 
-    # Roe (1981): average the enthalpy H = (E + P) / rho rather than E or P.
     magnetic_pressure_left = 0.5 * (
         _square(interface_field_normal)
         + _square(left.field_transverse_1)
@@ -101,73 +113,74 @@ def hlle_mhd_flux(left: MHDFaceState, right: MHDFaceState, gamma, cleaning_speed
         + _square(right.field_transverse_1)
         + _square(right.field_transverse_2)
     )
-    energy_left = (
-        left.pressure / gamma_minus_one
-        + 0.5
-        * left.density
-        * (
-            _square(left.velocity_normal)
-            + _square(left.velocity_transverse_1)
-            + _square(left.velocity_transverse_2)
-        )
-        + magnetic_pressure_left
-    )
-    energy_right = (
-        right.pressure / gamma_minus_one
-        + 0.5
-        * right.density
-        * (
-            _square(right.velocity_normal)
-            + _square(right.velocity_transverse_1)
-            + _square(right.velocity_transverse_2)
-        )
-        + magnetic_pressure_right
-    )
-    roe_enthalpy = (
-        (energy_left + left.pressure + magnetic_pressure_left) / sqrt_density_left
-        + (energy_right + right.pressure + magnetic_pressure_right) / sqrt_density_right
-    ) * inverse_sum_sqrt_density
+    roe_transverse_field_squared = _square(roe_field_transverse_1) + _square(roe_field_transverse_2)
+    normal_alfven_speed_squared = _square(interface_field_normal) / roe_density
 
     # --------------- ↑ Roe-averaged state ↑ ----------------
 
     # --------------- ↓ Wave speeds ↓ ----------------
 
-    fast_speed_left = fast_magnetosonic_speed(
-        gamma,
-        left.density,
-        left.pressure,
-        left.field_normal,
-        left.field_transverse_1,
-        left.field_transverse_2,
-    )
-    fast_speed_right = fast_magnetosonic_speed(
-        gamma,
-        right.density,
-        right.pressure,
-        right.field_normal,
-        right.field_transverse_1,
-        right.field_transverse_2,
-    )
+    fast_speed_left = face_fast_speed(left, gamma, sound_speed_squared_of)
+    fast_speed_right = face_fast_speed(right, gamma, sound_speed_squared_of)
 
-    # The Roe-averaged fast speed (Stone et al. 2008, eq. B18).
-    roe_transverse_field_squared = _square(roe_field_transverse_1) + _square(roe_field_transverse_2)
-    normal_alfven_speed_squared = _square(interface_field_normal) / roe_density
-    transverse_field_star_squared = (
-        gamma_minus_one - gamma_minus_two * density_ratio_term
-    ) * roe_transverse_field_squared
-    enthalpy_minus_magnetic = roe_enthalpy - (
-        normal_alfven_speed_squared + roe_transverse_field_squared / roe_density
-    )
-    roe_velocity_squared = (
-        _square(roe_velocity_normal)
-        + _square(roe_velocity_transverse_1)
-        + _square(roe_velocity_transverse_2)
-    )
-    sound_speed_squared_tilde = jnp.maximum(
-        gamma_minus_one * (enthalpy_minus_magnetic - 0.5 * roe_velocity_squared)
-        - gamma_minus_two * transverse_field_jump_term,
-        0.0,
-    )
+    # The energies of the sides and the two terms of the Roe-averaged fast
+    # speed that depend on the equation of state (Stone et al. 2008, eq. B18).
+    if sound_speed_squared_of is None:
+        gamma_minus_one = gamma - 1.0
+        gamma_minus_two = gamma_minus_one - 1.0
+
+        # Roe (1981): average the enthalpy H = (E + P) / rho rather than E or P.
+        energy_left = (
+            left.pressure / gamma_minus_one
+            + 0.5
+            * left.density
+            * (
+                _square(left.velocity_normal)
+                + _square(left.velocity_transverse_1)
+                + _square(left.velocity_transverse_2)
+            )
+            + magnetic_pressure_left
+        )
+        energy_right = (
+            right.pressure / gamma_minus_one
+            + 0.5
+            * right.density
+            * (
+                _square(right.velocity_normal)
+                + _square(right.velocity_transverse_1)
+                + _square(right.velocity_transverse_2)
+            )
+            + magnetic_pressure_right
+        )
+        roe_enthalpy = (
+            (energy_left + left.pressure + magnetic_pressure_left) / sqrt_density_left
+            + (energy_right + right.pressure + magnetic_pressure_right) / sqrt_density_right
+        ) * inverse_sum_sqrt_density
+
+        transverse_field_star_squared = (
+            gamma_minus_one - gamma_minus_two * density_ratio_term
+        ) * roe_transverse_field_squared
+        enthalpy_minus_magnetic = roe_enthalpy - (
+            normal_alfven_speed_squared + roe_transverse_field_squared / roe_density
+        )
+        roe_velocity_squared = (
+            _square(roe_velocity_normal)
+            + _square(roe_velocity_transverse_1)
+            + _square(roe_velocity_transverse_2)
+        )
+        sound_speed_squared_tilde = jnp.maximum(
+            gamma_minus_one * (enthalpy_minus_magnetic - 0.5 * roe_velocity_squared)
+            - gamma_minus_two * transverse_field_jump_term,
+            0.0,
+        )
+    else:
+        # No energy equation: the energy value of the flux is formed from zeros.
+        energy_left = energy_right = 0.0
+        transverse_field_star_squared = density_ratio_term * roe_transverse_field_squared
+        sound_speed_squared_tilde = (
+            barotropic_roe_sound_speed_squared(left, right, sound_speed_squared_of) + transverse_field_jump_term
+        )
+
     transverse_alfven_speed_squared = transverse_field_star_squared / roe_density
     squared_speed_sum = (
         normal_alfven_speed_squared + transverse_alfven_speed_squared + sound_speed_squared_tilde
@@ -276,10 +289,20 @@ def hlle_mhd_flux(left: MHDFaceState, right: MHDFaceState, gamma, cleaning_speed
     )
 
 
-def hlle_hydro_flux(left: HydroFaceState, right: HydroFaceState, gamma) -> HydroFlux:
+def hlle_hydro_flux(
+    left: HydroFaceState,
+    right: HydroFaceState,
+    gamma,
+    sound_speed_squared_of=None,
+) -> HydroFlux:
     """
-    The HLLE flux for adiabatic hydrodynamics with Roe-averaged (Einfeldt) wave
-    speeds, as AthenaPK's ``hydro_hlle.hpp``.
+    The HLLE flux for hydrodynamics with Roe-averaged (Einfeldt) wave speeds,
+    as AthenaPK's ``hydro_hlle.hpp``.
+
+    Under a barotropic law the averaged sound speed of the bounds is the one
+    of ``barotropic_roe_sound_speed_squared``. The face states then carry the
+    pressure of the law, and the energy value of the result has no meaning
+    (the caller drops it).
 
     NOTE: AthenaPK clamps a non-negative left speed to ``+TINY_NUMBER`` (HLLC
     uses ``-TINY_NUMBER``); the clamp only affects the result at the level of
@@ -288,15 +311,14 @@ def hlle_hydro_flux(left: HydroFaceState, right: HydroFaceState, gamma) -> Hydro
     Args:
         left: The primitive state left of the interface.
         right: The primitive state right of the interface.
-        gamma: The adiabatic index.
+        gamma: The adiabatic index (ideal gas only).
+        sound_speed_squared_of: ``None`` for the ideal gas, or the squared
+            sound speed of a barotropic law as a function of the density.
 
     Returns:
         The hydrodynamic interface flux.
     """
-    gamma_minus_one = gamma - 1.0
-    inverse_gamma_minus_one = 1.0 / gamma_minus_one
-
-    # --------------- ↓ Roe-averaged state ↓ ----------------
+    # --------------- ↓ Roe-averaged state and sound speeds ↓ ----------------
 
     sqrt_density_left = jnp.sqrt(left.density)
     sqrt_density_right = jnp.sqrt(right.density)
@@ -305,43 +327,52 @@ def hlle_hydro_flux(left: HydroFaceState, right: HydroFaceState, gamma) -> Hydro
     roe_velocity_normal = (
         sqrt_density_left * left.velocity_normal + sqrt_density_right * right.velocity_normal
     ) * inverse_sum_sqrt_density
-    roe_velocity_transverse_1 = (
-        sqrt_density_left * left.velocity_transverse_1
-        + sqrt_density_right * right.velocity_transverse_1
-    ) * inverse_sum_sqrt_density
-    roe_velocity_transverse_2 = (
-        sqrt_density_left * left.velocity_transverse_2
-        + sqrt_density_right * right.velocity_transverse_2
-    ) * inverse_sum_sqrt_density
+    sound_speed_left = face_sound_speed(left, gamma, sound_speed_squared_of)
+    sound_speed_right = face_sound_speed(right, gamma, sound_speed_squared_of)
 
-    # Roe (1981): average the enthalpy H = (E + p) / rho rather than E or p.
-    energy_left = _hydro_energy(left, inverse_gamma_minus_one)
-    energy_right = _hydro_energy(right, inverse_gamma_minus_one)
-    roe_enthalpy = (
-        (energy_left + left.pressure) / sqrt_density_left
-        + (energy_right + right.pressure) / sqrt_density_right
-    ) * inverse_sum_sqrt_density
+    if sound_speed_squared_of is None:
+        gamma_minus_one = gamma - 1.0
+        inverse_gamma_minus_one = 1.0 / gamma_minus_one
 
-    # --------------- ↑ Roe-averaged state ↑ ----------------
+        roe_velocity_transverse_1 = (
+            sqrt_density_left * left.velocity_transverse_1
+            + sqrt_density_right * right.velocity_transverse_1
+        ) * inverse_sum_sqrt_density
+        roe_velocity_transverse_2 = (
+            sqrt_density_left * left.velocity_transverse_2
+            + sqrt_density_right * right.velocity_transverse_2
+        ) * inverse_sum_sqrt_density
+
+        # Roe (1981): average the enthalpy H = (E + p) / rho rather than E or p.
+        energy_left = _hydro_energy(left, inverse_gamma_minus_one)
+        energy_right = _hydro_energy(right, inverse_gamma_minus_one)
+        roe_enthalpy = (
+            (energy_left + left.pressure) / sqrt_density_left
+            + (energy_right + right.pressure) / sqrt_density_right
+        ) * inverse_sum_sqrt_density
+
+        enthalpy_term = roe_enthalpy - 0.5 * (
+            _square(roe_velocity_normal)
+            + _square(roe_velocity_transverse_1)
+            + _square(roe_velocity_transverse_2)
+        )
+        # The double where keeps the Roe sound speed and its derivatives finite
+        # where the enthalpy term is negative: the inner where keeps the square
+        # root's argument non-negative, the outer one discards the infinite
+        # derivative of the square root at zero.
+        roe_sound_speed = jnp.where(
+            enthalpy_term < 0.0,
+            0.0,
+            jnp.sqrt(gamma_minus_one * jnp.where(enthalpy_term < 0.0, 0.0, enthalpy_term)),
+        )
+    else:
+        # No energy equation: the energy value of the flux is formed from zeros.
+        energy_left = energy_right = 0.0
+        roe_sound_speed = jnp.sqrt(barotropic_roe_sound_speed_squared(left, right, sound_speed_squared_of))
+
+    # --------------- ↑ Roe-averaged state and sound speeds ↑ ----------------
 
     # --------------- ↓ Wave speeds ↓ ----------------
-
-    sound_speed_left = adiabatic_sound_speed(gamma, left.density, left.pressure)
-    sound_speed_right = adiabatic_sound_speed(gamma, right.density, right.pressure)
-    enthalpy_term = roe_enthalpy - 0.5 * (
-        _square(roe_velocity_normal)
-        + _square(roe_velocity_transverse_1)
-        + _square(roe_velocity_transverse_2)
-    )
-    # The double where keeps the Roe sound speed and its derivatives finite
-    # where the enthalpy term is negative: the inner where keeps the square
-    # root's argument non-negative, the outer one discards the infinite
-    # derivative of the square root at zero.
-    roe_sound_speed = jnp.where(
-        enthalpy_term < 0.0,
-        0.0,
-        jnp.sqrt(gamma_minus_one * jnp.where(enthalpy_term < 0.0, 0.0, enthalpy_term)),
-    )
 
     speed_left = jnp.minimum(
         roe_velocity_normal - roe_sound_speed,

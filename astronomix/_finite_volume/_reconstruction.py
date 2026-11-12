@@ -17,6 +17,7 @@ the flux divergence (``_flux_correction.py``).
 
 # typing
 from typing import (
+    Callable,
     NamedTuple,
     Tuple,
     Union,
@@ -248,9 +249,11 @@ class HancockTerms(NamedTuple):
         gamma: The adiabatic index.
         density_index: The state index of the density.
         normal_velocity_index: The state index of the velocity along the sweep axis.
-        pressure_index: The state index of the pressure.
+        pressure_index: The state index of the pressure (not read for a barotropic gas).
         carried_density_indices: The state indices of the densities carried with the gas (the wind density tracer).
         distances: The distances between cell centres and to the faces.
+        sound_speed_squared_of: ``None`` for the ideal gas; for a barotropic gas the squared sound speed as a
+            function of the density.
     """
 
     half_step: Union[float, Float[Array, ""]]
@@ -260,6 +263,7 @@ class HancockTerms(NamedTuple):
     pressure_index: int
     carried_density_indices: Tuple[int, ...]
     distances: CellDistances
+    sound_speed_squared_of: Callable = None
 
 
 def _hancock_predictor(primitive_state: STATE_TYPE, gradients: STATE_TYPE, hancock: HancockTerms) -> STATE_TYPE:
@@ -269,7 +273,9 @@ def _hancock_predictor(primitive_state: STATE_TYPE, gradients: STATE_TYPE, hanco
     is advected with the normal velocity, and the three couplings of the
     acoustic waves are added (Toro 2009, section 14.4 in primitive variables).
     A density carried with the gas is compressed like the gas density, so that
-    a uniform concentration stays uniform at the faces.
+    a uniform concentration stays uniform at the faces. A barotropic gas has
+    no pressure row: its pressure force follows from the density gradient,
+    ``dp/dn = a^2 drho/dn``.
 
     Args:
         primitive_state: The primitive state.
@@ -281,15 +287,21 @@ def _hancock_predictor(primitive_state: STATE_TYPE, gradients: STATE_TYPE, hanco
     """
     density = primitive_state[hancock.density_index]
     normal_velocity = primitive_state[hancock.normal_velocity_index]
-    pressure = primitive_state[hancock.pressure_index]
     normal_velocity_gradient = gradients[hancock.normal_velocity_index]
-    pressure_gradient = gradients[hancock.pressure_index]
 
     rate = normal_velocity * gradients
     # compression: drho/dt = ... - rho du_n/dn
     rate = rate.at[hancock.density_index].add(density * normal_velocity_gradient)
     for index in hancock.carried_density_indices:
         rate = rate.at[index].add(primitive_state[index] * normal_velocity_gradient)
+
+    if hancock.sound_speed_squared_of is not None:
+        # pressure force of a barotropic gas: du_n/dt = ... - (a^2 / rho) drho/dn
+        pressure_gradient = hancock.sound_speed_squared_of(density) * gradients[hancock.density_index]
+        return rate.at[hancock.normal_velocity_index].add(pressure_gradient / density)
+
+    pressure = primitive_state[hancock.pressure_index]
+    pressure_gradient = gradients[hancock.pressure_index]
     # pressure force: du_n/dt = ... - (1 / rho) dp/dn
     rate = rate.at[hancock.normal_velocity_index].add(pressure_gradient / density)
     # compression work: dp/dt = ... - rho c^2 du_n/dn, with rho c^2 = gamma p

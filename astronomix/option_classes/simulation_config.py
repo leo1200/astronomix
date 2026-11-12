@@ -211,6 +211,8 @@ DYNAMIC_VISCOSITY = 1
 # Equation of state
 IDEAL_GAS = 0
 ISOTHERMAL = 1
+# p = K rho^Gamma, no energy equation (finite volume only so far)
+POLYTROPIC = 2
 
 # Snapshot storage modes
 ON_DEVICE = 0
@@ -791,9 +793,11 @@ class SimulationConfig(NamedTuple):
     #: Boundary settings for the simulation.
     boundary_settings: Union[NoneType, BoundarySettings1D, BoundarySettings] = None
 
-    #: The equation of state for the simulation.
-    #: NOTE: CURRENTLY ONLY IMPLEMENTED FOR 
-    #: FINITE DIFFERENCE MODE.
+    #: The equation of state for the simulation: ``IDEAL_GAS``, ``ISOTHERMAL``
+    #: (p = c_s^2 rho, ``params.isothermal_sound_speed``) or ``POLYTROPIC``
+    #: (p = K rho^Gamma, ``params.polytropic_constant`` and
+    #: ``params.polytropic_exponent``; finite volume only). The last two are
+    #: barotropic: no energy equation and no pressure slot in the state.
     equation_of_state: int = IDEAL_GAS
 
     #: Magnetohydrodynamics switch.
@@ -1439,6 +1443,45 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
             "The HLLD Riemann solver is only available with the VL2 time "
             "integrator (time_integrator=VL2)."
         )
+
+    # A barotropic gas (ISOTHERMAL, POLYTROPIC) has no energy equation. The finite-volume framework carries it
+    # with the two solvers that need no energy jump and with gravity; the finite-difference scheme knows
+    # ISOTHERMAL only.
+    if finite_difference and config.equation_of_state == POLYTROPIC:
+        raise ValueError(
+            "The POLYTROPIC equation of state is implemented for the finite-volume solver only: use "
+            "solver_mode=FINITE_VOLUME, or equation_of_state=ISOTHERMAL (a polytrope of exponent one)."
+        )
+    if finite_volume and config.equation_of_state != IDEAL_GAS:
+        if config.solver_config.riemann_solver not in (HLL, LAX_FRIEDRICHS):
+            raise ValueError(
+                "HLLC and HLLD are Riemann solvers of the ideal gas: use riemann_solver=HLL (or LAX_FRIEDRICHS) "
+                "with a barotropic equation of state (ISOTHERMAL, POLYTROPIC)."
+            )
+        acts_on_the_energy_equation = (
+            ("cooling_config.cooling", config.cooling_config.cooling),
+            ("diffusion_config.thermal_conduction", config.diffusion_config.thermal_conduction),
+            ("gravity_config.time_centred_energy_source", config.gravity_config.time_centred_energy_source),
+        )
+        for option, is_set in acts_on_the_energy_equation:
+            if is_set:
+                raise ValueError(
+                    f"{option} acts on the energy equation, which a barotropic gas (ISOTHERMAL, POLYTROPIC) does "
+                    "not have: switch it off, or use equation_of_state=IDEAL_GAS."
+                )
+        not_carried_yet = (
+            ("diffusion_config.viscosity", config.diffusion_config.viscosity),
+            ("wind_config.stellar_wind", config.wind_config.stellar_wind),
+            ("wind_config.trace_wind_density", config.wind_config.trace_wind_density),
+            ("turbulent_forcing_config.turbulent_forcing", config.turbulent_forcing_config.turbulent_forcing),
+        )
+        for option, is_set in not_carried_yet:
+            if is_set:
+                raise ValueError(
+                    f"{option} is not implemented for a barotropic gas (ISOTHERMAL, POLYTROPIC) in the "
+                    "finite-volume solver: use equation_of_state=IDEAL_GAS (an adiabatic index close to one "
+                    "emulates the isothermal gas)."
+                )
 
     # A retried step needs a step size to reduce, and its data-dependent loop
     # has no reverse-mode derivative.

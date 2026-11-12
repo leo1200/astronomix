@@ -77,9 +77,12 @@ class SimulationParams(NamedTuple):
 
     #: The isothermal sound speed used when
     #: config.equation_of_state is ISOTHERMAL.
-    #: NOTE: CURRENTLY ONLY IMPLEMENTED FOR
-    #: FINITE DIFFERENCE MODE.
     isothermal_sound_speed: float = 1.0
+
+    #: The constant K and the exponent Gamma of p = K rho^Gamma, used when
+    #: config.equation_of_state is POLYTROPIC.
+    polytropic_constant: float = 1.0
+    polytropic_exponent: float = 1.0
 
     #: The adiabatic index of the gas.
     gamma: float = 5/3

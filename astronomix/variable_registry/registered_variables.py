@@ -150,6 +150,35 @@ class RegisteredVariables(NamedTuple):
     # here you can add more variables
 
 
+def _without_pressure_slot(registered_variables: RegisteredVariables) -> RegisteredVariables:
+    """
+    The layout of a gas without energy equation: the pressure slot is taken
+    out and every row behind it (magnetic field, face field, psi, wind
+    density) moves down by one.
+
+    Args:
+        registered_variables: A layout with a pressure slot.
+
+    Returns:
+        The layout without it (``pressure_index = -1``).
+    """
+    pressure_index = registered_variables.pressure_index
+
+    def moved(index):
+        if isinstance(index, int):
+            return index - 1 if index > pressure_index else index
+        return StaticIntVector(*(moved(component) for component in index))
+
+    return registered_variables._replace(
+        num_vars=registered_variables.num_vars - 1,
+        pressure_index=-1,
+        magnetic_index=moved(registered_variables.magnetic_index),
+        interface_magnetic_field_index=moved(registered_variables.interface_magnetic_field_index),
+        magnetic_psi_index=moved(registered_variables.magnetic_psi_index),
+        wind_density_index=moved(registered_variables.wind_density_index),
+    )
+
+
 def get_registered_variables(config: SimulationConfig) -> RegisteredVariables:
     """Build the variable registry for a given simulation configuration.
 
@@ -347,6 +376,11 @@ def get_registered_variables(config: SimulationConfig) -> RegisteredVariables:
             "flux); got solver_mode = "
             f"{solver_mode_to_string(config.solver_mode)}"
         )
+
+    # A barotropic gas (every equation of state but the ideal gas) has no energy equation: the finite-volume
+    # layouts built above lose their pressure slot, as the isothermal finite-difference layouts do.
+    if config.solver_mode == FINITE_VOLUME and config.equation_of_state != IDEAL_GAS:
+        registered_variables = _without_pressure_slot(registered_variables)
 
     # shorthands
     registered_variables = registered_variables._replace(

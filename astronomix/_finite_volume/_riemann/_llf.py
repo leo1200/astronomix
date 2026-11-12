@@ -1,5 +1,6 @@
 """
-The local Lax-Friedrichs Riemann solvers for GLM-MHD and for adiabatic hydrodynamics, as in AthenaPK.
+The local Lax-Friedrichs Riemann solvers for GLM-MHD and for hydrodynamics, as in AthenaPK. The gas is an
+ideal gas or, with the sound-speed function of a barotropic law, a gas without energy equation.
 
 Conventions (interface frame, elementwise evaluation) and shared helpers: ``_face_state.py``.
 """
@@ -16,27 +17,35 @@ from astronomix._finite_volume._riemann._face_state import (
     _glm_interface_field_and_psi,
     _hydro_energy,
     _square,
-    adiabatic_sound_speed,
-    fast_magnetosonic_speed,
+    face_fast_speed,
+    face_sound_speed,
 )
 
 
-def llf_mhd_flux(left: MHDFaceState, right: MHDFaceState, gamma, cleaning_speed) -> MHDFlux:
+def llf_mhd_flux(
+    left: MHDFaceState,
+    right: MHDFaceState,
+    gamma,
+    cleaning_speed,
+    sound_speed_squared_of=None,
+) -> MHDFlux:
     """
     The local Lax-Friedrichs (Rusanov) flux for GLM-MHD, as AthenaPK's
-    ``glmmhd_dc_llf.hpp`` (used by the first-order flux correction).
+    ``glmmhd_dc_llf.hpp`` (used by the first-order flux correction). Under a
+    barotropic law the face states carry the pressure of the law, and the
+    energy value of the result has no meaning (the caller drops it).
 
     Args:
         left: The primitive state left of the interface.
         right: The primitive state right of the interface.
-        gamma: The adiabatic index.
+        gamma: The adiabatic index (ideal gas only).
         cleaning_speed: The hyperbolic divergence-cleaning speed ``c_h``.
+        sound_speed_squared_of: ``None`` for the ideal gas, or the squared
+            sound speed of a barotropic law as a function of the density.
 
     Returns:
         The GLM-MHD interface flux.
     """
-    inverse_gamma_minus_one = 1.0 / (gamma - 1.0)
-
     # The fluxes use the normal field of the exact GLM interface solution; the
     # reconstructed ``left.field_normal`` / ``right.field_normal`` only enter
     # the fast speeds below.
@@ -90,30 +99,35 @@ def llf_mhd_flux(left: MHDFaceState, right: MHDFaceState, gamma, cleaning_speed)
         - interface_field_normal * (left.velocity_transverse_2 + right.velocity_transverse_2)
     )
 
-    energy_left = (
-        left.pressure * inverse_gamma_minus_one
-        + 0.5
-        * left.density
-        * (
-            _square(left.velocity_normal)
-            + _square(left.velocity_transverse_1)
-            + _square(left.velocity_transverse_2)
+    if sound_speed_squared_of is None:
+        inverse_gamma_minus_one = 1.0 / (gamma - 1.0)
+        energy_left = (
+            left.pressure * inverse_gamma_minus_one
+            + 0.5
+            * left.density
+            * (
+                _square(left.velocity_normal)
+                + _square(left.velocity_transverse_1)
+                + _square(left.velocity_transverse_2)
+            )
+            + magnetic_term_left
+            + _square(interface_field_normal)
         )
-        + magnetic_term_left
-        + _square(interface_field_normal)
-    )
-    energy_right = (
-        right.pressure * inverse_gamma_minus_one
-        + 0.5
-        * right.density
-        * (
-            _square(right.velocity_normal)
-            + _square(right.velocity_transverse_1)
-            + _square(right.velocity_transverse_2)
+        energy_right = (
+            right.pressure * inverse_gamma_minus_one
+            + 0.5
+            * right.density
+            * (
+                _square(right.velocity_normal)
+                + _square(right.velocity_transverse_1)
+                + _square(right.velocity_transverse_2)
+            )
+            + magnetic_term_right
+            + _square(interface_field_normal)
         )
-        + magnetic_term_right
-        + _square(interface_field_normal)
-    )
+    else:
+        # No energy equation: the energy value of the flux is formed from zeros.
+        energy_left = energy_right = 0.0
     sum_energy = (
         (energy_left + left.pressure + magnetic_term_left) * left.velocity_normal
         + (energy_right + right.pressure + magnetic_term_right) * right.velocity_normal
@@ -133,22 +147,8 @@ def llf_mhd_flux(left: MHDFaceState, right: MHDFaceState, gamma, cleaning_speed)
 
     # --------------- ↓ Dissipation ↓ ----------------
 
-    fast_speed_left = fast_magnetosonic_speed(
-        gamma,
-        left.density,
-        left.pressure,
-        left.field_normal,
-        left.field_transverse_1,
-        left.field_transverse_2,
-    )
-    fast_speed_right = fast_magnetosonic_speed(
-        gamma,
-        right.density,
-        right.pressure,
-        right.field_normal,
-        right.field_transverse_1,
-        right.field_transverse_2,
-    )
+    fast_speed_left = face_fast_speed(left, gamma, sound_speed_squared_of)
+    fast_speed_right = face_fast_speed(right, gamma, sound_speed_squared_of)
     maximum_speed = jnp.maximum(
         jnp.abs(left.velocity_normal) + fast_speed_left,
         jnp.abs(right.velocity_normal) + fast_speed_right,
@@ -186,21 +186,28 @@ def llf_mhd_flux(left: MHDFaceState, right: MHDFaceState, gamma, cleaning_speed)
     )
 
 
-def llf_hydro_flux(left: HydroFaceState, right: HydroFaceState, gamma) -> HydroFlux:
+def llf_hydro_flux(
+    left: HydroFaceState,
+    right: HydroFaceState,
+    gamma,
+    sound_speed_squared_of=None,
+) -> HydroFlux:
     """
-    The local Lax-Friedrichs (Rusanov) flux for adiabatic hydrodynamics, as
-    AthenaPK's ``hydro_dc_llf.hpp``.
+    The local Lax-Friedrichs (Rusanov) flux for hydrodynamics, as AthenaPK's
+    ``hydro_dc_llf.hpp``. Under a barotropic law the face states carry the
+    pressure of the law, and the energy value of the result has no meaning
+    (the caller drops it).
 
     Args:
         left: The primitive state left of the interface.
         right: The primitive state right of the interface.
-        gamma: The adiabatic index.
+        gamma: The adiabatic index (ideal gas only).
+        sound_speed_squared_of: ``None`` for the ideal gas, or the squared
+            sound speed of a barotropic law as a function of the density.
 
     Returns:
         The hydrodynamic interface flux.
     """
-    inverse_gamma_minus_one = 1.0 / (gamma - 1.0)
-
     # --------------- ↓ Sum of the left and right fluxes ↓ ----------------
 
     mass_flux_left = left.density * left.velocity_normal
@@ -221,8 +228,13 @@ def llf_hydro_flux(left: HydroFaceState, right: HydroFaceState, gamma) -> HydroF
         + mass_flux_right * right.velocity_transverse_2
     )
 
-    energy_left = _hydro_energy(left, inverse_gamma_minus_one)
-    energy_right = _hydro_energy(right, inverse_gamma_minus_one)
+    if sound_speed_squared_of is None:
+        inverse_gamma_minus_one = 1.0 / (gamma - 1.0)
+        energy_left = _hydro_energy(left, inverse_gamma_minus_one)
+        energy_right = _hydro_energy(right, inverse_gamma_minus_one)
+    else:
+        # No energy equation: the energy value of the flux is formed from zeros.
+        energy_left = energy_right = 0.0
     sum_energy = (energy_left + left.pressure) * left.velocity_normal + (
         energy_right + right.pressure
     ) * right.velocity_normal
@@ -231,8 +243,8 @@ def llf_hydro_flux(left: HydroFaceState, right: HydroFaceState, gamma) -> HydroF
 
     # --------------- ↓ Dissipation ↓ ----------------
 
-    sound_speed_left = adiabatic_sound_speed(gamma, left.density, left.pressure)
-    sound_speed_right = adiabatic_sound_speed(gamma, right.density, right.pressure)
+    sound_speed_left = face_sound_speed(left, gamma, sound_speed_squared_of)
+    sound_speed_right = face_sound_speed(right, gamma, sound_speed_squared_of)
     maximum_speed = jnp.maximum(
         jnp.abs(left.velocity_normal) + sound_speed_left,
         jnp.abs(right.velocity_normal) + sound_speed_right,

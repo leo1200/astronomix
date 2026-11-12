@@ -50,6 +50,7 @@ from astronomix.option_classes.simulation_params import SimulationParams
 from astronomix.variable_registry.registered_variables import RegisteredVariables
 
 # astronomix functions
+from astronomix._fluid_equations._equation_of_state import is_barotropic
 from astronomix._finite_volume._divergence._glm import _extended_dedner_source_terms
 from astronomix._finite_volume._flux_correction import (
     NUM_FLUX_CORRECTION_ATTEMPTS,
@@ -121,6 +122,9 @@ def _fv_stage_pallas_supported(state, config: SimulationConfig) -> bool:
         return False
     if config.solver_config.divergence_control == CONSTRAINED_TRANSPORT:
         # The kernel has no face field and no edge electromotive forces.
+        return False
+    if is_barotropic(config):
+        # The kernel has the energy row of the ideal gas in its registers.
         return False
     ndim = int(config.dimensionality)
     if state.ndim != ndim + 1:

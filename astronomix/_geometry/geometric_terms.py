@@ -18,10 +18,7 @@ import jax
 import jax.numpy as jnp
 
 # astronomix constants
-from astronomix.option_classes.simulation_config import (
-    STATE_TYPE,
-    STATE_TYPE_ALTERED,
-)
+from astronomix.option_classes.simulation_config import STATE_TYPE_ALTERED
 
 # astronomix containers
 from astronomix.option_classes.simulation_config import SimulationConfig
@@ -32,7 +29,7 @@ from astronomix.variable_registry.registered_variables import RegisteredVariable
 # @jaxtyped(typechecker=typechecker)
 @partial(jax.jit, static_argnames=["config", "registered_variables"])
 def _pressure_nozzling_source(
-    primitive_state: STATE_TYPE,
+    pressure,
     pressure_gradient,
     config: SimulationConfig,
     helper_data: HelperData,
@@ -41,7 +38,8 @@ def _pressure_nozzling_source(
     """Pressure nozzling source term as of the geometry of the domain.
 
     Args:
-        primitive_state: The primitive state array.
+        pressure: The gas pressure of the cells (given by the caller, so that the
+            source serves a state without pressure slot as well).
         pressure_gradient: The limited radial pressure gradient of the cells
             (the scheme's own, so that the source matches its reconstruction).
         config: The simulation configuration.
@@ -52,8 +50,7 @@ def _pressure_nozzling_source(
         The pressure nozzling source
     """
 
-    # get the pressure
-    p = primitive_state[registered_variables.pressure_index]
+    p = pressure
 
     dp_dr = pressure_gradient
 

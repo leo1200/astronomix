@@ -86,6 +86,8 @@ from astronomix._finite_volume._gravity_coupling import (
     _vl2_gravitational_potential,
 )
 from astronomix._finite_volume._interface_frame import (
+    BarotropicLaw,
+    _barotropic_law,
     _interface_flux_from_states,
     _interface_frame_indices,
     _state_components_from_frame,
@@ -95,6 +97,10 @@ from astronomix._finite_volume._reconstruction import (
     HancockTerms,
     _cell_distances,
     _reconstructed_face_states,
+)
+from astronomix._fluid_equations._equation_of_state import (
+    is_barotropic,
+    pressure_of,
 )
 from astronomix._geometry.boundaries import _boundary_handler
 
@@ -124,8 +130,9 @@ def _conserved_components_from_primitive(
 ):
     """
     Per-variable conserved values ``(rho, rho v, E, B, psi)`` from per-variable
-    primitive values. The values are given as lists indexed like the state, so
-    the function serves whole arrays (native) and register tiles (Pallas) alike.
+    primitive values (without ``E`` for a barotropic gas). The values are given
+    as lists indexed like the state, so the function serves whole arrays
+    (native) and register tiles (Pallas) alike.
 
     Args:
         primitive_components: The primitive values, indexed like the state.
@@ -147,6 +154,10 @@ def _conserved_components_from_primitive(
         velocity = primitive_components[index]
         conserved_components[index] = density * velocity
         kinetic_energy = kinetic_energy + 0.5 * density * velocity * velocity
+
+    # A barotropic gas has no energy equation: the momenta are all there is to convert.
+    if is_barotropic(config):
+        return conserved_components
 
     energy = (
         primitive_components[registered_variables.pressure_index] / (gamma - 1.0) + kinetic_energy
@@ -174,7 +185,8 @@ def _primitive_components_from_conserved(
     state). With the floors active, the density floor leaves momentum and
     energy untouched and the pressure floor raises the pressure (AthenaPK also
     resets the energy accordingly, which is implicit here as the conserved
-    state is not kept).
+    state is not kept). A barotropic gas has no energy equation: its density
+    floor is the only floor and the velocities are all there is to convert.
 
     Args:
         conserved_components: The conserved values, indexed like the state.
@@ -194,6 +206,12 @@ def _primitive_components_from_conserved(
 
     primitive_components = list(conserved_components)
     primitive_components[registered_variables.density_index] = density
+
+    if is_barotropic(config):
+        for index in _velocity_component_indices(registered_variables):
+            if index is not None:
+                primitive_components[index] = conserved_components[index] * inverse_density
+        return primitive_components
 
     internal_energy = conserved_components[registered_variables.energy_index]
     for index in _velocity_component_indices(registered_variables):
@@ -293,6 +311,7 @@ def _hancock_terms(
     config: SimulationConfig,
     helper_data: HelperData,
     registered_variables: RegisteredVariables,
+    barotropic_law: BarotropicLaw = None,
 ) -> HancockTerms:
     """
     The terms of the Hancock predictor of a sweep along ``axis`` (the split
@@ -305,6 +324,7 @@ def _hancock_terms(
         config: The simulation configuration.
         helper_data: The helper data (the radii of the spherical 1D grid).
         registered_variables: The registered variables.
+        barotropic_law: ``None`` for the ideal gas, or the law of a barotropic gas.
 
     Returns:
         The predictor terms.
@@ -322,6 +342,7 @@ def _hancock_terms(
         pressure_index=registered_variables.pressure_index,
         carried_density_indices=carried_density_indices,
         distances=_cell_distances(config, helper_data),
+        sound_speed_squared_of=None if barotropic_law is None else barotropic_law.sound_speed_squared_of,
     )
 
 
@@ -355,6 +376,7 @@ def _interface_fluxes(
     config: SimulationConfig,
     registered_variables: RegisteredVariables,
     hancock: HancockTerms = None,
+    barotropic_law: BarotropicLaw = None,
 ) -> STATE_TYPE:
     """
     The interface fluxes along one axis: ``flux[:, i]`` is the flux through
@@ -370,6 +392,7 @@ def _interface_fluxes(
         config: The simulation configuration.
         registered_variables: The registered variables.
         hancock: The predictor terms of the split scheme (``None`` without predictor).
+        barotropic_law: ``None`` for the ideal gas, or the law of a barotropic gas.
 
     Returns:
         The flux array, laid out like the state.
@@ -383,7 +406,8 @@ def _interface_fluxes(
     )
     frame_indices = _interface_frame_indices(axis, config, registered_variables)
 
-    # Velocity components the layout lacks enter the solver as zeros.
+    # Velocity components the layout lacks enter the solver as zeros (and so does the pressure of a barotropic
+    # gas, which the solver call fills in from the density).
     zero = jnp.zeros_like(primitive_state[registered_variables.density_index])
     left_values = tuple(
         left_states[index] if index is not None else zero for index in frame_indices
@@ -399,6 +423,7 @@ def _interface_fluxes(
         cleaning_speed,
         riemann_solver,
         config.mhd,
+        barotropic_law,
     )
     flux_components = _state_components_from_frame(flux_values, frame_indices, registered_variables.num_vars)
 
@@ -424,6 +449,7 @@ def _fluxes_per_axis(
     gamma,
     cleaning_speed,
     config: SimulationConfig,
+    params: SimulationParams,
     registered_variables: RegisteredVariables,
     predictor_half_step=None,
     helper_data: HelperData = None,
@@ -442,6 +468,7 @@ def _fluxes_per_axis(
         gamma: The adiabatic index.
         cleaning_speed: The GLM cleaning speed (GLM-MHD only).
         config: The simulation configuration.
+        params: The simulation parameters (the barotropic law).
         registered_variables: The registered variables.
         predictor_half_step: Half the time step of the sweep (the split
             scheme), or ``None`` for face states at the time level of the state.
@@ -450,6 +477,7 @@ def _fluxes_per_axis(
     Returns:
         The interface fluxes (at ``i - 1/2``) per axis.
     """
+    barotropic_law = _barotropic_law(params, config)
     if config.solver_config.divergence_control == CONSTRAINED_TRANSPORT:
         return _ct_fluxes_per_axis(
             primitive_state,
@@ -458,12 +486,15 @@ def _fluxes_per_axis(
             riemann_solver,
             gamma,
             registered_variables,
+            barotropic_law,
         )
     fluxes_per_axis = []
     for axis in axes:
         hancock = None
         if predictor_half_step is not None:
-            hancock = _hancock_terms(axis, predictor_half_step, gamma, config, helper_data, registered_variables)
+            hancock = _hancock_terms(
+                axis, predictor_half_step, gamma, config, helper_data, registered_variables, barotropic_law
+            )
         fluxes_per_axis.append(
             _interface_fluxes(
                 primitive_state,
@@ -475,6 +506,7 @@ def _fluxes_per_axis(
                 config,
                 registered_variables,
                 hancock,
+                barotropic_law,
             )
         )
     return fluxes_per_axis
@@ -497,6 +529,7 @@ def _flux_update(
     cleaning_speed,
     gamma,
     config: SimulationConfig,
+    params: SimulationParams,
     registered_variables: RegisteredVariables,
     correction_mask=None,
     axes=None,
@@ -515,6 +548,7 @@ def _flux_update(
         cleaning_speed: The GLM cleaning speed (GLM-MHD only).
         gamma: The adiabatic index.
         config: The simulation configuration.
+        params: The simulation parameters (the barotropic law).
         registered_variables: The registered variables.
         correction_mask: ``None`` for the stage's own correction attempts
             (with ``first_order_flux_correction``), or a float ``(1, *grid)``
@@ -545,6 +579,7 @@ def _flux_update(
         gamma,
         cleaning_speed,
         config,
+        params,
         registered_variables,
         predictor_half_step,
         helper_data,
@@ -560,6 +595,7 @@ def _flux_update(
             gamma,
             cleaning_speed,
             config,
+            params,
             registered_variables,
         )
         if has_mask:
@@ -587,7 +623,7 @@ def _flux_update(
         # Spherical 1D (the split scheme): one radial sweep.
         flux_divergence = _spherical_flux_divergence(
             fluxes_per_axis[0],
-            stage_primitive_state,
+            pressure_of(stage_primitive_state, params, config, registered_variables),
             config,
             helper_data,
             registered_variables,
@@ -749,6 +785,7 @@ def fv_stage(
         cleaning_speed,
         gamma,
         config,
+        params,
         registered_variables,
         axes=axes,
         predictor_half_step=predictor_half_step,
@@ -824,6 +861,7 @@ def _native_stage_from_primitive_base(
         cleaning_speed,
         gamma,
         config,
+        params,
         registered_variables,
         correction_mask=correction_mask,
     )

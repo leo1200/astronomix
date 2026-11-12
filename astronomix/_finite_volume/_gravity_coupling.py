@@ -11,7 +11,13 @@ optionally with the time-centred energy source of Mullen, Hanawa & Gammie
 the source of ``_modules/_gravity/_gravity.py`` is built from the state before
 the step (``_gravity_source_presolve``) and added to the state after it
 (``_apply_gravity_source``).
+
+A barotropic gas has no energy equation: both couplings then act on the
+momenta alone.
 """
+
+# jax
+import jax.numpy as jnp
 
 # typing
 from typing import Union
@@ -31,6 +37,7 @@ from astronomix.option_classes.simulation_params import SimulationParams
 from astronomix.variable_registry.registered_variables import RegisteredVariables
 
 # astronomix functions
+from astronomix._fluid_equations._equation_of_state import is_barotropic
 from astronomix._fluid_equations._equations import (
     conserved_state_from_primitive,
     primitive_state_from_conserved,
@@ -107,7 +114,8 @@ def _add_athena_gravity_source(
     ``(phi_i + phi_{i+1}) / 2``, so summed over the domain it equals
     ``sum phi_i * (density change)``: total energy is conserved for the
     time-continuous update. The expressions follow Athena++'s arithmetic, axis
-    by axis, so the two codes agree to round-off.
+    by axis, so the two codes agree to round-off. A barotropic gas receives
+    the momentum source only.
 
     Args:
         conserved_state: The conserved state after the stage's flux update.
@@ -128,6 +136,7 @@ def _add_athena_gravity_source(
     """
     half_step_over_spacing = 0.5 * stage_time_step / config.grid_spacing
     energy_index = registered_variables.energy_index
+    has_energy_equation = not is_barotropic(config)
 
     for spatial_axis, mass_flux in enumerate(mass_fluxes_per_axis):
         momentum_index = _component_index(registered_variables.momentum_index, spatial_axis)
@@ -140,24 +149,25 @@ def _add_athena_gravity_source(
         stage_acceleration_right = -(
             _shift(stage_potential, -1, axis=spatial_axis) - stage_potential
         )
-        work_acceleration_left = -(
-            work_potential - _shift(work_potential, 1, axis=spatial_axis)
-        )
-        work_acceleration_right = -(
-            _shift(work_potential, -1, axis=spatial_axis) - work_potential
-        )
-
         momentum_change = (
             half_step_over_spacing
             * stage_density
             * (stage_acceleration_left + stage_acceleration_right)
         )
-        energy_change = half_step_over_spacing * (
-            mass_flux * work_acceleration_left
-            + _shift(mass_flux, -1, axis=spatial_axis) * work_acceleration_right
-        )
         conserved_state = conserved_state.at[momentum_index].add(momentum_change)
-        conserved_state = conserved_state.at[energy_index].add(energy_change)
+
+        if has_energy_equation:
+            work_acceleration_left = -(
+                work_potential - _shift(work_potential, 1, axis=spatial_axis)
+            )
+            work_acceleration_right = -(
+                _shift(work_potential, -1, axis=spatial_axis) - work_potential
+            )
+            energy_change = half_step_over_spacing * (
+                mass_flux * work_acceleration_left
+                + _shift(mass_flux, -1, axis=spatial_axis) * work_acceleration_right
+            )
+            conserved_state = conserved_state.at[energy_index].add(energy_change)
 
     return conserved_state
 
@@ -169,6 +179,40 @@ def _add_athena_gravity_source(
 # -------------------------------------------------------------
 # ================ ↓ Coupling around the step ↓ ===============
 # -------------------------------------------------------------
+
+
+def _barotropic_gravity_source(
+    primitive_state: STATE_TYPE,
+    dt: Float[Array, ""],
+    config: SimulationConfig,
+    params: SimulationParams,
+    registered_variables: RegisteredVariables,
+) -> STATE_TYPE:
+    """
+    The gravity source of one time step for a barotropic gas: the momenta
+    receive ``dt rho g`` with the centred acceleration
+    ``g_i = -(phi_{i+1} - phi_{i-1}) / (2 dx)``, the same momentum source as
+    with an energy equation; there is no energy row to charge.
+
+    Args:
+        primitive_state: The primitive state before the step.
+        dt: The time step.
+        config: The simulation configuration.
+        params: The simulation parameters.
+        registered_variables: The registered variables.
+
+    Returns:
+        The source, as a change of the conserved state over the step.
+    """
+    density = primitive_state[registered_variables.density_index]
+    potential = _vl2_gravitational_potential(density, config, params, registered_variables)
+    source = jnp.zeros_like(primitive_state)
+    for spatial_axis in range(config.dimensionality):
+        momentum_index = _component_index(registered_variables.momentum_index, spatial_axis)
+        potential_difference = _shift(potential, -1, axis=spatial_axis) - _shift(potential, 1, axis=spatial_axis)
+        acceleration = -potential_difference / (2 * config.grid_spacing)
+        source = source.at[momentum_index].set(dt * density * acceleration)
+    return source
 
 
 def _gravity_source_presolve(
@@ -196,6 +240,8 @@ def _gravity_source_presolve(
     Returns:
         The source, as a change of the conserved state over the step.
     """
+    if is_barotropic(config):
+        return _barotropic_gravity_source(primitive_state, dt, config, params, registered_variables)
     return _time_integrator_sources(
         conserved_state_from_primitive(primitive_state, gamma, config, registered_variables),
         None,
@@ -231,9 +277,14 @@ def _apply_gravity_source(
     Returns:
         The primitive state with the source added, ghost cells updated.
     """
-    conserved_state = conserved_state_from_primitive(primitive_state, gamma, config, registered_variables)
-    conserved_state = conserved_state + gravity_source
-    primitive_state = primitive_state_from_conserved(conserved_state, gamma, config, registered_variables)
+    if is_barotropic(config):
+        # The source changes the momenta only, so each velocity takes its share over the density (the source of
+        # the density row is zero).
+        primitive_state = primitive_state + gravity_source / primitive_state[registered_variables.density_index]
+    else:
+        conserved_state = conserved_state_from_primitive(primitive_state, gamma, config, registered_variables)
+        conserved_state = conserved_state + gravity_source
+        primitive_state = primitive_state_from_conserved(conserved_state, gamma, config, registered_variables)
     if config.boundary_handling == GHOST_CELLS:
         primitive_state = _boundary_handler(primitive_state, config, registered_variables, params)
     return primitive_state

@@ -29,6 +29,7 @@ from astronomix.option_classes.simulation_params import SimulationParams
 from astronomix.variable_registry.registered_variables import RegisteredVariables
 
 # astronomix functions
+from astronomix._fluid_equations._equation_of_state import is_barotropic
 from astronomix._finite_volume._timestep_estimation._timestep_estimator import (
     _maximum_signal_speed_vl2,
 )
@@ -181,9 +182,10 @@ def _dedner_source(
             conserved_state = conserved_state.at[momentum_index].add(
                 -stage_time_step * magnetic_divergence * field_component
             )
-        conserved_state = conserved_state.at[registered_variables.energy_index].add(
-            -stage_time_step * field_dot_psi_gradient
-        )
+        if not is_barotropic(config):
+            conserved_state = conserved_state.at[registered_variables.energy_index].add(
+                -stage_time_step * field_dot_psi_gradient
+            )
 
     return conserved_state.at[psi_index].multiply(damping_factor)
 
