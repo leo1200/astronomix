@@ -21,6 +21,8 @@ from astronomix.option_classes.simulation_config import (
     GLM,
     HLLD,
     PIECEWISE_LINEAR,
+    RIEMANN_FLUX,
+    SSPRK33,
     SSPRK54,
     VAN_LEER,
     VL2,
@@ -49,3 +51,14 @@ FD_PAPER = FDSolverConfig(
     ct_upwind_dissipation=True,
     ct_upwind_strength=0.03,
 )
+
+#: The finite-difference scheme with a Riemann flux for isothermal MHD: HLLEM_T
+#: flux, flux-form constrained transport, SSPRK(3,3). Use with ``mhd=True``,
+#: ``equation_of_state=ISOTHERMAL`` and a CFL number of 1.0.
+FD_RIEMANN_ISOTHERMAL = FDSolverConfig(scheme=RIEMANN_FLUX, time_integrator=SSPRK33)
+
+#: The finite-difference scheme with a Riemann flux for ideal-gas MHD:
+#: HLLD_BOUNDED flux, flux-form constrained transport with the energy held in
+#: the field rebuild, SSPRK(5,4). Use with ``mhd=True``,
+#: ``equation_of_state=IDEAL_GAS`` and a CFL number of 1.0.
+FD_RIEMANN_IDEAL_GAS = FDSolverConfig(scheme=RIEMANN_FLUX, time_integrator=SSPRK54)

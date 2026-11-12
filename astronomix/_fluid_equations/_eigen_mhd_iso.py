@@ -13,7 +13,7 @@ The sound speed cs is a fixed parameter rather than being derived from pressure.
 from functools import partial
 
 # typing
-from typing import Union
+from typing import NamedTuple, Union
 
 # jax
 import jax
@@ -23,6 +23,7 @@ import jax.numpy as jnp
 from astronomix.variable_registry.registered_variables import RegisteredVariables
 
 # astronomix functions
+from astronomix._fluid_equations._eigen_mhd import _wave_speeds
 from astronomix._stencil_operations._stencil_operations import _shift
 
 
@@ -41,6 +42,20 @@ def diff_safe_sqrt(x):
     epsilon = eps
     x_safe = jnp.maximum(x, epsilon)
     return jnp.sqrt(x_safe)
+
+
+def zero_safe_sqrt(x):
+    """sqrt(max(x, 0)) whose derivative at x <= 0 is zero instead of infinite.
+
+    The values are those of ``jnp.sqrt(jnp.maximum(x, 0.0))`` for every input (a NaN stays a NaN).
+    Only the derivative differs: jnp.sqrt gives 1 / (2 sqrt(x)) = inf at x = 0, which the chain
+    rule turns into NaN wherever the argument's own derivative vanishes there (a tangential field
+    strength b_t = sqrt(b_t^2) at b_t = 0, an Alfven speed |B| / sqrt(rho) without a field). The
+    derivative taken here at x <= 0 is zero: exact where the result enters only through its
+    square (c_f depends on b_t^2), and the symmetric choice at the kink of |B| at B = 0.
+    """
+    nonpositive = x <= 0.0
+    return jnp.where(nonpositive, 0.0, jnp.sqrt(jnp.where(nonpositive, 1.0, x)))
 
 
 @partial(jax.jit, static_argnames=["registered_variables"])
@@ -92,19 +107,57 @@ def _eigenvalue_building_blocks(
     )
 
 
-@partial(jax.jit, static_argnames=["registered_variables"])
-def _eigenvector_building_blocks(
+class EigenvectorBlocksIso(NamedTuple):
+    """
+    The interface quantities the isothermal MHD eigenvectors are assembled
+    from: the interface density and its square root, velocity and magnetic
+    field components, normalised tangential field and sign factors, the sound
+    speed with its square and inverse square, the fast, Alfven and slow speeds
+    and the fast/slow mode weightings.
+    """
+
+    rho_interface: jnp.ndarray
+    sqrt_rho: jnp.ndarray
+    velocity_x_interface: jnp.ndarray
+    velocity_y_interface: jnp.ndarray
+    velocity_z_interface: jnp.ndarray
+    magnetic_x_interface: jnp.ndarray
+    magnetic_y_interface: jnp.ndarray
+    magnetic_z_interface: jnp.ndarray
+    bt_normalized_y: jnp.ndarray
+    bt_normalized_z: jnp.ndarray
+    sgn_bx: jnp.ndarray
+    sgn_bt: jnp.ndarray
+    sound_speed: Union[float, jnp.ndarray]
+    cs2: Union[float, jnp.ndarray]
+    cs2_inverse: Union[float, jnp.ndarray]
+    sound_speed_greater_alfven_speed: jnp.ndarray
+    fast_magnetosonic_velocity_interface: jnp.ndarray
+    alfven_velocity_interface: jnp.ndarray
+    slow_magnetosonic_velocity_interface: jnp.ndarray
+    fast_mode_weighting: jnp.ndarray
+    slow_mode_weighting: jnp.ndarray
+
+
+def _interface_state_iso(
     conserved_state,
-    sound_speed,
     rhomin,
     registered_variables: RegisteredVariables,
 ):
-    
-    if jax.config.jax_enable_x64:
-        eps = 1e-30
-    else:
-        eps = 1e-20
+    """
+    Step (i) of the eigenvectors: the cell primitives with the density floor
+    and the interface state between cell i and cell i + 1, built from averages
+    of the two cells.
 
+    Args:
+        conserved_state: The conserved state, sweep direction first.
+        rhomin: The density floor.
+        registered_variables: The registered variables.
+
+    Returns:
+        The interface density and the three velocity and the three magnetic
+        field components.
+    """
     # unpack conserved variables
     rho = conserved_state[registered_variables.density_index]
     momentum_x = conserved_state[registered_variables.momentum_index.x]
@@ -137,50 +190,63 @@ def _eigenvector_building_blocks(
     magnetic_y_interface = avg_x(magnetic_y)
     magnetic_z_interface = avg_x(magnetic_z)
 
-    # interface derived quantities
-    magnetic_sq_interface = (
-        magnetic_x_interface * magnetic_x_interface
-        + magnetic_y_interface * magnetic_y_interface
-        + magnetic_z_interface * magnetic_z_interface
-    )
-    b_sq_over_rho_interface = magnetic_sq_interface / rho_interface
-    bx_sq_over_rho_interface = (
-        magnetic_x_interface * magnetic_x_interface
-    ) / rho_interface
-
-    cs2 = sound_speed ** 2
-
-    # calculate the characteristic velocities at the interfaces
-    magnetosonic_discriminant_interface = (
-        b_sq_over_rho_interface + cs2
-    ) ** 2 - 4.0 * bx_sq_over_rho_interface * cs2
-    magnetosonic_discriminant_root_interface = diff_safe_sqrt(
-        jnp.maximum(0.0, magnetosonic_discriminant_interface)
+    return (
+        rho_interface,
+        velocity_x_interface,
+        velocity_y_interface,
+        velocity_z_interface,
+        magnetic_x_interface,
+        magnetic_y_interface,
+        magnetic_z_interface,
     )
 
-    fast_magnetosonic_velocity_interface = diff_safe_sqrt(
-        jnp.maximum(
-            0.0,
-            0.5 * (
-                b_sq_over_rho_interface
-                + cs2
-                + magnetosonic_discriminant_root_interface
-            ),
-        )
-    )
-    alfven_velocity_interface = diff_safe_sqrt(
-        jnp.maximum(0.0, bx_sq_over_rho_interface)
-    )
-    slow_magnetosonic_velocity_interface = diff_safe_sqrt(
-        jnp.maximum(
-            0.0,
-            0.5 * (
-                b_sq_over_rho_interface
-                + cs2
-                - magnetosonic_discriminant_root_interface
-            ),
-        )
-    )
+
+def _eigenvector_blocks_iso(
+    rho_interface,
+    velocity_x_interface,
+    velocity_y_interface,
+    velocity_z_interface,
+    magnetic_x_interface,
+    magnetic_y_interface,
+    magnetic_z_interface,
+    sound_speed,
+    cs2,
+    fast_magnetosonic_velocity_interface,
+    alfven_velocity_interface,
+    slow_magnetosonic_velocity_interface,
+    fast_magnetosonic_velocity_sq_interface,
+    slow_magnetosonic_velocity_sq_interface,
+) -> EigenvectorBlocksIso:
+    """
+    Step (iii) of the eigenvectors: the mode weightings and the remaining
+    blocks from an interface state, its wave speeds (step (ii) is
+    ``_wave_speeds`` of ``_eigen_mhd.py``) and the squared fast and slow speeds.
+
+    Args:
+        rho_interface: The interface density.
+        velocity_x_interface: The interface velocity along the sweep direction.
+        velocity_y_interface: The first transverse interface velocity.
+        velocity_z_interface: The second transverse interface velocity.
+        magnetic_x_interface: The interface field along the sweep direction.
+        magnetic_y_interface: The first transverse component of the interface field.
+        magnetic_z_interface: The second transverse component of the interface field.
+        sound_speed: The isothermal sound speed.
+        cs2: The squared isothermal sound speed.
+        fast_magnetosonic_velocity_interface: The fast speed.
+        alfven_velocity_interface: The Alfven speed.
+        slow_magnetosonic_velocity_interface: The slow speed.
+        fast_magnetosonic_velocity_sq_interface: The squared fast speed
+            entering the mode weightings.
+        slow_magnetosonic_velocity_sq_interface: The squared slow speed
+            entering the mode weightings.
+
+    Returns:
+        The blocks the rows and columns of the eigenvectors are assembled from.
+    """
+    if jax.config.jax_enable_x64:
+        eps = 1e-30
+    else:
+        eps = 1e-20
 
     # tangential magnetic field normalization
     b_tangential_sq = (
@@ -204,19 +270,14 @@ def _eigenvector_building_blocks(
 
     # mode weightings: af^2 + as^2 = 1
     denom = (
-        fast_magnetosonic_velocity_interface * fast_magnetosonic_velocity_interface
-        - slow_magnetosonic_velocity_interface * slow_magnetosonic_velocity_interface
+        fast_magnetosonic_velocity_sq_interface
+        - slow_magnetosonic_velocity_sq_interface
     )
     denom_safe = jnp.maximum(denom, eps)
     fast_mode_weighting = jnp.where(
         denom >= eps,
         diff_safe_sqrt(
-            jnp.maximum(
-                0.0,
-                cs2
-                - slow_magnetosonic_velocity_interface
-                * slow_magnetosonic_velocity_interface,
-            )
+            jnp.maximum(0.0, cs2 - slow_magnetosonic_velocity_sq_interface)
         )
         / diff_safe_sqrt(denom_safe),
         1.0,
@@ -224,12 +285,7 @@ def _eigenvector_building_blocks(
     slow_mode_weighting = jnp.where(
         denom >= eps,
         diff_safe_sqrt(
-            jnp.maximum(
-                0.0,
-                fast_magnetosonic_velocity_interface
-                * fast_magnetosonic_velocity_interface
-                - cs2,
-            )
+            jnp.maximum(0.0, fast_magnetosonic_velocity_sq_interface - cs2)
         )
         / diff_safe_sqrt(denom_safe),
         1.0,
@@ -247,7 +303,7 @@ def _eigenvector_building_blocks(
 
     sound_speed_greater_alfven_speed = sound_speed >= alfven_velocity_interface
 
-    return (
+    return EigenvectorBlocksIso(
         rho_interface,
         sqrt_rho,
         velocity_x_interface,
@@ -273,13 +329,80 @@ def _eigenvector_building_blocks(
 
 
 @partial(jax.jit, static_argnames=["registered_variables"])
-def _eigen_R_col_iso(
+def _eigenvector_building_blocks(
     conserved_state,
-    rhomin: Union[float, jnp.ndarray],
-    sound_speed: Union[float, jnp.ndarray],
+    sound_speed,
+    rhomin,
     registered_variables: RegisteredVariables,
-    col: int,
 ):
+    """
+    Interface quantities entering the isothermal MHD eigenvectors, see the
+    steps (i) to (iii) above.
+    """
+    interface_state = _interface_state_iso(
+        conserved_state, rhomin, registered_variables
+    )
+    (
+        rho_interface,
+        _,
+        _,
+        _,
+        magnetic_x_interface,
+        magnetic_y_interface,
+        magnetic_z_interface,
+    ) = interface_state
+
+    cs2 = sound_speed ** 2
+
+    (
+        fast_magnetosonic_velocity_interface,
+        alfven_velocity_interface,
+        slow_magnetosonic_velocity_interface,
+        _,
+        _,
+    ) = _wave_speeds(
+        rho_interface,
+        magnetic_x_interface,
+        magnetic_y_interface,
+        magnetic_z_interface,
+        cs2,
+    )
+
+    # The mode weightings of this function are formed from the squares of the
+    # rounded speeds, as before the split into the steps (i) to (iv).
+    return _eigenvector_blocks_iso(
+        *interface_state,
+        sound_speed,
+        cs2,
+        fast_magnetosonic_velocity_interface,
+        alfven_velocity_interface,
+        slow_magnetosonic_velocity_interface,
+        fast_magnetosonic_velocity_interface * fast_magnetosonic_velocity_interface,
+        slow_magnetosonic_velocity_interface * slow_magnetosonic_velocity_interface,
+    )
+
+
+def _right_eigenvector_columns_iso(
+    conserved_state,
+    registered_variables: RegisteredVariables,
+    blocks: EigenvectorBlocksIso,
+):
+    """
+    Step (iv) of the eigenvectors: the right eigenvectors (columns of R) of the
+    isothermal MHD flux Jacobian at the interfaces, one function per
+    characteristic mode.
+
+    Args:
+        conserved_state: The conserved state, sweep direction first; only its
+            shape and dtype enter (every column is shaped like it).
+        registered_variables: The registered variables.
+        blocks: The interface quantities of ``_eigenvector_blocks_iso``.
+
+    Returns:
+        Six functions without arguments, ordered by wave speed (fast -,
+        Alfven -, slow -, slow +, Alfven +, fast +); each returns one
+        eigenvector, shaped like ``conserved_state``.
+    """
     (
         rho_interface,
         sqrt_rho,
@@ -302,12 +425,7 @@ def _eigen_R_col_iso(
         slow_magnetosonic_velocity_interface,
         fast_mode_weighting,
         slow_mode_weighting,
-    ) = _eigenvector_building_blocks(
-        conserved_state,
-        sound_speed,
-        rhomin,
-        registered_variables,
-    )
+    ) = blocks
 
     # shorter names for registry indices
     density_index = registered_variables.density_index
@@ -463,19 +581,58 @@ def _eigen_R_col_iso(
         R = jnp.where(~sound_speed_greater_alfven_speed, R * sgn_bt, R)
         return R
 
-    R = jax.lax.switch(col, [col_0, col_1, col_2, col_3, col_4, col_5])
-
-    return R
+    return [col_0, col_1, col_2, col_3, col_4, col_5]
 
 
 @partial(jax.jit, static_argnames=["registered_variables"])
-def _eigen_L_row_iso(
+def _eigen_R_col_iso(
     conserved_state,
     rhomin: Union[float, jnp.ndarray],
     sound_speed: Union[float, jnp.ndarray],
     registered_variables: RegisteredVariables,
-    row: int,
+    col: int,
 ):
+    """
+    One right eigenvector (column ``col`` of R) of the isothermal MHD flux
+    Jacobian at the interfaces; the modes are ordered by wave speed (fast -,
+    Alfven -, slow -, slow +, Alfven +, fast +).
+    """
+    blocks = _eigenvector_building_blocks(
+        conserved_state,
+        sound_speed,
+        rhomin,
+        registered_variables,
+    )
+
+    R = jax.lax.switch(
+        col,
+        _right_eigenvector_columns_iso(conserved_state, registered_variables, blocks),
+    )
+
+    return R
+
+
+def _left_eigenvector_rows_iso(
+    conserved_state,
+    registered_variables: RegisteredVariables,
+    blocks: EigenvectorBlocksIso,
+):
+    """
+    Step (iv) of the eigenvectors: the left eigenvectors (rows of L) of the
+    isothermal MHD flux Jacobian at the interfaces, one function per
+    characteristic mode.
+
+    Args:
+        conserved_state: The conserved state, sweep direction first; only its
+            shape and dtype enter (every row is shaped like it).
+        registered_variables: The registered variables.
+        blocks: The interface quantities of ``_eigenvector_blocks_iso``.
+
+    Returns:
+        Six functions without arguments, ordered by wave speed (fast -,
+        Alfven -, slow -, slow +, Alfven +, fast +); each returns one
+        eigenvector, shaped like ``conserved_state``.
+    """
     (
         rho_interface,
         sqrt_rho,
@@ -498,12 +655,7 @@ def _eigen_L_row_iso(
         slow_magnetosonic_velocity_interface,
         fast_mode_weighting,
         slow_mode_weighting,
-    ) = _eigenvector_building_blocks(
-        conserved_state,
-        sound_speed,
-        rhomin,
-        registered_variables,
-    )
+    ) = blocks
 
     # shorter names for registry indices
     density_index = registered_variables.density_index
@@ -699,7 +851,32 @@ def _eigen_L_row_iso(
         L = jnp.where(~sound_speed_greater_alfven_speed, L * sgn_bt, L)
         return L
 
-    L = jax.lax.switch(row, [row_0, row_1, row_2, row_3, row_4, row_5])
+    return [row_0, row_1, row_2, row_3, row_4, row_5]
+
+
+@partial(jax.jit, static_argnames=["registered_variables"])
+def _eigen_L_row_iso(
+    conserved_state,
+    rhomin: Union[float, jnp.ndarray],
+    sound_speed: Union[float, jnp.ndarray],
+    registered_variables: RegisteredVariables,
+    row: int,
+):
+    """
+    One left eigenvector (row ``row`` of L) of the isothermal MHD flux
+    Jacobian at the interfaces; the modes are ordered by wave speed (fast -,
+    Alfven -, slow -, slow +, Alfven +, fast +).
+    """
+    blocks = _eigenvector_building_blocks(
+        conserved_state,
+        sound_speed,
+        rhomin,
+        registered_variables,
+    )
+
+    L = jax.lax.switch(
+        row, _left_eigenvector_rows_iso(conserved_state, registered_variables, blocks)
+    )
 
     return L
 

@@ -31,7 +31,9 @@ from astronomix.option_classes.simulation_config import (
     GHOST_CELLS,
     IDEAL_GAS,
     MAGNETIC_FIELD_ONLY,
+    RIEMANN_FLUX,
     SIMPLE_SOURCE,
+    SSPRK33,
 )
 
 # astronomix containers
@@ -41,6 +43,11 @@ from astronomix.option_classes.simulation_params import SimulationParams
 from astronomix.variable_registry.registered_variables import RegisteredVariables
 
 # astronomix functions
+from astronomix._finite_difference._interface_fluxes._riemann_flux import (
+    interface_flux as riemann_interface_flux,
+    maximum_signal_speed,
+    transverse_compression,
+)
 from astronomix._finite_difference._interface_fluxes._weno import (
     _weno_flux_x,
     _weno_flux_y,
@@ -70,8 +77,14 @@ from astronomix._finite_difference._magnetic_update._constrained_transport_palla
     _ct_rhs_pallas_supported,
     _ct_rhs_pallas_x_precomputed,
 )
+from astronomix._finite_difference._magnetic_update._energy_flux import magnetic_energy_corrected_flux
+from astronomix._finite_difference._magnetic_update._flux_form_ct import (
+    flux_form_ct_rhs,
+    flux_form_ct_rhs_with_energy,
+)
+from astronomix._finite_difference._ratio_rules import _floored_ratio
 from astronomix._geometry.boundaries import _boundary_handler
-from astronomix._integrators._explicit_rk import lsrk4, ssprk4
+from astronomix._integrators._explicit_rk import lsrk4, ssprk33, ssprk4
 from astronomix._modules._time_integrator_sources import _time_integrator_sources
 from astronomix._modules._resistivity._resistivity import fd_ohmic_interface_rhs
 from astronomix._pallas_helpers import (
@@ -106,6 +119,58 @@ def _stage_remat(fn, config):
     if not config.rematerialize_stages:
         return fn
     return jax.checkpoint(fn)
+
+
+def _riemann_flux_increment(
+    conserved_state,
+    face_fields,
+    dt_over_dx,
+    params: SimulationParams,
+    config: SimulationConfig,
+    registered_variables: RegisteredVariables,
+):
+    """
+    The fluid increment of a stage under ``scheme = RIEMANN_FLUX``:
+    -dt/h sum_d delta_d(F_d) with the interface flux of ``_riemann_flux.py``.
+    For the ideal gas the energy row carries the fluid half of the
+    Poynting-consistent energy flux (``_energy_flux.py``); the CT half is added
+    with the constrained transport.
+
+    Args:
+        conserved_state: The conserved state with the cell-centred field rebuilt.
+        face_fields: The interface fields (bx, by, bz).
+        dt_over_dx: The (stage) time step over the cell size.
+        params: The simulation parameters.
+        config: The simulation configuration.
+        registered_variables: The registered variables.
+
+    Returns:
+        The increment of the conserved state and the density fluxes of the axes.
+    """
+    energy_flux_channels = None
+    if config.equation_of_state == IDEAL_GAS:
+        magnetic_index = registered_variables.magnetic_index
+        energy_flux_channels = (
+            registered_variables.energy_index,
+            (magnetic_index.x, magnetic_index.y, magnetic_index.z),
+        )
+    compression = transverse_compression(conserved_state, params, config, registered_variables)
+    increment, density_fluxes = None, []
+    for axis in range(config.dimensionality):
+        # The reference step of the guard: one cell over the largest signal speed of the axis.
+        reference_step = _floored_ratio(
+            1.0, maximum_signal_speed(conserved_state, params, config, registered_variables, axis)
+        )
+        flux = riemann_interface_flux(
+            conserved_state, face_fields[axis], reference_step, compression[axis],
+            params, config, registered_variables, axis,
+        )
+        density_fluxes.append(flux[registered_variables.density_index])
+        if energy_flux_channels is not None:
+            flux = magnetic_energy_corrected_flux(flux, conserved_state, energy_flux_channels, axis)
+        divergence = -dt_over_dx * (flux - _shift(flux, 1, axis=axis + 1))
+        increment = divergence if increment is None else increment + divergence
+    return increment, tuple(density_fluxes)
 
 
 @partial(
@@ -175,7 +240,7 @@ def _ssprk4_with_ct(
         current_q, bx, by, bz = u
 
         current_q = update_cell_center_fields(
-            current_q, bx, by, bz, config, registered_variables
+            current_q, bx, by, bz, config, registered_variables, params
         )
 
         # For ideal MHD with the positivity-preserving WENO, compute each
@@ -209,28 +274,13 @@ def _ssprk4_with_ct(
         magnetic_index = registered_variables.magnetic_index
         density_index = registered_variables.density_index
 
-        # --------------- ↓ x-axis ↓ ----------------
-        dF_x = _weno_flux_x(
-            current_q,
-            params,
-            config,
-            registered_variables,
-            internal_energy_density=internal_energy_density,
-            inflow_reference=inflow_reference,
-        )
-        By_flux_x = dF_x[magnetic_index.y]
-        Bz_flux_x = dF_x[magnetic_index.z]
-        density_flux_x = dF_x[density_index]
-        if use_pallas_div:
-            rhs_q = _hydro_flux_div_axis_pallas(dF_x, dtdx, config, axis=0)
+        if config.solver_config.scheme == RIEMANN_FLUX:
+            rhs_q, (density_flux_x, density_flux_y, density_flux_z) = _riemann_flux_increment(
+                current_q, (bx, by, bz), dtdx, params, config, registered_variables
+            )
         else:
-            rhs_q = -dtdx * (dF_x - _shift(dF_x, 1, axis=1))
-        del dF_x
-        # --------------- ↑ x-axis ↑ ----------------
-
-        # --------------- ↓ y-axis ↓ ----------------
-        if config.dimensionality >= 2:
-            dF_y = _weno_flux_y(
+            # --------------- ↓ x-axis ↓ ----------------
+            dF_x = _weno_flux_x(
                 current_q,
                 params,
                 config,
@@ -238,62 +288,93 @@ def _ssprk4_with_ct(
                 internal_energy_density=internal_energy_density,
                 inflow_reference=inflow_reference,
             )
-            Bx_flux_y = dF_y[magnetic_index.x]
-            Bz_flux_y = dF_y[magnetic_index.z]
-            density_flux_y = dF_y[density_index]
+            By_flux_x = dF_x[magnetic_index.y]
+            Bz_flux_x = dF_x[magnetic_index.z]
+            density_flux_x = dF_x[density_index]
             if use_pallas_div:
-                rhs_q = _hydro_flux_div_axis_pallas(
-                    dF_y, dtdy, config, axis=1, rhs_accumulator=rhs_q
-                )
+                rhs_q = _hydro_flux_div_axis_pallas(dF_x, dtdx, config, axis=0)
             else:
-                rhs_q = rhs_q - dtdy * (dF_y - _shift(dF_y, 1, axis=2))
-            del dF_y
-        else:
-            Bx_flux_y = 0.0
-            Bz_flux_y = 0.0
-        # --------------- ↑ y-axis ↑ ----------------
+                rhs_q = -dtdx * (dF_x - _shift(dF_x, 1, axis=1))
+            del dF_x
+            # --------------- ↑ x-axis ↑ ----------------
 
-        # --------------- ↓ z-axis ↓ ----------------
-        if config.dimensionality == 3:
-            dF_z = _weno_flux_z(
-                current_q,
-                params,
-                config,
-                registered_variables,
-                internal_energy_density=internal_energy_density,
-                inflow_reference=inflow_reference,
-            )
-            Bx_flux_z = dF_z[magnetic_index.x]
-            By_flux_z = dF_z[magnetic_index.y]
-            density_flux_z = dF_z[density_index]
-            if use_pallas_div:
-                rhs_q = _hydro_flux_div_axis_pallas(
-                    dF_z, dtdz, config, axis=2, rhs_accumulator=rhs_q
+            # --------------- ↓ y-axis ↓ ----------------
+            if config.dimensionality >= 2:
+                dF_y = _weno_flux_y(
+                    current_q,
+                    params,
+                    config,
+                    registered_variables,
+                    internal_energy_density=internal_energy_density,
+                    inflow_reference=inflow_reference,
                 )
+                Bx_flux_y = dF_y[magnetic_index.x]
+                Bz_flux_y = dF_y[magnetic_index.z]
+                density_flux_y = dF_y[density_index]
+                if use_pallas_div:
+                    rhs_q = _hydro_flux_div_axis_pallas(
+                        dF_y, dtdy, config, axis=1, rhs_accumulator=rhs_q
+                    )
+                else:
+                    rhs_q = rhs_q - dtdy * (dF_y - _shift(dF_y, 1, axis=2))
+                del dF_y
             else:
-                rhs_q = rhs_q - dtdz * (dF_z - _shift(dF_z, 1, axis=3))
-            del dF_z
-        else:
-            Bx_flux_z = 0.0
-            By_flux_z = 0.0
-        # --------------- ↑ z-axis ↑ ----------------
+                Bx_flux_y = 0.0
+                Bz_flux_y = 0.0
+            # --------------- ↑ y-axis ↑ ----------------
+
+            # --------------- ↓ z-axis ↓ ----------------
+            if config.dimensionality == 3:
+                dF_z = _weno_flux_z(
+                    current_q,
+                    params,
+                    config,
+                    registered_variables,
+                    internal_energy_density=internal_energy_density,
+                    inflow_reference=inflow_reference,
+                )
+                Bx_flux_z = dF_z[magnetic_index.x]
+                By_flux_z = dF_z[magnetic_index.y]
+                density_flux_z = dF_z[density_index]
+                if use_pallas_div:
+                    rhs_q = _hydro_flux_div_axis_pallas(
+                        dF_z, dtdz, config, axis=2, rhs_accumulator=rhs_q
+                    )
+                else:
+                    rhs_q = rhs_q - dtdz * (dF_z - _shift(dF_z, 1, axis=3))
+                del dF_z
+            else:
+                Bx_flux_z = 0.0
+                By_flux_z = 0.0
+            # --------------- ↑ z-axis ↑ ----------------
 
         # CT now runs on the six single-channel B-flux slices only — the
         # three 8-var dF arrays have all been freed by this point.
-        rhs_bx, rhs_by, rhs_bz = _constrained_transport_rhs_from_slices(
-            current_q,
-            By_flux_x,
-            Bz_flux_x,
-            Bx_flux_y,
-            Bz_flux_y,
-            Bx_flux_z,
-            By_flux_z,
-            dtdx,
-            dtdy,
-            dtdz,
-            config,
-            registered_variables,
-        )
+        if config.solver_config.scheme == RIEMANN_FLUX:
+            if config.equation_of_state == IDEAL_GAS:
+                rhs_bx, rhs_by, rhs_bz, ct_energy = flux_form_ct_rhs_with_energy(
+                    current_q, bx, by, bz, dt_tilde, grid_spacing, params, config, registered_variables
+                )
+                rhs_q = rhs_q.at[registered_variables.energy_index].add(ct_energy)
+            else:
+                rhs_bx, rhs_by, rhs_bz = flux_form_ct_rhs(
+                    current_q, bx, by, bz, dt_tilde, grid_spacing, params, config, registered_variables
+                )
+        else:
+            rhs_bx, rhs_by, rhs_bz = _constrained_transport_rhs_from_slices(
+                current_q,
+                By_flux_x,
+                Bz_flux_x,
+                Bx_flux_y,
+                Bz_flux_y,
+                Bx_flux_z,
+                By_flux_z,
+                dtdx,
+                dtdy,
+                dtdz,
+                config,
+                registered_variables,
+            )
         # Upwind dissipation of the edge EMFs on the interface fields, which
         # the central CT interpolations leave undamped near the grid scale
         # (see ct_upwind_dissipation_rhs); also a curl, so div(B) = 0 is kept.
@@ -376,7 +457,7 @@ def _ssprk4_with_ct(
         # Update the cell-centered magnetic fields in the conserved state array
         # from the final interface magnetic fields.
         q = update_cell_center_fields(
-            q, bx, by, bz, config, registered_variables
+            q, bx, by, bz, config, registered_variables, params
         )
         return (q, bx, by, bz)
 
@@ -390,15 +471,20 @@ def _ssprk4_with_ct(
         # held) makes every increment start from the state it was evaluated
         # at, which the positivity-preserving WENO proof needs.
         q, bx, by, bz = u
-        q = update_cell_center_fields(q, bx, by, bz, config, registered_variables)
+        q = update_cell_center_fields(q, bx, by, bz, config, registered_variables, params)
         return (q, bx, by, bz)
 
-    # Only the positivity-preserving ideal-MHD scheme needs the stage states
-    # resynchronised; everywhere else ``ssprk4`` keeps its identity hook.
+    # Only the positivity-preserving ideal-MHD scheme and the ideal-gas scheme
+    # with a Riemann flux (whose rebuild holds the energy) need the stage states
+    # resynchronised; everywhere else the Runge-Kutta loop keeps its identity hook.
     stage_hooks = {"pre_stage": _stage_remat(pre_stage, config)}
-    if config.solver_config.weno_positivity_preserving and config.equation_of_state == IDEAL_GAS:
+    rebuilds_stage_states = (
+        config.solver_config.weno_positivity_preserving or config.solver_config.scheme == RIEMANN_FLUX
+    )
+    if rebuilds_stage_states and config.equation_of_state == IDEAL_GAS:
         stage_hooks["post_stage"] = _stage_remat(post_stage, config)
-    return ssprk4(
+    runge_kutta = ssprk33 if config.solver_config.time_integrator == SSPRK33 else ssprk4
+    return runge_kutta(
         (conserved_state, bx_interface, by_interface, bz_interface),
         dt,
         rhs=rhs,

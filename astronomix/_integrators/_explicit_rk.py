@@ -18,7 +18,7 @@ Model contract (all closures operate on the state pytree ``u``):
     rhs(u, dt_stage) -> du
         The stage increment ``dt_stage * L(u)``, a pytree matching ``u``.
 
-    post_stage(u) -> u   [ssprk4 only]
+    post_stage(u) -> u   [ssprk4, ssprk33]
         Hook applied to each new stage state as soon as it is formed, before
         it is accumulated or used as the base of the next increment (e.g.
         rebuilding the cell-centered MHD fields from the interface fields).
@@ -39,6 +39,7 @@ Model contract (all closures operate on the state pytree ``u``):
 
 Schemes:
     ssprk4   - 5-stage 4th-order Spiteri-Ruuth SSPRK (3-register).
+    ssprk33  - 3-stage 3rd-order Shu-Osher SSPRK (2-register).
     lsrk4    - 5-stage 4th-order Carpenter-Kennedy 2N-storage low-storage RK.
 """
 
@@ -238,6 +239,105 @@ def ssprk4(u0, dt, *, rhs, pre_stage=_identity, post_stage=_identity, finalize=_
     u_final = _tree_add(u_final, du4)
 
     return finalize(u_final)
+
+
+# ---------------------------------------------------------------------------
+# The third-order SSPRK(3,3) scheme, in which every stage is built from the
+# initial state and the previous stage only,
+#
+#     u_i = k0_i u_0 + kcurr_i u_{i-1} + krhs_i dt L(u_{i-1}),   i = 1 .. s,
+#
+# so two registers (``u_0`` and the running stage state) suffice. Every stage
+# is a convex combination of ``u_0`` and one forward-Euler step of size
+# ``(krhs_i / kcurr_i) dt`` (``krhs_i dt`` where ``kcurr_i`` is listed as 0:
+# the first stage, ``u_1 = u_0 + krhs_1 dt L(u_0)``); the SSP coefficient is
+# the smallest ``kcurr_i / krhs_i``.
+# ---------------------------------------------------------------------------
+
+#: SSPRK(3,3) of Shu & Osher (1988), SSP coefficient 1:
+#:     u_1 = u_0 + dt L(u_0)
+#:     u_2 = 3/4 u_0 + 1/4 (u_1 + dt L(u_1))
+#:     u_3 = 1/3 u_0 + 2/3 (u_2 + dt L(u_2))
+#: as ``(k0, kcurr, krhs)`` per stage.
+_SSPRK33_STAGES = (
+    (1.0, 0.0, 1.0),
+    _weights_summing_to_one((3.0 / 4.0, 1.0 / 4.0)) + (1.0 / 4.0,),
+    _weights_summing_to_one((1.0 / 3.0, 2.0 / 3.0)) + (2.0 / 3.0,),
+)
+
+
+def _two_register_ssprk(u0, dt, stages, *, rhs, pre_stage, post_stage, finalize):
+    """
+    Advance ``u0`` by ``dt`` with a scheme of the form
+
+        u_i = k0_i u_0 + kcurr_i u_{i-1} + krhs_i dt L(u_{i-1}),   i = 1 .. s.
+
+    ``pre_stage`` is applied to the state every right-hand side is evaluated
+    at, ``post_stage`` to every intermediate stage state ``u_1 .. u_{s-1}`` as
+    soon as it is formed, and ``finalize`` to ``u_s``. Every increment is
+    evaluated at the state it is added to, and the weights of ``u_0`` and of
+    the (hooked) previous stage are non-negative, so a ``post_stage`` that
+    changes the stage states leaves every stage a convex combination of
+    forward-Euler steps.
+
+    Args:
+        u0: Initial state pytree at ``t = t_n``.
+        dt: Full time step.
+        stages: Per stage, ``(k0, kcurr, krhs)``.
+        rhs: ``rhs(u, dt_stage) -> du`` stage increment.
+        pre_stage: Per-stage hook.
+        post_stage: Hook on each intermediate stage state.
+        finalize: Post-integration hook.
+
+    Returns:
+        The state pytree at ``t = t_n + dt``.
+    """
+    k0_s = jnp.asarray([stage[0] for stage in stages])
+    kcurr_s = jnp.asarray([stage[1] for stage in stages])
+    krhs_s = jnp.asarray([stage[2] for stage in stages])
+    last = len(stages) - 1
+
+    def formed(stage_idx, u_curr):
+        u_curr = pre_stage(u_curr)
+        du = rhs(u_curr, krhs_s[stage_idx] * dt)
+        k0 = k0_s[stage_idx]
+        kcurr = kcurr_s[stage_idx]
+        # k0 * u0 + kcurr * u_curr + du
+        return jax.tree_util.tree_map(
+            lambda q0_, c_, r_: k0 * q0_ + kcurr * c_ + r_, u0, u_curr, du
+        )
+
+    def stage(stage_idx, u_curr):
+        return post_stage(formed(stage_idx, u_curr))
+
+    # The intermediate stages in a loop (one compiled instance of the
+    # right-hand side), the last one outside it: it is finalized, not hooked.
+    u_last = jax.lax.fori_loop(0, last, stage, u0)
+    return finalize(formed(last, u_last))
+
+
+def ssprk33(u0, dt, *, rhs, pre_stage=_identity, post_stage=_identity, finalize=_identity):
+    """3-stage 3rd-order SSPRK of Shu & Osher (1988), SSP coefficient 1.
+
+        u_1 = u_0 + dt L(u_0)
+        u_2 = 3/4 u_0 + 1/4 (u_1 + dt L(u_1))
+        u_3 = 1/3 u_0 + 2/3 (u_2 + dt L(u_2))
+
+    Args:
+        u0: Initial state pytree at ``t = t_n``.
+        dt: Full time step.
+        rhs: ``rhs(u, dt_stage) -> du`` stage increment.
+        pre_stage: Per-stage hook, defaults to the identity.
+        post_stage: Applied to the stage states ``u_1`` and ``u_2`` as soon as
+            they are formed; defaults to the identity.
+        finalize: Post-integration hook, defaults to the identity.
+
+    Returns:
+        The state pytree at ``t = t_n + dt``.
+    """
+    return _two_register_ssprk(
+        u0, dt, _SSPRK33_STAGES, rhs=rhs, pre_stage=pre_stage, post_stage=post_stage, finalize=finalize
+    )
 
 
 # ---------------------------------------------------------------------------

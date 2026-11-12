@@ -46,7 +46,7 @@ import jax
 import jax.numpy as jnp
 
 # astronomix constants
-from astronomix.option_classes.simulation_config import IDEAL_GAS
+from astronomix.option_classes.simulation_config import IDEAL_GAS, RIEMANN_FLUX
 
 # astronomix containers
 from astronomix.option_classes.simulation_config import SimulationConfig
@@ -62,6 +62,7 @@ from astronomix._finite_difference._magnetic_update._constrained_transport_palla
     _ct_upwind_dissipation_pallas,
     _ct_upwind_pallas_supported,
 )
+from astronomix._finite_difference._magnetic_update._rebuild_energy import rebuilt_total_energy
 from astronomix._spatial_operators._differencing import finite_difference_int6
 from astronomix._spatial_operators._interpolate import (
     interp_center_to_face,
@@ -335,11 +336,13 @@ def update_cell_center_fields(
     bz_interface,
     config: SimulationConfig,
     registered_variables: RegisteredVariables,
+    params: SimulationParams = None,
 ):
     """
     Update the cell-centered B field from the interface values using
-    6th-order interpolation, and update the total energy accordingly so
-    that it is conserved.
+    6th-order interpolation, and update the total energy: with the pressure
+    held under ``scheme = WENO_FLUX_SPLITTING``, with the energy held
+    (``_rebuild_energy.py``) under ``scheme = RIEMANN_FLUX``.
 
     The Pallas implementation in ``_constrained_transport_pallas`` is
     used transparently when the Pallas backend is active and the
@@ -352,6 +355,7 @@ def update_cell_center_fields(
         bz_interface: The B_z field at the z-interfaces.
         config: The simulation configuration.
         registered_variables: The registered variables.
+        params: The simulation parameters (read under ``scheme = RIEMANN_FLUX``).
 
     Returns:
         The conserved state with updated cell-centered fields (and energy).
@@ -394,10 +398,28 @@ def update_cell_center_fields(
     if config.equation_of_state == IDEAL_GAS:
         b2_new = conserved_new[BX] ** 2 + conserved_new[BY] ** 2 + conserved_new[BZ] ** 2
 
-        # Update the total energy: E_new = E_old + 0.5 * (b2_new - b2_old).
-        conserved_new = conserved_new.at[registered_variables.pressure_index].add(
-            0.5 * (b2_new - b2_old)
-        )
+        if config.solver_config.scheme == RIEMANN_FLUX:
+            energy_index = registered_variables.energy_index
+            momentum_index = registered_variables.momentum_index
+            momentum_squared = sum(
+                conserved_state[index] ** 2 for index in (momentum_index.x, momentum_index.y, momentum_index.z)
+            )
+            energy_new = rebuilt_total_energy(
+                conserved_state[energy_index],
+                conserved_state[registered_variables.density_index],
+                momentum_squared,
+                b2_old,
+                b2_new,
+                params.gamma,
+                params.minimum_density,
+                params.minimum_pressure,
+            )
+            conserved_new = conserved_new.at[energy_index].set(energy_new)
+        else:
+            # Update the total energy: E_new = E_old + 0.5 * (b2_new - b2_old).
+            conserved_new = conserved_new.at[registered_variables.pressure_index].add(
+                0.5 * (b2_new - b2_old)
+            )
     # There is no energy to update for the isothermal equation of state.
 
     return conserved_new

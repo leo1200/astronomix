@@ -93,9 +93,33 @@ VL2 = 2
 #: The five-stage, fourth-order SSP Runge-Kutta scheme of Spiteri & Ruuth
 #: (three registers).
 SSPRK54 = 10
+#: The three-stage, third-order SSP Runge-Kutta scheme of Shu & Osher (two
+#: registers); with ``scheme = RIEMANN_FLUX`` only.
+SSPRK33 = 11
 #: The 2N-storage fourth-order Runge-Kutta scheme of Carpenter & Kennedy: one
-#: full-state buffer fewer than SSPRK54, at a smaller CFL margin.
+#: full-state buffer fewer than SSPRK54, at a smaller CFL margin; with
+#: ``scheme = WENO_FLUX_SPLITTING`` only.
 LSRK4 = 12
+
+# Schemes of the finite-difference solver (``FDSolverConfig.scheme``).
+#: WENO reconstruction of the split characteristic fluxes, HOW-MHD constrained
+#: transport: the production scheme.
+WENO_FLUX_SPLITTING = 0
+#: WENO face states of the characteristic variables, a Riemann flux with a
+#: high-order correction and a guard towards the first-order Lax-Friedrichs
+#: flux, flux-form constrained transport (``_riemann_flux.py``). MHD in three
+#: Cartesian dimensions.
+RIEMANN_FLUX = 1
+
+# Riemann solvers of ``scheme = RIEMANN_FLUX`` (``FDSolverConfig.riemann_solver``)
+# next to ``HLL``; their numbers continue the group of Riemann solvers below.
+#: HLLEM_T for the isothermal gas, HLLD_BOUNDED for the ideal gas.
+RIEMANN_BY_EOS = -1
+#: HLL with the anti-diffusion of the Alfven and slow waves limited by the
+#: tangential field (isothermal gas).
+HLLEM_T = 5
+#: HLLD with bounded outer speeds (ideal gas).
+HLLD_BOUNDED = 6
 
 # Face states of the finite-volume solver (``FVSolverConfig.reconstruction``).
 DONOR_CELL = 0
@@ -544,7 +568,17 @@ class FVSolverConfig(NamedTuple):
 class FDSolverConfig(NamedTuple):
     """Settings of the finite-difference solver (``solver_mode = FINITE_DIFFERENCE``)."""
 
-    #: Time integration method: ``SSPRK54`` or ``LSRK4``.
+    #: The scheme: ``WENO_FLUX_SPLITTING`` (characteristic flux splitting,
+    #: HOW-MHD constrained transport) or ``RIEMANN_FLUX`` (WENO face states,
+    #: Riemann flux with high-order correction and guard, flux-form constrained
+    #: transport). Under ``RIEMANN_FLUX`` the fields ``weno_z``,
+    #: ``weno_admissible_face_state``, ``weno_positivity_preserving``,
+    #: ``ct_upwind_dissipation``, ``ct_upwind_strength`` and ``dual_energy``
+    #: must keep their defaults.
+    scheme: int = WENO_FLUX_SPLITTING
+
+    #: Time integration method: ``SSPRK54``, ``SSPRK33`` (``RIEMANN_FLUX``
+    #: only) or ``LSRK4`` (``WENO_FLUX_SPLITTING`` only).
     time_integrator: int = SSPRK54
 
     #: WENO nonlinear weights: ``False`` = classic Jiang-Shu
@@ -635,6 +669,11 @@ class FDSolverConfig(NamedTuple):
     #: float32 cancellation of ``e_int = E - KE - ME`` does not corrupt the
     #: pressure.
     dual_energy: bool = False
+
+    #: Riemann solver of ``scheme = RIEMANN_FLUX``: ``RIEMANN_BY_EOS``
+    #: (``HLLEM_T`` for the isothermal, ``HLLD_BOUNDED`` for the ideal gas),
+    #: ``HLLEM_T``, ``HLLD_BOUNDED`` or ``HLL``.
+    riemann_solver: int = RIEMANN_BY_EOS
 
 
 class PassiveScalarConfig(NamedTuple):
@@ -932,7 +971,7 @@ class SimulationConfig(NamedTuple):
 
 #: The time integrators of each solver (``time_integrator`` of its container).
 FV_TIME_INTEGRATORS = (RK2_SSP, MUSCL_HANCOCK, VL2)
-FD_TIME_INTEGRATORS = (SSPRK54, LSRK4)
+FD_TIME_INTEGRATORS = (SSPRK54, SSPRK33, LSRK4)
 
 
 def get_solver_config(config: SimulationConfig) -> Union[FVSolverConfig, FDSolverConfig]:
@@ -969,7 +1008,7 @@ def get_solver_config(config: SimulationConfig) -> Union[FVSolverConfig, FDSolve
             )
         if solver_config.time_integrator not in FD_TIME_INTEGRATORS:
             raise ValueError(
-                "FDSolverConfig.time_integrator must be SSPRK54 or LSRK4, "
+                "FDSolverConfig.time_integrator must be SSPRK54, SSPRK33 or LSRK4, "
                 f"got {solver_config.time_integrator!r}."
             )
     return solver_config
@@ -1490,6 +1529,79 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
                     "resistivity is implemented for the ISOTHERMAL EOS only: the "
                     "ohmic heating eta J^2 is not added to the energy equation"
                 )
+
+        # The scheme and what goes with it.
+        fd_config = config.solver_config
+        if fd_config.scheme == WENO_FLUX_SPLITTING:
+            if fd_config.time_integrator == SSPRK33:
+                raise ValueError("time_integrator=SSPRK33 requires scheme=RIEMANN_FLUX.")
+            if fd_config.riemann_solver != RIEMANN_BY_EOS:
+                raise ValueError("FDSolverConfig.riemann_solver is read with scheme=RIEMANN_FLUX only.")
+        elif fd_config.scheme == RIEMANN_FLUX:
+            # What the scheme serves.
+            if not (config.mhd and config.dimensionality == 3 and config.geometry == CARTESIAN):
+                raise ValueError("scheme=RIEMANN_FLUX serves MHD in three Cartesian dimensions.")
+            if fd_config.time_integrator == LSRK4:
+                raise ValueError("time_integrator=LSRK4 requires scheme=WENO_FLUX_SPLITTING.")
+            solver_of_other_gas = HLLD_BOUNDED if config.equation_of_state == ISOTHERMAL else HLLEM_T
+            if fd_config.riemann_solver not in (RIEMANN_BY_EOS, HLL, HLLEM_T, HLLD_BOUNDED) or (
+                fd_config.riemann_solver == solver_of_other_gas
+            ):
+                raise ValueError(
+                    "scheme=RIEMANN_FLUX: riemann_solver must be RIEMANN_BY_EOS, HLL, HLLEM_T "
+                    "(isothermal gas) or HLLD_BOUNDED (ideal gas)."
+                )
+            # The options of the other scheme are not read: they keep their defaults.
+            for name in (
+                "weno_z",
+                "weno_admissible_face_state",
+                "weno_positivity_preserving",
+                "ct_upwind_dissipation",
+                "ct_upwind_strength",
+                "dual_energy",
+            ):
+                if getattr(fd_config, name) != FDSolverConfig._field_defaults[name]:
+                    raise ValueError(f"FDSolverConfig.{name} is read with scheme=WENO_FLUX_SPLITTING only.")
+            # What has not been checked with the scheme.
+            not_checked = {
+                "gravity": config.gravity_config.self_gravity or config.gravity_config.external_potential,
+                "viscosity, resistivity, thermal conduction": config.diffusion_config.viscosity
+                or config.diffusion_config.resistivity
+                or config.diffusion_config.thermal_conduction,
+                "passive scalars": config.passive_scalar_config.num_scalars > 0,
+                "stellar winds": config.wind_config.stellar_wind,
+                "cooling": config.cooling_config.cooling,
+                "turbulent forcing": config.turbulent_forcing_config.turbulent_forcing,
+                "the per-step floor and the step retry": config.positivity_config.step_retry
+                or config.positivity_config.per_step_mode != POSITIVITY_NONE,
+                "the constrained-transport kernels (pallas_ct)": config.backend_config.pallas_ct,
+            }
+            if config.boundary_settings is not None:
+                boundary_types = {side for axis in config.boundary_settings for side in axis}
+                not_checked["boundaries other than periodic and open"] = not boundary_types <= {
+                    PERIODIC_BOUNDARY,
+                    OPEN_BOUNDARY,
+                }
+            for name, requested in not_checked.items():
+                if requested:
+                    raise ValueError(f"scheme=RIEMANN_FLUX does not serve {name} yet.")
+            # Ghost cells, both gases. One stage (boundary fill, right-hand
+            # side, update) reads seven layers: the guarded flux at a face
+            # reads the cells from three below to four above it, the update
+            # of a cell therefore four cells to either side, and each of
+            # those cells holds a field rebuilt from the faces three below
+            # to two above it. The constrained transport and the energy flux
+            # read six layers. SSPRK(3,3) fills the boundary before every
+            # right-hand side: seven layers. The fifth right-hand side of
+            # SSPRK(5,4) is evaluated on the fourth stage state without a
+            # boundary fill, so the reach of two stages adds: thirteen.
+            if config.boundary_handling == GHOST_CELLS:
+                stage_layers = 7 if fd_config.time_integrator == SSPRK33 else 13
+                config = config._replace(num_ghost_cells=max(config.num_ghost_cells, stage_layers))
+        else:
+            raise ValueError(
+                f"FDSolverConfig.scheme must be WENO_FLUX_SPLITTING or RIEMANN_FLUX, got {fd_config.scheme!r}."
+            )
 
     # Pick sensible default boundary conditions when the user left them unset.
     if config.boundary_settings is None:
