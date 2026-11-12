@@ -10,17 +10,21 @@ of the calculation: the two states at every interface
 (``_reconstruction.py``), the interface fluxes of the Riemann solvers
 (``_riemann/``), the optional first-order flux correction
 (``_flux_correction.py``), the flux divergence, Athena++'s gravity source
-(``_gravity_coupling.py``) and the Dedner source of the GLM cleaning
-(``_divergence/_glm.py``). ``fv_stage`` is the stage on the native backend;
+(``_gravity_coupling.py``) and the divergence control: the Dedner source of
+the GLM cleaning (``_divergence/_glm.py``) or the field update of the
+constrained transport (``_divergence/_constrained_transport.py``). The
+divergence control enters at two points, the interface fluxes
+(``_fluxes_per_axis``) and the update of the field after the flux divergence.
+``fv_stage`` is the stage on the native backend;
 ``_native_stage_from_primitive_base`` is the native form of the fused Pallas
 kernel (``_stage_pallas.py``). The time integrators (``_integrators.py``) are
-sequences of stages. The stage with constrained transport is a function of
-its own in ``_divergence/_constrained_transport.py``.
+sequences of stages.
 
-The file also holds what the parts share: the layout of the state in the
-frame of an interface and the conversions between primitive and conserved
-variables. The per-face physics is written as elementwise functions that the
-Pallas kernel calls as well, so both backends evaluate the same expressions.
+The file also holds the conversions between primitive and conserved
+variables; the layout of the state in the frame of an interface is in
+``_interface_frame.py``. The per-face physics is written as elementwise
+functions that the Pallas kernel calls as well, so both backends evaluate the
+same expressions.
 """
 
 # general
@@ -39,10 +43,8 @@ import jax.numpy as jnp
 
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
+    CONSTRAINED_TRANSPORT,
     GHOST_CELLS,
-    HLL,
-    HLLC,
-    HLLD,
     LAX_FRIEDRICHS,
     POSITIVITY_HARD_FLOOR,
     STATE_TYPE,
@@ -54,12 +56,16 @@ from astronomix.option_classes.simulation_params import SimulationParams
 from astronomix.variable_registry.registered_variables import RegisteredVariables
 
 # astronomix functions
+from astronomix._finite_volume._divergence._constrained_transport import (
+    _ct_field_update,
+    _ct_fluxes_per_axis,
+)
 from astronomix._finite_volume._divergence._glm import _dedner_source
 from astronomix._finite_volume._flux_correction import (
     POSITIVE,
     _corrected_fluxes,
     _first_order_flux_correction,
-    _first_order_fluxes,
+    _flux_divergence,
     _interior_mask,
     _positivity_failure_code,
 )
@@ -67,113 +73,15 @@ from astronomix._finite_volume._gravity_coupling import (
     _add_athena_gravity_source,
     _vl2_gravitational_potential,
 )
+from astronomix._finite_volume._interface_frame import (
+    _interface_flux_from_states,
+    _interface_frame_indices,
+    _state_components_from_frame,
+    _velocity_component_indices,
+)
 from astronomix._finite_volume._reconstruction import _reconstructed_face_states
-from astronomix._finite_volume._riemann._face_state import (
-    HydroFaceState,
-    MHDFaceState,
-)
-from astronomix._finite_volume._riemann._hllc import hllc_hydro_flux
-from astronomix._finite_volume._riemann._hlld import hlld_flux
-from astronomix._finite_volume._riemann._hlle import (
-    hlle_hydro_flux,
-    hlle_mhd_flux,
-)
-from astronomix._finite_volume._riemann._llf import (
-    llf_hydro_flux,
-    llf_mhd_flux,
-)
 from astronomix._geometry.boundaries import _boundary_handler
 
-
-# -------------------------------------------------------------
-# ===================== ↓ State layout ↓ ======================
-# -------------------------------------------------------------
-
-
-def _velocity_component_indices(registered_variables: RegisteredVariables):
-    """
-    The state indices of the x, y and z velocity. Components the layout does
-    not carry (the dimension-reduced hydro layouts) are ``None``; a missing
-    component behaves exactly like a component that is zero everywhere.
-
-    Args:
-        registered_variables: The registered variables.
-
-    Returns:
-        A tuple of three state indices (``None`` for absent components).
-    """
-    velocity_index = registered_variables.velocity_index
-    if isinstance(velocity_index, int):
-        return (velocity_index, None, None)
-    return tuple(component if component >= 0 else None for component in tuple(velocity_index))
-
-
-def _interface_frame_indices(
-    axis: int,
-    config: SimulationConfig,
-    registered_variables: RegisteredVariables,
-):
-    """
-    The state indices of the variables in the frame of an interface normal to
-    ``axis`` (1-based), in AthenaPK's cyclic order: normal, then transverse 1
-    and transverse 2 (x: y, z; y: z, x; z: x, y).
-
-    Args:
-        axis: The spatial axis (1, 2 or 3) normal to the interface.
-        config: The simulation configuration.
-        registered_variables: The registered variables.
-
-    Returns:
-        A tuple of state indices (``None`` for components the layout lacks),
-        ordered like :class:`MHDFaceState` (MHD) or :class:`HydroFaceState`.
-    """
-    velocity = _velocity_component_indices(registered_variables)
-    normal = axis - 1
-    transverse_1 = axis % 3
-    transverse_2 = (axis + 1) % 3
-
-    hydro_indices = (
-        registered_variables.density_index,
-        velocity[normal],
-        velocity[transverse_1],
-        velocity[transverse_2],
-        registered_variables.pressure_index,
-    )
-    if not config.mhd:
-        return hydro_indices
-
-    field = tuple(registered_variables.magnetic_index)
-    return hydro_indices + (
-        field[normal],
-        field[transverse_1],
-        field[transverse_2],
-        registered_variables.magnetic_psi_index,
-    )
-
-
-def _state_components_from_frame(frame_values, frame_indices, num_vars: int):
-    """
-    Scatter interface-frame values back to state order.
-
-    Args:
-        frame_values: The values in the interface frame (e.g. a flux tuple).
-        frame_indices: The state index of every frame value (``None`` for
-            components the layout lacks, which are dropped).
-        num_vars: The number of state variables.
-
-    Returns:
-        A list of the values indexed like the state.
-    """
-    state_components = [None] * num_vars
-    for index, value in zip(frame_indices, frame_values):
-        if index is not None:
-            state_components[index] = value
-    return state_components
-
-
-# -------------------------------------------------------------
-# ===================== ↑ State layout ↑ ======================
-# -------------------------------------------------------------
 
 # -------------------------------------------------------------
 # ============= ↓ Conserved <-> primitive variables ↓ ==========
@@ -362,51 +270,6 @@ def _primitive_from_conserved_vl2(
 # -------------------------------------------------------------
 
 
-def _interface_flux_from_states(
-    left_values,
-    right_values,
-    gamma,
-    cleaning_speed,
-    riemann_solver: int,
-    mhd: bool,
-):
-    """
-    Evaluate the configured Riemann solver on interface-frame value tuples.
-
-    Args:
-        left_values: Tuple of left-state values (interface frame).
-        right_values: Tuple of right-state values (interface frame).
-        gamma: The adiabatic index.
-        cleaning_speed: The GLM cleaning speed (MHD only).
-        riemann_solver: The configured Riemann solver.
-        mhd: Whether this is GLM-MHD.
-
-    Returns:
-        The interface flux (:class:`MHDFlux` or :class:`HydroFlux`, interface
-        frame).
-    """
-    if mhd:
-        left = MHDFaceState(*left_values)
-        right = MHDFaceState(*right_values)
-        if riemann_solver == HLLD:
-            return hlld_flux(left, right, gamma, cleaning_speed)
-        if riemann_solver == HLL:
-            return hlle_mhd_flux(left, right, gamma, cleaning_speed)
-        if riemann_solver == LAX_FRIEDRICHS:
-            return llf_mhd_flux(left, right, gamma, cleaning_speed)
-        raise ValueError("Unsupported Riemann solver for VL2 MHD.")
-
-    left = HydroFaceState(*left_values)
-    right = HydroFaceState(*right_values)
-    if riemann_solver == HLLC:
-        return hllc_hydro_flux(left, right, gamma)
-    if riemann_solver == HLL:
-        return hlle_hydro_flux(left, right, gamma)
-    if riemann_solver == LAX_FRIEDRICHS:
-        return llf_hydro_flux(left, right, gamma)
-    raise ValueError("Unsupported Riemann solver for VL2 hydrodynamics.")
-
-
 def _interface_fluxes(
     primitive_state: STATE_TYPE,
     axis: int,
@@ -460,21 +323,47 @@ def _interface_fluxes(
     )
 
 
-def _flux_divergence(fluxes_per_axis, config: SimulationConfig):
+def _fluxes_per_axis(
+    primitive_state: STATE_TYPE,
+    piecewise_linear: bool,
+    riemann_solver: int,
+    gamma,
+    cleaning_speed,
+    config: SimulationConfig,
+    registered_variables: RegisteredVariables,
+):
     """
-    The flux divergence ``(1/dx) Σ_d (F_{i+1/2} - F_{i-1/2})``.
+    The interface fluxes of every spatial axis, by the divergence control:
+    ``_interface_fluxes`` per axis for hydrodynamics and GLM-MHD, the fluxes
+    with the face field as normal field for constrained transport.
 
     Args:
-        fluxes_per_axis: The interface fluxes (at ``i - 1/2``) of every axis.
+        primitive_state: The primitive state.
+        piecewise_linear: Use PLM (else donor-cell) reconstruction.
+        riemann_solver: The Riemann solver.
+        gamma: The adiabatic index.
+        cleaning_speed: The GLM cleaning speed (GLM-MHD only).
         config: The simulation configuration.
+        registered_variables: The registered variables.
 
     Returns:
-        The flux divergence, laid out like the state.
+        The interface fluxes (at ``i - 1/2``) per axis.
     """
-    flux_difference = 0.0
-    for axis, fluxes in enumerate(fluxes_per_axis, start=1):
-        flux_difference = flux_difference + (jnp.roll(fluxes, -1, axis=axis) - fluxes)
-    return flux_difference / config.grid_spacing
+    if config.solver_config.divergence_control == CONSTRAINED_TRANSPORT:
+        return _ct_fluxes_per_axis(primitive_state, piecewise_linear, riemann_solver, gamma, registered_variables)
+    return [
+        _interface_fluxes(
+            primitive_state,
+            axis,
+            piecewise_linear,
+            riemann_solver,
+            gamma,
+            cleaning_speed,
+            config,
+            registered_variables,
+        )
+        for axis in range(1, config.dimensionality + 1)
+    ]
 
 
 # -------------------------------------------------------------
@@ -502,16 +391,18 @@ def fv_stage(
 ):
     """
     One VL2 stage (native JAX): ``U = U_base - beta dt L(W_stage)``, the
-    gravity source, the Dedner source and the conversion back to primitives.
-    Ghost cells are not updated here.
+    gravity source, the divergence control (the Dedner source of the GLM
+    cleaning, or the constrained-transport update of the face field with its
+    cell-centred field) and the conversion back to primitives. Ghost cells
+    are not updated here.
 
     Args:
         stage_primitive_state: The primitive state the fluxes are computed from.
         base_conserved_state: The conserved register the update starts from.
         stage_time_step: The stage's time-step weight ``beta * dt``.
         piecewise_linear: PLM (corrector) or donor-cell (predictor) fluxes.
-        cleaning_speed: The GLM cleaning speed (MHD only).
-        damping_factor: The stage's psi damping factor (MHD only).
+        cleaning_speed: The GLM cleaning speed (GLM-MHD only).
+        damping_factor: The stage's psi damping factor (GLM-MHD only).
         gamma: The adiabatic index.
         config: The simulation configuration.
         params: The simulation parameters.
@@ -526,28 +417,32 @@ def fv_stage(
         new density if the time-centred energy source computed it (otherwise
         ``None``).
     """
-    fluxes_per_axis = [
-        _interface_fluxes(
+    fluxes_per_axis = _fluxes_per_axis(
+        stage_primitive_state,
+        piecewise_linear,
+        config.solver_config.riemann_solver,
+        gamma,
+        cleaning_speed,
+        config,
+        registered_variables,
+    )
+
+    if config.solver_config.first_order_flux_correction:
+        first_order_fluxes = _fluxes_per_axis(
             stage_primitive_state,
-            axis,
-            piecewise_linear,
-            config.solver_config.riemann_solver,
+            False,
+            LAX_FRIEDRICHS,
             gamma,
             cleaning_speed,
             config,
             registered_variables,
         )
-        for axis in range(1, config.dimensionality + 1)
-    ]
-
-    if config.solver_config.first_order_flux_correction:
         fluxes_per_axis = _first_order_flux_correction(
             fluxes_per_axis,
-            stage_primitive_state,
+            first_order_fluxes,
+            _interior_mask(stage_primitive_state, config),
             base_conserved_state,
             stage_time_step,
-            gamma,
-            cleaning_speed,
             config,
             registered_variables,
         )
@@ -583,7 +478,17 @@ def fv_stage(
             registered_variables,
         )
 
-    if config.mhd:
+    if config.solver_config.divergence_control == CONSTRAINED_TRANSPORT:
+        conserved_state = _ct_field_update(
+            conserved_state,
+            fluxes_per_axis,
+            stage_primitive_state,
+            base_conserved_state,
+            stage_time_step,
+            config,
+            registered_variables,
+        )
+    elif config.mhd:
         conserved_state = _dedner_source(
             conserved_state,
             stage_primitive_state,
@@ -620,7 +525,8 @@ def _native_stage_from_primitive_base(
     The native stage in the Pallas kernel's signature, used as the tangent of
     the Pallas stage: the base register is given in primitive form and the
     first-order flux correction, if any, uses the given cell mask (the Pallas
-    path runs the correction attempts outside the kernel).
+    path runs the correction attempts outside the kernel). Like the kernel it
+    serves hydrodynamics and GLM-MHD, without gravity.
 
     Args:
         stage_primitive_state: The primitive state the fluxes are computed from.
@@ -648,22 +554,20 @@ def _native_stage_from_primitive_base(
         config,
         registered_variables,
     )
-    fluxes_per_axis = [
-        _interface_fluxes(
-            stage_primitive_state,
-            axis,
-            piecewise_linear,
-            config.solver_config.riemann_solver,
-            gamma,
-            cleaning_speed,
-            config,
-            registered_variables,
-        )
-        for axis in range(1, config.dimensionality + 1)
-    ]
+    fluxes_per_axis = _fluxes_per_axis(
+        stage_primitive_state,
+        piecewise_linear,
+        config.solver_config.riemann_solver,
+        gamma,
+        cleaning_speed,
+        config,
+        registered_variables,
+    )
     if correction_mask is not None:
-        first_order_fluxes = _first_order_fluxes(
+        first_order_fluxes = _fluxes_per_axis(
             stage_primitive_state,
+            False,
+            LAX_FRIEDRICHS,
             gamma,
             cleaning_speed,
             config,

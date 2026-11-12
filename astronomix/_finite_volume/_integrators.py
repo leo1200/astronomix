@@ -15,12 +15,15 @@ external potential) couple as in Athena++, whose VL2 integrator this is: every
 stage adds the source of ``_add_athena_gravity_source`` built from the
 potential of the stage's initial state and the stage's Riemann mass fluxes,
 optionally with the time-centred energy source of Mullen, Hanawa & Gammie
-(2021). The gravity source runs on the native backend only.
+(2021). The gravity source runs on the native backend only. With
+``divergence_control=CONSTRAINED_TRANSPORT`` the same step keeps the magnetic
+field divergence-free with the face-centred field of
+``_divergence/_constrained_transport.py`` instead of the cleaning scalar.
 
 One step of size ``dt`` from the primitive state ``W^n`` (conserved form
 ``U^n``) reads, exactly as AthenaPK's task list::
 
-    c_h      = max over cells and axes of |v_d| + c_fast,d     (MHD only)
+    c_h      = max over cells and axes of |v_d| + c_fast,d     (GLM-MHD only)
     U^{n+½}  = U^n - dt/2 L_DC(W^n)       then  psi *= exp(-α c_h (dt/2) / dx)
     W^{n+½}  = W(U^{n+½})
     U^{n+1}  = U^n - dt   L_PLM(W^{n+½})  then  psi *= exp(-α c_h dt / dx)
@@ -55,7 +58,9 @@ import jax
 
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
+    CONSTRAINED_TRANSPORT,
     DONOR_CELL,
+    GLM,
     STATE_TYPE,
 )
 
@@ -66,6 +71,10 @@ from astronomix.option_classes.simulation_params import SimulationParams
 from astronomix.variable_registry.registered_variables import RegisteredVariables
 
 # astronomix functions
+from astronomix._finite_volume._divergence._constrained_transport import (
+    _ct_layout_from_state,
+    _state_from_ct_layout,
+)
 from astronomix._finite_volume._divergence._glm import _cleaning_speed_and_damping
 from astronomix._finite_volume._gravity_coupling import _vl2_gravitational_potential
 from astronomix._finite_volume._stage import (
@@ -99,10 +108,12 @@ def vl2_step(
     half step, then the corrector with the van Leer limited PLM, or with donor
     cell when ``reconstruction=DONOR_CELL`` is set (``config.solver_config.limiter`` is not
     read). Runs on the Pallas backend when it supports the configuration and
-    natively otherwise; with gravity always natively.
+    natively otherwise; with gravity or constrained transport always natively.
 
     Args:
-        primitive_state: The primitive state ``W^n``.
+        primitive_state: The primitive state ``W^n``. With constrained
+            transport its layout is ``(rho, v_x, v_y, v_z, p, B_x, B_y, B_z,
+            b_x, b_y, b_z)``, the face rows holding the value at ``i + 1/2``.
         dt: The time step.
         gamma: The adiabatic index.
         config: The simulation configuration.
@@ -115,17 +126,26 @@ def vl2_step(
     """
     corrector_piecewise_linear = config.solver_config.reconstruction != DONOR_CELL
 
+    # Constrained transport works on a layout of its own (three spatial axes,
+    # faces stored at their lower index); the step converts on entry and exit.
+    if config.solver_config.divergence_control == CONSTRAINED_TRANSPORT:
+        primitive_state = _ct_layout_from_state(primitive_state, config, registered_variables)
+
     # Updates between steps (turbulent forcing, cooling, ...) may have changed
     # the physical cells without touching the halo.
     primitive_state = _update_ghost_cells(primitive_state, config, params, registered_variables)
 
-    cleaning_speed, damping_factors = _cleaning_speed_and_damping(
-        primitive_state,
-        dt,
-        config,
-        params,
-        registered_variables,
-    )
+    # The cleaning speed and the psi damping are quantities of the GLM
+    # cleaning; constrained transport has none.
+    cleaning_speed, damping_factors = None, (None, None)
+    if config.solver_config.divergence_control == GLM:
+        cleaning_speed, damping_factors = _cleaning_speed_and_damping(
+            primitive_state,
+            dt,
+            config,
+            params,
+            registered_variables,
+        )
     predictor_damping_factor, corrector_damping_factor = damping_factors
 
     # The gravity source needs every face's mass flux, which the fused Pallas
@@ -243,7 +263,10 @@ def vl2_step(
 
     # --------------- ↑ Native stages ↑ ----------------
 
-    return _update_ghost_cells(new_primitive_state, config, params, registered_variables)
+    new_primitive_state = _update_ghost_cells(new_primitive_state, config, params, registered_variables)
+    if config.solver_config.divergence_control == CONSTRAINED_TRANSPORT:
+        new_primitive_state = _state_from_ct_layout(new_primitive_state, config, registered_variables)
+    return new_primitive_state
 
 
 # -------------------------------------------------------------

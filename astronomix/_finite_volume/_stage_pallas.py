@@ -24,7 +24,8 @@ this costs only one reduction over the reported codes.
 
 The physics is not re-implemented here: the kernel calls the same elementwise
 functions as the native path (the Riemann solvers of ``_riemann/``, the
-component helpers of ``_stage.py`` and the extended Dedner source terms of
+interface frame of ``_interface_frame.py``, the component helpers of
+``_stage.py`` and the extended Dedner source terms of
 ``_divergence/_glm.py``), so both backends evaluate the same expressions.
 """
 
@@ -35,6 +36,7 @@ import jax.numpy as jnp
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
     CARTESIAN,
+    CONSTRAINED_TRANSPORT,
     GHOST_CELLS,
     LAX_FRIEDRICHS,
     PERIODIC_ROLL,
@@ -53,14 +55,16 @@ from astronomix._finite_volume._flux_correction import (
     _newly_flagged_cells,
     _positivity_failure_code,
 )
+from astronomix._finite_volume._interface_frame import (
+    _interface_flux_from_states,
+    _interface_frame_indices,
+    _state_components_from_frame,
+)
 from astronomix._finite_volume._reconstruction import _van_leer_slopes
 from astronomix._finite_volume._stage import (
     _conserved_components_from_primitive,
-    _interface_flux_from_states,
-    _interface_frame_indices,
     _native_stage_from_primitive_base,
     _primitive_components_from_conserved,
-    _state_components_from_frame,
 )
 from astronomix._pallas_helpers import (
     _as_3tuple_block_shape,
@@ -113,6 +117,9 @@ def _fv_stage_pallas_supported(state, config: SimulationConfig) -> bool:
     if not _backend_is_pallas(config):
         return False
     if config.solver_config.time_integrator != VL2 or config.geometry != CARTESIAN:
+        return False
+    if config.solver_config.divergence_control == CONSTRAINED_TRANSPORT:
+        # The kernel has no face field and no edge electromotive forces.
         return False
     ndim = int(config.dimensionality)
     if state.ndim != ndim + 1:

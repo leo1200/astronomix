@@ -22,7 +22,6 @@ from jax.experimental import checkify
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
     CARTESIAN,
-    CONSTRAINED_TRANSPORT,
     DONOR_CELL,
     GHOST_CELLS,
     RK2_SSP,
@@ -50,9 +49,6 @@ from astronomix._finite_volume._state_evolution.reconstruction import (
 from astronomix._finite_volume._state_evolution._pallas_evolve import (
     _evolve_gas_state_unsplit_pallas,
     _fv_pallas_evolve_supported,
-)
-from astronomix._finite_volume._divergence._constrained_transport import (
-    _evolve_state_vl2_ct,
 )
 from astronomix._finite_volume._integrators import vl2_step
 from astronomix._geometry.boundaries import _boundary_handler
@@ -557,22 +553,12 @@ def _evolve_state_fv(
     helper_data: HelperData,
     registered_variables: RegisteredVariables,
 ) -> STATE_TYPE:
-    # The AthenaPK-equivalent VL2 scheme (hydro and GLM-MHD) replaces the whole
-    # finite-volume step with its own Cartesian update, including Athena++'s
-    # self-gravity coupling. It has no geometric source terms (applied by the
-    # split / unsplit schemes below); finalize_config rejects that combination.
+    # The AthenaPK-equivalent VL2 scheme (hydro, GLM-MHD and MHD with
+    # constrained transport) replaces the whole finite-volume step with its own
+    # Cartesian update, including Athena++'s self-gravity coupling. It has no
+    # geometric source terms (applied by the split / unsplit schemes below);
+    # finalize_config rejects that combination.
     if config.solver_config.time_integrator == VL2:
-        # Constrained transport instead of GLM cleaning (Athena's VL2 + CT).
-        if config.solver_config.divergence_control == CONSTRAINED_TRANSPORT:
-            return _evolve_state_vl2_ct(
-                primitive_state,
-                dt,
-                gamma,
-                config,
-                params,
-                helper_data,
-                registered_variables,
-            )
         return vl2_step(
             primitive_state,
             dt,

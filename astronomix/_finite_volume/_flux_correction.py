@@ -4,12 +4,13 @@ AthenaPK's first-order flux correction of the finite-volume stage.
 A cell whose update would leave a non-positive density or pressure
 (``_positivity_failure_code``) gets the fluxes of all its faces replaced by
 first-order ones, donor cell with the local Lax-Friedrichs solver
-(``_first_order_fluxes``, ``_corrected_fluxes``). Replacing a face flux also
+(``_corrected_fluxes``); the stage computes them with the flux function of its
+divergence control and passes them in. Replacing a face flux also
 changes the neighbour's update, so check and correction are repeated
 (``_first_order_flux_correction``). The fused Pallas kernel
 (``_stage_pallas.py``) uses the same failure code and the same rule for the
-flagged cells; the stage with constrained transport has its own loop
-(``_divergence/_constrained_transport.py``).
+flagged cells. The flux divergence (``_flux_divergence``) is defined here: the
+trial updates of the correction and the update of the stage both use it.
 """
 
 # jax
@@ -18,13 +19,15 @@ import jax.numpy as jnp
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
     GHOST_CELLS,
-    LAX_FRIEDRICHS,
     STATE_TYPE,
 )
 
 # astronomix containers
 from astronomix.option_classes.simulation_config import SimulationConfig
 from astronomix.variable_registry.registered_variables import RegisteredVariables
+
+# astronomix functions
+from astronomix._finite_volume._interface_frame import _velocity_component_indices
 
 
 # -------------------------------------------------------------
@@ -96,9 +99,6 @@ def _positivity_failure_code(
     Returns:
         The failure code per cell.
     """
-    # Imported here because the stage module imports this module at its top.
-    from astronomix._finite_volume._stage import _velocity_component_indices
-
     density = conserved_components[registered_variables.density_index]
 
     # This is the internal energy density p / (gamma - 1); only its sign is
@@ -163,95 +163,62 @@ def _corrected_fluxes(high_order_fluxes, first_order_fluxes, correction_mask):
     return corrected_fluxes
 
 
-def _first_order_fluxes(
-    stage_primitive_state: STATE_TYPE,
-    gamma,
-    cleaning_speed,
-    config: SimulationConfig,
-    registered_variables: RegisteredVariables,
-):
+def _flux_divergence(fluxes_per_axis, config: SimulationConfig):
     """
-    The donor-cell local Lax-Friedrichs fluxes of every axis.
+    The flux divergence ``(1/dx) Σ_d (F_{i+1/2} - F_{i-1/2})``.
 
     Args:
-        stage_primitive_state: The primitive state the stage started from.
-        gamma: The adiabatic index.
-        cleaning_speed: The GLM cleaning speed (MHD only).
+        fluxes_per_axis: The interface fluxes (at ``i - 1/2``) of every axis.
         config: The simulation configuration.
-        registered_variables: The registered variables.
 
     Returns:
-        The interface fluxes per axis.
+        The flux divergence, laid out like the state.
     """
-    # Imported here because the stage module imports this module at its top.
-    from astronomix._finite_volume._stage import _interface_fluxes
-
-    return [
-        _interface_fluxes(
-            stage_primitive_state,
-            axis,
-            piecewise_linear=False,
-            riemann_solver=LAX_FRIEDRICHS,
-            gamma=gamma,
-            cleaning_speed=cleaning_speed,
-            config=config,
-            registered_variables=registered_variables,
-        )
-        for axis in range(1, config.dimensionality + 1)
-    ]
+    flux_difference = 0.0
+    for axis, fluxes in enumerate(fluxes_per_axis, start=1):
+        flux_difference = flux_difference + (jnp.roll(fluxes, -1, axis=axis) - fluxes)
+    return flux_difference / config.grid_spacing
 
 
 def _first_order_flux_correction(
     fluxes_per_axis,
-    stage_primitive_state: STATE_TYPE,
+    first_order_fluxes,
+    correctable_cells,
     base_conserved_state: STATE_TYPE,
     stage_time_step,
-    gamma,
-    cleaning_speed,
     config: SimulationConfig,
     registered_variables: RegisteredVariables,
 ):
     """
     The first-order flux correction (AthenaPK: ``first_order_flux_correct``):
-    every interior cell whose update would leave a non-positive density or
-    pressure gets all its face fluxes replaced by donor-cell LLF fluxes of the
-    stage's primitive state. Replacing a face flux also changes the
-    neighbour's update, so the check is repeated (with the corrected fluxes)
-    ``NUM_FLUX_CORRECTION_ATTEMPTS`` times; in the last attempt only density
-    failures are corrected, pure pressure failures are left to the floors.
+    every correctable cell whose update would leave a non-positive density or
+    pressure gets all its face fluxes replaced by the first-order fluxes
+    (donor-cell LLF fluxes of the stage's primitive state). Replacing a face
+    flux also changes the neighbour's update, so the check is repeated (with
+    the corrected fluxes) ``NUM_FLUX_CORRECTION_ATTEMPTS`` times; in the last
+    attempt only density failures are corrected, pure pressure failures are
+    left to the floors.
 
     Args:
         fluxes_per_axis: The stage's interface fluxes per axis.
-        stage_primitive_state: The primitive state the stage started from.
+        first_order_fluxes: The donor-cell LLF interface fluxes per axis.
+        correctable_cells: Boolean mask of the cells that may be flagged (the
+            interior cells; no variable axis).
         base_conserved_state: The register the stage update starts from
             (``U^n`` in both VL2 stages).
         stage_time_step: The stage's time-step weight ``beta * dt``.
-        gamma: The adiabatic index.
-        cleaning_speed: The GLM cleaning speed (MHD only).
         config: The simulation configuration.
         registered_variables: The registered variables.
 
     Returns:
         The corrected interface fluxes per axis.
     """
-    # Imported here because the stage module imports this module at its top.
-    from astronomix._finite_volume._stage import _flux_divergence
-
-    first_order_fluxes = _first_order_fluxes(
-        stage_primitive_state,
-        gamma,
-        cleaning_speed,
-        config,
-        registered_variables,
-    )
-    interior = _interior_mask(stage_primitive_state, config)
-
-    correction_mask = jnp.zeros_like(interior)
+    correction_mask = jnp.zeros_like(correctable_cells)
     for attempt in range(NUM_FLUX_CORRECTION_ATTEMPTS):
         fluxes = _corrected_fluxes(fluxes_per_axis, first_order_fluxes, correction_mask)
         new_state = base_conserved_state - stage_time_step * _flux_divergence(fluxes, config)
         failure_codes = _positivity_failure_code(list(new_state), config, registered_variables)
-        correction_mask = correction_mask | (_newly_flagged_cells(failure_codes, attempt) & interior)
+        correction_mask = correction_mask | (_newly_flagged_cells(failure_codes, attempt) & correctable_cells)
 
     return _corrected_fluxes(fluxes_per_axis, first_order_fluxes, correction_mask)
 
