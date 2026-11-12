@@ -11,6 +11,11 @@ The slope is a product of two quotients and not ``(x / y) / y``: XLA merges the
 latter into ``x / (y y)``, and ``y y`` underflows in float32 below 3.8e-23. Both
 factors go through the helpers themselves, so a derivative of a derivative stays
 finite where the first one is.
+
+``_weno_positivity._floored_ratio`` of the other scheme is a different rule by
+intent (a zero tangent below 1.08e-19 in float32, where this one keeps the true
+slope as long as the quotient is moderate); one definition for both schemes
+means choosing one derivative for both and is decided with evidence on both.
 """
 
 # jax

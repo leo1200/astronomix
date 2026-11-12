@@ -1690,7 +1690,6 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
                 "turbulent forcing": config.turbulent_forcing_config.turbulent_forcing,
                 "the per-step floor and the step retry": config.positivity_config.step_retry
                 or config.positivity_config.per_step_mode != POSITIVITY_NONE,
-                "the constrained-transport kernels (pallas_ct)": config.backend_config.pallas_ct,
             }
             if config.boundary_settings is not None:
                 boundary_types = {side for axis in config.boundary_settings for side in axis}
@@ -1701,6 +1700,13 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
             for name, requested in not_checked.items():
                 if requested:
                     raise ValueError(f"scheme=RIEMANN_FLUX does not serve {name} yet.")
+            # The constrained-transport kernels of the scheme follow the
+            # backend: ``pallas_ct`` is derived here and what a user set is
+            # replaced (the kernels of the scheme are one set, selected by
+            # ``backend`` alone; the field is the switch of the other scheme).
+            config = config._replace(
+                backend_config=config.backend_config._replace(pallas_ct=config.backend_config.backend == PALLAS)
+            )
             # Ghost cells, both gases. One stage (boundary fill, right-hand
             # side, update) reads seven layers: the guarded flux at a face
             # reads the cells from three below to four above it, the update

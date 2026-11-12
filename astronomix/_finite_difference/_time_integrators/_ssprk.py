@@ -48,6 +48,7 @@ from astronomix._finite_difference._interface_fluxes._riemann_flux import (
     maximum_signal_speed,
     transverse_compression,
 )
+from astronomix._finite_difference._interface_fluxes._riemann_flux_pallas import _riemann_flux_pallas_supported
 from astronomix._finite_difference._interface_fluxes._weno import (
     _weno_flux_x,
     _weno_flux_y,
@@ -154,6 +155,7 @@ def _riemann_flux_increment(
             registered_variables.energy_index,
             (magnetic_index.x, magnetic_index.y, magnetic_index.z),
         )
+    use_kernels = _riemann_flux_pallas_supported(conserved_state, config)
     compression = transverse_compression(conserved_state, params, config, registered_variables)
     increment, density_fluxes = None, []
     for axis in range(config.dimensionality):
@@ -166,6 +168,14 @@ def _riemann_flux_increment(
             params, config, registered_variables, axis,
         )
         density_fluxes.append(flux[registered_variables.density_index])
+        if use_kernels:
+            # the same difference (and energy row) as below, in one kernel
+            increment = _hydro_flux_div_axis_pallas(
+                flux, dt_over_dx, config, axis=axis, rhs_accumulator=increment,
+                magnetic_state=conserved_state if energy_flux_channels is not None else None,
+                energy_flux_channels=energy_flux_channels,
+            )
+            continue
         if energy_flux_channels is not None:
             flux = magnetic_energy_corrected_flux(flux, conserved_state, energy_flux_channels, axis)
         divergence = -dt_over_dx * (flux - _shift(flux, 1, axis=axis + 1))

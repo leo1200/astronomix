@@ -286,8 +286,11 @@ def flux_form_ct_rhs(
     Returns:
         The increments of the interface fields (bx, by, bz).
     """
-    emfs = _edge_emfs(conserved_state, bx_interface, by_interface, bz_interface, params, config, registered_variables)
-    return edge_emf_curl(emfs, dt_tilde / grid_spacing, int(config.dimensionality))
+    increments, _ = _increments(
+        conserved_state, (bx_interface, by_interface, bz_interface), dt_tilde, grid_spacing,
+        params, config, registered_variables, with_energy=False,
+    )
+    return increments[0], increments[1], increments[2]
 
 
 def flux_form_ct_rhs_with_energy(
@@ -321,10 +324,96 @@ def flux_form_ct_rhs_with_energy(
         The increments of the interface fields (bx, by, bz) and the energy
         increment.
     """
-    magnetic_index = registered_variables.magnetic_index
-    cell_magnetic = tuple(conserved_state[index] for index in (magnetic_index.x, magnetic_index.y, magnetic_index.z))
-    dimensionality = int(config.dimensionality)
-    emfs = _edge_emfs(conserved_state, bx_interface, by_interface, bz_interface, params, config, registered_variables)
-    increments = edge_emf_curl(emfs, dt_tilde / grid_spacing, dimensionality)
-    energy = ct_energy_flux_rhs(cell_magnetic, emfs, dt_tilde / grid_spacing, dimensionality)
+    increments, energy = _increments(
+        conserved_state, (bx_interface, by_interface, bz_interface), dt_tilde, grid_spacing,
+        params, config, registered_variables, with_energy=True,
+    )
     return increments[0], increments[1], increments[2], energy
+
+
+def _increments(
+    conserved_state,
+    interface_fields,
+    dt_tilde,
+    grid_spacing,
+    params: SimulationParams,
+    config: SimulationConfig,
+    registered_variables: RegisteredVariables,
+    with_energy: bool,
+):
+    """
+    The increments of the interface fields and, with ``with_energy``, the CT
+    half of the energy flux from the same EMFs. Where
+    ``_flux_form_ct_pallas_supported`` holds, the kernels of
+    ``_flux_form_ct_pallas.py`` and ``_energy_flux_pallas.py`` compute the
+    values in one call (the EMFs exist only between them) and a derivative
+    takes the array form below.
+
+    Args:
+        conserved_state: The conserved state.
+        interface_fields: The interface fields (bx, by, bz).
+        dt_tilde: The (stage) time step.
+        grid_spacing: The cell size.
+        params: The simulation parameters.
+        config: The simulation configuration.
+        registered_variables: The registered variables.
+        with_energy: Whether the energy increment is computed.
+
+    Returns:
+        The increments of the interface fields and the energy increment
+        (None without ``with_energy``).
+    """
+    magnetic_index = registered_variables.magnetic_index
+    magnetic_channels = (magnetic_index.x, magnetic_index.y, magnetic_index.z)
+    dimensionality = int(config.dimensionality)
+
+    def array_form(state, fields, time_step, spacing, parameters):
+        emfs = _edge_emfs(state, fields[0], fields[1], fields[2], parameters, config, registered_variables)
+        increments = edge_emf_curl(emfs, time_step / spacing, dimensionality)
+        if not with_energy:
+            return increments, None
+        cell_magnetic = tuple(state[channel] for channel in magnetic_channels)
+        return increments, ct_energy_flux_rhs(cell_magnetic, emfs, time_step / spacing, dimensionality)
+
+    if not _flux_form_ct_pallas_supported(conserved_state, config):
+        return array_form(conserved_state, interface_fields, dt_tilde, grid_spacing, params)
+
+    def pallas_branch(state, fields, time_step, spacing, parameters):
+        emfs = _edge_emfs_pallas(state, fields, parameters, config, registered_variables)
+        increments = _edge_emf_curl_pallas(emfs, time_step / spacing, config)
+        if not with_energy:
+            return increments
+        return increments, _ct_energy_flux_rhs_pallas(state, emfs, time_step / spacing, config, magnetic_channels)
+
+    def native_branch(state, fields, time_step, spacing, parameters):
+        increments, energy = array_form(state, fields, time_step, spacing, parameters)
+        if not with_energy:
+            return jnp.stack(increments)
+        return jnp.stack(increments), energy[None]
+
+    dtype = interface_fields[0].dtype
+    primals = (
+        conserved_state,
+        jnp.stack(interface_fields),
+        jnp.asarray(dt_tilde, dtype=dtype),
+        jnp.asarray(grid_spacing, dtype=dtype),
+        params,
+    )
+    result = diffable_pallas_call_n(primals, pallas_branch=pallas_branch, native_branch=native_branch)
+    if not with_energy:
+        return result, None
+    return result[0], result[1][0]
+
+
+# The kernel modules are the compiled form of this module and of
+# ``_energy_flux.py`` and are imported at the bottom, as everywhere in the
+# package.
+from astronomix._pallas_helpers import diffable_pallas_call_n  # noqa: E402
+from astronomix._finite_difference._magnetic_update._energy_flux_pallas import (  # noqa: E402
+    _ct_energy_flux_rhs_pallas,
+)
+from astronomix._finite_difference._magnetic_update._flux_form_ct_pallas import (  # noqa: E402
+    _edge_emf_curl_pallas,
+    _edge_emfs_pallas,
+    _flux_form_ct_pallas_supported,
+)

@@ -1329,13 +1329,36 @@ def interface_flux(
         The flux, shaped like the state.
     """
     setup = _scheme_setup(conserved_state, params, config, registered_variables)
-    flux = _interface_flux_x(
-        _sweep_layout(conserved_state, axis, setup),
-        jnp.swapaxes(face_field, 0, axis),
-        reference_step,
-        jnp.swapaxes(eta, 0, axis),
-        params,
-        config,
-        registered_variables,
-    )
-    return _sweep_layout(flux, axis, setup)
+
+    def native_branch(state, field, step, compression, parameters):
+        flux = _interface_flux_x(
+            _sweep_layout(state, axis, setup),
+            jnp.swapaxes(field, 0, axis),
+            step,
+            jnp.swapaxes(compression, 0, axis),
+            parameters,
+            config,
+            registered_variables,
+        )
+        return _sweep_layout(flux, axis, setup)
+
+    primals = (conserved_state, face_field, reference_step, eta, params)
+    if _riemann_flux_pallas_supported(conserved_state, config):
+
+        def pallas_branch(state, field, step, compression, parameters):
+            return _interface_flux_pallas(
+                state, field, step, compression, parameters, config, registered_variables, axis=axis
+            )
+
+        # the kernels compute the values, a derivative takes the array form
+        return diffable_pallas_call_n(primals, pallas_branch=pallas_branch, native_branch=native_branch)
+    return native_branch(*primals)
+
+
+# The kernel module is the compiled form of this module and is imported at the
+# bottom, as everywhere in the package.
+from astronomix._pallas_helpers import diffable_pallas_call_n  # noqa: E402
+from astronomix._finite_difference._interface_fluxes._riemann_flux_pallas import (  # noqa: E402
+    _interface_flux_pallas,
+    _riemann_flux_pallas_supported,
+)
