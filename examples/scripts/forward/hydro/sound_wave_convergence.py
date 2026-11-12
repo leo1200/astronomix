@@ -74,6 +74,8 @@ from astronomix import (
     SimulationConfig,
     SnapshotSettings,
     BackendConfig,
+    FVSolverConfig,
+    FDSolverConfig,
 )
 from astronomix.option_classes.simulation_config import StaticFloatVector
 
@@ -126,8 +128,7 @@ _common_kwargs = dict(
 # Riemann solver; C_cfl = 0.3 is the value AthenaPK uses in 3D.
 _finite_volume_kwargs = dict(
     solver_mode=FINITE_VOLUME,
-    time_integrator=VL2,
-    riemann_solver=HLLC,
+    solver_config=FVSolverConfig(time_integrator=VL2, riemann_solver=HLLC),
     **_common_kwargs,
 )
 
@@ -135,7 +136,7 @@ _finite_volume_kwargs = dict(
 # positivity preservation; it runs at C_cfl = 1.5, well inside the linear
 # stability limit of SSPRK4.
 _finite_difference_kwargs = dict(
-    weno_z=True,
+    solver_config=FDSolverConfig(weno_z=True),
     **_common_kwargs,
 )
 

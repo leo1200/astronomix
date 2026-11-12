@@ -50,8 +50,18 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from weno_variant import weno_variant_kwargs
 
 from astronomix import (
-    BackendConfig, BoundarySettings, BoundarySettings1D, NATIVE_JAX, PALLAS, PERIODIC_BOUNDARY,
-    PositivityConfig, SimulationConfig, SimulationParams, finalize_config, get_helper_data,
+    BackendConfig,
+    BoundarySettings,
+    BoundarySettings1D,
+    FDSolverConfig,
+    NATIVE_JAX,
+    PALLAS,
+    PERIODIC_BOUNDARY,
+    PositivityConfig,
+    SimulationConfig,
+    SimulationParams,
+    finalize_config,
+    get_helper_data,
     get_registered_variables,
 )
 from astronomix._fluid_equations._equations_mhd import (
@@ -68,10 +78,15 @@ periodic = BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY)
 
 def make_config(shape, backend):
     config = SimulationConfig(
-        equation_of_state=IDEAL_GAS, dimensionality=3, num_cells=shape[-1], box_size=shape[-1] / 256.0,
-        mhd=True, backend_config=BackendConfig(backend=backend),
+        equation_of_state=IDEAL_GAS,
+        dimensionality=3,
+        num_cells=shape[-1],
+        box_size=shape[-1] / 256.0,
+        mhd=True,
+        backend_config=BackendConfig(backend=backend),
         boundary_settings=BoundarySettings(periodic, periodic, periodic),
-        positivity_config=PositivityConfig(clamp_in_estimates=False), **weno_variant_kwargs(),
+        positivity_config=PositivityConfig(clamp_in_estimates=False),
+        solver_config=FDSolverConfig(**weno_variant_kwargs()),
     )
     config = finalize_config(config, shape)
     params = SimulationParams(C_cfl=args.cfl, gamma=GAMMA, minimum_density=1e-30, minimum_pressure=1e-30)

@@ -43,6 +43,7 @@ from astronomix import (
     BoundarySettings,
     BoundarySettings1D,
     CodeUnits,
+    FDSolverConfig,
     SimulationConfig,
     SimulationParams,
 )
@@ -109,8 +110,7 @@ def make_config(
     periodic = BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY)
     return SimulationConfig(
         mhd=True,
-        weno_z=True,
-        weno_positivity_preserving=True,
+        solver_config=FDSolverConfig(weno_z=True, weno_positivity_preserving=True),
         backend_config=BackendConfig(backend=backend, pallas_adjoint=pallas_adjoint),
         progress_bar=False,
         donate_state=False,

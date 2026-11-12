@@ -35,7 +35,7 @@ field, which is itself a central interpolation of the interface fields.
 Near the Nyquist wavenumber that leaves the interface fields too little
 damping: a uniform field oblique to the grid lets grid-scale perturbations
 grow. ``ct_upwind_dissipation_rhs`` adds the missing upwind dissipation
-directly on the interface fields (``SimulationConfig.ct_upwind_dissipation``).
+directly on the interface fields (``FDSolverConfig.ct_upwind_dissipation``).
 """
 
 # general
@@ -458,7 +458,7 @@ def ct_upwind_dissipation_rhs(
     edge EMF gets the jumps of the two interface-field components that meet at
     the edge, reconstructed to the edge from both sides, times half the local
     fast signal speed across each jump and the strength kappa
-    (``config.ct_upwind_strength``; 1 is the full upwind form),
+    (``config.solver_config.ct_upwind_strength``; 1 is the full upwind form),
 
         Omega_z += -kappa (a_y / 2) (B_x^+y - B_x^-y) + kappa (a_x / 2) (B_y^+x - B_y^-x)
 
@@ -586,7 +586,7 @@ def ct_upwind_dissipation_rhs(
             return 0.0
         return finite_difference_int6(edge_field, axis)
 
-    half_strength = 0.5 * config.ct_upwind_strength
+    half_strength = 0.5 * config.solver_config.ct_upwind_strength
     emf_z = half_strength * (
         -upwind_term(1, XAXIS, YAXIS, bx_interface, YAXIS)
         + upwind_term(0, XAXIS, YAXIS, by_interface, XAXIS)

@@ -53,6 +53,7 @@ import jax.numpy as jnp
 
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
+    DONOR_CELL,
     GHOST_CELLS,
     HLL,
     HLLC,
@@ -845,7 +846,7 @@ def _vl2_stage(
             stage_primitive_state,
             axis,
             piecewise_linear,
-            config.riemann_solver,
+            config.solver_config.riemann_solver,
             gamma,
             cleaning_speed,
             config,
@@ -854,7 +855,7 @@ def _vl2_stage(
         for axis in range(1, config.dimensionality + 1)
     ]
 
-    if config.first_order_flux_correction:
+    if config.solver_config.first_order_flux_correction:
         fluxes_per_axis = _first_order_flux_correction(
             fluxes_per_axis,
             stage_primitive_state,
@@ -967,7 +968,7 @@ def _native_stage_from_primitive_base(
             stage_primitive_state,
             axis,
             piecewise_linear,
-            config.riemann_solver,
+            config.solver_config.riemann_solver,
             gamma,
             cleaning_speed,
             config,
@@ -1093,7 +1094,7 @@ def _evolve_state_vl2(
     """
     Advance the primitive state by one VL2 step: a donor-cell predictor to the
     half step, then the corrector with the van Leer limited PLM, or with donor
-    cell when ``config.first_order_fallback`` is set (``config.limiter`` is not
+    cell when ``reconstruction=DONOR_CELL`` is set (``config.solver_config.limiter`` is not
     read). Runs on the Pallas backend when it supports the configuration and
     natively otherwise; with gravity always natively.
 
@@ -1109,7 +1110,7 @@ def _evolve_state_vl2(
     Returns:
         The primitive state ``W^{n+1}``.
     """
-    corrector_piecewise_linear = not config.first_order_fallback
+    corrector_piecewise_linear = config.solver_config.reconstruction != DONOR_CELL
 
     # Updates between steps (turbulent forcing, cooling, ...) may have changed
     # the physical cells without touching the halo.

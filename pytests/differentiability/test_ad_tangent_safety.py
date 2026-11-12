@@ -66,6 +66,7 @@ from astronomix._fluid_equations._passive_scalars import (
 from _blast_setup import (
     NUM_CELLS,
     NUM_PASSIVE_SCALARS,
+    PASSIVE_SCALAR_CONFIG,
     fluid_only_registry,
     get_fluid_state,
     setup_blast,
@@ -285,7 +286,9 @@ def test_passive_scalar_advection_vjp_finite_with_overflow_stencil():
     # for all but the last passive scalar, which is therefore unbounded.
     config, registered_variables, state = setup_blast(
         differentiation_mode=BACKWARDS,
-        passive_scalar_bounds=tuple((0.0, 1.0) for _ in range(NUM_PASSIVE_SCALARS - 1)),
+        passive_scalar_config=PASSIVE_SCALAR_CONFIG._replace(
+            bounds=tuple((0.0, 1.0) for _ in range(NUM_PASSIVE_SCALARS - 1)),
+        ),
     )
     state = state.astype(jnp.float32)
 

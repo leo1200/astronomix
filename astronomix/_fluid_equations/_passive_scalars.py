@@ -87,6 +87,7 @@ from astronomix.variable_registry.registered_variables import RegisteredVariable
 # astronomix functions
 from astronomix._stencil_operations._stencil_operations import _shift
 from astronomix._finite_difference._interface_fluxes._weno_weights import (
+    WENO_EPSILON,
     _weno_omega_weights_ad,
     _weno_omega_weights_z,
 )
@@ -321,7 +322,7 @@ def _substep_count(velocities, grid_spacing, dt, config):
       diverge.
 
     Returned as a traced integer so ``lax.fori_loop`` runs exactly once on a
-    benign step; the cap ``config.max_passive_scalar_substeps`` keeps a
+    benign step; the cap ``config.passive_scalar_config.max_substeps`` keeps a
     pathological cell from stalling the run.
 
     Args:
@@ -332,7 +333,7 @@ def _substep_count(velocities, grid_spacing, dt, config):
 
     Returns:
         The number of sub-steps, an int32 scalar in
-        ``[1, config.max_passive_scalar_substeps]``.
+        ``[1, config.passive_scalar_config.max_substeps]``.
     """
     inverse_dx = 1.0 / grid_spacing
     max_speed = jnp.max(jnp.stack([jnp.max(jnp.abs(velocity)) for velocity in velocities]))
@@ -343,12 +344,12 @@ def _substep_count(velocities, grid_spacing, dt, config):
     max_abs_divergence = jnp.max(jnp.abs(velocity_divergence))
 
     advective_substep = (
-        config.passive_scalar_cfl * grid_spacing / jnp.maximum(max_speed, _POSITIVE_FLOOR)
+        config.passive_scalar_config.cfl * grid_spacing / jnp.maximum(max_speed, _POSITIVE_FLOOR)
     )
     compressive_substep = 0.5 / jnp.maximum(max_abs_divergence, _POSITIVE_FLOOR)
     safe_substep = jnp.minimum(advective_substep, compressive_substep)
     num_substeps = jnp.ceil(dt / jnp.maximum(safe_substep, _POSITIVE_FLOOR))
-    return jnp.clip(num_substeps, 1, config.max_passive_scalar_substeps).astype(jnp.int32)
+    return jnp.clip(num_substeps, 1, config.passive_scalar_config.max_substeps).astype(jnp.int32)
 
 
 @partial(jax.jit, static_argnames=["config", "registered_variables"])
@@ -382,13 +383,13 @@ def advect_passive_scalars(
     # ======= ↓ WENO weights and the advected conserved stack ↓ ====
     # -------------------------------------------------------------
 
-    epsilon = config.weno_epsilon
+    epsilon = WENO_EPSILON
     # The overflow-free ``_weno_omega_weights_ad`` gives the same weights bit
     # for bit, but a derivative that cannot overflow. These weights are always
     # differentiated, and an unbounded label with a large jump across the
     # stencil makes the float32 Jiang-Shu weight VJP NaN even for a zero
     # cotangent.
-    omega_weights = _weno_omega_weights_z if config.weno_z else _weno_omega_weights_ad
+    omega_weights = _weno_omega_weights_z if config.solver_config.weno_z else _weno_omega_weights_ad
 
     density = primitive_state[registered_variables.density_index]
     velocities = _velocity_components(primitive_state, config, registered_variables)
@@ -454,7 +455,7 @@ def advect_passive_scalars(
     # The count is a traced integer, so ``fori_loop(0, num_substeps)`` is a
     # while loop, which reverse-mode AD cannot differentiate. Under
     # ``differentiation_mode == BACKWARDS`` the loop instead runs to the
-    # static cap ``max_passive_scalar_substeps`` and skips the surplus sub-steps
+    # static cap ``passive_scalar_config.max_substeps`` and skips the surplus sub-steps
     # with a ``lax.cond`` (only the taken branch executes): the same arithmetic
     # on the same data. With a cap of 1 this is just one straight-line sub-step.
     # Otherwise every sub-step, the first included, sits in ONE scan whose body
@@ -475,7 +476,7 @@ def advect_passive_scalars(
             config,
         )
         substep_dt = dt / num_substeps.astype(conserved_stack.dtype)
-        max_substeps = int(config.max_passive_scalar_substeps)
+        max_substeps = int(config.passive_scalar_config.max_substeps)
         if max_substeps == 1:
             advected_stack = ssprk3_step(conserved_stack, substep_dt)
         else:
@@ -605,7 +606,7 @@ def _scalar_bounds(config, num_scalars):
     ``(lower, upper)`` bound arrays broadcastable over the scalar stack, or
     ``None`` when no scalar has a bound.
 
-    The bounds are those declared in ``config.passive_scalar_bounds``.
+    The bounds are those declared in ``config.passive_scalar_config.bounds``.
 
     ``num_scalars`` comes from the scalar array itself, NOT from the registry:
     by the time this runs the registry has had the scalar block stripped off
@@ -619,7 +620,7 @@ def _scalar_bounds(config, num_scalars):
         The bounds, each of shape ``(num_scalars,) + (1,) * dimensionality``,
         or ``None``.
     """
-    declared = tuple(config.passive_scalar_bounds or ())
+    declared = tuple(config.passive_scalar_config.bounds or ())
     if not declared:
         return None
 

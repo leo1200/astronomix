@@ -66,6 +66,7 @@ from astronomix import (
     BackendConfig,
     BoundarySettings,
     BoundarySettings1D,
+    FDSolverConfig,
     NATIVE_JAX,
     PALLAS,
     PERIODIC_BOUNDARY,
@@ -122,7 +123,7 @@ config = SimulationConfig(
     activate_snapshot_callback=True,
     num_snapshots=args.nsnap,
     donate_state=bool(args.donate),
-    **weno_variant_kwargs(),
+    solver_config=FDSolverConfig(**weno_variant_kwargs()),
 )
 t_cross = 0.5
 t_c_value = t_cross

@@ -111,6 +111,8 @@ def run_case(case):
         NATIVE_JAX,
         PALLAS,
         VL2,
+        FDSolverConfig,
+        FVSolverConfig,
         StaticIntVector,
     )
     from astronomix import (
@@ -128,8 +130,9 @@ def run_case(case):
             from astronomix.test_setups.hydrodynamics.sound_wave3D import setup_sound_wave
             from astronomix.option_classes.simulation_config import StaticFloatVector
 
-            solver = (dict(solver_mode=FINITE_VOLUME, time_integrator=VL2, riemann_solver=HLLC)
-                      if case.endswith("fv") else dict(weno_z=True))
+            solver = (dict(solver_mode=FINITE_VOLUME,
+                           solver_config=FVSolverConfig(time_integrator=VL2, riemann_solver=HLLC))
+                      if case.endswith("fv") else dict(solver_config=FDSolverConfig(weno_z=True)))
             config = SimulationConfig(
                 backend_config=BackendConfig(backend=backend),
                 box_size=StaticFloatVector(3.0, 1.5, 1.5),
@@ -145,8 +148,9 @@ def run_case(case):
         if case.startswith("sod"):
             from astronomix.test_setups.hydrodynamics.shock_tube1D import setup_sod_shock_tube
 
-            solver = (dict(solver_mode=FINITE_VOLUME, time_integrator=VL2, riemann_solver=HLLC)
-                      if case.endswith("fv") else dict(weno_z=True))
+            solver = (dict(solver_mode=FINITE_VOLUME,
+                           solver_config=FVSolverConfig(time_integrator=VL2, riemann_solver=HLLC))
+                      if case.endswith("fv") else dict(solver_config=FDSolverConfig(weno_z=True)))
             config = SimulationConfig(
                 backend_config=BackendConfig(backend=backend),
                 dimensionality=1,
@@ -166,13 +170,16 @@ def run_case(case):
             from astronomix.test_setups.mhd.alfven_wave3D import setup_cp_alfven_wave
 
             if case.endswith("fv"):
-                solver = dict(solver_mode=FINITE_VOLUME, time_integrator=VL2, riemann_solver=HLLD)
+                solver = dict(solver_mode=FINITE_VOLUME,
+                              solver_config=FVSolverConfig(time_integrator=VL2, riemann_solver=HLLD))
                 cfl = 0.3
             elif case.endswith("pp_uct"):
-                solver = dict(weno_z=True, weno_positivity_preserving=True, ct_upwind_dissipation=True)
+                solver = dict(solver_config=FDSolverConfig(
+                    weno_z=True, weno_positivity_preserving=True, ct_upwind_dissipation=True,
+                ))
                 cfl = 0.75
             else:
-                solver = dict(weno_z=True)
+                solver = dict(solver_config=FDSolverConfig(weno_z=True))
                 cfl = 1.5
             config = SimulationConfig(
                 backend_config=BackendConfig(backend=backend),

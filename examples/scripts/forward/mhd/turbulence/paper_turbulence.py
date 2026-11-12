@@ -76,6 +76,7 @@ from astronomix.option_classes.simulation_config import (
 from astronomix import (
     BoundarySettings,
     BoundarySettings1D,
+    FDSolverConfig,
     PositivityConfig,
     SimulationConfig,
     SimulationParams,
@@ -288,7 +289,7 @@ def parse_arguments():
         const=0.03,
         default=0.0,
         help="upwind dissipation of the constrained-transport edge EMFs "
-             "(SimulationConfig.ct_upwind_dissipation) at strength kappa (ct_upwind_strength; "
+             "(FDSolverConfig.ct_upwind_dissipation) at strength kappa (ct_upwind_strength; "
              "the bare flag is the default 0.03, 0 = off, 1 = the full upwind form), which damps "
              "the grid-scale modes of the interface fields that the central CT interpolations "
              "leave undamped",
@@ -418,12 +419,14 @@ def build_setup(args):
             turbulent_forcing=True,
             ou_forcing=True,
         ),
-        weno_z=bool(args.weno_z),
-        # Positivity-preserving WENO keeps the deep voids of the supersonic
-        # runs positive without floors, vacuum handling or flux blending.
-        weno_positivity_preserving=positivity_preserving,
-        ct_upwind_dissipation=bool(args.mhd) and args.ct_upwind > 0.0,
-        ct_upwind_strength=args.ct_upwind if args.ct_upwind > 0.0 else 0.03,
+        solver_config=FDSolverConfig(
+            weno_z=bool(args.weno_z),
+            # Positivity-preserving WENO keeps the deep voids of the supersonic
+            # runs positive without floors, vacuum handling or flux blending.
+            weno_positivity_preserving=positivity_preserving,
+            ct_upwind_dissipation=bool(args.mhd) and args.ct_upwind > 0.0,
+            ct_upwind_strength=args.ct_upwind if args.ct_upwind > 0.0 else 0.03,
+        ),
         positivity_config=PositivityConfig(
             per_step_mode=POSITIVITY_HARD_FLOOR if args.floor else POSITIVITY_NONE,
             step_retry=args.step_retry,

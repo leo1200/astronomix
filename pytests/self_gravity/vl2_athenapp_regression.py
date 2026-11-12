@@ -56,6 +56,7 @@ from astronomix import (
     BackendConfig,
     BoundarySettings,
     BoundarySettings1D,
+    FVSolverConfig,
     GravityConfig,
     SimulationConfig,
     SimulationParams,
@@ -105,8 +106,7 @@ def vl2_gravity_config(num_cells, box_size, time_centred_energy_source=False, **
     return SimulationConfig(
         backend_config=BackendConfig(backend=NATIVE_JAX),
         solver_mode=FINITE_VOLUME,
-        time_integrator=VL2,
-        riemann_solver=HLLC,
+        solver_config=FVSolverConfig(time_integrator=VL2, riemann_solver=HLLC),
         gravity_config=GravityConfig(
             self_gravity=True,
             self_gravity_version=ATHENA_SECOND_ORDER,

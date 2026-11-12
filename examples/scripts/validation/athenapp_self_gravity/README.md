@@ -8,7 +8,7 @@ self-gravity, so astronomix couples self-gravity to VL2 as Athena++ does
 ```python
 config = SimulationConfig(
     solver_mode=FINITE_VOLUME,
-    time_integrator=VL2,
+    solver_config=FVSolverConfig(time_integrator=VL2),
     gravity_config=GravityConfig(
         self_gravity=True,
         self_gravity_version=ATHENA_SECOND_ORDER,

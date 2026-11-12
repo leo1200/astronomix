@@ -21,8 +21,10 @@ import jax.numpy as jnp
 
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
+    CONSTRAINED_TRANSPORT,
     FIELD_TYPE,
     FINITE_DIFFERENCE,
+    FINITE_VOLUME,
     IDEAL_GAS,
     STATE_TYPE,
 )
@@ -38,6 +40,19 @@ from astronomix.variable_registry.registered_variables import RegisteredVariable
 from astronomix._finite_difference._magnetic_update._constrained_transport import (
     initialize_interface_fields,
 )
+from astronomix.option_classes.simulation_config import get_solver_config
+
+
+def _uses_vl2_constrained_transport(config: SimulationConfig) -> bool:
+    """Whether the state has the layout of the VL2 scheme with constrained transport.
+
+    The initial state is built before ``finalize_config``, so the solver
+    settings are read through ``get_solver_config``.
+    """
+    return (
+        config.solver_mode == FINITE_VOLUME
+        and get_solver_config(config).divergence_control == CONSTRAINED_TRANSPORT
+    )
 
 
 @partial(jax.jit, static_argnames=["registered_variables", "config", "sharding"])
@@ -81,7 +96,7 @@ def _assemble_primitive_state(
             (interface) magnetic field, used by the finite-difference solver.
         gas_pressure: The thermal pressure of the fluid.
         passive_scalars: The user-defined passive scalars, stacked along a
-            leading axis with shape ``(config.num_passive_scalars,) + grid``.
+            leading axis with shape ``(config.passive_scalar_config.num_scalars,) + grid``.
         sharding: An optional sharding to apply to the allocated state array.
 
     Returns:
@@ -119,7 +134,7 @@ def _assemble_primitive_state(
     # in any dimensionality.
     # The VL2 layout with constrained transport stores all three components
     # too, and the face-centred field next to the cell-centred one.
-    is_vl2_ct = config.vl2_constrained_transport
+    is_vl2_ct = _uses_vl2_constrained_transport(config)
     if config.mhd:
         if config.dimensionality >= 2 or registered_variables.magnetic_psi_active or is_vl2_ct:
             if magnetic_field_x is not None:
@@ -191,14 +206,14 @@ def _assemble_primitive_state(
         num_scalars = registered_variables.num_passive_scalars
         if passive_scalars is None:
             raise ValueError(
-                f"config.num_passive_scalars = {num_scalars} but no "
+                f"config.passive_scalar_config.num_scalars = {num_scalars} but no "
                 "`passive_scalars` were supplied to construct_primitive_state"
             )
         passive_scalars = jnp.asarray(passive_scalars)
         if passive_scalars.shape[0] != num_scalars:
             raise ValueError(
                 f"expected {num_scalars} passive scalars (config."
-                f"num_passive_scalars), got {passive_scalars.shape[0]}"
+                f"passive_scalar_config.num_scalars), got {passive_scalars.shape[0]}"
             )
         scalars_start = registered_variables.passive_scalar_index
         state = state.at[scalars_start:scalars_start + num_scalars].set(passive_scalars)
@@ -289,7 +304,7 @@ def construct_primitive_state(
     # must be given on the faces (from a vector potential on the cell edges).
     if (
         config.mhd
-        and config.vl2_constrained_transport
+        and _uses_vl2_constrained_transport(config)
         and interface_fields_missing
         and cell_centered_field_given
     ):

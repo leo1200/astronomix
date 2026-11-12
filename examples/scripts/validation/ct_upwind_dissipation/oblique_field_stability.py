@@ -1,7 +1,7 @@
 """
 Stability of a uniform magnetic field oblique to the grid under the
 finite-difference MHD scheme, with and without the upwind dissipation of the
-constrained-transport edge EMFs (``SimulationConfig.ct_upwind_dissipation``).
+constrained-transport edge EMFs (``FDSolverConfig.ct_upwind_dissipation``).
 
 A uniform isothermal state (rho = 1, |B| = 1 along ``--direction``, sound
 speed sqrt(beta / 2)) with a random velocity of rms ``--noise`` is an exact
@@ -50,6 +50,7 @@ from astronomix.option_classes.simulation_config import (
 from astronomix.option_classes.simulation_config import (
     BoundarySettings,
     BoundarySettings1D,
+    FDSolverConfig,
     PositivityConfig,
     SimulationConfig,
     StaticFloatVector,
@@ -83,7 +84,7 @@ def parse_arguments():
     parser.add_argument("--noise", type=float, default=1e-6, help="rms of the random seed velocity")
     parser.add_argument("--cfl", type=float, default=0.75)
     parser.add_argument("--ct-upwind", type=float, nargs="?", const=0.03, default=0.0,
-                        help="SimulationConfig.ct_upwind_dissipation at strength kappa "
+                        help="FDSolverConfig.ct_upwind_dissipation at strength kappa "
                              "(ct_upwind_strength; the bare flag is the default 0.03, 0 = off)")
     return parser.parse_args()
 
@@ -110,11 +111,13 @@ def build_case(args, field_direction):
         num_cells=StaticIntVector(args.N, args.N, SLAB_CELLS),
         box_size=StaticFloatVector(1.0, 1.0, SLAB_CELLS * grid_spacing),
         boundary_settings=BoundarySettings(periodic, periodic, periodic),
-        weno_z=True,
-        weno_positivity_preserving=True,
+        solver_config=FDSolverConfig(
+            weno_z=True,
+            weno_positivity_preserving=True,
+            ct_upwind_dissipation=args.ct_upwind > 0.0,
+            ct_upwind_strength=args.ct_upwind if args.ct_upwind > 0.0 else 0.03,
+        ),
         positivity_config=PositivityConfig(),
-        ct_upwind_dissipation=args.ct_upwind > 0.0,
-        ct_upwind_strength=args.ct_upwind if args.ct_upwind > 0.0 else 0.03,
         progress_bar=False,
     )
     params = SimulationParams(

@@ -100,8 +100,10 @@ base_config = benchmark_configuration(
     block_shape,
     halo_exchange=args.halo_exchange,
 )
-if args.weno_js:
-    base_config = base_config._replace(weno_z=False)
+if args.weno_js and args.scheme == "fd":
+    base_config = base_config._replace(
+        solver_config=base_config.solver_config._replace(weno_z=False),
+    )
 settings = benchmark_settings("hydro", box_size)
 
 if info.process_index == 0:

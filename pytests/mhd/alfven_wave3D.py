@@ -65,6 +65,7 @@ from astronomix import (
     SimulationConfig,
     SnapshotSettings,
     BackendConfig,
+    FVSolverConfig,
 )
 from astronomix.option_classes.simulation_config import StaticFloatVector
 
@@ -110,7 +111,7 @@ BENCHMARKS = [
         base_config=SimulationConfig(
             backend_config=BackendConfig(backend=NATIVE_JAX),
             solver_mode=FINITE_VOLUME,
-            time_integrator=VL2,
+            solver_config=FVSolverConfig(time_integrator=VL2),
             **_common_kwargs,
         ),
         cfl=0.3,

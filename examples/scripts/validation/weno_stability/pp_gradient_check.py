@@ -16,9 +16,19 @@ import jax
 import jax.numpy as jnp
 
 from astronomix import (
-    BackendConfig, BoundarySettings, BoundarySettings1D, NATIVE_JAX, PERIODIC_BOUNDARY, SimulationConfig,
-    SimulationParams, construct_primitive_state, finalize_config, get_registered_variables,
-    initialize_interface_fields, time_integration,
+    BackendConfig,
+    BoundarySettings,
+    BoundarySettings1D,
+    FDSolverConfig,
+    NATIVE_JAX,
+    PERIODIC_BOUNDARY,
+    SimulationConfig,
+    SimulationParams,
+    construct_primitive_state,
+    finalize_config,
+    get_registered_variables,
+    initialize_interface_fields,
+    time_integration,
 )
 from astronomix.option_classes.simulation_config import IDEAL_GAS, ISOTHERMAL
 
@@ -34,10 +44,16 @@ for case in ("hydro", "ideal_mhd", "iso_mhd"):
     mhd = case != "hydro"
     eos = ISOTHERMAL if case == "iso_mhd" else IDEAL_GAS
     config = SimulationConfig(
-        equation_of_state=eos, dimensionality=3, num_cells=n, box_size=1.0, mhd=mhd,
+        equation_of_state=eos,
+        dimensionality=3,
+        num_cells=n,
+        box_size=1.0,
+        mhd=mhd,
         backend_config=BackendConfig(backend=NATIVE_JAX),
         boundary_settings=BoundarySettings(periodic, periodic, periodic),
-        weno_positivity_preserving=True, fixed_timestep=True, num_timesteps=3,
+        solver_config=FDSolverConfig(weno_positivity_preserving=True),
+        fixed_timestep=True,
+        num_timesteps=3,
     )
     params = SimulationParams(t_end=3e-3, gamma=5.0 / 3.0, isothermal_sound_speed=0.3)
     rv = get_registered_variables(config)

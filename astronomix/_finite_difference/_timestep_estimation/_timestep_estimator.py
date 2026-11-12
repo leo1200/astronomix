@@ -114,7 +114,7 @@ def _apply_parabolic_and_source_limits(
         The tightened time step.
     """
     # --------------- ↓ Viscous limit ↓ ----------------
-    if config.diffusion:
+    if config.diffusion_config.viscosity:
         minimum_density = _minimum_density_for_estimates(
             primitive_state,
             params,
@@ -122,9 +122,9 @@ def _apply_parabolic_and_source_limits(
             registered_variables,
         )
 
-        if config.viscosity_type == DYNAMIC_VISCOSITY:
+        if config.diffusion_config.viscosity_type == DYNAMIC_VISCOSITY:
             maximum_kinematic_viscosity = params.viscosity / minimum_density
-        elif config.viscosity_type == KINEMATIC_VISCOSITY:
+        elif config.diffusion_config.viscosity_type == KINEMATIC_VISCOSITY:
             maximum_kinematic_viscosity = params.viscosity
 
         dt_viscous = C_CFL * grid_spacing**2 / (
@@ -134,7 +134,7 @@ def _apply_parabolic_and_source_limits(
     # --------------- ↑ Viscous limit ↑ ----------------
 
     # --------------- ↓ Resistive limit ↓ ----------------
-    if config.resistivity:
+    if config.diffusion_config.resistivity:
         dt_resistive = C_CFL * grid_spacing ** 2 / (
             2.0 * config.dimensionality * params.resistivity
         )
@@ -180,8 +180,8 @@ def _apply_parabolic_and_source_limits(
     # --------------- ↑ Explicit-cooling limit ↑ ----------------
 
     # --------------- ↓ Conductive limit ↓ ----------------
-    if config.thermal_conduction:
-        if config.conduction_density_weighted:
+    if config.diffusion_config.thermal_conduction:
+        if config.diffusion_config.conduction_density_weighted:
             # With a density-weighted conductivity (kappa = rho * alpha) the
             # temperature diffusivity is uniform, so the bound needs no minimum
             # density.

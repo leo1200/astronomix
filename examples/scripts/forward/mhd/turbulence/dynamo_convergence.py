@@ -83,6 +83,9 @@ from astronomix import (
     BackendConfig,
     BoundarySettings,
     BoundarySettings1D,
+    DiffusionConfig,
+    FDSolverConfig,
+    FVSolverConfig,
     PositivityConfig,
     SimulationConfig,
     SimulationParams,
@@ -160,7 +163,7 @@ def scheme_description(args):
         return "astronomix FV VL2+GLM", "PLM / VL2 / HLLD / GLM", "vl2"
     weights = "WENO5" if args.weno_js else "WENO-Z"
     weights_key = "weno5" if args.weno_js else "wenoz"
-    # The upwind EMF dissipation (SimulationConfig.ct_upwind_dissipation)
+    # The upwind EMF dissipation (FDSolverConfig.ct_upwind_dissipation)
     # changes the CT, so it gets its own label and key.
     if args.ct_upwind:
         strength = "" if args.ct_upwind == 1.0 else f" x{args.ct_upwind:g}"
@@ -227,8 +230,7 @@ def build_config(args, num_snapshots):
     if args.scheme == "vl2":
         return SimulationConfig(
             solver_mode=FINITE_VOLUME,
-            time_integrator=VL2,
-            riemann_solver=HLLD,
+            solver_config=FVSolverConfig(time_integrator=VL2, riemann_solver=HLLD),
             # VL2 has no isothermal EOS; gamma -> 1 emulates it (see params).
             equation_of_state=IDEAL_GAS,
             # Subsonic turbulence never approaches vacuum: no floors, as in
@@ -245,18 +247,22 @@ def build_config(args, num_snapshots):
         # mass-carrying field with the common (fastest) speed, which costs
         # low-Mach accuracy. --pp switches it on to measure that cost.
         positivity_config=PositivityConfig(step_retry=args.step_retry),
-        weno_positivity_preserving=args.pp,
-        ct_upwind_dissipation=args.ct_upwind > 0.0,
-        ct_upwind_strength=args.ct_upwind if args.ct_upwind > 0.0 else 0.03,
-        # WENO-Z weights (Borges et al.) are the baseline; the Jiang-Shu
-        # weights with an absolute epsilon are fully nonlinear on O(1)
-        # turbulent fields and drop the stencil to low order.
-        weno_z=not args.weno_js,
-        # Explicit Laplacian coefficients for the calibration ladder (the same
-        # test athenapk_turb.py --mom-diff/--ohm-diff runs on AthenaPK).
-        diffusion=args.mom_diff > 0.0,
-        viscosity_type=KINEMATIC_VISCOSITY,
-        resistivity=args.ohm_diff > 0.0,
+        solver_config=FDSolverConfig(
+            # WENO-Z weights (Borges et al.) are the baseline; the Jiang-Shu
+            # weights with an absolute epsilon are fully nonlinear on O(1)
+            # turbulent fields and drop the stencil to low order.
+            weno_z=not args.weno_js,
+            weno_positivity_preserving=args.pp,
+            ct_upwind_dissipation=args.ct_upwind > 0.0,
+            ct_upwind_strength=args.ct_upwind if args.ct_upwind > 0.0 else 0.03,
+        ),
+        diffusion_config=DiffusionConfig(
+            # Explicit Laplacian coefficients for the calibration ladder (the same
+            # test athenapk_turb.py --mom-diff/--ohm-diff runs on AthenaPK).
+            viscosity=args.mom_diff > 0.0,
+            viscosity_type=KINEMATIC_VISCOSITY,
+            resistivity=args.ohm_diff > 0.0,
+        ),
         **shared,
     )
 
@@ -618,7 +624,7 @@ def parse_arguments():
                              "the default C_cfl becomes 0.75")
     parser.add_argument("--ct-upwind", type=float, nargs="?", const=0.03, default=0.0,
                         help="FD only: upwind dissipation of the CT edge EMFs "
-                             "(SimulationConfig.ct_upwind_dissipation) at strength kappa "
+                             "(FDSolverConfig.ct_upwind_dissipation) at strength kappa "
                              "(ct_upwind_strength; the bare flag is the default 0.03, 0 = off)")
     parser.add_argument("--rhomin", type=float, default=1e-4,
                         help="minimum_density, the target of the positivity-preserving WENO; "

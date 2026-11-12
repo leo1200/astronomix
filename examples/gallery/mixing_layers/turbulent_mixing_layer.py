@@ -63,6 +63,7 @@ from astronomix import (
     BoundarySettings,
     BoundarySettings1D,
     BackendConfig,
+    FDSolverConfig,
 )
 from astronomix.option_classes.simulation_params import (
     FixedBoundaryState,
@@ -145,9 +146,11 @@ t_sh = L_x / v_rel
 # =============== ↓ Config ↓ ==================================
 # -------------------------------------------------------------
 config = SimulationConfig(
-    # positivity-preserving WENO keeps the strong density contrast plus
-    # cooling stable
-    weno_positivity_preserving=True,
+    solver_config=FDSolverConfig(
+        # positivity-preserving WENO keeps the strong density contrast plus
+        # cooling stable
+        weno_positivity_preserving=True,
+    ),
     backend_config=BackendConfig(
         pallas_block_shape=(4, 4, 4),
     ),

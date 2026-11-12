@@ -142,12 +142,12 @@ def fd_viscosity_source(primitive_state, params, config, registered_variables):
 
     # Resolve the dynamic viscosity mu; for a kinematic-viscosity setting it is
     # the kinematic viscosity scaled by the local density.
-    if config.viscosity_type == DYNAMIC_VISCOSITY:
+    if config.diffusion_config.viscosity_type == DYNAMIC_VISCOSITY:
         dynamic_viscosity = params.viscosity
-    elif config.viscosity_type == KINEMATIC_VISCOSITY:
+    elif config.diffusion_config.viscosity_type == KINEMATIC_VISCOSITY:
         dynamic_viscosity = params.viscosity * density
     else:
-        raise ValueError(f"Unknown viscosity type: {config.viscosity_type}")
+        raise ValueError(f"Unknown viscosity type: {config.diffusion_config.viscosity_type}")
 
     grid_spacing = config.grid_spacing
     dimensionality = config.dimensionality

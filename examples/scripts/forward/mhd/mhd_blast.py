@@ -75,6 +75,8 @@ from astronomix import (
     BackendConfig,
     BoundarySettings,
     BoundarySettings1D,
+    FDSolverConfig,
+    FVSolverConfig,
     PositivityConfig,
     SimulationConfig,
     SimulationParams,
@@ -165,9 +167,11 @@ def _finite_volume_scheme(riemann_solver, strong_shock_safeguards):
     return {
         "config": dict(
             solver_mode=FINITE_VOLUME,
-            time_integrator=VL2,
-            riemann_solver=riemann_solver,
-            first_order_flux_correction=strong_shock_safeguards,
+            solver_config=FVSolverConfig(
+                time_integrator=VL2,
+                riemann_solver=riemann_solver,
+                first_order_flux_correction=strong_shock_safeguards,
+            ),
             positivity_config=positivity_config,
         ),
         "params": dict(
@@ -187,12 +191,16 @@ SCHEME_CONFIGS = {
     "fv_vl2_hlld_without_fofc": _finite_volume_scheme(HLLD, strong_shock_safeguards=False),
     "fv_vl2_hlle_without_fofc": _finite_volume_scheme(HLL, strong_shock_safeguards=False),
     "fd_mhd": {
-        "config": dict(weno_z=True),
+        "config": dict(solver_config=FDSolverConfig(weno_z=True)),
         "params": dict(C_cfl=0.75),
     },
     # The setup of the supersonic turbulence.
     "fd_mhd_turbulence": {
-        "config": dict(weno_z=True, weno_positivity_preserving=True, ct_upwind_dissipation=True),
+        "config": dict(
+            solver_config=FDSolverConfig(
+                weno_z=True, weno_positivity_preserving=True, ct_upwind_dissipation=True
+            ),
+        ),
         "params": dict(C_cfl=0.75),
     },
 }

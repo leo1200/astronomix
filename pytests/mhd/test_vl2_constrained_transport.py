@@ -1,5 +1,5 @@
 """
-VL2 with constrained transport (``SimulationConfig.vl2_constrained_transport``).
+VL2 with constrained transport (``FVSolverConfig.divergence_control``).
 
 The option replaces the GLM (Dedner) cleaning of the VL2 finite-volume scheme
 by the constrained transport of Stone & Gardiner (2009): the face-centred field
@@ -42,8 +42,10 @@ import jax.numpy as jnp
 
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
+    CONSTRAINED_TRANSPORT,
     FINITE_DIFFERENCE,
     FINITE_VOLUME,
+    GLM,
     HLLD,
     NATIVE_JAX,
     OPEN_BOUNDARY,
@@ -59,6 +61,7 @@ from astronomix.option_classes.simulation_config import (
     BackendConfig,
     BoundarySettings,
     BoundarySettings1D,
+    FVSolverConfig,
     GravityConfig,
     PositivityConfig,
     SimulationConfig,
@@ -80,21 +83,29 @@ GAMMA = 5.0 / 3.0
 # ---------------------------------------------------------------------------
 # Set-up helpers
 # ---------------------------------------------------------------------------
-def _config(dimensionality, box_size, constrained_transport=True, **overrides):
-    """A periodic VL2 MHD configuration (HLLD, van Leer limiter, native JAX)."""
+def _config(
+    dimensionality, box_size, constrained_transport=True, solver_overrides=None, **overrides
+):
+    """A periodic VL2 MHD configuration (HLLD, van Leer limiter, native JAX).
+
+    ``solver_overrides`` replaces fields of the ``FVSolverConfig``, ``overrides``
+    fields of the ``SimulationConfig``.
+    """
     periodic = BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY)
     settings = dict(
         solver_mode=FINITE_VOLUME,
-        time_integrator=VL2,
-        riemann_solver=HLLD,
-        limiter=VAN_LEER,
+        solver_config=FVSolverConfig(
+            time_integrator=VL2,
+            limiter=VAN_LEER,
+            riemann_solver=HLLD,
+            divergence_control=CONSTRAINED_TRANSPORT if constrained_transport else GLM,
+        )._replace(**(solver_overrides or {})),
         mhd=True,
         dimensionality=dimensionality,
         box_size=StaticFloatVector(*(list(box_size) + [1.0] * (3 - dimensionality))),
         boundary_settings=BoundarySettings(
             *([periodic] * dimensionality + [BoundarySettings1D()] * (3 - dimensionality))
         ),
-        vl2_constrained_transport=constrained_transport,
         backend_config=BackendConfig(backend=NATIVE_JAX),
         progress_bar=False,
     )
@@ -228,7 +239,7 @@ def _alfven_wave(n):
 # Layout and initial state
 # ---------------------------------------------------------------------------
 def test_off_by_default_and_glm_layout_unchanged():
-    assert SimulationConfig().vl2_constrained_transport is False
+    assert FVSolverConfig().divergence_control == GLM
 
     glm = get_registered_variables(_config(2, (1.0, 1.0), constrained_transport=False))
     assert glm.num_vars == 9
@@ -326,7 +337,7 @@ def test_low_beta_blast_with_first_order_flux_correction():
     config = _config(
         2,
         (1.0, 1.0),
-        first_order_flux_correction=True,
+        solver_overrides=dict(first_order_flux_correction=True),
         positivity_config=PositivityConfig(per_step_mode=POSITIVITY_HARD_FLOOR),
     )
     final = _run(state0, config, t_end=0.05, minimum_density=1e-10, minimum_pressure=1e-10)
@@ -359,8 +370,9 @@ def test_alfven_wave_converges_at_second_order():
 @pytest.mark.parametrize(
     "overrides, message",
     [
-        (dict(time_integrator=RK2_SSP), "VL2 scheme only"),
-        (dict(solver_mode=FINITE_DIFFERENCE), "option of the VL2"),
+        (dict(solver_overrides=dict(time_integrator=RK2_SSP)), "VL2 scheme only"),
+        (dict(solver_overrides=dict(time_integrator=RK2_SSP), mhd=False), "option of the VL2"),
+        (dict(solver_mode=FINITE_DIFFERENCE), "needs an FDSolverConfig"),
         (dict(mhd=False), "requires mhd=True"),
         (
             dict(
@@ -374,7 +386,7 @@ def test_alfven_wave_converges_at_second_order():
         ),
         (dict(gravity_config=GravityConfig(self_gravity=True)), "no gravity coupling"),
         (dict(gravity_config=GravityConfig(external_potential=True)), "no gravity coupling"),
-        (dict(glm_extended_source=True), "glm_extended_source"),
+        (dict(solver_overrides=dict(glm_extended_source=True)), "glm_extended_source"),
     ],
 )
 def test_rejected_where_not_implemented(overrides, message):

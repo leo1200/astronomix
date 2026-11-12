@@ -81,14 +81,16 @@ from astronomix.option_classes.simulation_config import (  # noqa: E402
     HLLD,
     NATIVE_JAX,
     PALLAS,
-    RK4_LSRK,
-    RK4_SSP,
+    LSRK4,
+    SSPRK54,
     VL2,
 )
 
 # astronomix containers
 from astronomix.option_classes.simulation_config import (  # noqa: E402
     BackendConfig,
+    FDSolverConfig,
+    FVSolverConfig,
     SimulationConfig,
     SnapshotSettings,
     StaticIntVector,
@@ -230,18 +232,22 @@ def build_simulation_config(point: dict) -> SimulationConfig:
     mhd = point["physics"] == "mhd"
 
     if point["scheme"] == "FD":
-        time_integrator = RK4_LSRK if point["integrator"] == "LSRK4" else RK4_SSP
+        time_integrator = LSRK4 if point["integrator"] == "LSRK4" else SSPRK54
         scheme_options = dict(
             solver_mode=FINITE_DIFFERENCE,
-            time_integrator=time_integrator,
-            weno_z=True,
-            weno_positivity_preserving=point["positivity_preserving"],
+            solver_config=FDSolverConfig(
+                time_integrator=time_integrator,
+                weno_z=True,
+                weno_positivity_preserving=point["positivity_preserving"],
+            ),
         )
     else:
         scheme_options = dict(
             solver_mode=FINITE_VOLUME,
-            time_integrator=VL2,
-            riemann_solver=HLLD if mhd else HLLC,
+            solver_config=FVSolverConfig(
+                time_integrator=VL2,
+                riemann_solver=HLLD if mhd else HLLC,
+            ),
         )
 
     backend = PALLAS if point["backend"] == "pallas" else NATIVE_JAX

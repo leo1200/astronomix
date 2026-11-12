@@ -76,7 +76,7 @@ We calculate the flux as follows:
     IS_1 = 13 (b - c)^2 + 3 (b + c)^2
     IS_2 = 13 (c - d)^2 + 3 (3c - d)^2
 
-    ε is a small parameter to avoid division by zero (``config.weno_epsilon``).
+    ε is a small parameter to avoid division by zero (``WENO_EPSILON``).
 
 NOTE: I have seen formulations where the first part of the flux
 is also calculated in characteristic space and then transformed back,
@@ -147,7 +147,9 @@ from astronomix._fluid_equations._fluxes_mhd import (
 from astronomix._fluid_equations._equations import primitive_state_from_conserved
 from astronomix._fluid_equations._fluxes import _euler_flux
 from astronomix._stencil_operations._stencil_operations import _shift
+from astronomix._fluid_equations._dual_energy_switch import DUAL_ENERGY_ETA
 from astronomix._finite_difference._interface_fluxes._weno_weights import (
+    WENO_EPSILON,
     _weno_omega_weights_ad,
     _weno_omega_weights_z,
 )
@@ -207,16 +209,16 @@ def _weno_flux_x_native(
     Returns:
         The WENO interface fluxes at i + 1/2, aligned with cell i.
     """
-    dual_eta = config.dual_energy_eta
+    dual_eta = DUAL_ENERGY_ETA
 
-    epsilon = config.weno_epsilon
+    epsilon = WENO_EPSILON
     # ``_weno_omega_weights_ad`` gives the same weights bit for bit as the
     # plain Jiang-Shu weights, with an overflow-free derivative for the
     # exact-weight tangent (see its docstring).
-    omega_weights = _weno_omega_weights_z if config.weno_z else _weno_omega_weights_ad
-    positivity_preserving = config.weno_positivity_preserving
-    admissible_face_state = config.weno_admissible_face_state
-    if config.weno_ad_frozen_weights:
+    omega_weights = _weno_omega_weights_z if config.solver_config.weno_z else _weno_omega_weights_ad
+    positivity_preserving = config.solver_config.weno_positivity_preserving
+    admissible_face_state = config.solver_config.weno_admissible_face_state
+    if config.solver_config.weno_ad_frozen_weights:
         unfrozen_omega_weights = omega_weights
 
         def omega_weights(*args):
@@ -443,7 +445,7 @@ def _weno_flux_x_native(
             axis=0,
         )
         common_speed = stencil_maximum(spectral_radius)
-        if config.weno_ad_frozen_weights:
+        if config.solver_config.weno_ad_frozen_weights:
             common_speed = jax.lax.stop_gradient(common_speed)
         safe_common_speed = jnp.maximum(common_speed, 1e-30)
 
@@ -470,7 +472,7 @@ def _weno_flux_x_native(
 
         lambdas_center = mode_eigenvalues(mode)
         L_row = mode_left_row(mode)
-        if config.weno_ad_frozen_weights:
+        if config.solver_config.weno_ad_frozen_weights:
             # The eigensystem and the splitting speed are frozen with the
             # weights: L carries 1/c^2 terms, so in cold gas d L / d c ~ 1/c^3
             # and the tangent is amplified ~20x per step in cold dense knots.
@@ -592,7 +594,7 @@ def _weno_flux_x_native(
 
         # Transform back to conserved variables and add to the current flux.
         R_col = mode_right_column(mode)
-        if config.weno_ad_frozen_weights:
+        if config.solver_config.weno_ad_frozen_weights:
             R_col = jax.lax.stop_gradient(R_col)
 
         if positivity_preserving:

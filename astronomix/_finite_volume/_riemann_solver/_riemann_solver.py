@@ -65,7 +65,7 @@ def _riemann_solver(
     flux_direction_index: int,
 ) -> STATE_TYPE:
     """Wrapper function for the Riemann solver."""
-    if config.riemann_solver == HLL:
+    if config.solver_config.riemann_solver == HLL:
         return _hll_solver(
             primitives_left,
             primitives_right,
@@ -74,7 +74,7 @@ def _riemann_solver(
             registered_variables,
             flux_direction_index,
         )
-    elif config.riemann_solver == HLLC:
+    elif config.solver_config.riemann_solver == HLLC:
         return _hllc_solver(
             primitives_left,
             primitives_right,
@@ -83,7 +83,7 @@ def _riemann_solver(
             registered_variables,
             flux_direction_index,
         )
-    elif config.riemann_solver == LAX_FRIEDRICHS:
+    elif config.solver_config.riemann_solver == LAX_FRIEDRICHS:
         return _lax_friedrichs_solver(
             primitives_left,
             primitives_right,

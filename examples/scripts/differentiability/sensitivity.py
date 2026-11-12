@@ -83,6 +83,8 @@ from astronomix import (
     BackendConfig,
     BoundarySettings,
     BoundarySettings1D,
+    FDSolverConfig,
+    FVSolverConfig,
     SimulationConfig,
     SimulationParams,
 )
@@ -381,9 +383,9 @@ def simulation_config_and_params(dimensionality, num_cells, box_length, t_end, s
         boundary_settings = BoundarySettings(*([periodic] * dimensionality))
 
     if scheme.solver_mode == FINITE_VOLUME:
-        scheme_options = dict(time_integrator=VL2, riemann_solver=HLLC)
+        solver_config = FVSolverConfig(time_integrator=VL2, riemann_solver=HLLC)
     else:
-        scheme_options = dict(
+        solver_config = FDSolverConfig(
             weno_z=True,
             weno_positivity_preserving=scheme.positivity_preserving,
         )
@@ -404,7 +406,7 @@ def simulation_config_and_params(dimensionality, num_cells, box_length, t_end, s
         num_cells=num_cells_vector,
         boundary_settings=boundary_settings,
         return_snapshots=False,
-        **scheme_options,
+        solver_config=solver_config,
     )
 
     # VL2 takes AthenaPK's CFL number in 3D (0.3; its time step uses the

@@ -54,7 +54,7 @@ from astronomix.plotting_helpers.paper_style import (
 )
 
 # astronomix containers
-from astronomix import BackendConfig
+from astronomix import BackendConfig, FDSolverConfig, FVSolverConfig
 
 # astronomix functions
 from astronomix.plotting_helpers.paper_style import (
@@ -209,14 +209,15 @@ def solver_options(scheme: Scheme) -> dict:
         return dict(
             backend_config=BackendConfig(backend=NATIVE_JAX),
             solver_mode=FINITE_VOLUME,
-            time_integrator=VL2,
-            riemann_solver=HLLC,
+            solver_config=FVSolverConfig(time_integrator=VL2, riemann_solver=HLLC),
         )
     return dict(
         backend_config=BackendConfig(backend=PALLAS),
         solver_mode=FINITE_DIFFERENCE,
-        weno_z=True,
-        weno_positivity_preserving=scheme.positivity_preserving,
+        solver_config=FDSolverConfig(
+            weno_z=True,
+            weno_positivity_preserving=scheme.positivity_preserving,
+        ),
     )
 
 

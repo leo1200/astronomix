@@ -197,7 +197,7 @@ def _iteration_level_updates(
     # Viscosity.
     # In the finite-difference case this is instead handled as a source term
     # inside the hydro integrator.
-    if config.diffusion and config.solver_mode == FINITE_VOLUME:
+    if config.diffusion_config.viscosity and config.solver_mode == FINITE_VOLUME:
         primitive_state = fv_viscosity_update(
             primitive_state,
             params,

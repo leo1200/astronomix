@@ -39,6 +39,7 @@ from astronomix import (
 # astronomix containers
 from astronomix import (
     BoundarySettings1D,
+    FDSolverConfig,
     SimulationConfig,
     SimulationParams,
 )
@@ -68,7 +69,7 @@ def _run_riemann(left, right, gamma, t_end, num_cells, **options):
         gamma: The adiabatic index.
         t_end: The end time.
         num_cells: The number of cells.
-        **options: Extra SimulationConfig options (the robustness switches).
+        **options: FDSolverConfig options (the robustness switches).
 
     Returns:
         The final primitive state, the registered variables and the exact
@@ -81,7 +82,7 @@ def _run_riemann(left, right, gamma, t_end, num_cells, **options):
             left_boundary=OPEN_BOUNDARY,
             right_boundary=OPEN_BOUNDARY,
         ),
-        **options,
+        solver_config=FDSolverConfig(**options),
     )
     params = SimulationParams(t_end=t_end, gamma=gamma, C_cfl=0.4)
     registered_variables = get_registered_variables(config)
@@ -156,7 +157,7 @@ def test_smooth_fifth_order():
                 left_boundary=PERIODIC_BOUNDARY,
                 right_boundary=PERIODIC_BOUNDARY,
             ),
-            weno_positivity_preserving=True,
+            solver_config=FDSolverConfig(weno_positivity_preserving=True),
         )
         params = SimulationParams(t_end=1.0, gamma=5.0 / 3.0, C_cfl=0.4)
         registered_variables = get_registered_variables(config)

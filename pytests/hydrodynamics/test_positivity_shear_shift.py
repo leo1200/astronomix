@@ -32,6 +32,7 @@ import numpy as np
 
 # astronomix containers
 from astronomix import (
+    FDSolverConfig,
     SimulationConfig,
     SimulationParams,
 )
@@ -124,7 +125,7 @@ def _shear_interface():
 
 def _array_form_flux(case):
     """The interface flux of the array form (native kernel)."""
-    config = SimulationConfig(dimensionality=2)
+    config = SimulationConfig(dimensionality=2, solver_config=FDSolverConfig())
     registered_variables = get_registered_variables(config)
     slots = [
         registered_variables.density_index,

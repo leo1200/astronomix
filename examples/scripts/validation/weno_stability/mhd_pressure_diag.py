@@ -28,8 +28,17 @@ import numpy as np
 import jax.numpy as jnp
 
 from astronomix import (
-    BackendConfig, BoundarySettings, BoundarySettings1D, NATIVE_JAX, PERIODIC_BOUNDARY,
-    PositivityConfig, SimulationConfig, SimulationParams, finalize_config, get_registered_variables,
+    BackendConfig,
+    BoundarySettings,
+    BoundarySettings1D,
+    FDSolverConfig,
+    NATIVE_JAX,
+    PERIODIC_BOUNDARY,
+    PositivityConfig,
+    SimulationConfig,
+    SimulationParams,
+    finalize_config,
+    get_registered_variables,
 )
 from astronomix._finite_difference._interface_fluxes._weno import _weno_flux_native_for_axis
 from astronomix._fluid_equations._equations_mhd import conserved_state_from_primitive_mhd
@@ -47,11 +56,15 @@ primitive = jnp.asarray(loaded["state"] if args.snapshot.endswith(".npz") else l
 n = primitive.shape[-1]
 periodic = BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY)
 config = SimulationConfig(
-    equation_of_state=IDEAL_GAS, dimensionality=3, num_cells=n, box_size=1.0, mhd=True,
+    equation_of_state=IDEAL_GAS,
+    dimensionality=3,
+    num_cells=n,
+    box_size=1.0,
+    mhd=True,
     backend_config=BackendConfig(backend=NATIVE_JAX),
     boundary_settings=BoundarySettings(periodic, periodic, periodic),
     positivity_config=PositivityConfig(clamp_in_estimates=False),
-    weno_positivity_preserving=True,
+    solver_config=FDSolverConfig(weno_positivity_preserving=True),
 )
 config = finalize_config(config, primitive.shape)
 rv = get_registered_variables(config)

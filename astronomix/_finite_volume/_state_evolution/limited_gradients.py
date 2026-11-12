@@ -75,12 +75,12 @@ def _calculate_limited_gradients(
     # We apply limiting to not create new extrema in regions where consecutive finite
     # differences differ strongly.
 
-    if config.limiter == MINMOD:
+    if config.solver_config.limiter == MINMOD:
         # Limited average formulations:
         limited_gradients = _minmod(backward_diff, forward_diff)
-    elif config.limiter == SUPERBEE:
+    elif config.solver_config.limiter == SUPERBEE:
         limited_gradients = _superbee(backward_diff, forward_diff)
-    elif config.limiter == DOUBLE_MINMOD:
+    elif config.solver_config.limiter == DOUBLE_MINMOD:
         limited_gradients = _double_minmod(backward_diff, forward_diff)
     else:
         raise ValueError("Unknown limiter.")

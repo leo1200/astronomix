@@ -41,7 +41,11 @@ except ImportError:  # jax < 0.8
     from jax.experimental.shard_map import shard_map
 
 # astronomix constants
-from astronomix.option_classes.simulation_config import PALLAS
+from astronomix.option_classes.simulation_config import (
+    PAIR_ALL_TO_ALL,
+    PALLAS,
+    PPERMUTE,
+)
 
 # astronomix containers
 from astronomix.option_classes.simulation_config import SimulationConfig
@@ -248,16 +252,12 @@ _pallas_spec_ctx: contextvars.ContextVar = contextvars.ContextVar(
 )
 _pallas_halo_exchange_ctx: contextvars.ContextVar = contextvars.ContextVar(
     "astronomix_pallas_halo_exchange",
-    default="pair_all_to_all",
+    default=PAIR_ALL_TO_ALL,
 )
-
-#: The halo-exchange variants of ``BackendConfig.halo_exchange``.
-HALO_EXCHANGE_RING = "ppermute"
-HALO_EXCHANGE_PAIRS = "pair_all_to_all"
 
 
 @contextmanager
-def pallas_mesh_context(mesh, spec=None, halo_exchange=HALO_EXCHANGE_PAIRS):
+def pallas_mesh_context(mesh, spec=None, halo_exchange=PAIR_ALL_TO_ALL):
     """
     Set the active mesh (and state PartitionSpec) for Pallas kernel sharding.
 
@@ -287,7 +287,7 @@ def pallas_mesh_context(mesh, spec=None, halo_exchange=HALO_EXCHANGE_PAIRS):
         halo_exchange: How the halos are exchanged along a split axis
             (``BackendConfig.halo_exchange``).
     """
-    if halo_exchange not in (HALO_EXCHANGE_RING, HALO_EXCHANGE_PAIRS):
+    if halo_exchange not in (PPERMUTE, PAIR_ALL_TO_ALL):
         raise ValueError(f"Unknown halo_exchange {halo_exchange!r}.")
     token = _pallas_mesh_ctx.set(mesh)
     token_spec = _pallas_spec_ctx.set(spec)
@@ -876,7 +876,7 @@ def _pallas_call_sharded(
     # The pairwise exchange needs an even device count along every split axis
     # and string axis names; the shard_map then runs on the same devices under
     # string names.
-    pairwise = _pallas_halo_exchange_ctx.get() == HALO_EXCHANGE_PAIRS and all(
+    pairwise = _pallas_halo_exchange_ctx.get() == PAIR_ALL_TO_ALL and all(
         num_devices % 2 == 0 for _, _, num_devices in sharded_axes
     )
     if pairwise:

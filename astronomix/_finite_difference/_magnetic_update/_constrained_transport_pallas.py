@@ -1592,7 +1592,7 @@ def _ct_upwind_emf_pallas_local(
     nx, ny, nz = spatial_shape
     extents = (nx, ny, nz)
     ideal_gas = config.equation_of_state == IDEAL_GAS
-    half_strength = 0.5 * config.ct_upwind_strength
+    half_strength = 0.5 * config.solver_config.ct_upwind_strength
     density_index = registered_variables.density_index
     momentum_indices = (
         registered_variables.momentum_index.x,

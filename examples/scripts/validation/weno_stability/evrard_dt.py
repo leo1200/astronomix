@@ -39,6 +39,7 @@ from astronomix import (
     BackendConfig,
     BoundarySettings,
     BoundarySettings1D,
+    FDSolverConfig,
     GravityConfig,
     NATIVE_JAX,
     PERIODIC_BOUNDARY,
@@ -85,7 +86,7 @@ for num_timesteps in [int(s) for s in args.steps.split(",")]:
         snapshot_settings=SnapshotSettings(
             return_states=False, return_final_state=True, return_total_energy=True,
         ),
-        **weno_variant_kwargs(),
+        solver_config=FDSolverConfig(**weno_variant_kwargs()),
     )
     params = SimulationParams(t_end=1.2, dt_max=jnp.inf, minimum_density=1e-5, minimum_pressure=3e-6)
     helper_data = get_helper_data(config)

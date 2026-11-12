@@ -96,6 +96,8 @@ from astronomix.plotting_helpers.paper_style import (
 from astronomix import (
     BackendConfig,
     BoundarySettings1D,
+    FDSolverConfig,
+    FVSolverConfig,
     SimulationConfig,
     SimulationParams,
 )
@@ -212,9 +214,9 @@ def make_config_and_params(scheme):
         The tuple ``(config, params)``.
     """
     if scheme.solver_mode == FINITE_VOLUME:
-        scheme_options = dict(time_integrator=VL2, riemann_solver=HLLC)
+        solver_config = FVSolverConfig(time_integrator=VL2, riemann_solver=HLLC)
     else:
-        scheme_options = dict(weno_z=True)
+        solver_config = FDSolverConfig(weno_z=True)
 
     config = SimulationConfig(
         solver_mode=scheme.solver_mode,
@@ -236,7 +238,7 @@ def make_config_and_params(scheme):
         return_snapshots=False,
         fixed_timestep=True,
         num_timesteps=NUM_TIMESTEPS,
-        **scheme_options,
+        solver_config=solver_config,
     )
     params = SimulationParams(
         C_cfl=0.4,

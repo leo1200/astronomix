@@ -684,7 +684,7 @@ def _gravitational_source_term_along_axis(
     Currently, simply density * gravitational_acceleration for the momentum
     and density * velocity * gravitational_acceleration for the energy.
 
-    This simple coupling serves the classic finite-volume schemes (RK2, MUSCL);
+    This simple coupling serves the classic finite-volume schemes (RK2_SSP, MUSCL_HANCOCK);
     the VL2 scheme uses Athena++'s coupling (``_add_athena_gravity_source``)
     and the conservative flux schemes are finite-difference only (see
     ``_fd_gravity_source``).

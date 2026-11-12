@@ -217,7 +217,7 @@ def _time_integrator_sources(
         source_term += dt * gravity_source
 
     # Viscosity (FD path).
-    if config.diffusion and config.solver_mode == FINITE_DIFFERENCE:
+    if config.diffusion_config.viscosity and config.solver_mode == FINITE_DIFFERENCE:
         source_term += fd_viscosity_source(
             primitive_state,
             params,
@@ -227,7 +227,7 @@ def _time_integrator_sources(
 
     # Thermal conduction (FD path): div(kappa grad T) added to the energy
     # equation.
-    if config.thermal_conduction and config.solver_mode == FINITE_DIFFERENCE:
+    if config.diffusion_config.thermal_conduction and config.solver_mode == FINITE_DIFFERENCE:
         source_term += fd_conduction_source(
             primitive_state,
             params,

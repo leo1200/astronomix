@@ -38,6 +38,7 @@ from astronomix import (
     BackendConfig,
     BoundarySettings,
     BoundarySettings1D,
+    FDSolverConfig,
     SimulationConfig,
     SimulationParams,
 )
@@ -65,7 +66,7 @@ def configuration(num_cells, backend, differentiation_mode, num_checkpoints=1):
     periodic = BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY)
     config = SimulationConfig(
         solver_mode=FINITE_DIFFERENCE,
-        weno_z=True,
+        solver_config=FDSolverConfig(weno_z=True),
         geometry=CARTESIAN,
         dimensionality=3,
         box_size=BOX_LENGTH,

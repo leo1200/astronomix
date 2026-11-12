@@ -6,7 +6,7 @@ Astronomy 14, 139, section 4, "SG09" below; the corner electromotive forces are
 those of Gardiner & Stone 2005, J. Comput. Phys. 205, 509, "GS05", and 2008,
 J. Comput. Phys. 227, 4123, "GS08"). It is the constrained-transport
 counterpart of the GLM scheme in :mod:`._van_leer_integrator`, selected by
-``config.vl2_constrained_transport``; the reconstruction, the Riemann solvers
+``divergence_control=CONSTRAINED_TRANSPORT``; the reconstruction, the Riemann solvers
 and the conversions between conserved and primitive variables are the ones of
 that module.
 
@@ -96,7 +96,7 @@ the Riemann flux is the physical flux of the cell, and the edge formula
 reduces to the face value of the remaining axes (the two-dimensional and
 one-dimensional forms of the algorithm).
 
-Optional first-order flux correction (``config.first_order_flux_correction``).
+Optional first-order flux correction (``config.solver_config.first_order_flux_correction``).
 The face fluxes of a stage, including their field rows, which are the face
 electromotive forces, are replaced by donor-cell local Lax-Friedrichs fluxes
 on all faces of every cell whose trial update has a non-positive density or
@@ -132,6 +132,7 @@ import jax.numpy as jnp
 
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
+    DONOR_CELL,
     LAX_FRIEDRICHS,
     STATE_TYPE,
 )
@@ -578,12 +579,12 @@ def _vl2_ct_stage(
         stage_cell_state,
         stage_face_field,
         piecewise_linear,
-        config.riemann_solver,
+        config.solver_config.riemann_solver,
         gamma,
         registered_variables,
     )
 
-    if config.first_order_flux_correction:
+    if config.solver_config.first_order_flux_correction:
         fluxes_per_axis = _ct_first_order_flux_correction(
             fluxes_per_axis,
             stage_cell_state,
@@ -641,7 +642,7 @@ def _evolve_state_vl2_ct(
     Advance the primitive state by one step of VL2 with constrained transport
     (see the module docstring): a donor-cell predictor to the half step, then
     the corrector with the van Leer limited PLM, or with donor cell when
-    ``config.first_order_fallback`` is set; both stages with their own
+    ``reconstruction=DONOR_CELL`` is set; both stages with their own
     constrained-transport update of the face field.
 
     Args:
@@ -708,7 +709,7 @@ def _evolve_state_vl2_ct(
         initial_conserved_state,
         face_field,
         dt,
-        not config.first_order_fallback,
+        config.solver_config.reconstruction != DONOR_CELL,
         gamma,
         config,
         params,

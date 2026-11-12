@@ -31,7 +31,7 @@ As in ``multi_gpu.py`` (see its docstring for the three initial-state
 strategies) the state is built directly on the individual devices with
 ``jax.jit(build_initial_state, out_shardings=sharding)`` — in a multi-controller
 run this makes every process compute only its own shards, so the full state is
-never replicated on any node. ``donate_state`` and the low-storage ``RK4_LSRK``
+never replicated on any node. ``donate_state`` and the low-storage ``LSRK4``
 integrator further cut the peak memory.
 """
 
@@ -93,7 +93,7 @@ import matplotlib.pyplot as plt
 from astronomix import PERIODIC_BOUNDARY
 from astronomix.option_classes.simulation_config import (
     ISOTHERMAL,
-    RK4_LSRK,
+    LSRK4,
     VARAXIS,
     XAXIS,
     YAXIS,
@@ -106,6 +106,7 @@ from astronomix import (
     SimulationParams,
     BoundarySettings,
     BoundarySettings1D,
+    FDSolverConfig,
 )
 from astronomix._modules._turbulent_forcing._turbulent_forcing_options import (
     TurbulentForcingConfig,
@@ -153,7 +154,7 @@ config = SimulationConfig(
     # let the integrator reuse the state buffer and use the 2N-storage LSRK4
     # integrator — both cut the peak memory of the run
     donate_state = True,
-    time_integrator = RK4_LSRK,
+    solver_config=FDSolverConfig(time_integrator=LSRK4),
 )
 
 registered_variables = get_registered_variables(config)

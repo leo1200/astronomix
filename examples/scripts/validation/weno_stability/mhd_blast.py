@@ -37,21 +37,38 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from weno_variant import weno_variant_kwargs, weno_variant_name
 
 from astronomix import (
-    BackendConfig, BoundarySettings, BoundarySettings1D, NATIVE_JAX, PERIODIC_BOUNDARY, PositivityConfig,
-    SimulationConfig, SimulationParams, construct_primitive_state, finalize_config, get_registered_variables,
-    initialize_interface_fields, time_integration,
+    BackendConfig,
+    BoundarySettings,
+    BoundarySettings1D,
+    FDSolverConfig,
+    NATIVE_JAX,
+    PERIODIC_BOUNDARY,
+    PositivityConfig,
+    SimulationConfig,
+    SimulationParams,
+    construct_primitive_state,
+    finalize_config,
+    get_registered_variables,
+    initialize_interface_fields,
+    time_integration,
 )
 from astronomix.option_classes.simulation_config import IDEAL_GAS
 
 GAMMA = 1.4
 periodic = BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY)
 config = SimulationConfig(
-    equation_of_state=IDEAL_GAS, dimensionality=2, num_cells=args.n, box_size=1.0, mhd=True,
+    equation_of_state=IDEAL_GAS,
+    dimensionality=2,
+    num_cells=args.n,
+    box_size=1.0,
+    mhd=True,
     backend_config=BackendConfig(backend=NATIVE_JAX),
     boundary_settings=BoundarySettings(periodic, periodic, periodic),
     positivity_config=PositivityConfig(clamp_in_estimates=False),
-    return_snapshots=False, activate_snapshot_callback=True, num_snapshots=args.nsnap,
-    **weno_variant_kwargs(),
+    return_snapshots=False,
+    activate_snapshot_callback=True,
+    num_snapshots=args.nsnap,
+    solver_config=FDSolverConfig(**weno_variant_kwargs()),
 )
 params = SimulationParams(C_cfl=args.cfl, gamma=GAMMA, t_end=args.t_end, minimum_density=1e-30, minimum_pressure=1e-30)
 registered_variables = get_registered_variables(config)

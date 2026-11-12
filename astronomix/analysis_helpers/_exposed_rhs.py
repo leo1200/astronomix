@@ -109,7 +109,7 @@ def _exposed_rhs(conserved_state, params, config, registered_variables):
 
         # Add the active source terms to the RHS. Only viscosity is wired up
         # here; the other physics modules are not yet exposed in this RHS.
-        if config.diffusion:
+        if config.diffusion_config.viscosity:
             rhs_q = rhs_q + fd_viscosity_source(
                 primitive_state, params, config, registered_variables
             )

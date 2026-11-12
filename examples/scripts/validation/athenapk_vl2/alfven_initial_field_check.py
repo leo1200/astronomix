@@ -42,6 +42,7 @@ from astronomix.option_classes.simulation_config import StaticIntVector
 
 from astronomix import (
     BackendConfig,
+    FVSolverConfig,
     SimulationConfig,
     SimulationParams,
 )
@@ -120,8 +121,7 @@ def main():
     for resolution in arguments.resolutions:
         config = SimulationConfig(
             solver_mode=FINITE_VOLUME,
-            time_integrator=VL2,
-            riemann_solver=HLLD,
+            solver_config=FVSolverConfig(time_integrator=VL2, riemann_solver=HLLD),
             backend_config=BackendConfig(backend=NATIVE_JAX),
             num_cells=StaticIntVector(2 * resolution, resolution, resolution),
             progress_bar=False,

@@ -90,6 +90,8 @@ from astronomix import (
     BackendConfig,
     BoundarySettings,
     BoundarySettings1D,
+    DiffusionConfig,
+    FDSolverConfig,
     SimulationConfig,
     SimulationParams,
     SnapshotSettings,
@@ -285,13 +287,15 @@ def setup_khi_unperturbed_base(setup: KHISetup, return_snapshots=False):
     # to divide it and be a power of two, so it is (4, 4).
     config = SimulationConfig(
         backend_config=BackendConfig(backend=PALLAS, pallas_block_shape=(4, 4, 1)),
-        weno_z=True,
+        solver_config=FDSolverConfig(weno_z=True),
         progress_bar=True,
         dimensionality=2,
         box_size=box_size,
         num_cells=setup.num_cells,
-        diffusion=setup.diffusion,
-        viscosity_type=DYNAMIC_VISCOSITY,
+        diffusion_config=DiffusionConfig(
+            viscosity=setup.diffusion,
+            viscosity_type=DYNAMIC_VISCOSITY,
+        ),
         boundary_settings=BoundarySettings(
             x=BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY),
             y=BoundarySettings1D(OPEN_BOUNDARY, OPEN_BOUNDARY),

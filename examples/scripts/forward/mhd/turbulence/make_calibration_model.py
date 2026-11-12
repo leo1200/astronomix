@@ -130,9 +130,16 @@ def astronomix_operator_transfer(N=64, seed=0):
     os.environ.setdefault("JAX_PLATFORMS", "cpu")
     import jax
     import jax.numpy as jnp
-    from astronomix import (BoundarySettings, BoundarySettings1D, PERIODIC_BOUNDARY,
-                            SimulationConfig, SimulationParams,
-                            initialize_interface_fields, get_registered_variables)
+    from astronomix import (
+        BoundarySettings,
+        BoundarySettings1D,
+        PERIODIC_BOUNDARY,
+        SimulationConfig,
+        SimulationParams,
+        initialize_interface_fields,
+        get_registered_variables,
+        DiffusionConfig,
+    )
     from astronomix.option_classes.simulation_config import (
         CARTESIAN, FINITE_DIFFERENCE, ISOTHERMAL, KINEMATIC_VISCOSITY,
         StaticIntVector, StaticFloatVector)
@@ -143,13 +150,23 @@ def astronomix_operator_transfer(N=64, seed=0):
     L = 1.0
     dx = L / N
     per = BoundarySettings(*(BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY),) * 3)
-    cfg = SimulationConfig(solver_mode=FINITE_DIFFERENCE, dimensionality=3,
-                           geometry=CARTESIAN, mhd=True, equation_of_state=ISOTHERMAL,
-                           box_size=StaticFloatVector(L, L, L),
-                           num_cells=StaticIntVector(N, N, N), num_ghost_cells=0,
-                           grid_spacing=dx,     # not finalised: set it explicitly
-                           boundary_settings=per, diffusion=True,
-                           viscosity_type=KINEMATIC_VISCOSITY, resistivity=True)
+    cfg = SimulationConfig(
+        solver_mode=FINITE_DIFFERENCE,
+        dimensionality=3,
+        geometry=CARTESIAN,
+        mhd=True,
+        equation_of_state=ISOTHERMAL,
+        box_size=StaticFloatVector(L, L, L),
+        num_cells=StaticIntVector(N, N, N),
+        num_ghost_cells=0,
+        grid_spacing=dx,  # not finalised: set it explicitly
+        boundary_settings=per,
+        diffusion_config=DiffusionConfig(
+            viscosity=True,
+            viscosity_type=KINEMATIC_VISCOSITY,
+            resistivity=True,
+        ),
+    )
     rv = get_registered_variables(cfg)
     params = SimulationParams(viscosity=1.0, resistivity=1.0, isothermal_sound_speed=1.0)
 

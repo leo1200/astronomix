@@ -48,6 +48,7 @@ from astronomix import (
     BackendConfig,
     BoundarySettings,
     BoundarySettings1D,
+    FDSolverConfig,
     PositivityConfig,
     SimulationConfig,
     SimulationParams,
@@ -94,8 +95,10 @@ def test_low_beta_blast(ct_upwind_dissipation):
         backend_config=BackendConfig(backend=NATIVE_JAX),
         boundary_settings=BoundarySettings(periodic, periodic, periodic),
         positivity_config=_LIMITER_ONLY_POSITIVITY,
-        weno_positivity_preserving=True,
-        ct_upwind_dissipation=ct_upwind_dissipation,
+        solver_config=FDSolverConfig(
+            weno_positivity_preserving=True,
+            ct_upwind_dissipation=ct_upwind_dissipation,
+        ),
     )
     params = SimulationParams(
         C_cfl=0.75,
@@ -149,8 +152,10 @@ def test_low_beta_alfven_wave_order(ct_upwind_dissipation):
             return_snapshots=True,
             snapshot_settings=SnapshotSettings(return_states=False, return_final_state=True),
             num_snapshots=2,
-            weno_positivity_preserving=True,
-            ct_upwind_dissipation=ct_upwind_dissipation,
+            solver_config=FDSolverConfig(
+                weno_positivity_preserving=True,
+                ct_upwind_dissipation=ct_upwind_dissipation,
+            ),
         )
         params = SimulationParams(
             C_cfl=0.75,

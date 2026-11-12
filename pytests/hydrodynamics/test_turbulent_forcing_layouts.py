@@ -58,6 +58,7 @@ from astronomix import (
     BackendConfig,
     BoundarySettings,
     BoundarySettings1D,
+    FVSolverConfig,
     SimulationConfig,
 )
 from astronomix._modules._turbulent_forcing._turbulent_forcing_options import (
@@ -85,21 +86,21 @@ LAYOUTS = {
     "finite_difference": dict(solver_mode=FINITE_DIFFERENCE, mhd=False),
     "finite_volume_rk2_ghost_cells": dict(
         solver_mode=FINITE_VOLUME,
-        time_integrator=RK2_SSP,
-        riemann_solver=HLLC,
-        limiter=MINMOD,
+        solver_config=FVSolverConfig(
+            time_integrator=RK2_SSP,
+            limiter=MINMOD,
+            riemann_solver=HLLC,
+        ),
         mhd=False,
     ),
     "finite_volume_vl2_hydro": dict(
         solver_mode=FINITE_VOLUME,
-        time_integrator=VL2,
-        riemann_solver=HLLC,
+        solver_config=FVSolverConfig(time_integrator=VL2, riemann_solver=HLLC),
         mhd=False,
     ),
     "finite_volume_vl2_mhd": dict(
         solver_mode=FINITE_VOLUME,
-        time_integrator=VL2,
-        riemann_solver=HLLD,
+        solver_config=FVSolverConfig(time_integrator=VL2, riemann_solver=HLLD),
         mhd=True,
     ),
 }

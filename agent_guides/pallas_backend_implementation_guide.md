@@ -575,7 +575,7 @@ output across many timesteps.
   `q_L`/`q_R` at both
   interfaces bordering each cell, evaluates the Riemann solver
   (HLL / LAX_FRIEDRICHS, selected at compile time via
-  `config.riemann_solver`), and emits the divergence
+  `config.solver_config.riemann_solver`), and emits the divergence
   `−(dt/dx)·(F_R − F_L)` directly.
 - `input_output_aliases={0: 0}` accumulator pattern (same trick as the
   FD path): the conservative-state buffer is reused across axes inside
@@ -591,9 +591,9 @@ output across many timesteps.
 
 - ideal-gas EOS, Cartesian geometry, no self-gravity / viscosity,
   periodic or block-divisible ghost-cell layouts;
-- `config.riemann_solver ∈ {HLL, LAX_FRIEDRICHS}` (HLLC not ported —
+- `config.solver_config.riemann_solver ∈ {HLL, LAX_FRIEDRICHS}` (HLLC not ported —
   same kernel skeleton, additional algebra);
-- `config.limiter == MINMOD`;
+- `config.solver_config.limiter == MINMOD`;
 - x32 only (same Triton-x64-with-complex-kernels caveat as the FD MHD
   path);
 - block shape must divide every spatial dim (including ghost-cell
@@ -617,9 +617,10 @@ output across many timesteps.
 - HLLC solver: not ported.  Same predicate-stub
   pattern would extend the kernel; algebra is in
   `astronomix/_finite_volume/_riemann_solver/hll.py`.
-- Split scheme (`config.split == SPLIT`) uses the MUSCL predictor +
-  per-axis primitive↔conserved conversion, which is not yet ported.
-  Default `UNSPLIT` is where the Pallas path activates.
+- The dimensionally split scheme (`time_integrator=MUSCL_HANCOCK`) uses the
+  MUSCL predictor + per-axis primitive↔conserved conversion, which is not
+  yet ported. The unsplit default (`time_integrator=RK2_SSP`) is where the
+  Pallas path activates.
 
 The FV scheme has three stages, each a candidate Pallas kernel:
 
@@ -633,8 +634,8 @@ The FV scheme has three stages, each a candidate Pallas kernel:
 2. **Riemann solver kernel** — `(q_L, q_R) → flux` per face.  Pure
    pointwise op, ideal Pallas workload.  Each solver (HLL, HLLC,
    LAX_FRIEDRICHS) is a separate kernel selected at
-   compile time via the `config.riemann_solver` static value (Python
-   `if config.riemann_solver == HLL:` branches in a dispatcher,
+   compile time via the `config.solver_config.riemann_solver` static value (Python
+   `if config.solver_config.riemann_solver == HLL:` branches in a dispatcher,
    matching the existing `_riemann_solver.py` structure).
 3. **Conservative update** — already done by
    `_hydro_flux_div_axis_pallas`.  Drop-in reuse, just call it from
@@ -746,7 +747,7 @@ per device at 2.7e8 cells/GPU.
 
 ### 4.6 FD dual-energy (Bryan+95 ``g``) — DONE (hydro + MHD)
 
-`config.dual_energy` threads the separately-advected internal-energy
+`config.solver_config.dual_energy` threads the separately-advected internal-energy
 density ``g`` into the WENO flux + eigenstructure so the pressure
 recovery never sees the float32 cancellation-corrupted ``E − KE``
 (the cold-ejecta / high-Mach regime). The Pallas kernels carry ``g``
@@ -941,7 +942,7 @@ happens.  The ``pallasify`` skill must enforce this — see its
 |---|---|
 | `astronomix/_finite_difference/_interface_fluxes/_weno.py` | Hydro WENO kernels (Pallas + native), block-shape helpers, supported-predicate, eigenstructure-projection inlined in Pallas form. |
 | `astronomix/_finite_difference/_time_integrators/_ssprk.py` | SSPRK4 (native), LSRK4 (Pallas-friendly 2N-storage), per-axis Pallas divergence kernel with `scale_in` + `input_output_aliases`, shared `_hydro_step_rhs`. |
-| `astronomix/_finite_difference/_state_evolution/_evolve_state.py` | Top-level FD dispatch; picks SSPRK4 vs LSRK4 based on `config.time_integrator`. |
+| `astronomix/_finite_difference/_state_evolution/_evolve_state.py` | Top-level FD dispatch; picks SSPRK4 vs LSRK4 based on `config.solver_config.time_integrator`. |
 | `astronomix/_finite_difference/_timestep_estimation/_timestep_estimator.py` | Backend-aware CFL estimator; Pallas mode skips the full-state characteristic eigenvalue arrays. Hydro path reads primitive `|v| + c`; MHD path uses `_cfl_time_step_fd_mhd_fast` for the per-cell fast-magnetosonic speed. |
 | `astronomix/_finite_difference/_interface_fluxes/_weno_positivity_pallas.py` | Positivity-preserving WENO (`weno_positivity_preserving`) Pallas kernels. (The pointwise `_enforce_positivity_pallas.py` floor kernel was removed; see §4.5.) |
 | `astronomix/_finite_difference/_magnetic_update/_constrained_transport_pallas.py` | Optional Pallas CT (3 bounded-halo kernels). Gated by `config.pallas_ct` (default False — see §4.5 for the compile/runtime tradeoff). |
@@ -957,8 +958,8 @@ happens.  The ``pallasify`` skill must enforce this — see its
 ```python
 from astronomix import SimulationConfig, SimulationParams
 from astronomix.option_classes.simulation_config import (
-    PALLAS, FINITE_DIFFERENCE, CARTESIAN, RK4_LSRK,
-    PERIODIC_BOUNDARY, BoundarySettings, BoundarySettings1D,
+    PALLAS, FINITE_DIFFERENCE, CARTESIAN, LSRK4,
+    PERIODIC_BOUNDARY, BoundarySettings, BoundarySettings1D, FDSolverConfig,
 )
 
 cfg = SimulationConfig(
@@ -967,7 +968,7 @@ cfg = SimulationConfig(
     pallas_use_triton=True,
 
     solver_mode=FINITE_DIFFERENCE,
-    time_integrator=RK4_LSRK,         # 2N-storage RK4
+    solver_config=FDSolverConfig(time_integrator=LSRK4),   # 2N-storage RK4
     boundary_settings=BoundarySettings(
         x=BoundarySettings1D(left_boundary=PERIODIC_BOUNDARY,
                              right_boundary=PERIODIC_BOUNDARY),

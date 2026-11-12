@@ -22,11 +22,12 @@ from jax.experimental import checkify
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
     CARTESIAN,
+    CONSTRAINED_TRANSPORT,
+    DONOR_CELL,
     GHOST_CELLS,
     RK2_SSP,
     SPHERICAL,
     STATE_TYPE,
-    UNSPLIT,
     VL2,
 )
 
@@ -149,7 +150,7 @@ def _evolve_state_along_axis(
         primitive_state, gamma, config, registered_variables
     )
 
-    if config.first_order_fallback:
+    if config.solver_config.reconstruction == DONOR_CELL:
         primitive_state_left = jnp.roll(primitive_state, shift=1, axis=axis)
         primitive_state_right = primitive_state
     else:
@@ -499,7 +500,7 @@ def _evolve_gas_state_unsplit(
             primitive_state, dt, gamma, config, params, helper_data, registered_variables
         )
 
-    if config.time_integrator == RK2_SSP:
+    if config.solver_config.time_integrator == RK2_SSP:
         # Generic SSP-RK2 (Heun) over the conserved state.  The stage
         # increment is one forward-Euler hydro step expressed in conserved
         # variables: dt * L(u) = conserved(inner(primitive(u))) - u.
@@ -535,7 +536,7 @@ def _evolve_gas_state_unsplit(
             "Only the RK2 SSP time integrator is currently supported for the unsplit scheme."
         )
 
-    if config.gravity_config.gravity and config.time_integrator:
+    if config.gravity_config.gravity and config.solver_config.time_integrator:
         primitive_state = _apply_gravity_source(
             primitive_state, gravity_source, gamma, config, params, registered_variables
         )
@@ -562,9 +563,9 @@ def _evolve_state_fv(
     # finite-volume step with its own Cartesian update, including Athena++'s
     # self-gravity coupling. It has no geometric source terms (applied by the
     # split / unsplit schemes below); finalize_config rejects that combination.
-    if config.time_integrator == VL2:
+    if config.solver_config.time_integrator == VL2:
         # Constrained transport instead of GLM cleaning (Athena's VL2 + CT).
-        if config.vl2_constrained_transport:
+        if config.solver_config.divergence_control == CONSTRAINED_TRANSPORT:
             return _evolve_state_vl2_ct(
                 primitive_state,
                 dt,
@@ -586,7 +587,7 @@ def _evolve_state_fv(
 
     # The split and unsplit schemes are hydrodynamic: finite-volume MHD is the
     # VL2 scheme above (finalize_config rejects other combinations).
-    if config.split == UNSPLIT:
+    if config.solver_config.time_integrator == RK2_SSP:
         return _evolve_gas_state_unsplit(
             primitive_state,
             dt,

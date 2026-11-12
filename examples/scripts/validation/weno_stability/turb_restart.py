@@ -37,6 +37,7 @@ from astronomix import (
     BackendConfig,
     BoundarySettings,
     BoundarySettings1D,
+    FDSolverConfig,
     NATIVE_JAX,
     PALLAS,
     PERIODIC_BOUNDARY,
@@ -68,7 +69,7 @@ config = SimulationConfig(
     positivity_config=PositivityConfig(clamp_in_estimates=False),
     return_snapshots=True,
     num_snapshots=args.nsnap,
-    **weno_variant_kwargs(),
+    solver_config=FDSolverConfig(**weno_variant_kwargs()),
     snapshot_settings=SnapshotSettings(return_states=True),
 )
 params = SimulationParams(

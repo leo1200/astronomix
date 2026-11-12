@@ -31,7 +31,10 @@ from astronomix.option_classes.simulation_config import SimulationConfig
 from astronomix.variable_registry.registered_variables import RegisteredVariables
 
 # astronomix functions
-from astronomix._fluid_equations._dual_energy_switch import dual_energy_internal_energy
+from astronomix._fluid_equations._dual_energy_switch import (
+    DUAL_ENERGY_ETA,
+    dual_energy_internal_energy,
+)
 
 
 @partial(jax.jit, static_argnames=["registered_variables"])
@@ -104,7 +107,7 @@ def dual_switched_pressure_mhd(
         gamma: The adiabatic index.
         internal_energy_density: The separately advected internal energy
             density ``g``.
-        eta: The switch threshold (``config.dual_energy_eta``).
+        eta: The switch threshold (``DUAL_ENERGY_ETA``).
 
     Returns:
         The switched thermal pressure ``(gamma - 1) e_int``.
@@ -239,7 +242,7 @@ def primitive_state_from_conserved_mhd(
             b_squared,
             gamma,
             internal_energy_density,
-            config.dual_energy_eta,
+            DUAL_ENERGY_ETA,
         )
 
     # Write the recovered thermal pressure and velocities into the primitive state.

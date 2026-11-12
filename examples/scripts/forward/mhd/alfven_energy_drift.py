@@ -30,6 +30,7 @@ from astronomix.option_classes.simulation_config import PALLAS  # noqa: E402
 from astronomix.option_classes.simulation_config import StaticIntVector  # noqa: E402
 from astronomix import (  # noqa: E402
     BackendConfig,
+    FDSolverConfig,
     SimulationConfig,
     SimulationParams,
 )
@@ -72,7 +73,7 @@ def main():
     arguments = parser.parse_args()
     for resolution in arguments.resolutions:
         config = SimulationConfig(
-            weno_z=True,
+            solver_config=FDSolverConfig(weno_z=True),
             backend_config=BackendConfig(backend=PALLAS),
             num_cells=StaticIntVector(2 * resolution, resolution, resolution),
             progress_bar=False,

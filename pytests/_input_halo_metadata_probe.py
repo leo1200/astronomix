@@ -46,6 +46,7 @@ from astronomix.option_classes.simulation_config import (  # noqa: E402
     FINITE_DIFFERENCE,
     PALLAS,
     BackendConfig,
+    FDSolverConfig,
     SimulationConfig,
 )
 from astronomix.option_classes.simulation_params import SimulationParams  # noqa: E402
@@ -68,6 +69,7 @@ def _config():
             pallas_ct=True,
         ),
         solver_mode=FINITE_DIFFERENCE,
+        solver_config=FDSolverConfig(),
         mhd=True,
         dimensionality=3,
         donate_state=False,

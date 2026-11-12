@@ -114,6 +114,7 @@ from astronomix import (
     BackendConfig,
     BoundarySettings,
     BoundarySettings1D,
+    FDSolverConfig,
     SimulationConfig,
     SimulationParams,
 )
@@ -279,11 +280,13 @@ def build_simulation(
         num_cells=kh_params.num_cells,
         box_size=kh_params.box_size,
         progress_bar=False,
-        weno_z=True,
+        solver_config=FDSolverConfig(
+            weno_z=True,
+            weno_ad_frozen_weights=kh_params.frozen_weno_weights,
+        ),
         differentiation_mode=differentiation_mode,
         num_checkpoints=num_checkpoints,
         rematerialize_stages=kh_params.rematerialize_stages,
-        weno_ad_frozen_weights=kh_params.frozen_weno_weights,
         boundary_settings=BoundarySettings(
             x=BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY),
             y=BoundarySettings1D(OPEN_BOUNDARY, OPEN_BOUNDARY),

@@ -35,8 +35,17 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from weno_variant import weno_variant_kwargs, weno_variant_name
 
 from astronomix import (
-    BackendConfig, NATIVE_JAX, PALLAS, PositivityConfig, SimulationConfig, SimulationParams,
-    SnapshotSettings, get_helper_data, get_registered_variables, time_integration,
+    BackendConfig,
+    FDSolverConfig,
+    NATIVE_JAX,
+    PALLAS,
+    PositivityConfig,
+    SimulationConfig,
+    SimulationParams,
+    SnapshotSettings,
+    get_helper_data,
+    get_registered_variables,
+    time_integration,
 )
 from astronomix.option_classes.simulation_config import StaticIntVector
 from astronomix.test_setups.mhd.alfven_wave3D import (
@@ -55,7 +64,7 @@ for n in resolutions:
         return_snapshots=True,
         snapshot_settings=SnapshotSettings(return_states=False, return_final_state=True),
         num_snapshots=2,
-        **weno_variant_kwargs(),
+        solver_config=FDSolverConfig(**weno_variant_kwargs()),
     )
     params = SimulationParams(C_cfl=args.cfl, minimum_density=1e-30, minimum_pressure=1e-30)
     state, config, params = setup_cp_alfven_wave(config, params, settings)

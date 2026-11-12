@@ -21,10 +21,11 @@ jax.config.update("jax_enable_x64", False)
 from astronomix.option_classes.simulation_config import (
     FINITE_DIFFERENCE,
     PALLAS,
-    RK4_LSRK,
+    LSRK4,
     BackendConfig,
     SimulationConfig,
     SnapshotSettings,
+    FDSolverConfig,
 )
 from astronomix.test_setups.hydrodynamics.sound_wave3D import (
     SoundWave3DSettings,
@@ -49,7 +50,7 @@ def main():
             pallas_interpret=False,
         ),
         solver_mode=FINITE_DIFFERENCE,
-        time_integrator=RK4_LSRK,
+        solver_config=FDSolverConfig(time_integrator=LSRK4),
         mhd=False,
         dimensionality=3,
         donate_state=True,

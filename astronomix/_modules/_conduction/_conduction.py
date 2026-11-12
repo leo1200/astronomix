@@ -10,7 +10,7 @@ with the temperature taken from the ideal-gas relation
     T = p / rho            (code units, specific gas constant R = 1).
 
 The conductivity is either the constant ``kappa = params.thermal_conductivity``
-or, with ``config.conduction_density_weighted``, ``kappa = rho * alpha`` with
+or, with ``config.diffusion_config.conduction_density_weighted``, ``kappa = rho * alpha`` with
 the diffusivity ``alpha = params.thermal_conductivity``. Three discretisations
 are provided:
 
@@ -20,7 +20,7 @@ are provided:
   parabolic time step stays cheap.
 * 2nd order, ``kappa = rho * alpha``: a conservative face-flux discretisation
   with the face density taken as the mean of the two adjacent cells.
-* 4th order (``config.conduction_order == 4``, either conductivity): the
+* 4th order (``config.diffusion_config.conduction_order == 4``, either conductivity): the
   pointwise heat flux from the 4th-order central first derivative, and its
   divergence through the 4th-order conservative face interpolation. This is
   the same linear flux the WENO kernel uses, so conduction does not reduce the
@@ -184,8 +184,8 @@ def fd_conduction_source(primitive_state, params, config, registered_variables):
     """
     Conductive energy source div(kappa grad T) for the finite-difference scheme.
 
-    Selects the discretisation from ``config.conduction_order`` and
-    ``config.conduction_density_weighted`` (see the module docstring). The
+    Selects the discretisation from ``config.diffusion_config.conduction_order`` and
+    ``config.diffusion_config.conduction_density_weighted`` (see the module docstring). The
     result is meant to be accumulated (times ``dt``) onto the conserved-state
     right-hand side in the time-integrator source assembly.
 
@@ -205,8 +205,8 @@ def fd_conduction_source(primitive_state, params, config, registered_variables):
 
     temperature = _temperature(primitive_state, registered_variables)
 
-    if config.conduction_order == 4:
-        if config.conduction_density_weighted:
+    if config.diffusion_config.conduction_order == 4:
+        if config.diffusion_config.conduction_density_weighted:
             conductivity_field = (
                 conductivity * primitive_state[registered_variables.density_index]
             )
@@ -218,7 +218,7 @@ def fd_conduction_source(primitive_state, params, config, registered_variables):
             grid_spacing,
             dimensionality,
         )
-    elif config.conduction_density_weighted:
+    elif config.diffusion_config.conduction_density_weighted:
         energy_source = _density_weighted_conduction_source(
             temperature,
             primitive_state[registered_variables.density_index],

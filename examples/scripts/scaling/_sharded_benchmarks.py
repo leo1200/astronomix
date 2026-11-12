@@ -150,8 +150,9 @@ def benchmark_configuration(
             Pallas kernels (one halo exchange per kernel under sharding
             instead of one collective permute per stencil shift). Only used
             by FD MHD.
-        halo_exchange: ``BackendConfig.halo_exchange``: ``"ppermute"``
-            (ring) or ``"pair_all_to_all"`` (disjoint neighbour pairs).
+        halo_exchange: ``BackendConfig.halo_exchange`` by name: ``"ppermute"``
+            (ring, ``PPERMUTE``) or ``"pair_all_to_all"`` (disjoint neighbour
+            pairs, ``PAIR_ALL_TO_ALL``).
 
     Returns:
         The SimulationConfig without the grid (set per run).
@@ -162,12 +163,16 @@ def benchmark_configuration(
         FINITE_VOLUME,
         HLLC,
         HLLD,
+        PAIR_ALL_TO_ALL,
         PALLAS,
-        RK4_LSRK,
+        PPERMUTE,
+        LSRK4,
         VL2,
     )
     from astronomix.option_classes.simulation_config import (
         BackendConfig,
+        FDSolverConfig,
+        FVSolverConfig,
         SimulationConfig,
     )
 
@@ -181,7 +186,7 @@ def benchmark_configuration(
         pallas_use_triton=True,
         pallas_interpret=False,
         pallas_ct=bool(pallas_ct and mhd and scheme == "fd"),
-        halo_exchange=halo_exchange,
+        halo_exchange={"ppermute": PPERMUTE, "pair_all_to_all": PAIR_ALL_TO_ALL}[halo_exchange],
     )
     # Donating the state and the fixed step count keep the per-GPU footprint
     # and the wall clock bounded; the timer excludes compilation.
@@ -197,15 +202,16 @@ def benchmark_configuration(
     if scheme == "fd":
         return SimulationConfig(
             solver_mode=FINITE_DIFFERENCE,
-            time_integrator=RK4_LSRK,
-            weno_z=True,
+            solver_config=FDSolverConfig(time_integrator=LSRK4, weno_z=True),
             **common_options,
         )
     if scheme == "fv":
         return SimulationConfig(
             solver_mode=FINITE_VOLUME,
-            time_integrator=VL2,
-            riemann_solver=HLLD if mhd else HLLC,
+            solver_config=FVSolverConfig(
+                time_integrator=VL2,
+                riemann_solver=HLLD if mhd else HLLC,
+            ),
             **common_options,
         )
     raise ValueError(f"unknown scheme {scheme!r} (expected 'fd' or 'fv')")

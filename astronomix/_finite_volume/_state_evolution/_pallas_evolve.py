@@ -16,9 +16,9 @@ pipeline collapse into one register tile in the kernel.
 Supports:
 - Hydro ideal-gas (Euler, 5 vars in 3D)
 - MHD ideal-gas (8 vars in 3D) — B_normal-flux is identically zero
-- HLL or LAX_FRIEDRICHS Riemann solver (selected via ``config.riemann_solver``)
+- HLL or LAX_FRIEDRICHS Riemann solver (selected via ``config.solver_config.riemann_solver``)
 - MINMOD limiter
-- ``first_order_fallback`` (zero slope) when set on the config
+- ``reconstruction=DONOR_CELL`` (zero slope)
 
 x64 falls back to native (same Triton-on-MHD caveat documented in
 ``pallas_backend_implementation_guide.md`` §4).
@@ -33,6 +33,7 @@ import jax.numpy as jnp
 
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
+    DONOR_CELL,
     GHOST_CELLS,
     HLL,
     IDEAL_GAS,
@@ -129,15 +130,15 @@ def _fv_pallas_evolve_supported(state, config: SimulationConfig) -> bool:
         return False
     if config.equation_of_state != IDEAL_GAS:
         return False
-    if config.riemann_solver not in (HLL, LAX_FRIEDRICHS):
+    if config.solver_config.riemann_solver not in (HLL, LAX_FRIEDRICHS):
         return False
-    if config.limiter != MINMOD:
+    if config.solver_config.limiter != MINMOD:
         return False
     if config.gravity_config.gravity:
         # The MUSCL-based reconstruction in the split path is paired with
         # several gravity variants; we keep the native path on for now.
         return False
-    if config.diffusion:
+    if config.diffusion_config.viscosity:
         return False
     if config.geometry != 0:  # CARTESIAN == 0
         return False
@@ -205,9 +206,9 @@ def _fv_evolve_axis_pallas(
         ncomp = ndim + 2
 
     accumulate = conserved_accumulator is not None
-    use_hll = (config.riemann_solver == HLL)
-    use_lf = (config.riemann_solver == LAX_FRIEDRICHS)
-    first_order = config.first_order_fallback
+    use_hll = (config.solver_config.riemann_solver == HLL)
+    use_lf = (config.solver_config.riemann_solver == LAX_FRIEDRICHS)
+    first_order = config.solver_config.reconstruction == DONOR_CELL
 
     # ---- BlockSpecs ----
     if ndim == 1:

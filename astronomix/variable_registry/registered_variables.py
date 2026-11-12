@@ -24,6 +24,7 @@ from typing import (
 
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
+    CONSTRAINED_TRANSPORT,
     FINITE_DIFFERENCE,
     FINITE_VOLUME,
     IDEAL_GAS,
@@ -38,7 +39,10 @@ from astronomix.option_classes.simulation_config import (
 )
 
 # astronomix functions
-from astronomix.option_classes.simulation_config import solver_mode_to_string
+from astronomix.option_classes.simulation_config import (
+    get_solver_config,
+    solver_mode_to_string,
+)
 
 
 # =============================================================
@@ -128,7 +132,7 @@ class RegisteredVariables(NamedTuple):
     #: (after the passive scalars), so the ``[:-3]`` interface-field convention
     #: holds on the state the MHD update sees, advects it and uses it in the
     #: coupled pressure recovery. Active only for finite-difference ideal-gas
-    #: (hydro or MHD) runs with ``config.dual_energy``.
+    #: (hydro or MHD) runs with ``config.solver_config.dual_energy``.
     internal_energy_index: int = -1
     internal_energy_active: bool = False
 
@@ -164,7 +168,11 @@ def get_registered_variables(config: SimulationConfig) -> RegisteredVariables:
 
     registered_variables = RegisteredVariables()
 
-    if config.solver_mode == FINITE_VOLUME and config.mhd and config.time_integrator == VL2:
+    # This function runs before ``finalize_config``, so the solver settings
+    # may still be the ``None`` that stands for the default container.
+    solver_config = get_solver_config(config)
+
+    if config.solver_mode == FINITE_VOLUME and config.mhd and solver_config.time_integrator == VL2:
 
         # The AthenaPK-equivalent GLM-MHD scheme always carries all three
         # velocity and field components (also in 1D and 2D), followed by the
@@ -182,7 +190,7 @@ def get_registered_variables(config: SimulationConfig) -> RegisteredVariables:
         # NOTE: this layout does not register the stellar-wind density; the
         # VL2 scheme does not evolve it.
 
-        if config.vl2_constrained_transport:
+        if solver_config.divergence_control == CONSTRAINED_TRANSPORT:
             # VL2 with constrained transport: no cleaning scalar; the
             # face-centred field (the primary magnetic variable, index i
             # holding the value at i + 1/2 as in the finite-difference layout)
@@ -313,7 +321,7 @@ def get_registered_variables(config: SimulationConfig) -> RegisteredVariables:
         # Dual-energy formalism: the internal-energy density ``g`` goes behind
         # everything registered so far (for hydro simply behind the pressure,
         # for MHD behind the interface magnetic field).
-        if config.equation_of_state == IDEAL_GAS and config.dual_energy:
+        if config.equation_of_state == IDEAL_GAS and solver_config.dual_energy:
             registered_variables = registered_variables._replace(
                 internal_energy_index=registered_variables.num_vars,
                 num_vars=registered_variables.num_vars + 1,
@@ -323,7 +331,7 @@ def get_registered_variables(config: SimulationConfig) -> RegisteredVariables:
         # Passive scalars: one contiguous block behind everything else, so that
         # stripping it off leaves a state the hydro / MHD machinery already
         # understands.
-        num_scalars = int(config.num_passive_scalars)
+        num_scalars = int(config.passive_scalar_config.num_scalars)
         if num_scalars > 0:
             registered_variables = registered_variables._replace(
                 passive_scalar_index=registered_variables.num_vars,
@@ -332,7 +340,7 @@ def get_registered_variables(config: SimulationConfig) -> RegisteredVariables:
                 passive_scalars_active=True,
             )
 
-    elif config.num_passive_scalars > 0:
+    elif config.passive_scalar_config.num_scalars > 0:
         raise NotImplementedError(
             "passive scalars are implemented for the finite-difference solver "
             "only (the finite-volume Riemann solvers would each need a scalar "

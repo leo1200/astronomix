@@ -63,7 +63,9 @@ from astronomix._finite_difference._interface_fluxes._weno_positivity import (
     positivity_preserving_flux_local,
     positivity_preserving_interface_flux,
 )
+from astronomix._fluid_equations._dual_energy_switch import DUAL_ENERGY_ETA
 from astronomix._finite_difference._interface_fluxes._weno_weights import (
+    WENO_EPSILON,
     _weno_omega_weights,
     _weno_omega_weights_ad,
     _weno_omega_weights_z,
@@ -1035,12 +1037,12 @@ def _weno_flux_hydro_pallas_local(
     local_indices = _hydro_indices_for_axis(config, registered_variables, axis)
     ncomp = len(local_indices)
     num_modes = ndim + 2
-    epsilon = config.weno_epsilon
+    epsilon = WENO_EPSILON
     # WENO-Z is a static config choice, so the weight function can be bound
     # here and inlined into the Pallas kernel body below.
-    omega_weights = _weno_omega_weights_z_kernel if config.weno_z else _weno_omega_weights
-    admissible_face_state = config.weno_admissible_face_state
-    positivity_preserving = config.weno_positivity_preserving
+    omega_weights = _weno_omega_weights_z_kernel if config.solver_config.weno_z else _weno_omega_weights
+    admissible_face_state = config.solver_config.weno_admissible_face_state
+    positivity_preserving = config.solver_config.weno_positivity_preserving
     # fields that carry no mass keep their own splitting speed
     own_speed_modes = mass_free_modes(config) if positivity_preserving else ()
 
@@ -1172,7 +1174,7 @@ def _weno_flux_hydro_pallas_local(
             jnp.asarray(params.gamma, dtype=conserved_state.dtype),
             jnp.asarray(params.minimum_density, dtype=conserved_state.dtype),
             jnp.asarray(params.minimum_pressure, dtype=conserved_state.dtype),
-            jnp.asarray(config.dual_energy_eta, dtype=conserved_state.dtype),
+            jnp.asarray(DUAL_ENERGY_ETA, dtype=conserved_state.dtype),
         )
     else:
         in_specs = [in_state_spec, scalar_spec, scalar_spec, scalar_spec]
@@ -1247,13 +1249,13 @@ def _weno_flux_hydro_pallas_vjp_local(
     component_order = jnp.asarray(local_indices)
     ncomp = len(local_indices)
     num_modes = ndim + 2
-    frozen = config.weno_ad_frozen_weights
-    if config.weno_z:
+    frozen = config.solver_config.weno_ad_frozen_weights
+    if config.solver_config.weno_z:
         omega_weights = _weno_omega_weights_z
     else:
         # the overflow-free derivative of the exact weights (as the native tangent)
         omega_weights = _weno_omega_weights_ad
-    positivity_preserving = config.weno_positivity_preserving
+    positivity_preserving = config.solver_config.weno_positivity_preserving
     own_speed_modes = mass_free_modes(config) if positivity_preserving else ()
 
     # -------------------------------------------------------------
@@ -1343,9 +1345,9 @@ def _weno_flux_hydro_pallas_vjp_local(
                 dual_eta,
                 ncomp=ncomp,
                 num_modes=num_modes,
-                epsilon=config.weno_epsilon,
+                epsilon=WENO_EPSILON,
                 omega_weights=omega_weights,
-                admissible_face_state=config.weno_admissible_face_state,
+                admissible_face_state=config.solver_config.weno_admissible_face_state,
                 positivity_preserving=positivity_preserving,
                 own_speed_modes=own_speed_modes,
                 frozen=frozen,
@@ -1377,7 +1379,7 @@ def _weno_flux_hydro_pallas_vjp_local(
         in_specs = [whole_state_spec, pl.BlockSpec(energy_front.shape, whole_map), whole_state_spec]
         in_specs += [scalar_spec] * 4
         args = (local_state, energy_front, local_cotangent) + scalars
-        args += (jnp.asarray(config.dual_energy_eta, dtype=dtype),)
+        args += (jnp.asarray(DUAL_ENERGY_ETA, dtype=dtype),)
         out_shape.append(jax.ShapeDtypeStruct((6,) + spatial_shape, dtype))
         out_specs.append(block_spec(6))
     else:
@@ -1594,7 +1596,7 @@ def _weno_flux_mhd_pallas(
                       inflow_reference=inflow_reference)
 
     # the paired positivity-preserving recombination reads interfaces i +- 1
-    halo_cells = 4 if config.weno_positivity_preserving else 3
+    halo_cells = 4 if config.solver_config.weno_positivity_preserving else 3
     if internal_energy_density is not None:
         g4 = internal_energy_density[None]
 
@@ -2393,8 +2395,8 @@ def _weno_mhd_flux_from_window(q_stencil, gamma, rhomin, pgmin, b_eps, sqrt_floo
     """Pure per-interface ideal-gas MHD WENO flux from a gathered 6-cell stencil.
 
     ``weno_z`` selects the WENO-Z nonlinear weights and ``weno_epsilon`` is the
-    floor of the smoothness denominators, as ``SimulationConfig.weno_z`` and
-    ``SimulationConfig.weno_epsilon`` for the native kernel. ``omega_weights``
+    floor of the smoothness denominators, as ``FDSolverConfig.weno_z`` and
+    ``WENO_EPSILON`` for the native kernel. ``omega_weights``
     overrides the weight function (the adjoint kernel passes the Jiang-Shu
     weights with the overflow-free derivative, ``_weno_omega_weights_ad``).
     ``frozen`` freezes the nonlinear weights, the face eigensystem and the
@@ -2612,7 +2614,7 @@ def _weno_flux_mhd_pallas_local(
     local_indices = _mhd_indices_for_axis(config, registered_variables, axis)
     ncomp = 8
     num_modes = 7
-    positivity_preserving = config.weno_positivity_preserving
+    positivity_preserving = config.solver_config.weno_positivity_preserving
     # positivity preserving: plus and minus split face fluxes, then the speed
     out_channels = 2 * nvars + 1 if positivity_preserving else nvars
 
@@ -2684,11 +2686,11 @@ def _weno_flux_mhd_pallas_local(
             q_stencil, gamma, rhomin, pgmin, b_eps, sqrt_floor,
             ncomp, num_modes,
             use_approx_rsqrt=config.backend_config.use_approximate_rsqrt,
-            admissible_face_state=config.weno_admissible_face_state,
+            admissible_face_state=config.solver_config.weno_admissible_face_state,
             positivity_preserving=positivity_preserving,
             return_split=positivity_preserving,
-            weno_z=config.weno_z,
-            weno_epsilon=config.weno_epsilon,
+            weno_z=config.solver_config.weno_z,
+            weno_epsilon=WENO_EPSILON,
             **window_kwargs,
         )
         if positivity_preserving:
@@ -2736,7 +2738,7 @@ def _weno_flux_mhd_pallas_local(
         in_g_spec = pl.BlockSpec(internal_energy_density.shape, lambda bi, bj, bk: (0, 0, 0, 0))
         in_specs = [in_state_spec, in_g_spec] + [scalar_spec] * 6
         args = (conserved_state, internal_energy_density) + scalars + (
-            jnp.asarray(config.dual_energy_eta, dtype=conserved_state.dtype),
+            jnp.asarray(DUAL_ENERGY_ETA, dtype=conserved_state.dtype),
         )
     else:
         in_specs = [in_state_spec] + [scalar_spec] * 5
@@ -3241,9 +3243,9 @@ def _weno_flux_mhd_pallas_window_vjp_local(
     component_order = jnp.asarray(local_indices)
     num_components = len(local_indices)
     num_modes = 7
-    positivity_preserving = config.weno_positivity_preserving
-    frozen = config.weno_ad_frozen_weights
-    if config.weno_z:
+    positivity_preserving = config.solver_config.weno_positivity_preserving
+    frozen = config.solver_config.weno_ad_frozen_weights
+    if config.solver_config.weno_z:
         omega_weights = _weno_omega_weights_z_kernel
     else:
         # the overflow-free derivative of the exact weights (as the native tangent)
@@ -3332,11 +3334,11 @@ def _weno_flux_mhd_pallas_window_vjp_local(
                 num_components, num_modes,
                 g_stencil=g_window,
                 dual_eta=dual_eta,
-                admissible_face_state=config.weno_admissible_face_state,
+                admissible_face_state=config.solver_config.weno_admissible_face_state,
                 positivity_preserving=positivity_preserving,
                 return_split=positivity_preserving,
-                weno_z=config.weno_z,
-                weno_epsilon=config.weno_epsilon,
+                weno_z=config.solver_config.weno_z,
+                weno_epsilon=WENO_EPSILON,
                 omega_weights=omega_weights,
                 frozen=frozen,
             )
@@ -3371,9 +3373,9 @@ def _weno_flux_mhd_pallas_window_vjp_local(
                 b_eps,
                 sqrt_floor,
                 dual_eta,
-                admissible_face_state=config.weno_admissible_face_state,
+                admissible_face_state=config.solver_config.weno_admissible_face_state,
                 positivity_preserving=positivity_preserving,
-                weno_epsilon=config.weno_epsilon,
+                weno_epsilon=WENO_EPSILON,
                 omega_weights=omega_weights,
                 frozen=frozen,
             )
@@ -3416,7 +3418,7 @@ def _weno_flux_mhd_pallas_window_vjp_local(
         in_specs = [whole_state_spec, pl.BlockSpec(energy_front.shape, whole_map), whole_cotangent_spec]
         in_specs += [scalar_spec] * 6
         args = (local_state, energy_front, local_cotangent) + scalars
-        args += (jnp.asarray(config.dual_energy_eta, dtype=dtype),)
+        args += (jnp.asarray(DUAL_ENERGY_ETA, dtype=dtype),)
         out_shape.append(jax.ShapeDtypeStruct((6,) + spatial_shape, dtype))
         out_specs.append(block_spec(6))
     else:
@@ -3572,7 +3574,7 @@ def _weno_flux_mhd_pallas_vjp(
         spatial_shape=conserved_state.shape[1:],
     )
     reference_cotangents = ()
-    if config.weno_positivity_preserving:
+    if config.solver_config.weno_positivity_preserving:
 
         def split_local(state_local, *energy_local):
             return _weno_flux_mhd_pallas_local(
@@ -3775,13 +3777,13 @@ def _weno_flux_mhd_iso_pallas_local(
     local_indices = _mhd_iso_indices_for_axis(config, registered_variables, axis)
     ncomp = 7
     num_modes = 6
-    epsilon = config.weno_epsilon
+    epsilon = WENO_EPSILON
     # WENO-Z is a static config choice, so the weight function can be bound
     # here and inlined into the Pallas kernel body below.
-    omega_weights = _weno_omega_weights_z_kernel if config.weno_z else _weno_omega_weights
+    omega_weights = _weno_omega_weights_z_kernel if config.solver_config.weno_z else _weno_omega_weights
     tiny = 1e-14
     b_eps_value = 1e-20
-    positivity_preserving = config.weno_positivity_preserving
+    positivity_preserving = config.solver_config.weno_positivity_preserving
     # fields that carry no mass keep their own splitting speed
     own_speed_modes = mass_free_modes(config) if positivity_preserving else ()
 
@@ -4313,10 +4315,10 @@ def _weno_flux_hydro_pallas_rhs_local(
     local_indices = _hydro_indices_for_axis(config, registered_variables, axis)
     ncomp = len(local_indices)
     num_modes = ndim + 2
-    epsilon = config.weno_epsilon
+    epsilon = WENO_EPSILON
     # WENO-Z is a static config choice, so the weight function can be bound
     # here and inlined into the Pallas kernel body below.
-    omega_weights = _weno_omega_weights_z_kernel if config.weno_z else _weno_omega_weights
+    omega_weights = _weno_omega_weights_z_kernel if config.solver_config.weno_z else _weno_omega_weights
     tiny = 1e-14
 
     if ndim == 1:

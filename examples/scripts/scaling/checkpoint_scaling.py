@@ -83,6 +83,8 @@ from astronomix.plotting_helpers.paper_style import (
 from astronomix import (
     BackendConfig,
     BoundarySettings1D,
+    FDSolverConfig,
+    FVSolverConfig,
     SimulationConfig,
     SimulationParams,
 )
@@ -206,9 +208,9 @@ def _base_config(problem: _Problem, spec: CheckpointSpec):
         A ``(config, params)`` tuple for the periodic 1D acoustic problem.
     """
     if spec.solver_mode == FINITE_VOLUME:
-        scheme_options = dict(time_integrator=VL2, riemann_solver=HLLC)
+        solver_config = FVSolverConfig(time_integrator=VL2, riemann_solver=HLLC)
     else:
-        scheme_options = dict(weno_z=True)
+        solver_config = FDSolverConfig(weno_z=True)
 
     config = SimulationConfig(
         solver_mode=spec.solver_mode,
@@ -226,7 +228,7 @@ def _base_config(problem: _Problem, spec: CheckpointSpec):
         ),
         return_snapshots=False,
         backend_config=BackendConfig(backend=spec.backend),
-        **scheme_options,
+        solver_config=solver_config,
     )
     # In 1D the finite-difference and the VL2 time steps are both
     # C_cfl * dx / max(|v| + c_s), so the two solvers take the same number of

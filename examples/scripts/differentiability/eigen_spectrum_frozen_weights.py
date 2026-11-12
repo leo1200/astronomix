@@ -62,7 +62,11 @@ def spectrum(setup, smooth_profiles, frozen_weights):
     state, config, params, registered_variables, helper_data = setup_khi_unperturbed_base(
         setup._replace(smooth_profiles=smooth_profiles)
     )
-    config = config._replace(weno_ad_frozen_weights=frozen_weights)
+    config = config._replace(
+        solver_config=config.solver_config._replace(
+            weno_ad_frozen_weights=frozen_weights,
+        ),
+    )
     jacobian = single_xmode_rhs_jacobian2D(
         state,
         config,

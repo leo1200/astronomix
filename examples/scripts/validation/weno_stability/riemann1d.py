@@ -75,6 +75,7 @@ def run_problem(problem, num_cells, precision, variant, cfl):
     )
     from astronomix.option_classes.simulation_config import (
         BoundarySettings1D,
+        FDSolverConfig,
         OPEN_BOUNDARY,
     )
     from astronomix.test_setups.reference_solutions.riemann_solver import (
@@ -88,8 +89,8 @@ def run_problem(problem, num_cells, precision, variant, cfl):
         boundary_settings=BoundarySettings1D(
             left_boundary=OPEN_BOUNDARY, right_boundary=OPEN_BOUNDARY
         ),
+        solver_config=FDSolverConfig(**weno_variant_kwargs()),
         **variant_config_kwargs(variant),
-        **weno_variant_kwargs(),
     )
     params = SimulationParams(
         t_end=problem.t_end,

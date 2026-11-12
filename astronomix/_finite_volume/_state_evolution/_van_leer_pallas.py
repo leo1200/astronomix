@@ -100,7 +100,7 @@ def _vl2_pallas_supported(state, config: SimulationConfig) -> bool:
         return False
     if not _backend_is_pallas(config):
         return False
-    if config.time_integrator != VL2 or config.geometry != CARTESIAN:
+    if config.solver_config.time_integrator != VL2 or config.geometry != CARTESIAN:
         return False
     ndim = int(config.dimensionality)
     if state.ndim != ndim + 1:
@@ -354,8 +354,8 @@ def _vl2_stage_pallas_local(
                 minus_face = (stencil[-1], stencil[0])
                 plus_face = (stencil[0], stencil[1])
 
-            minus_flux = interface_flux(*minus_face, frame_indices, config.riemann_solver)
-            plus_flux = interface_flux(*plus_face, frame_indices, config.riemann_solver)
+            minus_flux = interface_flux(*minus_face, frame_indices, config.solver_config.riemann_solver)
+            plus_flux = interface_flux(*plus_face, frame_indices, config.solver_config.riemann_solver)
 
             if has_mask:
                 # The faces bordering a flagged cell take donor-cell LLF fluxes.
@@ -418,7 +418,7 @@ def _vl2_stage_pallas_local(
 
         if mhd:
             psi_index = registered_variables.magnetic_psi_index
-            if config.glm_extended_source:
+            if config.solver_config.glm_extended_source:
                 # The extended Dedner source from central differences of the
                 # stage state, as in the native ``_dedner_source``. Offset 0
                 # of any axis' stencil is the cell itself.
@@ -789,7 +789,7 @@ def _vl2_stage_pallas(
             registered_variables,
         )
 
-    if not config.first_order_flux_correction:
+    if not config.solver_config.first_order_flux_correction:
         return evaluate(None, False)
 
     primitive_state, failure_codes = evaluate(None, True)

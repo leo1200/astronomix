@@ -33,6 +33,7 @@ from astronomix.option_classes.simulation_config import SUPERBEE
 
 # astronomix containers
 from astronomix import (
+    FVSolverConfig,
     SimulationConfig,
     SimulationParams,
 )
@@ -58,14 +59,12 @@ num_cells = 200
 config_list = [
     SimulationConfig(
         solver_mode = FINITE_VOLUME,
-        riemann_solver = HLLC,
-        limiter = MINMOD,
+        solver_config=FVSolverConfig(limiter = MINMOD, riemann_solver = HLLC),
         num_cells = num_cells,
     ),
     SimulationConfig(
         solver_mode = FINITE_VOLUME,
-        riemann_solver = HLLC,
-        limiter = SUPERBEE,
+        solver_config=FVSolverConfig(limiter = SUPERBEE, riemann_solver = HLLC),
         num_cells = num_cells,
     ),
     SimulationConfig(

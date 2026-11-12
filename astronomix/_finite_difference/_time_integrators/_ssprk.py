@@ -183,7 +183,7 @@ def _ssprk4_with_ct(
         # cell can be limited jointly (see _weno_positivity.py).
         inflow_reference = None
         if (
-            config.weno_positivity_preserving
+            config.solver_config.weno_positivity_preserving
             and config.equation_of_state == IDEAL_GAS
             and internal_energy_density is None
         ):
@@ -297,7 +297,7 @@ def _ssprk4_with_ct(
         # Upwind dissipation of the edge EMFs on the interface fields, which
         # the central CT interpolations leave undamped near the grid scale
         # (see ct_upwind_dissipation_rhs); also a curl, so div(B) = 0 is kept.
-        if config.ct_upwind_dissipation:
+        if config.solver_config.ct_upwind_dissipation:
             upwind_rhs_bx, upwind_rhs_by, upwind_rhs_bz = ct_upwind_dissipation_rhs(
                 current_q,
                 bx,
@@ -315,7 +315,7 @@ def _ssprk4_with_ct(
             rhs_bz = rhs_bz + upwind_rhs_bz
         # Explicit ohmic resistivity: a further curl of an edge EMF on the
         # interface fields, so div(B) = 0 is kept exactly (see _resistivity).
-        if config.resistivity:
+        if config.diffusion_config.resistivity:
             resistive_rhs_bx, resistive_rhs_by, resistive_rhs_bz = fd_ohmic_interface_rhs(
                 bx,
                 by,
@@ -396,7 +396,7 @@ def _ssprk4_with_ct(
     # Only the positivity-preserving ideal-MHD scheme needs the stage states
     # resynchronised; everywhere else ``ssprk4`` keeps its identity hook.
     stage_hooks = {"pre_stage": _stage_remat(pre_stage, config)}
-    if config.weno_positivity_preserving and config.equation_of_state == IDEAL_GAS:
+    if config.solver_config.weno_positivity_preserving and config.equation_of_state == IDEAL_GAS:
         stage_hooks["post_stage"] = _stage_remat(post_stage, config)
     return ssprk4(
         (conserved_state, bx_interface, by_interface, bz_interface),
@@ -612,7 +612,7 @@ def _ssprk4_hydro(
     Three-register Spiteri-Ruuth scheme: needs ``q0``, ``q_curr`` and
     ``q_final`` simultaneously.  For storage-constrained runs, the
     ``_lsrk4_hydro`` 2-register Carpenter-Kennedy LSRK4 is available below
-    via ``time_integrator=RK4_LSRK``.
+    via ``time_integrator=LSRK4``.
 
     Args:
         conserved_state: The conserved state.
@@ -874,7 +874,7 @@ def _lsrk4_with_ct(
 
     Trade-off: linear-stability CFL drops from SSPRK4's ~1.5 to roughly 1.4
     and LSRK4 has no SSP property — same caveats as ``_lsrk4_hydro``.
-    Selected via ``config.time_integrator == RK4_LSRK``.
+    Selected via ``config.solver_config.time_integrator == LSRK4``.
 
     Args:
         conserved_state: The conserved state (cell-centred fields included).
@@ -914,7 +914,7 @@ def _lsrk4_with_ct(
         and int(config.dimensionality) == 3
         and _pallas_mesh_splits_axis(conserved_state, 0)
         and _mhd_pallas_flux_supported(conserved_state, config)
-        and not config.weno_positivity_preserving
+        and not config.solver_config.weno_positivity_preserving
         and internal_energy_density is None
     )
     fuse_cell_center_update = (
@@ -971,7 +971,7 @@ def _lsrk4_with_ct(
         # cell can be limited jointly (see _weno_positivity.py).
         inflow_reference = None
         if (
-            config.weno_positivity_preserving
+            config.solver_config.weno_positivity_preserving
             and config.equation_of_state == IDEAL_GAS
             and internal_energy_density is None
         ):
@@ -1213,7 +1213,7 @@ def _lsrk4_with_ct(
 
         # Upwind dissipation of the edge EMFs on the interface fields (see
         # ct_upwind_dissipation_rhs); a curl, so div(B) = 0 is kept.
-        if config.ct_upwind_dissipation:
+        if config.solver_config.ct_upwind_dissipation:
             upwind_rhs_bx, upwind_rhs_by, upwind_rhs_bz = ct_upwind_dissipation_rhs(
                 current_q,
                 bx,
@@ -1231,7 +1231,7 @@ def _lsrk4_with_ct(
             rhs_bz = rhs_bz + upwind_rhs_bz
         # Explicit ohmic resistivity: a further curl of an edge EMF on the
         # interface fields, so div(B) = 0 is kept exactly (see _resistivity).
-        if config.resistivity:
+        if config.diffusion_config.resistivity:
             resistive_rhs_bx, resistive_rhs_by, resistive_rhs_bz = fd_ohmic_interface_rhs(
                 bx,
                 by,

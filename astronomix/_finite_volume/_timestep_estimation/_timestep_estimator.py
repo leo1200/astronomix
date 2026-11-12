@@ -23,8 +23,8 @@ from astronomix.option_classes.simulation_config import (
     DYNAMIC_VISCOSITY,
     GHOST_CELLS,
     KINEMATIC_VISCOSITY,
+    RK2_SSP,
     STATE_TYPE,
-    UNSPLIT,
     VL2,
 )
 
@@ -193,7 +193,7 @@ def _cfl_time_step(
     dt_max = params.dt_max
     gamma = params.gamma
 
-    if config.time_integrator == VL2:
+    if config.solver_config.time_integrator == VL2:
         maximum_speed = _maximum_signal_speed_vl2(
             primitive_state,
             config,
@@ -204,7 +204,7 @@ def _cfl_time_step(
         dt = jnp.minimum(dt, dt_max)
         return dt
 
-    if config.split == UNSPLIT:
+    if config.solver_config.time_integrator == RK2_SSP:
         rho = primitive_state[registered_variables.density_index]
         p = primitive_state[registered_variables.pressure_index]
         c = speed_of_sound(rho, p, gamma)
@@ -304,7 +304,7 @@ def _cfl_time_step(
         dt = jnp.minimum(dt, dt_max)
 
     # viscous time step constraint
-    if config.diffusion:
+    if config.diffusion_config.viscosity:
         
         if config.positivity_config.clamp_in_estimates:
             rho_min = jnp.maximum(
@@ -314,9 +314,9 @@ def _cfl_time_step(
         else:
             rho_min = jnp.min(primitive_state[registered_variables.density_index])
         
-        if config.viscosity_type == DYNAMIC_VISCOSITY:
+        if config.diffusion_config.viscosity_type == DYNAMIC_VISCOSITY:
             nu_max = params.viscosity / rho_min
-        elif config.viscosity_type == KINEMATIC_VISCOSITY:
+        elif config.diffusion_config.viscosity_type == KINEMATIC_VISCOSITY:
             nu_max = params.viscosity
 
         dt_visc = C_CFL * grid_spacing**2 / (2.0 * config.dimensionality * nu_max)

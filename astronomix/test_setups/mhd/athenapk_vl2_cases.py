@@ -44,6 +44,7 @@ import numpy as np
 
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
+    DONOR_CELL,
     FINITE_VOLUME,
     HLL,
     HLLC,
@@ -51,6 +52,7 @@ from astronomix.option_classes.simulation_config import (
     LAX_FRIEDRICHS,
     OPEN_BOUNDARY,
     PERIODIC_BOUNDARY,
+    PIECEWISE_LINEAR,
     POSITIVITY_HARD_FLOOR,
     VAN_LEER,
     VL2,
@@ -61,6 +63,7 @@ from astronomix.option_classes.simulation_config import (
     BackendConfig,
     BoundarySettings,
     BoundarySettings1D,
+    FVSolverConfig,
     PositivityConfig,
     SimulationConfig,
     StaticFloatVector,
@@ -559,16 +562,18 @@ def astronomix_setup(case: ValidationCase, state_shape, backend: int, block_shap
 
     config = SimulationConfig(
         solver_mode=FINITE_VOLUME,
-        time_integrator=VL2,
-        riemann_solver=_RIEMANN_SOLVERS[case.riemann_solver],
-        limiter=VAN_LEER,
-        first_order_fallback=case.reconstruction == "dc",
+        solver_config=FVSolverConfig(
+            time_integrator=VL2,
+            reconstruction=DONOR_CELL if case.reconstruction == "dc" else PIECEWISE_LINEAR,
+            limiter=VAN_LEER,
+            riemann_solver=_RIEMANN_SOLVERS[case.riemann_solver],
+            glm_extended_source=case.glm_extended_source,
+            first_order_flux_correction=case.first_order_flux_correction,
+        ),
         mhd=case.mhd,
         dimensionality=case.dimensionality,
         box_size=StaticFloatVector(*(box_size + [1.0] * (3 - case.dimensionality))),
         boundary_settings=boundary_settings,
-        glm_extended_source=case.glm_extended_source,
-        first_order_flux_correction=case.first_order_flux_correction,
         positivity_config=positivity_config,
         backend_config=BackendConfig(backend=backend, pallas_block_shape=block_shape),
     )

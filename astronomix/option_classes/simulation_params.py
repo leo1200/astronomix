@@ -58,18 +58,18 @@ class SimulationParams(NamedTuple):
     gravitational_potential: jnp.array = jnp.array([])
 
     #: Dynamic or kinematic viscosity depending
-    #: on the viscosity_type in SimulationConfig.
+    #: on the viscosity_type in DiffusionConfig.
     viscosity: float = 0.0
 
     #: Constant ohmic resistivity eta, the coefficient of the switch of the
-    #: same name, ``config.resistivity``, which must be set for it to act.
+    #: same name, ``config.diffusion_config.resistivity``, which must be set for it to act.
     #: Only implemented for 3D finite-difference CT MHD with the isothermal
     #: EOS (no ohmic heating term).
     resistivity: float = 0.0
 
     #: Constant thermal conductivity kappa in the conductive energy
-    #: source div(kappa grad T) (config.thermal_conduction); with
-    #: ``config.conduction_density_weighted`` it is the diffusivity alpha of
+    #: source div(kappa grad T) (config.diffusion_config.thermal_conduction); with
+    #: ``config.diffusion_config.conduction_density_weighted`` it is the diffusivity alpha of
     #: ``kappa = rho alpha`` instead. T is taken from the ideal-gas relation
     #: T = p / rho (code units, R = 1).
     #: NOTE: CURRENTLY ONLY IMPLEMENTED FOR FINITE DIFFERENCE MODE.

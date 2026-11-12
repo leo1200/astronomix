@@ -118,6 +118,8 @@ from astronomix.plotting_helpers.paper_style import (
 # astronomix containers
 from astronomix import (
     BackendConfig,
+    FDSolverConfig,
+    FVSolverConfig,
     SimulationConfig,
     SimulationParams,
     SnapshotSettings,
@@ -200,8 +202,7 @@ BENCHMARKS = dict(
         label=FV_LABEL,
         base_config=SimulationConfig(
             solver_mode=FINITE_VOLUME,
-            time_integrator=VL2,
-            riemann_solver=HLLD,
+            solver_config=FVSolverConfig(time_integrator=VL2, riemann_solver=HLLD),
             backend_config=BackendConfig(backend=PALLAS),
             **COMMON_OPTIONS,
         ),
@@ -210,7 +211,7 @@ BENCHMARKS = dict(
     fd_wenoz=BenchmarkSpec(
         label=FD_LABEL,
         base_config=SimulationConfig(
-            weno_z=True,
+            solver_config=FDSolverConfig(weno_z=True),
             backend_config=BackendConfig(backend=PALLAS),
             **COMMON_OPTIONS,
         ),
@@ -219,8 +220,7 @@ BENCHMARKS = dict(
     fd_wenoz_pp=BenchmarkSpec(
         label=FD_PP_LABEL,
         base_config=SimulationConfig(
-            weno_z=True,
-            weno_positivity_preserving=True,
+            solver_config=FDSolverConfig(weno_z=True, weno_positivity_preserving=True),
             backend_config=BackendConfig(backend=PALLAS),
             **COMMON_OPTIONS,
         ),
@@ -229,9 +229,11 @@ BENCHMARKS = dict(
     fd_wenoz_pp_uct=BenchmarkSpec(
         label=FD_TURBULENCE_LABEL,
         base_config=SimulationConfig(
-            weno_z=True,
-            weno_positivity_preserving=True,
-            ct_upwind_dissipation=True,
+            solver_config=FDSolverConfig(
+                weno_z=True,
+                weno_positivity_preserving=True,
+                ct_upwind_dissipation=True,
+            ),
             backend_config=BackendConfig(backend=PALLAS),
             **COMMON_OPTIONS,
         ),
@@ -240,7 +242,7 @@ BENCHMARKS = dict(
     fd_wenoz_cfl075=BenchmarkSpec(
         label=FD_CFL075_LABEL,
         base_config=SimulationConfig(
-            weno_z=True,
+            solver_config=FDSolverConfig(weno_z=True),
             backend_config=BackendConfig(backend=PALLAS),
             **COMMON_OPTIONS,
         ),
@@ -249,7 +251,7 @@ BENCHMARKS = dict(
     fd_wenoz_rsqrt=BenchmarkSpec(
         label=FD_RSQRT_LABEL,
         base_config=SimulationConfig(
-            weno_z=True,
+            solver_config=FDSolverConfig(weno_z=True),
             backend_config=BackendConfig(backend=PALLAS, use_approximate_rsqrt=True),
             **COMMON_OPTIONS,
         ),

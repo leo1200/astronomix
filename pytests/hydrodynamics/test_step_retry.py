@@ -38,6 +38,7 @@ from astronomix import OPEN_BOUNDARY
 # astronomix containers
 from astronomix import (
     BoundarySettings1D,
+    FDSolverConfig,
     PositivityConfig,
     SimulationConfig,
     SimulationParams,
@@ -74,7 +75,7 @@ def _run_double_rarefaction(C_cfl, step_retry):
             left_boundary=OPEN_BOUNDARY,
             right_boundary=OPEN_BOUNDARY,
         ),
-        weno_positivity_preserving=True,
+        solver_config=FDSolverConfig(weno_positivity_preserving=True),
         positivity_config=PositivityConfig(step_retry=step_retry),
     )
     params = SimulationParams(t_end=0.1, gamma=1.4, C_cfl=C_cfl)

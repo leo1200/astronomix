@@ -151,7 +151,7 @@ def _eigenvector_building_blocks(
     Interface quantities entering the hydro eigenvectors.
 
     The interface state between cell i and cell i + 1 is built from averages
-    of the two cells; with ``config.weno_admissible_face_state`` its sound speed
+    of the two cells; with ``config.solver_config.weno_admissible_face_state`` its sound speed
     comes from the averaged pressure instead of the averaged enthalpy.
 
     Args:
@@ -261,7 +261,7 @@ def _eigenvector_building_blocks(
     sound_speed_sq_interface = (gamma - 1.0) * (
         specific_enthalpy_interface - 0.5 * velocity_sq_interface
     )
-    if config.weno_admissible_face_state:
+    if config.solver_config.weno_admissible_face_state:
         # Build the interface state from averaged primitives so the frozen
         # characteristic basis is that of a real, hyperbolic state. The
         # enthalpy average above mixes an unweighted mean of h with a
@@ -322,7 +322,7 @@ def _eigen_R_col_hydro(
             (u - c, u, [u, u,] u + c).
         internal_energy_density: The separately advected dual-energy ``g``, or
             None for the plain total-energy pressure recovery.
-        dual_eta: The dual-energy switch threshold (``config.dual_energy_eta``);
+        dual_eta: The dual-energy switch threshold (``DUAL_ENERGY_ETA``);
             required when ``internal_energy_density`` is given.
 
     Returns:
@@ -472,7 +472,7 @@ def _eigen_L_row_hydro(
             (u - c, u, [u, u,] u + c).
         internal_energy_density: The separately advected dual-energy ``g``, or
             None for the plain total-energy pressure recovery.
-        dual_eta: The dual-energy switch threshold (``config.dual_energy_eta``);
+        dual_eta: The dual-energy switch threshold (``DUAL_ENERGY_ETA``);
             required when ``internal_energy_density`` is given.
 
     Returns:
@@ -696,7 +696,7 @@ def _eigen_lambdas_hydro(
             (u - c, u, [u, u,] u + c).
         internal_energy_density: The separately advected dual-energy ``g``, or
             None for the plain total-energy pressure recovery.
-        dual_eta: The dual-energy switch threshold (``config.dual_energy_eta``);
+        dual_eta: The dual-energy switch threshold (``DUAL_ENERGY_ETA``);
             required when ``internal_energy_density`` is given.
 
     Returns:

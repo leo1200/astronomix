@@ -37,6 +37,7 @@ from astronomix import (
     BoundarySettings,
     BoundarySettings1D,
     SnapshotSettings,
+    DiffusionConfig,
 )
 
 # astronomix functions
@@ -82,7 +83,7 @@ nu = mu / rho0            # kinematic viscosity
 config = SimulationConfig(
     progress_bar=True,
     mhd=False,
-    diffusion=True,
+    diffusion_config=DiffusionConfig(viscosity=True),
     dimensionality=3,
     num_cells=num_cells,
     box_size=float(box_size),

@@ -82,6 +82,7 @@ from _blast_setup import (
     EJECTA_FRACTION_SCALAR,
     NUM_CELLS,
     NUM_FIXED_STEPS,
+    PASSIVE_SCALAR_CONFIG,
     blast_config,
     blast_params,
     fluid_only_registry,
@@ -254,7 +255,9 @@ def test_masked_substeps_reverse_vs_dynamic_jvp():
     of the masked sub-step loop (``BACKWARDS``) is the transpose of the JVP of
     the dynamic loop (``FORWARDS``) of the scalar advection.
     """
-    sub_cycling = dict(passive_scalar_cfl=0.02, max_passive_scalar_substeps=6)
+    sub_cycling = dict(
+        passive_scalar_config=PASSIVE_SCALAR_CONFIG._replace(cfl=0.02, max_substeps=6)
+    )
     dynamic_config, registered_variables, state = setup_blast(**sub_cycling)
     masked_config, _, _ = setup_blast(differentiation_mode=BACKWARDS, **sub_cycling)
     fluid_registry = fluid_only_registry(registered_variables)
@@ -326,12 +329,14 @@ def test_masked_substeps_reverse_vs_dynamic_jvp():
 
 def test_masked_substeps_match_dynamic():
     """
-    With several passive-scalar sub-steps forced (a small ``passive_scalar_cfl``),
+    With several passive-scalar sub-steps forced (a small ``passive_scalar_config.cfl``),
     a ``BACKWARDS`` run (the reverse-differentiable masked sub-step loop) gives
     the result of a ``FORWARDS`` run (the loop with a traced trip count),
     round-off apart.
     """
-    sub_cycling = dict(passive_scalar_cfl=0.02, max_passive_scalar_substeps=6)
+    sub_cycling = dict(
+        passive_scalar_config=PASSIVE_SCALAR_CONFIG._replace(cfl=0.02, max_substeps=6)
+    )
     dynamic_config, registered_variables, state = setup_blast(**sub_cycling)
     masked_config, _, _ = setup_blast(differentiation_mode=BACKWARDS, **sub_cycling)
     dynamic_state = np.asarray(
@@ -343,7 +348,9 @@ def test_masked_substeps_match_dynamic():
 
     # The sub-cycling really happened: the result differs from a run with a
     # single sub-step.
-    config, registered_variables, state = setup_blast(max_passive_scalar_substeps=1)
+    config, registered_variables, state = setup_blast(
+        passive_scalar_config=PASSIVE_SCALAR_CONFIG._replace(max_substeps=1)
+    )
     single_substep_state = np.asarray(
         time_integration(state, config, blast_params(), registered_variables)
     )
@@ -496,8 +503,9 @@ def test_config_guards():
     """
     num_vars = get_registered_variables(blast_config()).num_vars
     state_shape = (num_vars, NUM_CELLS, NUM_CELLS, NUM_CELLS)
-    with pytest.raises(ValueError, match="max_passive_scalar_substeps"):
-        finalize_config(blast_config(max_passive_scalar_substeps=0), state_shape)
+    with pytest.raises(ValueError, match="max_substeps"):
+        invalid_cap = PASSIVE_SCALAR_CONFIG._replace(max_substeps=0)
+        finalize_config(blast_config(passive_scalar_config=invalid_cap), state_shape)
     if jax.devices()[0].platform == "cpu":
         config = finalize_config(
             blast_config(backend_config=BackendConfig(backend=OPTIMAL_BACKEND)),

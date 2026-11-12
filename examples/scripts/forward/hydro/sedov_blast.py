@@ -81,6 +81,8 @@ from astronomix import (
     BoundarySettings,
     BoundarySettings1D,
     PositivityConfig,
+    FDSolverConfig,
+    FVSolverConfig,
 )
 
 # astronomix functions
@@ -201,7 +203,7 @@ def make_config(solver_mode, riemann_solver, num_cells, strong_shock_safeguards)
     )
     if solver_mode == FINITE_DIFFERENCE:
         return SimulationConfig(
-            weno_z=True,
+            solver_config=FDSolverConfig(weno_z=True),
             **common_settings,
         )
     if strong_shock_safeguards:
@@ -209,9 +211,11 @@ def make_config(solver_mode, riemann_solver, num_cells, strong_shock_safeguards)
     else:
         positivity_config = PositivityConfig()
     return SimulationConfig(
-        time_integrator=VL2,
-        riemann_solver=riemann_solver,
-        first_order_flux_correction=strong_shock_safeguards,
+        solver_config=FVSolverConfig(
+            time_integrator=VL2,
+            riemann_solver=riemann_solver,
+            first_order_flux_correction=strong_shock_safeguards,
+        ),
         positivity_config=positivity_config,
         **common_settings,
     )

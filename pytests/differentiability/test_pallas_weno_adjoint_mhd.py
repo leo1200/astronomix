@@ -51,6 +51,7 @@ from astronomix import (
     BackendConfig,
     BoundarySettings,
     BoundarySettings1D,
+    FDSolverConfig,
     SimulationConfig,
     SimulationParams,
 )
@@ -97,9 +98,11 @@ def flux_config(positivity_preserving, frozen):
         num_cells=NUM_CELLS,
         box_size=1.0,
         backend_config=BackendConfig(backend=PALLAS, pallas_interpret=INTERPRET, pallas_block_shape=(4, 4, 4)),
-        weno_z=True,
-        weno_positivity_preserving=positivity_preserving,
-        weno_ad_frozen_weights=frozen,
+        solver_config=FDSolverConfig(
+            weno_z=True,
+            weno_positivity_preserving=positivity_preserving,
+            weno_ad_frozen_weights=frozen,
+        ),
     )
     return config, get_registered_variables(config)
 
@@ -225,8 +228,7 @@ def test_time_integration_gradient_matches_the_native_tangent():
                 pallas_adjoint=pallas_adjoint,
             ),
             boundary_settings=BoundarySettings(periodic, periodic, periodic),
-            weno_z=True,
-            weno_positivity_preserving=True,
+            solver_config=FDSolverConfig(weno_z=True, weno_positivity_preserving=True),
             differentiation_mode=BACKWARDS,
             num_checkpoints=2,
         )

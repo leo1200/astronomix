@@ -75,7 +75,7 @@ from astronomix.option_classes.simulation_config import (
 )
 
 # astronomix containers
-from astronomix import BackendConfig, SimulationConfig, SimulationParams
+from astronomix import BackendConfig, FVSolverConfig, SimulationConfig, SimulationParams
 
 # astronomix functions
 from astronomix import get_registered_variables
@@ -126,9 +126,11 @@ def astronomix_step_function(resolution: int, backend: int, steps: int):
     """
     base_config = SimulationConfig(
         solver_mode=FINITE_VOLUME,
-        time_integrator=VL2,
-        riemann_solver=HLLD,
-        limiter=VAN_LEER,
+        solver_config=FVSolverConfig(
+            time_integrator=VL2,
+            limiter=VAN_LEER,
+            riemann_solver=HLLD,
+        ),
         mhd=True,
         dimensionality=3,
         num_cells=StaticIntVector(2 * resolution, resolution, resolution),

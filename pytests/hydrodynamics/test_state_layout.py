@@ -50,6 +50,9 @@ from astronomix import (
 from astronomix import (
     BoundarySettings,
     BoundarySettings1D,
+    FDSolverConfig,
+    FVSolverConfig,
+    PassiveScalarConfig,
     SimulationConfig,
     SimulationParams,
 )
@@ -123,8 +126,8 @@ def test_registry_passive_scalars_and_psi_flags():
             dimensionality=2,
             num_cells=16,
             mhd=mhd,
-            dual_energy=dual_energy,
-            num_passive_scalars=2,
+            solver_config=FDSolverConfig(dual_energy=dual_energy),
+            passive_scalar_config=PassiveScalarConfig(num_scalars=2),
             boundary_settings=BoundarySettings(PERIODIC, PERIODIC),
         )
         config, registered_variables, state = _blast_state(config, num_scalars=2)
@@ -139,7 +142,11 @@ def test_registry_passive_scalars_and_psi_flags():
         assert not registered_variables.magnetic_psi_active
 
     vl2 = get_registered_variables(
-        SimulationConfig(solver_mode=FINITE_VOLUME, mhd=True, time_integrator=VL2)
+        SimulationConfig(
+            solver_mode=FINITE_VOLUME,
+            mhd=True,
+            solver_config=FVSolverConfig(time_integrator=VL2),
+        )
     )
     assert vl2.magnetic_psi_active and vl2.magnetic_psi_index == 8
     no_scalars = get_registered_variables(SimulationConfig(solver_mode=FINITE_DIFFERENCE))
@@ -152,9 +159,11 @@ def test_g_less_state_with_passive_scalars():
     config = SimulationConfig(
         dimensionality=1,
         num_cells=32,
-        dual_energy=True,
-        num_passive_scalars=2,
-        passive_scalar_bounds=((0.0, 1.0), (0.0, 1.0)),
+        solver_config=FDSolverConfig(dual_energy=True),
+        passive_scalar_config=PassiveScalarConfig(
+            num_scalars=2,
+            bounds=((0.0, 1.0), (0.0, 1.0)),
+        ),
         boundary_settings=PERIODIC,
         progress_bar=False,
     )
@@ -192,8 +201,8 @@ def test_fd_mhd_ghost_fill_with_trailing_rows():
         dimensionality=2,
         num_cells=16,
         mhd=True,
-        dual_energy=True,
-        num_passive_scalars=1,
+        solver_config=FDSolverConfig(dual_energy=True),
+        passive_scalar_config=PassiveScalarConfig(num_scalars=1),
         boundary_settings=boundaries,
     )
     config, registered_variables, state = _blast_state(config, num_scalars=1)
@@ -251,8 +260,7 @@ def test_passive_scalars_with_ghost_cells_in_2d():
     config = SimulationConfig(
         dimensionality=2,
         num_cells=16,
-        num_passive_scalars=1,
-        passive_scalar_bounds=((0.0, 1.0),),
+        passive_scalar_config=PassiveScalarConfig(num_scalars=1, bounds=((0.0, 1.0),)),
         boundary_settings=boundaries,
         progress_bar=False,
     )

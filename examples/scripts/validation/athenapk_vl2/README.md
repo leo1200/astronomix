@@ -17,16 +17,19 @@ scheme, with a native-JAX and a Pallas (Triton) backend:
   floors.
 
 ```python
-from astronomix import SimulationConfig, SimulationParams, VL2, HLLD, FINITE_VOLUME
+from astronomix import SimulationConfig, SimulationParams, FVSolverConfig, VL2, HLLD, FINITE_VOLUME
 
 config = SimulationConfig(
     solver_mode=FINITE_VOLUME,
-    time_integrator=VL2,       # selects the AthenaPK-equivalent scheme
-    riemann_solver=HLLD,       # HLLD / HLL (= HLLE) / LAX_FRIEDRICHS for MHD,
-    mhd=True,                  # HLLC / HLL / LAX_FRIEDRICHS for hydro
-    # first_order_fallback=True       -> AthenaPK "dc" reconstruction
-    # first_order_flux_correction=True -> AthenaPK first_order_flux_correct
-    # glm_extended_source=True         -> AthenaPK dedner_extended
+    solver_config=FVSolverConfig(
+        time_integrator=VL2,   # selects the AthenaPK-equivalent scheme
+        riemann_solver=HLLD,   # HLLD / HLL (= HLLE) / LAX_FRIEDRICHS for MHD,
+                               # HLLC / HLL / LAX_FRIEDRICHS for hydro
+        # reconstruction=DONOR_CELL        -> AthenaPK "dc" reconstruction
+        # first_order_flux_correction=True -> AthenaPK first_order_flux_correct
+        # glm_extended_source=True         -> AthenaPK dedner_extended
+    ),
+    mhd=True,
     # positivity_config=PositivityConfig(per_step_mode=POSITIVITY_HARD_FLOOR)
     #                                  -> AthenaPK dfloor / pfloor
     #                                     (params.minimum_density / minimum_pressure)

@@ -57,6 +57,8 @@ from astronomix import (
     BoundarySettings,
     BoundarySettings1D,
     BackendConfig,
+    FDSolverConfig,
+    FVSolverConfig,
 )
 
 # astronomix functions
@@ -136,14 +138,15 @@ def make_config(solver_mode, num_cells, turbulence_setup=False):
     )
     if solver_mode == FINITE_DIFFERENCE:
         return SimulationConfig(
-            weno_z=True,
-            weno_positivity_preserving=turbulence_setup,
-            ct_upwind_dissipation=turbulence_setup,
+            solver_config=FDSolverConfig(
+                weno_z=True,
+                weno_positivity_preserving=turbulence_setup,
+                ct_upwind_dissipation=turbulence_setup,
+            ),
             **common_settings,
         )
     return SimulationConfig(
-        time_integrator=VL2,
-        riemann_solver=HLLD,
+        solver_config=FVSolverConfig(time_integrator=VL2, riemann_solver=HLLD),
         **common_settings,
     )
 

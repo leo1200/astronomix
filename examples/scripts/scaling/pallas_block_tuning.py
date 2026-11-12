@@ -182,14 +182,16 @@ def build_simulation_config(point: dict):
         ISOTHERMAL,
         PALLAS,
         PERIODIC_BOUNDARY,
-        RK4_LSRK,
-        RK4_SSP,
+        LSRK4,
+        SSPRK54,
         VL2,
     )
     from astronomix.option_classes.simulation_config import (
         BackendConfig,
         BoundarySettings,
         BoundarySettings1D,
+        FDSolverConfig,
+        FVSolverConfig,
         SimulationConfig,
         SnapshotSettings,
         StaticFloatVector,
@@ -211,17 +213,21 @@ def build_simulation_config(point: dict):
         cfl = POSITIVITY_PRESERVING_CFL if point["positivity_preserving"] else FD_CFL
         scheme_options = dict(
             solver_mode=FINITE_DIFFERENCE,
-            time_integrator=RK4_LSRK if point["integrator"] == "LSRK4" else RK4_SSP,
-            weno_z=True,
-            weno_positivity_preserving=bool(point["positivity_preserving"]),
+            solver_config=FDSolverConfig(
+                time_integrator=LSRK4 if point["integrator"] == "LSRK4" else SSPRK54,
+                weno_z=True,
+                weno_positivity_preserving=bool(point["positivity_preserving"]),
+            ),
             equation_of_state=ISOTHERMAL if family == "fd_mhd_iso" else IDEAL_GAS,
         )
     else:
         cfl = FV_CFL
         scheme_options = dict(
             solver_mode=FINITE_VOLUME,
-            time_integrator=VL2,
-            riemann_solver=HLLD if mhd else HLLC,
+            solver_config=FVSolverConfig(
+                time_integrator=VL2,
+                riemann_solver=HLLD if mhd else HLLC,
+            ),
         )
 
     periodic = BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY)

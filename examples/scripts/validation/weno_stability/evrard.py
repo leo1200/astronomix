@@ -48,6 +48,7 @@ from astronomix import (
     BackendConfig,
     BoundarySettings,
     BoundarySettings1D,
+    FDSolverConfig,
     GravityConfig,
     NATIVE_JAX,
     PERIODIC_BOUNDARY,
@@ -84,8 +85,7 @@ config = SimulationConfig(
     num_cells=args.n,
     backend_config=BackendConfig(backend=NATIVE_JAX),
     positivity_config=PositivityConfig(clamp_in_estimates=False),
-    dual_energy=bool(args.dual),
-    **weno_variant_kwargs(),
+    solver_config=FDSolverConfig(dual_energy=bool(args.dual), **weno_variant_kwargs()),
     boundary_settings=BoundarySettings(
         BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY),
         BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY),

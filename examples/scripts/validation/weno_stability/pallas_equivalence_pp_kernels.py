@@ -13,8 +13,17 @@ import jax
 import jax.numpy as jnp
 
 from astronomix import (
-    BackendConfig, BoundarySettings, BoundarySettings1D, NATIVE_JAX, PALLAS, PERIODIC_BOUNDARY,
-    SimulationConfig, SimulationParams, finalize_config, get_registered_variables,
+    BackendConfig,
+    BoundarySettings,
+    BoundarySettings1D,
+    FDSolverConfig,
+    NATIVE_JAX,
+    PALLAS,
+    PERIODIC_BOUNDARY,
+    SimulationConfig,
+    SimulationParams,
+    finalize_config,
+    get_registered_variables,
 )
 from astronomix._finite_difference._interface_fluxes._weno import _weno_flux_native_for_axis
 from astronomix._finite_difference._interface_fluxes._weno_pallas import _weno_flux_mhd_pallas
@@ -35,9 +44,12 @@ periodic = BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY)
 configs = {}
 for backend in (NATIVE_JAX, PALLAS):
     config = SimulationConfig(
-        dimensionality=3, num_cells=n, mhd=True, boundary_settings=BoundarySettings(periodic, periodic, periodic),
+        dimensionality=3,
+        num_cells=n,
+        mhd=True,
+        boundary_settings=BoundarySettings(periodic, periodic, periodic),
         backend_config=BackendConfig(backend=backend, pallas_interpret=True, pallas_block_shape=(8, 8, 8)),
-        weno_positivity_preserving=True,
+        solver_config=FDSolverConfig(weno_positivity_preserving=True),
     )
     rv = get_registered_variables(config)
     configs[backend] = finalize_config(config, (rv.num_vars,) + shape)

@@ -22,6 +22,7 @@ from astronomix import (
     BackendConfig,
     BoundarySettings,
     BoundarySettings1D,
+    FDSolverConfig,
     NATIVE_JAX,
     PALLAS,
     PERIODIC_BOUNDARY,
@@ -74,7 +75,7 @@ for dimensionality, n in [(1, 64), (2, 32), (3, 16)]:
                     pallas_interpret=True,
                     pallas_block_shape=(8, 8, 8)[:dimensionality] + (1,) * (3 - dimensionality),
                 ),
-                **options,
+                solver_config=FDSolverConfig(**options),
             )
             registered_variables = get_registered_variables(config)
             configs[backend] = finalize_config(config, (registered_variables.num_vars,) + shape)

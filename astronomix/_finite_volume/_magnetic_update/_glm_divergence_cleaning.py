@@ -136,7 +136,7 @@ def _dedner_source(
     Apply AthenaPK's Dedner source to the freshly updated conserved state.
 
     The plain variant (default; AthenaPK's ``dedner_plain``) only damps psi.
-    With ``config.glm_extended_source`` (AthenaPK's ``dedner_extended``) the
+    With ``config.solver_config.glm_extended_source`` (AthenaPK's ``dedner_extended``) the
     non-conservative sources ``-(div B) B`` (momentum) and ``-B . grad(psi)``
     (energy) of Dedner et al. (2002) are added as well, evaluated with central
     differences of the primitive state the stage started from, as in AthenaPK.
@@ -156,7 +156,7 @@ def _dedner_source(
     """
     psi_index = registered_variables.magnetic_psi_index
 
-    if config.glm_extended_source:
+    if config.solver_config.glm_extended_source:
         magnetic_indices = tuple(registered_variables.magnetic_index)
         momentum_indices = tuple(registered_variables.momentum_index)
         field_components = [primitive_state[index] for index in magnetic_indices]

@@ -34,7 +34,7 @@ from astronomix.option_classes.simulation_config import (
     GHOST_CELLS,
     IDEAL_GAS,
     ISOTHERMAL,
-    RK4_LSRK,
+    LSRK4,
     STATE_TYPE,
 )
 
@@ -233,10 +233,10 @@ def _evolve_state_fd(
         interface_field_y = primitive_state[registered_variables.interface_magnetic_field_index.y]
         interface_field_z = primitive_state[registered_variables.interface_magnetic_field_index.z]
 
-        # update conserved state and interface magnetic fields — RK4_LSRK
+        # update conserved state and interface magnetic fields — LSRK4
         # selects the 2N-storage Carpenter-Kennedy LSRK4 variant (saves one
         # conserved + three interface-B carry registers vs SSPRK4).
-        if config.time_integrator == RK4_LSRK:
+        if config.solver_config.time_integrator == LSRK4:
             mhd_integrator = _lsrk4_with_ct
         else:
             mhd_integrator = _ssprk4_with_ct
@@ -294,10 +294,10 @@ def _evolve_state_fd(
             primitive_state, gamma, config, registered_variables
         )
 
-        # Dispatch to the requested time integrator.  RK4_LSRK is the
+        # Dispatch to the requested time integrator.  LSRK4 is the
         # Carpenter-Kennedy 2N-storage low-storage RK4 (one fewer full-state
         # register than SSPRK4, at the cost of a smaller stability CFL).
-        if int(config.time_integrator) == RK4_LSRK:
+        if int(config.solver_config.time_integrator) == LSRK4:
             integrator = _lsrk4_hydro
         else:
             integrator = _ssprk4_hydro

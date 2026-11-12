@@ -54,6 +54,8 @@ from astronomix.plotting_helpers.paper_style import (
 
 # astronomix containers
 from astronomix import (
+    FDSolverConfig,
+    FVSolverConfig,
     SimulationConfig,
     SimulationParams,
 )
@@ -97,8 +99,7 @@ RUNS = [
         "FV (VL2, HLLC)",
         SimulationConfig(
             solver_mode=FINITE_VOLUME,
-            time_integrator=VL2,
-            riemann_solver=HLLC,
+            solver_config=FVSolverConfig(time_integrator=VL2, riemann_solver=HLLC),
             num_cells=NUM_CELLS,
         ),
         0.5,
@@ -107,8 +108,7 @@ RUNS = [
         "FV (VL2, HLLE)",
         SimulationConfig(
             solver_mode=FINITE_VOLUME,
-            time_integrator=VL2,
-            riemann_solver=HLL,
+            solver_config=FVSolverConfig(time_integrator=VL2, riemann_solver=HLL),
             num_cells=NUM_CELLS,
         ),
         0.5,
@@ -116,7 +116,7 @@ RUNS = [
     (
         "FD (WENO-Z)",
         SimulationConfig(
-            weno_z=True,
+            solver_config=FDSolverConfig(weno_z=True),
             num_cells=NUM_CELLS,
         ),
         0.75,

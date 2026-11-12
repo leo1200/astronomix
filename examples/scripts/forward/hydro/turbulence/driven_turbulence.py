@@ -103,7 +103,6 @@ def build_config(args):
         geometry=CARTESIAN,
         mhd=False,
         equation_of_state=ISOTHERMAL,
-        first_order_fallback=False,       # pure high-order flux, no FOFC
         box_size=BOX_SIZE,
         num_cells=args.n,
         boundary_settings=periodic,

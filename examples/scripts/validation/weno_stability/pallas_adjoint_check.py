@@ -50,6 +50,7 @@ from astronomix import (
     BackendConfig,
     BoundarySettings,
     BoundarySettings1D,
+    FDSolverConfig,
     SimulationConfig,
     SimulationParams,
 )
@@ -101,11 +102,9 @@ def make_setup(fields, box, backend, tangent, num_steps, checkpoints, pallas_adj
         box_size=box,
         backend_config=BackendConfig(backend=backend, pallas_adjoint=pallas_adjoint),
         boundary_settings=BoundarySettings(periodic, periodic, periodic),
-        weno_positivity_preserving=True,
-        dual_energy=True,
+        solver_config=FDSolverConfig(weno_positivity_preserving=True, dual_energy=True, **TANGENTS[tangent]),
         differentiation_mode=BACKWARDS,
         num_checkpoints=checkpoints,
-        **TANGENTS[tangent],
     )
     registered_variables = get_registered_variables(config)
     density_scale = float(np.median(fields["rho"]))

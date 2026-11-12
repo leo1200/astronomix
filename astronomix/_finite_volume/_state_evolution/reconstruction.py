@@ -1,7 +1,7 @@
 """
 Interface reconstruction for the finite-volume scheme.
 
-Provides the MUSCL split reconstruction (with the predictor half-step) and the
+Provides the MUSCL-Hancock split reconstruction (with the predictor half-step) and the
 unsplit reconstruction that extrapolate the cell-centred primitive state to the
 left/right states at each interface.
 """
@@ -21,7 +21,7 @@ import jax.numpy as jnp
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
     CARTESIAN,
-    MUSCL,
+    MUSCL_HANCOCK,
     STATE_TYPE,
     STATE_TYPE_ALTERED,
 )
@@ -62,7 +62,7 @@ def _reconstruct_at_interface_split(
         primitive_state, config, helper_data, axis=axis
     )
 
-    if config.time_integrator == MUSCL:
+    if config.solver_config.time_integrator == MUSCL_HANCOCK:
         # calculate the sound speed
         c = speed_of_sound(rho, p, gamma)
 
@@ -99,7 +99,7 @@ def _reconstruct_at_interface_split(
         predictors = primitive_state - dt / 2 * projected_gradients
     else:
         raise ValueError(
-            f"Time integrator {config.time_integrator} not supported for split reconstruction. Only MUSCL is supported."
+            f"Time integrator {config.solver_config.time_integrator} not supported for split reconstruction. Only MUSCL_HANCOCK is supported."
         )
 
     # compute primitives at the interfaces

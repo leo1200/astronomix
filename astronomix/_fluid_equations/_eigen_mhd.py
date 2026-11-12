@@ -67,7 +67,7 @@ def _eigenvalue_building_blocks(
         registered_variables: The registered variables.
         internal_energy_density: The separately advected dual-energy ``g``, or
             None for the plain total-energy pressure recovery.
-        dual_eta: The dual-energy switch threshold (``config.dual_energy_eta``);
+        dual_eta: The dual-energy switch threshold (``DUAL_ENERGY_ETA``);
             required when ``internal_energy_density`` is given.
 
     Returns:
@@ -190,10 +190,10 @@ def _eigenvector_building_blocks(
         registered_variables: The registered variables.
         internal_energy_density: The separately advected dual-energy ``g``, or
             None for the plain total-energy pressure recovery.
-        dual_eta: The dual-energy switch threshold (``config.dual_energy_eta``);
+        dual_eta: The dual-energy switch threshold (``DUAL_ENERGY_ETA``);
             required when ``internal_energy_density`` is given.
         admissible_face_state: Build the interface sound speed from the
-            averaged pressure (``config.weno_admissible_face_state``) instead of
+            averaged pressure (``config.solver_config.weno_admissible_face_state``) instead of
             the averaged enthalpy.
 
     Returns:
@@ -470,10 +470,10 @@ def _eigen_R_col(
             (fast -, Alfven -, slow -, entropy, slow +, Alfven +, fast +).
         internal_energy_density: The separately advected dual-energy ``g``, or
             None for the plain total-energy pressure recovery.
-        dual_eta: The dual-energy switch threshold (``config.dual_energy_eta``);
+        dual_eta: The dual-energy switch threshold (``DUAL_ENERGY_ETA``);
             required when ``internal_energy_density`` is given.
         admissible_face_state: Build the interface sound speed from the
-            averaged pressure (``config.weno_admissible_face_state``) instead of
+            averaged pressure (``config.solver_config.weno_admissible_face_state``) instead of
             the averaged enthalpy.
 
     Returns:
@@ -785,10 +785,10 @@ def _eigen_L_row(
             (fast -, Alfven -, slow -, entropy, slow +, Alfven +, fast +).
         internal_energy_density: The separately advected dual-energy ``g``, or
             None for the plain total-energy pressure recovery.
-        dual_eta: The dual-energy switch threshold (``config.dual_energy_eta``);
+        dual_eta: The dual-energy switch threshold (``DUAL_ENERGY_ETA``);
             required when ``internal_energy_density`` is given.
         admissible_face_state: Build the interface sound speed from the
-            averaged pressure (``config.weno_admissible_face_state``) instead of
+            averaged pressure (``config.solver_config.weno_admissible_face_state``) instead of
             the averaged enthalpy.
 
     Returns:
@@ -1158,7 +1158,7 @@ def _eigen_lambdas(
             (fast -, Alfven -, slow -, entropy, slow +, Alfven +, fast +).
         internal_energy_density: The separately advected dual-energy ``g``, or
             None for the plain total-energy pressure recovery.
-        dual_eta: The dual-energy switch threshold (``config.dual_energy_eta``);
+        dual_eta: The dual-energy switch threshold (``DUAL_ENERGY_ETA``);
             required when ``internal_energy_density`` is given.
 
     Returns:

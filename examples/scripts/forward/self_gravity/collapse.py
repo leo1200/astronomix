@@ -37,6 +37,7 @@ from astronomix import (
     SimulationParams,
     BoundarySettings,
     BoundarySettings1D,
+    FDSolverConfig,
 )
 
 # astronomix functions
@@ -73,9 +74,11 @@ config = SimulationConfig(
         # coupling from driving cold receiving cells to negative pressure
         work_flux_correction = True,
     ),
-    # positivity-preserving WENO (Zhang & Shu) keeps the low-resolution
-    # collapse from driving density/pressure negative
-    weno_positivity_preserving = True,
+    solver_config=FDSolverConfig(
+        # positivity-preserving WENO (Zhang & Shu) keeps the low-resolution
+        # collapse from driving density/pressure negative
+        weno_positivity_preserving = True,
+    ),
     boundary_settings = BoundarySettings(
         BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY),
         BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY),

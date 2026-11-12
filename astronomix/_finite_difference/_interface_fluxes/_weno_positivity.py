@@ -687,7 +687,7 @@ def positivity_preserving_interface_flux(
     else:
         plus_theta = face_scaling(plus_owner, plus_unshifted, plus_step, minus_shift)
         minus_theta = face_scaling(minus_owner, minus_unshifted, minus_step, plus_shift)
-    if config.weno_ad_frozen_weights:
+    if config.solver_config.weno_ad_frozen_weights:
         # The scaling theta is a nonlinear limiter weight like the WENO
         # omegas, so it is frozen together with them.
         plus_theta = jax.lax.stop_gradient(plus_theta)

@@ -74,6 +74,8 @@ from astronomix.option_classes.simulation_config import (
 from astronomix import (
     BoundarySettings,
     BoundarySettings1D,
+    FDSolverConfig,
+    FVSolverConfig,
     PositivityConfig,
     SimulationConfig,
     SimulationParams,
@@ -198,15 +200,16 @@ def build_case(args):
     if finite_volume:
         config = SimulationConfig(
             solver_mode=FINITE_VOLUME,
-            time_integrator=VL2,
-            riemann_solver=HLLD,
-            limiter=VAN_LEER,
+            solver_config=FVSolverConfig(
+                time_integrator=VL2,
+                limiter=VAN_LEER,
+                riemann_solver=HLLD,
+            ),
         )
     else:
         config = SimulationConfig(
             solver_mode=FINITE_DIFFERENCE,
-            weno_z=True,
-            weno_positivity_preserving=True,
+            solver_config=FDSolverConfig(weno_z=True, weno_positivity_preserving=True),
             positivity_config=PositivityConfig(
                 per_step_mode=POSITIVITY_HARD_FLOOR if args.scheme == "fd_floor" else POSITIVITY_NONE,
             ),

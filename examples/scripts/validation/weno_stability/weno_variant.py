@@ -1,4 +1,4 @@
-"""Map the WENO_VARIANT environment variable onto SimulationConfig options.
+"""Map the WENO_VARIANT environment variable onto FDSolverConfig options.
 
     baseline  the scheme before this branch (weno_admissible_face_state off)
     face      weno_admissible_face_state (now the default)

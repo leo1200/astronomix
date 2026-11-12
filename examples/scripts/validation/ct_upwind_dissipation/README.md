@@ -1,6 +1,6 @@
 # Upwind dissipation of the constrained-transport EMFs
 
-`SimulationConfig.ct_upwind_dissipation` adds to every edge EMF of the
+`FDSolverConfig.ct_upwind_dissipation` adds to every edge EMF of the
 finite-difference CT the jumps of the two interface-field components that meet
 at the edge, reconstructed to the edge from both sides at fifth order, times
 half the local fast signal speed across the jump (the upwind CT of Londrillo &
@@ -13,7 +13,7 @@ The increments are the curl of these EMFs with the CT's own staggered
 derivative, so `div B = 0` is kept exactly; the jumps are `O(dx^5)` on smooth
 fields (`astronomix/_finite_difference/_magnetic_update/_constrained_transport.py:
 ct_upwind_dissipation_rhs`). The strength kappa is
-`SimulationConfig.ct_upwind_strength`, 0.03 by default (1 is the full upwind
+`FDSolverConfig.ct_upwind_strength`, 0.03 by default (1 is the full upwind
 form); the runners take `--ct-upwind [KAPPA]`, the bare flag meaning 0.03. In
 1D and 2D the jumps and differences along the collapsed axes drop out; in 3D
 on the Pallas backend the term runs as two kernels

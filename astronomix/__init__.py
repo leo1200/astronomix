@@ -14,14 +14,25 @@ from astronomix.option_classes.simulation_config import (
     OPTIMAL_BACKEND,
     FINITE_VOLUME,
     FINITE_DIFFERENCE,
+    RK2_SSP,
+    MUSCL_HANCOCK,
     VL2,
-    FORWARDS,
-    BACKWARDS,
+    SSPRK54,
+    LSRK4,
+    DONOR_CELL,
+    PIECEWISE_LINEAR,
     MINMOD,
     VAN_LEER,
+    SUPERBEE,
+    DOUBLE_MINMOD,
     HLL,
     HLLC,
+    LAX_FRIEDRICHS,
     HLLD,
+    GLM,
+    CONSTRAINED_TRANSPORT,
+    FORWARDS,
+    BACKWARDS,
     OPEN_BOUNDARY,
     REFLECTIVE_BOUNDARY,
     PERIODIC_BOUNDARY,
@@ -34,6 +45,10 @@ from astronomix.option_classes.simulation_config import (
 # astronomix containers
 from astronomix.option_classes.simulation_config import (
     SimulationConfig,
+    FVSolverConfig,
+    FDSolverConfig,
+    PassiveScalarConfig,
+    DiffusionConfig,
     BoundarySettings,
     BoundarySettings1D,
     SnapshotSettings,
@@ -41,6 +56,7 @@ from astronomix.option_classes.simulation_config import (
     GravityConfig,
     BackendConfig,
 )
+from astronomix.option_classes.presets import ATHENAPK_VL2, FD_PAPER
 from astronomix.option_classes.simulation_params import SimulationParams
 from astronomix._modules._stellar_wind.stellar_wind_options import WindParams
 from astronomix.units import CodeUnits

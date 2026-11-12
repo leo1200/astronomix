@@ -103,8 +103,8 @@ from astronomix import (
     PERIODIC_BOUNDARY,
 )
 from astronomix.option_classes.simulation_config import (
-    RK4_LSRK,
-    RK4_SSP,
+    LSRK4,
+    SSPRK54,
     VARAXIS,
     XAXIS,
     YAXIS,
@@ -126,6 +126,7 @@ from astronomix import (
     BoundarySettings,
     BoundarySettings1D,
     BackendConfig,
+    FDSolverConfig,
 )
 
 # astronomix functions
@@ -190,9 +191,12 @@ def make_config(num_cells, boundary_type=PERIODIC_BOUNDARY):
     axis_boundaries = BoundarySettings1D(boundary_type, boundary_type)
     return SimulationConfig(
         mhd=True,
-        weno_z=True,
-        weno_positivity_preserving=True,
-        ct_upwind_dissipation=CT_UPWIND,
+        solver_config=FDSolverConfig(
+            time_integrator=LSRK4 if USE_LSRK4 else SSPRK54,
+            weno_z=True,
+            weno_positivity_preserving=True,
+            ct_upwind_dissipation=CT_UPWIND,
+        ),
         progress_bar=True,
         dimensionality=3,
         box_size=BOX_SIZE,
@@ -207,7 +211,6 @@ def make_config(num_cells, boundary_type=PERIODIC_BOUNDARY):
         # and saves one state-sized buffer; it is used for the multi-GPU
         # (high-resolution) runs, where memory is tight.
         donate_state=(NUM_GPUS > 1),
-        time_integrator=(RK4_LSRK if USE_LSRK4 else RK4_SSP),
         # Optional smaller Pallas block shape (``--block bx,by,bz``): a
         # numerics-preserving lever to shave peak device memory (smaller halo
         # padding + tile temporaries). ``None`` keeps the astronomix default.

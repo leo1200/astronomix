@@ -130,6 +130,7 @@ from astronomix import (
     CodeUnits,
     BoundarySettings,
     BoundarySettings1D,
+    FDSolverConfig,
 )
 from astronomix._modules._turbulent_forcing._turbulent_forcing_options import (
     TurbulentForcingConfig,
@@ -158,12 +159,14 @@ NF, NC = args.fine_N, args.coarse_N
 
 def make_cfg(N, forcing, backward):
     return SimulationConfig(
-        weno_z=True,
-        weno_positivity_preserving=True,
+        solver_config=FDSolverConfig(weno_z=True, weno_positivity_preserving=True),
         backend_config=BackendConfig(backend=PALLAS),
-        mhd=True, progress_bar=False,
-        donate_state=False, dimensionality=3,
-        box_size=1.0, num_cells=N,
+        mhd=True,
+        progress_bar=False,
+        donate_state=False,
+        dimensionality=3,
+        box_size=1.0,
+        num_cells=N,
         differentiation_mode=BACKWARDS if backward else FORWARDS,
         num_checkpoints=args.num_checkpoints,
         rematerialize_stages=args.rematerialize_stages,

@@ -48,6 +48,7 @@ from astronomix.option_classes.simulation_config import (  # noqa: E402
 from astronomix.option_classes.simulation_config import StaticIntVector  # noqa: E402
 from astronomix import (  # noqa: E402
     BackendConfig,
+    FVSolverConfig,
     SimulationConfig,
     SimulationParams,
 )
@@ -141,8 +142,7 @@ def main():
 
         config = SimulationConfig(
             solver_mode=FINITE_VOLUME,
-            time_integrator=VL2,
-            riemann_solver=HLLD,
+            solver_config=FVSolverConfig(time_integrator=VL2, riemann_solver=HLLD),
             backend_config=BackendConfig(backend=PALLAS),
             num_cells=StaticIntVector(2 * resolution, resolution, resolution),
             progress_bar=False,

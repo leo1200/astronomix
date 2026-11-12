@@ -24,6 +24,7 @@ from weno_variant import weno_variant_kwargs, weno_variant_name
 import jax.numpy as jnp
 
 from astronomix import (
+    FDSolverConfig,
     SimulationConfig,
     SimulationParams,
     construct_primitive_state,
@@ -46,7 +47,7 @@ for speed in speeds:
         config = SimulationConfig(
             dimensionality=1,
             num_cells=n,
-            **weno_variant_kwargs(),
+            solver_config=FDSolverConfig(**weno_variant_kwargs()),
             boundary_settings=BoundarySettings1D(
                 left_boundary=PERIODIC_BOUNDARY, right_boundary=PERIODIC_BOUNDARY
             ),

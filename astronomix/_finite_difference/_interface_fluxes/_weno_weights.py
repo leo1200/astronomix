@@ -15,6 +15,9 @@ from functools import partial
 import jax
 import jax.numpy as jnp
 
+#: Absolute floor in the WENO smoothness denominators (JS and Z).
+WENO_EPSILON = 1e-7
+
 
 def _weno_omega_weights(IS0, IS1, IS2, epsilon, tiny):
     """

@@ -31,6 +31,7 @@ from astronomix import (
     BackendConfig,
     BoundarySettings,
     BoundarySettings1D,
+    FDSolverConfig,
     SimulationConfig,
     SimulationParams,
 )
@@ -77,9 +78,11 @@ def time_per_step(resolution, upwind_dissipation):
         mhd=True,
         boundary_settings=BoundarySettings(periodic, periodic, periodic),
         turbulent_forcing_config=TurbulentForcingConfig(turbulent_forcing=True, ou_forcing=True),
-        weno_z=True,
-        weno_positivity_preserving=True,
-        ct_upwind_dissipation=upwind_dissipation,
+        solver_config=FDSolverConfig(
+            weno_z=True,
+            weno_positivity_preserving=True,
+            ct_upwind_dissipation=upwind_dissipation,
+        ),
         backend_config=BackendConfig(backend=PALLAS),
         fixed_timestep=True,
         num_timesteps=NUM_STEPS,

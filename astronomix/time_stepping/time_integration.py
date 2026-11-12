@@ -44,13 +44,16 @@ from astronomix.option_classes.simulation_config import (
     PALLAS,
     PERIODIC_ROLL,
     POSITIVITY_HARD_FLOOR,
-    RK4_LSRK,
+    LSRK4,
     STATE_TYPE,
     TO_DISK,
 )
 
 # astronomix containers
-from astronomix.option_classes.simulation_config import SimulationConfig
+from astronomix.option_classes.simulation_config import (
+    SimulationConfig,
+    get_solver_config,
+)
 from astronomix.data_classes.simulation_helper_data import HelperData
 from astronomix.variable_registry.registered_variables import RegisteredVariables
 from astronomix.option_classes.simulation_params import SimulationParams
@@ -166,9 +169,9 @@ def _raise_with_time_integration_hint(error: Exception, config: SimulationConfig
             "the memory footprint:"
         )
         if config.solver_mode == FINITE_DIFFERENCE:
-            if config.time_integrator != RK4_LSRK:
+            if config.solver_config.time_integrator != LSRK4:
                 hints.append(
-                    "  - set config.time_integrator = RK4_LSRK, the 2N-storage "
+                    "  - set config.solver_config.time_integrator = LSRK4, the 2N-storage "
                     "low-memory RK4 integrator (one fewer full-state buffer)."
                 )
             if config.backend_config.backend != PALLAS:
@@ -193,12 +196,12 @@ def _raise_with_time_integration_hint(error: Exception, config: SimulationConfig
         )
         hints.append(
             "  - finite difference: enable the positivity-preserving WENO, "
-            "config.weno_positivity_preserving = True (provably positive for "
+            "config.solver_config.weno_positivity_preserving = True (provably positive for "
             "C_cfl <= 0.75 with SSPRK4)."
         )
         hints.append(
             "  - finite volume: use the most diffusive limiter, MINMOD "
-            "(config.limiter)."
+            "(config.solver_config.limiter)."
         )
         hints.append(
             "  - reduce the CFL number (params.C_cfl) for smaller, safer time "
@@ -271,6 +274,10 @@ def time_integration(
     # runtime debugging via checkify if requested, printing the elapsed
     # time if requested, compiling the function for memory analysis if
     # requested, etc.
+
+    # A configuration that did not pass through finalize_config may leave
+    # solver_config unset: fill in the default container of the solver mode.
+    config = config._replace(solver_config=get_solver_config(config))
 
     # Every run starts a fresh plain-text progress log.
     if config.progress_bar:

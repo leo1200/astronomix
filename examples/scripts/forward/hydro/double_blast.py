@@ -53,6 +53,8 @@ from astronomix import (
     SimulationConfig,
     SimulationParams,
     BoundarySettings1D,
+    FDSolverConfig,
+    FVSolverConfig,
 )
 
 # astronomix functions
@@ -137,14 +139,13 @@ def simulate(solver_mode, riemann_solver, num_cells):
     )
     if is_finite_difference:
         config = SimulationConfig(
-            weno_z=True,
+            solver_config=FDSolverConfig(weno_z=True),
             **common_settings,
         )
         cfl = FINITE_DIFFERENCE_CFL
     else:
         config = SimulationConfig(
-            time_integrator=VL2,
-            riemann_solver=riemann_solver,
+            solver_config=FVSolverConfig(time_integrator=VL2, riemann_solver=riemann_solver),
             **common_settings,
         )
         cfl = FINITE_VOLUME_CFL

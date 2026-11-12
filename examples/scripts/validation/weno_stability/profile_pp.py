@@ -29,8 +29,18 @@ import jax
 import jax.numpy as jnp
 
 from astronomix import (
-    BackendConfig, BoundarySettings, BoundarySettings1D, PALLAS, PERIODIC_BOUNDARY, PositivityConfig,
-    SimulationConfig, SimulationParams, finalize_config, get_helper_data, get_registered_variables,
+    BackendConfig,
+    BoundarySettings,
+    BoundarySettings1D,
+    FDSolverConfig,
+    PALLAS,
+    PERIODIC_BOUNDARY,
+    PositivityConfig,
+    SimulationConfig,
+    SimulationParams,
+    finalize_config,
+    get_helper_data,
+    get_registered_variables,
 )
 from astronomix._fluid_equations._equations_mhd import conserved_state_from_primitive_mhd
 from astronomix._finite_difference._interface_fluxes import _weno as weno_module
@@ -54,11 +64,15 @@ periodic = BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY)
 
 def make(pp_on):
     config = SimulationConfig(
-        equation_of_state=IDEAL_GAS, dimensionality=3, num_cells=n, box_size=1.0, mhd=True,
+        equation_of_state=IDEAL_GAS,
+        dimensionality=3,
+        num_cells=n,
+        box_size=1.0,
+        mhd=True,
         backend_config=BackendConfig(backend=PALLAS),
         boundary_settings=BoundarySettings(periodic, periodic, periodic),
         positivity_config=PositivityConfig(clamp_in_estimates=False),
-        weno_positivity_preserving=pp_on,
+        solver_config=FDSolverConfig(weno_positivity_preserving=pp_on),
     )
     config = finalize_config(config, primitive.shape)
     params = SimulationParams(C_cfl=1.5, gamma=GAMMA, minimum_density=1e-30, minimum_pressure=1e-30)

@@ -27,6 +27,8 @@ from astronomix import (
     BackendConfig,
     BoundarySettings,
     BoundarySettings1D,
+    FDSolverConfig,
+    PassiveScalarConfig,
     SimulationConfig,
     SimulationParams,
 )
@@ -53,6 +55,13 @@ NUM_PASSIVE_SCALARS = 5
 #: one of its bounds almost everywhere.
 EJECTA_FRACTION_SCALAR = 0
 
+#: The passive-scalar settings of the blast (default sub-cycling); tests that
+#: force sub-steps pass a ``_replace`` of it as ``passive_scalar_config``.
+PASSIVE_SCALAR_CONFIG = PassiveScalarConfig(
+    num_scalars=NUM_PASSIVE_SCALARS,
+    bounds=tuple((0.0, 1.0) for _ in range(NUM_PASSIVE_SCALARS)),
+)
+
 #: End time of the adaptive runs: four CFL-limited steps of the blast.
 T_END = 0.012
 
@@ -73,7 +82,8 @@ def blast_config(**overrides):
     Args:
         **overrides: SimulationConfig fields replacing the defaults below
             (differentiation mode, fixed steps, reverse-mode memory options,
-            passive-scalar sub-cycling, ...).
+            ``passive_scalar_config`` built from ``PASSIVE_SCALAR_CONFIG`` for
+            the passive-scalar sub-cycling, ...).
 
     Returns:
         The simulation configuration, not yet finalized.
@@ -86,7 +96,11 @@ def blast_config(**overrides):
         solver_mode=FINITE_DIFFERENCE,
         dimensionality=3,
         geometry=CARTESIAN,
-        first_order_fallback=False,
+        solver_config=FDSolverConfig(
+            weno_positivity_preserving=True,
+            weno_ad_frozen_weights=True,
+            dual_energy=True,
+        ),
         box_size=1.0,
         num_cells=NUM_CELLS,
         boundary_settings=BoundarySettings(
@@ -94,11 +108,7 @@ def blast_config(**overrides):
             periodic_boundaries,
             periodic_boundaries,
         ),
-        weno_positivity_preserving=True,
-        dual_energy=True,
-        weno_ad_frozen_weights=True,
-        num_passive_scalars=NUM_PASSIVE_SCALARS,
-        passive_scalar_bounds=tuple((0.0, 1.0) for _ in range(NUM_PASSIVE_SCALARS)),
+        passive_scalar_config=PASSIVE_SCALAR_CONFIG,
         backend_config=BackendConfig(backend=NATIVE_JAX),
         progress_bar=False,
         num_checkpoints=8,
