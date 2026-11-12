@@ -12,8 +12,15 @@ state::
     U^{n+1}  = (U^n + U^(2)) / 2
 
 with the reconstruction, the limiter and the Riemann solver of the
-configuration. Gravity couples to it as a source around the step
-(``evolve_state.py``).
+configuration.
+
+``muscl_hancock_step`` is the dimensionally split MUSCL-Hancock scheme
+(hydrodynamics): a Strang sequence of one-axis stages, each a forward Euler
+update with fluxes of face states that the Hancock predictor has advanced by
+half the sweep's time step (``_reconstruction.py``). It is the scheme of the
+spherical 1D grid and of the wind density tracer.
+
+Gravity couples to both as a source around the step (``_evolve_state.py``).
 
 ``vl2_step``: the VL2 finite-volume scheme of AthenaPK.
 
@@ -387,4 +394,85 @@ def rk2_ssp_step(
 
 # -------------------------------------------------------------
 # =================== ↑ RK2 SSP time step ↑ ===================
+# -------------------------------------------------------------
+
+# -------------------------------------------------------------
+# ================ ↓ MUSCL-Hancock time step ↓ ================
+# -------------------------------------------------------------
+
+
+def _strang_sequence(dimensionality: int):
+    """
+    The sweeps of one Strang-split step as ``(axis, fraction of the time
+    step)``: half steps along all axes but the last, the whole step along the
+    last axis, and the half steps again in reverse order.
+
+    Args:
+        dimensionality: The number of spatial dimensions.
+
+    Returns:
+        The list of sweeps.
+    """
+    axes = tuple(range(1, dimensionality + 1))
+    half_sweeps = [(axis, 0.5) for axis in axes[:-1]]
+    return half_sweeps + [(axes[-1], 1.0)] + half_sweeps[::-1]
+
+
+@partial(jax.jit, static_argnames=["config", "registered_variables"])
+def muscl_hancock_step(
+    primitive_state: STATE_TYPE,
+    dt: Float[Array, ""],
+    gamma: Union[float, Float[Array, ""]],
+    config: SimulationConfig,
+    params: SimulationParams,
+    helper_data: HelperData,
+    registered_variables: RegisteredVariables,
+) -> STATE_TYPE:
+    """
+    Advance the primitive state by one step of the dimensionally split
+    MUSCL-Hancock scheme: one-axis stages in Strang order, each from the
+    result of the one before.
+
+    Args:
+        primitive_state: The primitive state ``W^n``.
+        dt: The time step.
+        gamma: The adiabatic index.
+        config: The simulation configuration.
+        params: The simulation parameters.
+        helper_data: The helper data (radii of the spherical 1D grid).
+        registered_variables: The registered variables.
+
+    Returns:
+        The primitive state ``W^{n+1}``.
+    """
+    # Updates between steps (wind injection, cooling, ...) may have changed
+    # the physical cells without touching the halo.
+    primitive_state = _update_ghost_cells(primitive_state, config, params, registered_variables)
+
+    for axis, fraction in _strang_sequence(config.dimensionality):
+        sweep_time_step = fraction * dt
+        conserved_state = _conserved_from_primitive(primitive_state, gamma, config, registered_variables)
+        primitive_state, _ = fv_stage(
+            primitive_state,
+            conserved_state,
+            stage_time_step=sweep_time_step,
+            reconstruction=config.solver_config.reconstruction,
+            # Hydrodynamics: a zero cleaning speed and no damping.
+            cleaning_speed=0.0,
+            damping_factor=1.0,
+            gamma=gamma,
+            config=config,
+            params=params,
+            registered_variables=registered_variables,
+            axes=(axis,),
+            predictor_half_step=0.5 * sweep_time_step,
+            helper_data=helper_data,
+        )
+        primitive_state = _update_ghost_cells(primitive_state, config, params, registered_variables)
+
+    return primitive_state
+
+
+# -------------------------------------------------------------
+# ================ ↑ MUSCL-Hancock time step ↑ ================
 # -------------------------------------------------------------

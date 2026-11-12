@@ -22,6 +22,12 @@ The stage has two halves: ``_flux_update`` (fluxes, correction, update) and
 kernel (``_stage_pallas.py``). The time integrators (``_integrators.py``) are
 sequences of stages.
 
+A stage acts on all spatial axes, or on the axes it is given: the
+dimensionally split scheme runs one stage per sweep, with the Hancock
+predictor in the reconstruction. The spherical 1D grid enters at two points
+only: the distances of the reconstruction and the flux divergence with its
+area factors and pressure source (``_spherical_flux_divergence``).
+
 The file also holds the conversions between primitive and conserved
 variables; the layout of the state in the frame of an interface is in
 ``_interface_frame.py``. The per-face physics is written as elementwise
@@ -45,6 +51,7 @@ import jax.numpy as jnp
 
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
+    CARTESIAN,
     CONSTRAINED_TRANSPORT,
     DONOR_CELL,
     GHOST_CELLS,
@@ -54,6 +61,7 @@ from astronomix.option_classes.simulation_config import (
 )
 
 # astronomix containers
+from astronomix.data_classes.simulation_helper_data import HelperData
 from astronomix.option_classes.simulation_config import SimulationConfig
 from astronomix.option_classes.simulation_params import SimulationParams
 from astronomix.variable_registry.registered_variables import RegisteredVariables
@@ -71,6 +79,7 @@ from astronomix._finite_volume._flux_correction import (
     _flux_divergence,
     _interior_mask,
     _positivity_failure_code,
+    _spherical_flux_divergence,
 )
 from astronomix._finite_volume._gravity_coupling import (
     _add_athena_gravity_source,
@@ -82,7 +91,11 @@ from astronomix._finite_volume._interface_frame import (
     _state_components_from_frame,
     _velocity_component_indices,
 )
-from astronomix._finite_volume._reconstruction import _reconstructed_face_states
+from astronomix._finite_volume._reconstruction import (
+    HancockTerms,
+    _cell_distances,
+    _reconstructed_face_states,
+)
 from astronomix._geometry.boundaries import _boundary_handler
 
 
@@ -273,6 +286,65 @@ def _primitive_from_conserved(
 # -------------------------------------------------------------
 
 
+def _hancock_terms(
+    axis: int,
+    predictor_half_step,
+    gamma,
+    config: SimulationConfig,
+    helper_data: HelperData,
+    registered_variables: RegisteredVariables,
+) -> HancockTerms:
+    """
+    The terms of the Hancock predictor of a sweep along ``axis`` (the split
+    scheme; hydrodynamics).
+
+    Args:
+        axis: The spatial axis (1-based) of the sweep.
+        predictor_half_step: Half the time step of the sweep.
+        gamma: The adiabatic index.
+        config: The simulation configuration.
+        helper_data: The helper data (the radii of the spherical 1D grid).
+        registered_variables: The registered variables.
+
+    Returns:
+        The predictor terms.
+    """
+    # A state row outside the frame of the interface is a density carried with the gas.
+    frame_indices = _interface_frame_indices(axis, config, registered_variables)
+    carried_density_indices = tuple(
+        index for index in range(registered_variables.num_vars) if index not in frame_indices
+    )
+    return HancockTerms(
+        half_step=predictor_half_step,
+        gamma=gamma,
+        density_index=registered_variables.density_index,
+        normal_velocity_index=_velocity_component_indices(registered_variables)[axis - 1],
+        pressure_index=registered_variables.pressure_index,
+        carried_density_indices=carried_density_indices,
+        distances=_cell_distances(config, helper_data),
+    )
+
+
+def _carried_density_flux(mass_flux, left_density, right_density, left_value, right_value):
+    """
+    The flux of a density that is carried with the gas (the wind density
+    tracer), as Athena++ treats passive scalars: the mass flux of the Riemann
+    solver times the concentration on its upwind side. The same for every
+    solver, and the tracer cannot exceed the gas density by the transport.
+
+    Args:
+        mass_flux: The mass flux through the interface.
+        left_density: The gas density of the left state.
+        right_density: The gas density of the right state.
+        left_value: The carried density of the left state.
+        right_value: The carried density of the right state.
+
+    Returns:
+        The flux of the carried density.
+    """
+    return mass_flux * jnp.where(mass_flux > 0.0, left_value / left_density, right_value / right_density)
+
+
 def _interface_fluxes(
     primitive_state: STATE_TYPE,
     axis: int,
@@ -282,6 +354,7 @@ def _interface_fluxes(
     cleaning_speed,
     config: SimulationConfig,
     registered_variables: RegisteredVariables,
+    hancock: HancockTerms = None,
 ) -> STATE_TYPE:
     """
     The interface fluxes along one axis: ``flux[:, i]`` is the flux through
@@ -296,6 +369,7 @@ def _interface_fluxes(
         cleaning_speed: The GLM cleaning speed (MHD only).
         config: The simulation configuration.
         registered_variables: The registered variables.
+        hancock: The predictor terms of the split scheme (``None`` without predictor).
 
     Returns:
         The flux array, laid out like the state.
@@ -305,6 +379,7 @@ def _interface_fluxes(
         axis,
         reconstruction,
         config.solver_config.limiter,
+        hancock,
     )
     frame_indices = _interface_frame_indices(axis, config, registered_variables)
 
@@ -325,34 +400,52 @@ def _interface_fluxes(
         riemann_solver,
         config.mhd,
     )
-    return jnp.stack(
-        _state_components_from_frame(flux_values, frame_indices, registered_variables.num_vars),
-        axis=0,
-    )
+    flux_components = _state_components_from_frame(flux_values, frame_indices, registered_variables.num_vars)
+
+    # A state row outside the frame is a density carried with the gas.
+    density_index = registered_variables.density_index
+    for index, component in enumerate(flux_components):
+        if component is None:
+            flux_components[index] = _carried_density_flux(
+                flux_components[density_index],
+                left_states[density_index],
+                right_states[density_index],
+                left_states[index],
+                right_states[index],
+            )
+    return jnp.stack(flux_components, axis=0)
 
 
 def _fluxes_per_axis(
     primitive_state: STATE_TYPE,
+    axes,
     reconstruction: int,
     riemann_solver: int,
     gamma,
     cleaning_speed,
     config: SimulationConfig,
     registered_variables: RegisteredVariables,
+    predictor_half_step=None,
+    helper_data: HelperData = None,
 ):
     """
-    The interface fluxes of every spatial axis, by the divergence control:
+    The interface fluxes of the given spatial axes, by the divergence control:
     ``_interface_fluxes`` per axis for hydrodynamics and GLM-MHD, the fluxes
-    with the face field as normal field for constrained transport.
+    with the face field as normal field for constrained transport (always all
+    axes: the field update needs them).
 
     Args:
         primitive_state: The primitive state.
+        axes: The spatial axes (1-based) the stage acts on.
         reconstruction: ``DONOR_CELL`` or ``PIECEWISE_LINEAR`` (with ``config.solver_config.limiter``).
         riemann_solver: The Riemann solver.
         gamma: The adiabatic index.
         cleaning_speed: The GLM cleaning speed (GLM-MHD only).
         config: The simulation configuration.
         registered_variables: The registered variables.
+        predictor_half_step: Half the time step of the sweep (the split
+            scheme), or ``None`` for face states at the time level of the state.
+        helper_data: The helper data (the split scheme only).
 
     Returns:
         The interface fluxes (at ``i - 1/2``) per axis.
@@ -366,19 +459,25 @@ def _fluxes_per_axis(
             gamma,
             registered_variables,
         )
-    return [
-        _interface_fluxes(
-            primitive_state,
-            axis,
-            reconstruction,
-            riemann_solver,
-            gamma,
-            cleaning_speed,
-            config,
-            registered_variables,
+    fluxes_per_axis = []
+    for axis in axes:
+        hancock = None
+        if predictor_half_step is not None:
+            hancock = _hancock_terms(axis, predictor_half_step, gamma, config, helper_data, registered_variables)
+        fluxes_per_axis.append(
+            _interface_fluxes(
+                primitive_state,
+                axis,
+                reconstruction,
+                riemann_solver,
+                gamma,
+                cleaning_speed,
+                config,
+                registered_variables,
+                hancock,
+            )
         )
-        for axis in range(1, config.dimensionality + 1)
-    ]
+    return fluxes_per_axis
 
 
 # -------------------------------------------------------------
@@ -400,6 +499,9 @@ def _flux_update(
     config: SimulationConfig,
     registered_variables: RegisteredVariables,
     correction_mask=None,
+    axes=None,
+    predictor_half_step=None,
+    helper_data: HelperData = None,
 ):
     """
     The first half of a stage: the interface fluxes, the first-order flux
@@ -418,25 +520,41 @@ def _flux_update(
             (with ``first_order_flux_correction``), or a float ``(1, *grid)``
             array that is larger than 0.5 in the cells whose faces take
             first-order LLF fluxes (the attempts then run outside the stage).
+        axes: The spatial axes (1-based) the stage acts on (``None``: all).
+        predictor_half_step: Half the time step of the sweep for the Hancock
+            predictor of the split scheme (``None``: no predictor).
+        helper_data: The helper data (the split scheme only: the radii of the
+            spherical 1D grid).
 
     Returns:
         The updated conserved state and the interface fluxes (at ``i - 1/2``)
         per axis.
     """
+    if axes is None:
+        # A constrained-transport state has three axes in 2D as well (the third one cell wide); its fluxes and
+        # its field update cover all of them.
+        is_constrained_transport = config.solver_config.divergence_control == CONSTRAINED_TRANSPORT
+        num_axes = stage_primitive_state.ndim - 1 if is_constrained_transport else config.dimensionality
+        axes = tuple(range(1, num_axes + 1))
+
     fluxes_per_axis = _fluxes_per_axis(
         stage_primitive_state,
+        axes,
         reconstruction,
         config.solver_config.riemann_solver,
         gamma,
         cleaning_speed,
         config,
         registered_variables,
+        predictor_half_step,
+        helper_data,
     )
 
     has_mask = correction_mask is not None
     if has_mask or config.solver_config.first_order_flux_correction:
         first_order_fluxes = _fluxes_per_axis(
             stage_primitive_state,
+            axes,
             DONOR_CELL,
             LAX_FRIEDRICHS,
             gamma,
@@ -449,6 +567,7 @@ def _flux_update(
                 fluxes_per_axis,
                 first_order_fluxes,
                 correction_mask[0] > 0.5,
+                axes,
             )
         else:
             fluxes_per_axis = _first_order_flux_correction(
@@ -457,14 +576,23 @@ def _flux_update(
                 _interior_mask(stage_primitive_state, config),
                 base_conserved_state,
                 stage_time_step,
+                axes,
                 config,
                 registered_variables,
             )
 
-    conserved_state = base_conserved_state - stage_time_step * _flux_divergence(
-        fluxes_per_axis,
-        config,
-    )
+    if config.geometry == CARTESIAN:
+        flux_divergence = _flux_divergence(fluxes_per_axis, axes, config)
+    else:
+        # Spherical 1D (the split scheme): one radial sweep.
+        flux_divergence = _spherical_flux_divergence(
+            fluxes_per_axis[0],
+            stage_primitive_state,
+            config,
+            helper_data,
+            registered_variables,
+        )
+    conserved_state = base_conserved_state - stage_time_step * flux_divergence
     return conserved_state, fluxes_per_axis
 
 
@@ -579,6 +707,9 @@ def fv_stage(
     registered_variables: RegisteredVariables,
     stage_potential=None,
     initial_potential=None,
+    axes=None,
+    predictor_half_step=None,
+    helper_data: HelperData = None,
 ):
     """
     One stage (native JAX): ``U = U_base - beta dt L(W_stage)``, the gravity
@@ -600,6 +731,10 @@ def fv_stage(
             with Athena++'s gravity source only).
         initial_potential: The potential at the start of the step, ``t^n``
             (gravity with the time-centred energy source only).
+        axes: The spatial axes (1-based) the stage acts on (``None``: all).
+        predictor_half_step: Half the time step of the sweep for the Hancock
+            predictor of the split scheme (``None``: no predictor).
+        helper_data: The helper data (the split scheme only).
 
     Returns:
         The primitive state after the stage, and the potential of the stage's
@@ -615,6 +750,9 @@ def fv_stage(
         gamma,
         config,
         registered_variables,
+        axes=axes,
+        predictor_half_step=predictor_half_step,
+        helper_data=helper_data,
     )
     return _sources_and_conversion(
         conserved_state,

@@ -28,14 +28,12 @@ from astronomix.option_classes.simulation_config import SimulationConfig
 from astronomix.data_classes.simulation_helper_data import HelperData
 from astronomix.variable_registry.registered_variables import RegisteredVariables
 
-# astronomix functions
-from astronomix._finite_volume._state_evolution.limited_gradients import _calculate_limited_gradients
-
 
 # @jaxtyped(typechecker=typechecker)
 @partial(jax.jit, static_argnames=["config", "registered_variables"])
 def _pressure_nozzling_source(
     primitive_state: STATE_TYPE,
+    pressure_gradient,
     config: SimulationConfig,
     helper_data: HelperData,
     registered_variables: RegisteredVariables,
@@ -44,6 +42,8 @@ def _pressure_nozzling_source(
 
     Args:
         primitive_state: The primitive state array.
+        pressure_gradient: The limited radial pressure gradient of the cells
+            (the scheme's own, so that the source matches its reconstruction).
         config: The simulation configuration.
         helper_data: The helper data.
         registered_variables: The registered variables.
@@ -55,10 +55,7 @@ def _pressure_nozzling_source(
     # get the pressure
     p = primitive_state[registered_variables.pressure_index]
 
-    # calculate the limited pressure gradients
-    dp_dr = _calculate_limited_gradients(primitive_state, config, helper_data, axis=1)[
-        registered_variables.pressure_index
-    ]
+    dp_dr = pressure_gradient
 
     # calculate the pressure nozzling term, following
     # eq. 14 in Crittendend and Balachandar, 2018

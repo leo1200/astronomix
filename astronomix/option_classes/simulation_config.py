@@ -67,10 +67,11 @@ BACKWARDS = 1
 
 # Time integrators of the finite-volume solver
 # (``FVSolverConfig.time_integrator``).
-#: Unsplit classic scheme: two forward-Euler stages (SSP-RK2, Heun).
+#: Unsplit scheme: two forward-Euler stages (SSP-RK2, Heun).
 RK2_SSP = 0
-#: Dimensionally split classic scheme: sweeps along the axes with the Hancock
-#: half-step predictor on the face states.
+#: Dimensionally split scheme: a Strang sequence of sweeps along the axes,
+#: each with the Hancock half-step predictor on the face states. The scheme of
+#: the spherical 1D grid and of the wind density tracer.
 MUSCL_HANCOCK = 1
 #: The second-order van Leer predictor-corrector of AthenaPK / Athena++
 #: (Stone & Gardiner 2009): a donor-cell half step followed by a full step
@@ -107,8 +108,7 @@ MINMOD = 0
 #: linear reconstruction. This is the slope of the VL2 scheme:
 #: ``finalize_config`` sets ``limiter = VAN_LEER`` for VL2 (its choice between
 #: piecewise-linear and donor-cell reconstruction is ``reconstruction``).
-#: ``RK2_SSP`` offers it as well; the split scheme (``MUSCL_HANCOCK``) does
-#: not implement it.
+#: ``RK2_SSP`` and the split scheme (``MUSCL_HANCOCK``) offer it as well.
 VAN_LEER = 1
 SUPERBEE = 2
 DOUBLE_MINMOD = 3
@@ -505,8 +505,8 @@ class FVSolverConfig(NamedTuple):
     reconstruction: int = PIECEWISE_LINEAR
 
     #: The limiter of the piecewise-linear reconstruction (``MINMOD``,
-    #: ``SUPERBEE``, ``DOUBLE_MINMOD``, or ``VAN_LEER`` with ``RK2_SSP``). The
-    #: VL2 scheme always uses ``VAN_LEER`` (see there).
+    #: ``SUPERBEE``, ``DOUBLE_MINMOD`` or ``VAN_LEER``). The VL2 scheme always
+    #: uses ``VAN_LEER`` (see there).
     limiter: int = MINMOD
 
     #: The Riemann solver used: ``HLL``, ``HLLC`` or ``LAX_FRIEDRICHS``;
@@ -532,11 +532,12 @@ class FVSolverConfig(NamedTuple):
     #: only (AthenaPK's default ``dedner_plain``).
     glm_extended_source: bool = False
 
-    #: ``VL2`` and ``RK2_SSP``: AthenaPK's first-order flux correction. After each
-    #: stage, every cell whose update would produce a non-positive density or
-    #: pressure has all its face fluxes replaced by first-order local
-    #: Lax-Friedrichs fluxes (repeated up to four times, exactly as
-    #: AthenaPK's ``first_order_flux_correct``).
+    #: AthenaPK's first-order flux correction. After each stage (each sweep
+    #: of the split scheme), every cell whose update would produce a
+    #: non-positive density or pressure has all its face fluxes replaced by
+    #: first-order local Lax-Friedrichs fluxes (repeated up to four times,
+    #: exactly as AthenaPK's ``first_order_flux_correct``). Cartesian
+    #: geometry only.
     first_order_flux_correction: bool = False
 
 
@@ -1219,14 +1220,26 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
 
     uses_vl2 = finite_volume and config.solver_config.time_integrator == VL2
 
+    # The trial updates of the first-order flux correction use the Cartesian
+    # flux divergence.
+    if (
+        finite_volume
+        and config.geometry != CARTESIAN
+        and config.solver_config.first_order_flux_correction
+    ):
+        raise ValueError(
+            "The first-order flux correction (first_order_flux_correction) is "
+            "implemented for Cartesian geometry only."
+        )
+
     if finite_volume and config.mhd and not uses_vl2:
         raise ValueError(
             "Finite-volume MHD is available with the VL2 scheme only "
             "(time_integrator=VL2)."
         )
 
-    # The unsplit RK2_SSP scheme runs on the finite-volume stage, which
-    # evolves the fluid variables only.
+    # The stage kernel of the unsplit RK2_SSP scheme evolves the fluid
+    # variables only.
     if (
         finite_volume
         and config.solver_config.time_integrator == RK2_SSP
@@ -1248,7 +1261,7 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
 
     # Athena++'s gravity coupling needs the per-stage Riemann mass fluxes of
     # the VL2 scheme; the other couplings are those of the finite-difference
-    # solver (the classic finite-volume schemes ignore the choice).
+    # solver (``RK2_SSP`` and ``MUSCL_HANCOCK`` ignore the choice).
     if (
         config.gravity_config.gravity
         and config.gravity_config.self_gravity_version == ATHENA_SECOND_ORDER
@@ -1381,8 +1394,7 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
                 "for an isolated potential)."
             )
 
-    # HLLD is implemented only inside the VL2 scheme; the classic
-    # finite-volume Riemann-solver dispatch does not know it.
+    # HLLD is an MHD solver, and finite-volume MHD runs under VL2 only.
     elif finite_volume and config.solver_config.riemann_solver == HLLD:
         raise ValueError(
             "The HLLD Riemann solver is only available with the VL2 time "

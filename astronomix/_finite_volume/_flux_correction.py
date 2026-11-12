@@ -10,7 +10,9 @@ changes the neighbour's update, so check and correction are repeated
 (``_first_order_flux_correction``). The fused Pallas kernel
 (``_stage_pallas.py``) uses the same failure code and the same rule for the
 flagged cells. The flux divergence (``_flux_divergence``) is defined here: the
-trial updates of the correction and the update of the stage both use it.
+trial updates of the correction and the update of the stage both use it. Next
+to it stands the divergence of the spherical 1D grid with the pressure source
+of the geometry (``_spherical_flux_divergence``).
 """
 
 # jax
@@ -23,11 +25,17 @@ from astronomix.option_classes.simulation_config import (
 )
 
 # astronomix containers
+from astronomix.data_classes.simulation_helper_data import HelperData
 from astronomix.option_classes.simulation_config import SimulationConfig
 from astronomix.variable_registry.registered_variables import RegisteredVariables
 
 # astronomix functions
 from astronomix._finite_volume._interface_frame import _velocity_component_indices
+from astronomix._finite_volume._reconstruction import (
+    _cell_distances,
+    _limited_gradients,
+)
+from astronomix._geometry.geometric_terms import _pressure_nozzling_source
 
 
 # -------------------------------------------------------------
@@ -138,7 +146,7 @@ def _newly_flagged_cells(failure_codes, attempt: int):
     return failure_codes == DENSITY_FAILURE
 
 
-def _corrected_fluxes(high_order_fluxes, first_order_fluxes, correction_mask):
+def _corrected_fluxes(high_order_fluxes, first_order_fluxes, correction_mask, axes):
     """
     Replace the fluxes of every face bordering a cell of ``correction_mask`` by
     the first-order ones (the interface ``i - 1/2`` borders cells ``i - 1`` and
@@ -148,36 +156,91 @@ def _corrected_fluxes(high_order_fluxes, first_order_fluxes, correction_mask):
         high_order_fluxes: The stage's interface fluxes per axis.
         first_order_fluxes: The donor-cell LLF interface fluxes per axis.
         correction_mask: Boolean mask of the flagged cells (no variable axis).
+        axes: The spatial axes (1-based) of the fluxes.
 
     Returns:
         The corrected interface fluxes per axis.
     """
     corrected_fluxes = []
-    # The mask has no variable axis, so spatial axis d (1-based in the state)
-    # is array axis d - 1 here.
-    for mask_axis, (high_order, first_order) in enumerate(
-        zip(high_order_fluxes, first_order_fluxes)
-    ):
-        face_mask = correction_mask | jnp.roll(correction_mask, 1, axis=mask_axis)
+    for axis, high_order, first_order in zip(axes, high_order_fluxes, first_order_fluxes):
+        # The mask has no variable axis, so spatial axis d (1-based in the
+        # state) is array axis d - 1 here.
+        face_mask = correction_mask | jnp.roll(correction_mask, 1, axis=axis - 1)
         corrected_fluxes.append(jnp.where(face_mask[None], first_order, high_order))
     return corrected_fluxes
 
 
-def _flux_divergence(fluxes_per_axis, config: SimulationConfig):
+def _flux_divergence(fluxes_per_axis, axes, config: SimulationConfig):
     """
-    The flux divergence ``(1/dx) Σ_d (F_{i+1/2} - F_{i-1/2})``.
+    The flux divergence ``(1/dx) Σ_d (F_{i+1/2} - F_{i-1/2})`` over the given
+    axes.
 
     Args:
-        fluxes_per_axis: The interface fluxes (at ``i - 1/2``) of every axis.
+        fluxes_per_axis: The interface fluxes (at ``i - 1/2``) per axis.
+        axes: The spatial axes (1-based) of the fluxes.
         config: The simulation configuration.
 
     Returns:
         The flux divergence, laid out like the state.
     """
     flux_difference = 0.0
-    for axis, fluxes in enumerate(fluxes_per_axis, start=1):
+    for axis, fluxes in zip(axes, fluxes_per_axis):
         flux_difference = flux_difference + (jnp.roll(fluxes, -1, axis=axis) - fluxes)
     return flux_difference / config.grid_spacing
+
+
+def _spherical_flux_divergence(
+    fluxes: STATE_TYPE,
+    primitive_state: STATE_TYPE,
+    config: SimulationConfig,
+    helper_data: HelperData,
+    registered_variables: RegisteredVariables,
+):
+    """
+    The flux divergence of the spherical 1D grid with the pressure source of
+    the geometry,
+
+        (1 / r_hat^2) ((r_{i+1/2}^2 F_{i+1/2} - r_{i-1/2}^2 F_{i-1/2}) / dr - S_i),
+
+    where ``r_hat^2`` is the cell average of ``r^2``. The area factors act on
+    the whole momentum flux, pressure included; the source ``S`` gives back
+    the part of the pressure that does not push on the gas
+    (``_pressure_nozzling_source``), so a uniform gas at rest stays at rest.
+
+    Args:
+        fluxes: The radial interface fluxes (at ``i - 1/2``).
+        primitive_state: The primitive state the fluxes were computed from.
+        config: The simulation configuration.
+        helper_data: The helper data (radii of the grid).
+        registered_variables: The registered variables.
+
+    Returns:
+        The flux divergence minus the source, laid out like the state.
+    """
+    # The geometry constant is the exponent of the face area (SPHERICAL = 2: the area grows as r^2).
+    area_exponent = config.geometry
+    radius = helper_data.geometric_centers
+    inner_area = (radius - config.grid_spacing / 2) ** area_exponent
+    outer_area = (radius + config.grid_spacing / 2) ** area_exponent
+
+    pressure = primitive_state[registered_variables.pressure_index]
+    pressure_gradient = _limited_gradients(
+        jnp.roll(pressure, 1),
+        pressure,
+        jnp.roll(pressure, -1),
+        config.solver_config.limiter,
+        _cell_distances(config, helper_data),
+    )
+    pressure_source = _pressure_nozzling_source(
+        primitive_state,
+        pressure_gradient,
+        config,
+        helper_data,
+        registered_variables,
+    )
+
+    weighted_difference = (outer_area * jnp.roll(fluxes, -1, axis=1) - inner_area * fluxes) / config.grid_spacing
+    return 1 / helper_data.r_hat_alpha * (weighted_difference - pressure_source)
 
 
 def _first_order_flux_correction(
@@ -186,6 +249,7 @@ def _first_order_flux_correction(
     correctable_cells,
     base_conserved_state: STATE_TYPE,
     stage_time_step,
+    axes,
     config: SimulationConfig,
     registered_variables: RegisteredVariables,
 ):
@@ -207,6 +271,7 @@ def _first_order_flux_correction(
         base_conserved_state: The register the stage update starts from
             (``U^n`` in both VL2 stages, the stage state itself under ``RK2_SSP``).
         stage_time_step: The stage's time-step weight ``beta * dt``.
+        axes: The spatial axes (1-based) of the fluxes.
         config: The simulation configuration.
         registered_variables: The registered variables.
 
@@ -215,12 +280,12 @@ def _first_order_flux_correction(
     """
     correction_mask = jnp.zeros_like(correctable_cells)
     for attempt in range(NUM_FLUX_CORRECTION_ATTEMPTS):
-        fluxes = _corrected_fluxes(fluxes_per_axis, first_order_fluxes, correction_mask)
-        new_state = base_conserved_state - stage_time_step * _flux_divergence(fluxes, config)
+        fluxes = _corrected_fluxes(fluxes_per_axis, first_order_fluxes, correction_mask, axes)
+        new_state = base_conserved_state - stage_time_step * _flux_divergence(fluxes, axes, config)
         failure_codes = _positivity_failure_code(list(new_state), config, registered_variables)
         correction_mask = correction_mask | (_newly_flagged_cells(failure_codes, attempt) & correctable_cells)
 
-    return _corrected_fluxes(fluxes_per_axis, first_order_fluxes, correction_mask)
+    return _corrected_fluxes(fluxes_per_axis, first_order_fluxes, correction_mask, axes)
 
 
 # -------------------------------------------------------------

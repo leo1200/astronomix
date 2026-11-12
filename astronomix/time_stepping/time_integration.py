@@ -60,7 +60,7 @@ from astronomix.option_classes.simulation_params import SimulationParams
 from astronomix.data_classes.simulation_snapshot_data import SnapshotData
 
 # astronomix functions
-from astronomix._finite_volume._state_evolution.evolve_state import _evolve_state_fv
+from astronomix._finite_volume._evolve_state import _evolve_state_fv
 from astronomix._finite_difference._state_evolution._evolve_state import _evolve_state_fd
 from astronomix._finite_volume._timestep_estimation._timestep_estimator import (
     _cfl_time_step,
