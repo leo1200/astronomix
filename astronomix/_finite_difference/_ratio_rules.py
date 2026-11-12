@@ -31,12 +31,20 @@ def _floored_ratio_rule(primals, tangents):
     """
     With y = max(d, DIVISION_FLOOR): d(x / y) = dx (1 / y) - (x / y) (1 / y) dd
     above the floor and dx (1 / y) at it.
+
+    At and below the floor the product (x / y) (1 / y) is x times 1e60, which is
+    infinite in float32. The selection discards it, but a compiled reverse pass
+    on the CPU was not finite with it, so the discarded product is formed from
+    a denominator of one; above the floor the slope is the same product.
     """
     x, d = primals
     x_dot, d_dot = tangents
     ratio = _floored_ratio(x, d)
     inverse = _floored_ratio(jnp.ones_like(d), d)
-    slope = jnp.where(d > DIVISION_FLOOR, ratio * inverse, 0.0)
+    above = d > DIVISION_FLOOR
+    # 1.0 bounds nothing: it only keeps the discarded product finite
+    d_safe = jnp.where(above, d, 1.0)
+    slope = jnp.where(above, _floored_ratio(x, d_safe) * _floored_ratio(jnp.ones_like(d), d_safe), 0.0)
     return ratio, x_dot * inverse - slope * d_dot
 
 

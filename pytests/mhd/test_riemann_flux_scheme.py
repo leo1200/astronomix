@@ -9,7 +9,8 @@ give the same result with open boundaries, that the derivative of the magnetic h
 stage (constrained transport, its energy flux, rebuild of the cell-centred field) agrees with
 a central difference and that its JVP and VJP satisfy the dot-product identity, that the
 second derivative through the two quotients with their own derivative rule is finite in
-float32, and that ``finalize_config`` rejects what the scheme does not serve.
+float32, that the rule of the floored quotient forms no infinite value at the floor, and that
+``finalize_config`` rejects what the scheme does not serve.
 
 Most of the time of a test is the compilation of the step on the CPU (about a minute per
 configuration and array shape). The two tests that compare two runs therefore share the
@@ -496,6 +497,23 @@ def test_second_derivative_of_the_ratio_rules_is_finite_in_float32(numerator, de
     if denominator == 1.0:
         # d2(x / y) (1, 1) = (-1 / y^2, -1 / y^2 + 2 x / y^3)
         np.testing.assert_allclose(np.array(hessian_vector), [-1.0, -1.0 + 2.0 * numerator], rtol=1e-6)
+
+
+@pytest.mark.parametrize("denominator", [0.0, 1e-35, DIVISION_FLOOR])
+def test_floored_ratio_rule_forms_no_infinite_value_in_float32(denominator):
+    """
+    At and below the floor the derivative rule of ``_floored_ratio`` forms no infinite value in float32,
+    not even one that a selection discards (``jax.debug_infs`` checks every operation of the eager
+    evaluation). With the discarded product x times 1e60 the compiled reverse pass of the interface flux
+    was not finite on the CPU in float32; that pass compiles for minutes and is not a test here.
+    """
+    point = (jnp.float32(0.5), jnp.float32(denominator))
+    with jax.debug_infs(True):
+        value, tangent = jax.jvp(_floored_ratio, point, (jnp.float32(1.0), jnp.float32(1.0)))
+        cotangent = jax.vjp(_floored_ratio, *point)[1](jnp.float32(1.0))
+    assert all(bool(jnp.isfinite(part)) for part in (value, tangent, *cotangent))
+    # the slope with respect to the denominator is zero there; the one of the numerator is 1 / floor
+    np.testing.assert_allclose(np.array(cotangent), [1.0 / DIVISION_FLOOR, 0.0], rtol=1e-6)
 
 
 # ======================= validity rules =======================
