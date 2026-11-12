@@ -39,18 +39,6 @@ from astronomix._fluid_equations._equations import conserved_state_from_primitiv
 from astronomix._fluid_equations._fluxes import _euler_flux
 
 
-def _fv_pallas_supported(state, config: SimulationConfig) -> bool:
-    """Back-compat shim.  The real FV-Pallas predicate now lives in
-    ``astronomix._finite_volume._state_evolution._pallas_evolve`` as
-    ``_fv_pallas_evolve_supported``; this function just re-exports it so
-    older external callers still resolve.
-    """
-    from astronomix._finite_volume._state_evolution._pallas_evolve import (
-        _fv_pallas_evolve_supported,
-    )
-    return _fv_pallas_evolve_supported(state, config)
-
-
 # @jaxtyped(typechecker=typechecker)
 @partial(
     jax.jit, static_argnames=["config", "registered_variables", "flux_direction_index"]

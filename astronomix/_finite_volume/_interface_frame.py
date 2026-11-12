@@ -179,7 +179,7 @@ def _interface_flux_from_states(
         return hlle_hydro_flux(left, right, gamma)
     if riemann_solver == LAX_FRIEDRICHS:
         return llf_hydro_flux(left, right, gamma)
-    raise ValueError("Unsupported Riemann solver for VL2 hydrodynamics.")
+    raise ValueError("Unsupported Riemann solver for finite-volume hydrodynamics.")
 
 
 # -------------------------------------------------------------

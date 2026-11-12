@@ -205,7 +205,7 @@ def _first_order_flux_correction(
         correctable_cells: Boolean mask of the cells that may be flagged (the
             interior cells; no variable axis).
         base_conserved_state: The register the stage update starts from
-            (``U^n`` in both VL2 stages).
+            (``U^n`` in both VL2 stages, the stage state itself under ``RK2_SSP``).
         stage_time_step: The stage's time-step weight ``beta * dt``.
         config: The simulation configuration.
         registered_variables: The registered variables.

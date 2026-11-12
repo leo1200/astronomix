@@ -15,6 +15,8 @@ the GLM cleaning (``_divergence/_glm.py``) or the field update of the
 constrained transport (``_divergence/_constrained_transport.py``). The
 divergence control enters at two points, the interface fluxes
 (``_fluxes_per_axis``) and the update of the field after the flux divergence.
+The stage has two halves: ``_flux_update`` (fluxes, correction, update) and
+``_sources_and_conversion`` (sources, divergence control, conversion).
 ``fv_stage`` is the stage on the native backend;
 ``_native_stage_from_primitive_base`` is the native form of the fused Pallas
 kernel (``_stage_pallas.py``). The time integrators (``_integrators.py``) are
@@ -44,6 +46,7 @@ import jax.numpy as jnp
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
     CONSTRAINED_TRANSPORT,
+    DONOR_CELL,
     GHOST_CELLS,
     LAX_FRIEDRICHS,
     POSITIVITY_HARD_FLOOR,
@@ -90,12 +93,12 @@ from astronomix._geometry.boundaries import _boundary_handler
 
 def _uses_floors(config: SimulationConfig) -> bool:
     """
-    Return whether the density / pressure floors of the VL2 scheme are active.
+    Return whether the density / pressure floors of the stage are active.
 
     The floors (off by default, as in AthenaPK) are switched on by the per-step
     hard floor, ``positivity_config.per_step_mode == POSITIVITY_HARD_FLOOR``;
-    like AthenaPK, the VL2 scheme then also applies them in every stage's
-    conversion to primitives.
+    like AthenaPK, the stage then also applies them in its conversion to
+    primitives.
     """
     return config.positivity_config.per_step_mode == POSITIVITY_HARD_FLOOR
 
@@ -199,7 +202,7 @@ def _primitive_components_from_conserved(
 
 
 @partial(jax.jit, static_argnames=["config", "registered_variables"])
-def _conserved_from_primitive_vl2(
+def _conserved_from_primitive(
     primitive_state: STATE_TYPE,
     gamma: Union[float, Float[Array, ""]],
     config: SimulationConfig,
@@ -227,7 +230,7 @@ def _conserved_from_primitive_vl2(
 
 
 @partial(jax.jit, static_argnames=["config", "registered_variables"])
-def _primitive_from_conserved_vl2(
+def _primitive_from_conserved(
     conserved_state: STATE_TYPE,
     gamma: Union[float, Float[Array, ""]],
     config: SimulationConfig,
@@ -273,7 +276,7 @@ def _primitive_from_conserved_vl2(
 def _interface_fluxes(
     primitive_state: STATE_TYPE,
     axis: int,
-    piecewise_linear: bool,
+    reconstruction: int,
     riemann_solver: int,
     gamma,
     cleaning_speed,
@@ -287,7 +290,7 @@ def _interface_fluxes(
     Args:
         primitive_state: The primitive state.
         axis: The spatial axis (1-based).
-        piecewise_linear: Use PLM (else donor-cell) reconstruction.
+        reconstruction: ``DONOR_CELL`` or ``PIECEWISE_LINEAR`` (with ``config.solver_config.limiter``).
         riemann_solver: The Riemann solver.
         gamma: The adiabatic index.
         cleaning_speed: The GLM cleaning speed (MHD only).
@@ -297,7 +300,12 @@ def _interface_fluxes(
     Returns:
         The flux array, laid out like the state.
     """
-    left_states, right_states = _reconstructed_face_states(primitive_state, axis, piecewise_linear)
+    left_states, right_states = _reconstructed_face_states(
+        primitive_state,
+        axis,
+        reconstruction,
+        config.solver_config.limiter,
+    )
     frame_indices = _interface_frame_indices(axis, config, registered_variables)
 
     # Velocity components the layout lacks enter the solver as zeros.
@@ -325,7 +333,7 @@ def _interface_fluxes(
 
 def _fluxes_per_axis(
     primitive_state: STATE_TYPE,
-    piecewise_linear: bool,
+    reconstruction: int,
     riemann_solver: int,
     gamma,
     cleaning_speed,
@@ -339,7 +347,7 @@ def _fluxes_per_axis(
 
     Args:
         primitive_state: The primitive state.
-        piecewise_linear: Use PLM (else donor-cell) reconstruction.
+        reconstruction: ``DONOR_CELL`` or ``PIECEWISE_LINEAR`` (with ``config.solver_config.limiter``).
         riemann_solver: The Riemann solver.
         gamma: The adiabatic index.
         cleaning_speed: The GLM cleaning speed (GLM-MHD only).
@@ -350,12 +358,19 @@ def _fluxes_per_axis(
         The interface fluxes (at ``i - 1/2``) per axis.
     """
     if config.solver_config.divergence_control == CONSTRAINED_TRANSPORT:
-        return _ct_fluxes_per_axis(primitive_state, piecewise_linear, riemann_solver, gamma, registered_variables)
+        return _ct_fluxes_per_axis(
+            primitive_state,
+            reconstruction,
+            config.solver_config.limiter,
+            riemann_solver,
+            gamma,
+            registered_variables,
+        )
     return [
         _interface_fluxes(
             primitive_state,
             axis,
-            piecewise_linear,
+            reconstruction,
             riemann_solver,
             gamma,
             cleaning_speed,
@@ -375,12 +390,90 @@ def _fluxes_per_axis(
 # -------------------------------------------------------------
 
 
-def fv_stage(
+def _flux_update(
     stage_primitive_state: STATE_TYPE,
     base_conserved_state: STATE_TYPE,
     stage_time_step,
-    piecewise_linear: bool,
+    reconstruction: int,
     cleaning_speed,
+    gamma,
+    config: SimulationConfig,
+    registered_variables: RegisteredVariables,
+    correction_mask=None,
+):
+    """
+    The first half of a stage: the interface fluxes, the first-order flux
+    correction and the update ``U = U_base - beta dt L(W_stage)``.
+
+    Args:
+        stage_primitive_state: The primitive state the fluxes are computed from.
+        base_conserved_state: The conserved register the update starts from.
+        stage_time_step: The stage's time-step weight ``beta * dt``.
+        reconstruction: The reconstruction of the stage (``DONOR_CELL`` or ``PIECEWISE_LINEAR``).
+        cleaning_speed: The GLM cleaning speed (GLM-MHD only).
+        gamma: The adiabatic index.
+        config: The simulation configuration.
+        registered_variables: The registered variables.
+        correction_mask: ``None`` for the stage's own correction attempts
+            (with ``first_order_flux_correction``), or a float ``(1, *grid)``
+            array that is larger than 0.5 in the cells whose faces take
+            first-order LLF fluxes (the attempts then run outside the stage).
+
+    Returns:
+        The updated conserved state and the interface fluxes (at ``i - 1/2``)
+        per axis.
+    """
+    fluxes_per_axis = _fluxes_per_axis(
+        stage_primitive_state,
+        reconstruction,
+        config.solver_config.riemann_solver,
+        gamma,
+        cleaning_speed,
+        config,
+        registered_variables,
+    )
+
+    has_mask = correction_mask is not None
+    if has_mask or config.solver_config.first_order_flux_correction:
+        first_order_fluxes = _fluxes_per_axis(
+            stage_primitive_state,
+            DONOR_CELL,
+            LAX_FRIEDRICHS,
+            gamma,
+            cleaning_speed,
+            config,
+            registered_variables,
+        )
+        if has_mask:
+            fluxes_per_axis = _corrected_fluxes(
+                fluxes_per_axis,
+                first_order_fluxes,
+                correction_mask[0] > 0.5,
+            )
+        else:
+            fluxes_per_axis = _first_order_flux_correction(
+                fluxes_per_axis,
+                first_order_fluxes,
+                _interior_mask(stage_primitive_state, config),
+                base_conserved_state,
+                stage_time_step,
+                config,
+                registered_variables,
+            )
+
+    conserved_state = base_conserved_state - stage_time_step * _flux_divergence(
+        fluxes_per_axis,
+        config,
+    )
+    return conserved_state, fluxes_per_axis
+
+
+def _sources_and_conversion(
+    conserved_state: STATE_TYPE,
+    fluxes_per_axis,
+    stage_primitive_state: STATE_TYPE,
+    base_conserved_state: STATE_TYPE,
+    stage_time_step,
     damping_factor,
     gamma,
     config: SimulationConfig,
@@ -390,25 +483,25 @@ def fv_stage(
     initial_potential=None,
 ):
     """
-    One VL2 stage (native JAX): ``U = U_base - beta dt L(W_stage)``, the
-    gravity source, the divergence control (the Dedner source of the GLM
-    cleaning, or the constrained-transport update of the face field with its
-    cell-centred field) and the conversion back to primitives. Ghost cells
-    are not updated here.
+    The second half of a stage: Athena++'s gravity source (when the integrator
+    passes the potential of the stage's initial state), the divergence control
+    (the Dedner source of the GLM cleaning, or the constrained-transport
+    update of the face field with its cell-centred field) and the conversion
+    back to primitives.
 
     Args:
-        stage_primitive_state: The primitive state the fluxes are computed from.
-        base_conserved_state: The conserved register the update starts from.
+        conserved_state: The conserved state after the flux update.
+        fluxes_per_axis: The interface fluxes of the flux update.
+        stage_primitive_state: The primitive state the fluxes were computed from.
+        base_conserved_state: The conserved register the update started from.
         stage_time_step: The stage's time-step weight ``beta * dt``.
-        piecewise_linear: PLM (corrector) or donor-cell (predictor) fluxes.
-        cleaning_speed: The GLM cleaning speed (GLM-MHD only).
         damping_factor: The stage's psi damping factor (GLM-MHD only).
         gamma: The adiabatic index.
         config: The simulation configuration.
         params: The simulation parameters.
         registered_variables: The registered variables.
-        stage_potential: The potential of the stage's initial state (gravity
-            only).
+        stage_potential: The potential of the stage's initial state, or
+            ``None`` for a stage without the gravity source.
         initial_potential: The potential at the start of the step, ``t^n``
             (gravity with the time-centred energy source only).
 
@@ -417,43 +510,8 @@ def fv_stage(
         new density if the time-centred energy source computed it (otherwise
         ``None``).
     """
-    fluxes_per_axis = _fluxes_per_axis(
-        stage_primitive_state,
-        piecewise_linear,
-        config.solver_config.riemann_solver,
-        gamma,
-        cleaning_speed,
-        config,
-        registered_variables,
-    )
-
-    if config.solver_config.first_order_flux_correction:
-        first_order_fluxes = _fluxes_per_axis(
-            stage_primitive_state,
-            False,
-            LAX_FRIEDRICHS,
-            gamma,
-            cleaning_speed,
-            config,
-            registered_variables,
-        )
-        fluxes_per_axis = _first_order_flux_correction(
-            fluxes_per_axis,
-            first_order_fluxes,
-            _interior_mask(stage_primitive_state, config),
-            base_conserved_state,
-            stage_time_step,
-            config,
-            registered_variables,
-        )
-
-    conserved_state = base_conserved_state - stage_time_step * _flux_divergence(
-        fluxes_per_axis,
-        config,
-    )
-
     end_potential = None
-    if config.gravity_config.gravity:
+    if stage_potential is not None:
         density_index = registered_variables.density_index
         work_potential = stage_potential
         if config.gravity_config.time_centred_energy_source:
@@ -498,7 +556,7 @@ def fv_stage(
             registered_variables,
         )
 
-    primitive_state = _primitive_from_conserved_vl2(
+    primitive_state = _primitive_from_conserved(
         conserved_state,
         gamma,
         config,
@@ -508,11 +566,77 @@ def fv_stage(
     return primitive_state, end_potential
 
 
+def fv_stage(
+    stage_primitive_state: STATE_TYPE,
+    base_conserved_state: STATE_TYPE,
+    stage_time_step,
+    reconstruction: int,
+    cleaning_speed,
+    damping_factor,
+    gamma,
+    config: SimulationConfig,
+    params: SimulationParams,
+    registered_variables: RegisteredVariables,
+    stage_potential=None,
+    initial_potential=None,
+):
+    """
+    One stage (native JAX): ``U = U_base - beta dt L(W_stage)``, the gravity
+    source, the divergence control and the conversion back to primitives.
+    Ghost cells are not updated here.
+
+    Args:
+        stage_primitive_state: The primitive state the fluxes are computed from.
+        base_conserved_state: The conserved register the update starts from.
+        stage_time_step: The stage's time-step weight ``beta * dt``.
+        reconstruction: The reconstruction of the stage (``DONOR_CELL`` or ``PIECEWISE_LINEAR``).
+        cleaning_speed: The GLM cleaning speed (GLM-MHD only).
+        damping_factor: The stage's psi damping factor (GLM-MHD only).
+        gamma: The adiabatic index.
+        config: The simulation configuration.
+        params: The simulation parameters.
+        registered_variables: The registered variables.
+        stage_potential: The potential of the stage's initial state (stages
+            with Athena++'s gravity source only).
+        initial_potential: The potential at the start of the step, ``t^n``
+            (gravity with the time-centred energy source only).
+
+    Returns:
+        The primitive state after the stage, and the potential of the stage's
+        new density if the time-centred energy source computed it (otherwise
+        ``None``).
+    """
+    conserved_state, fluxes_per_axis = _flux_update(
+        stage_primitive_state,
+        base_conserved_state,
+        stage_time_step,
+        reconstruction,
+        cleaning_speed,
+        gamma,
+        config,
+        registered_variables,
+    )
+    return _sources_and_conversion(
+        conserved_state,
+        fluxes_per_axis,
+        stage_primitive_state,
+        base_conserved_state,
+        stage_time_step,
+        damping_factor,
+        gamma,
+        config,
+        params,
+        registered_variables,
+        stage_potential,
+        initial_potential,
+    )
+
+
 def _native_stage_from_primitive_base(
     stage_primitive_state: STATE_TYPE,
     base_primitive_state: STATE_TYPE,
     stage_time_step,
-    piecewise_linear: bool,
+    reconstruction: int,
     cleaning_speed,
     damping_factor,
     gamma,
@@ -526,14 +650,14 @@ def _native_stage_from_primitive_base(
     the Pallas stage: the base register is given in primitive form and the
     first-order flux correction, if any, uses the given cell mask (the Pallas
     path runs the correction attempts outside the kernel). Like the kernel it
-    serves hydrodynamics and GLM-MHD, without gravity.
+    serves hydrodynamics and GLM-MHD, without the stage's gravity source.
 
     Args:
         stage_primitive_state: The primitive state the fluxes are computed from.
         base_primitive_state: The primitive state ``W^n`` whose conserved form
             the update starts from.
         stage_time_step: The stage's time-step weight ``beta * dt``.
-        piecewise_linear: PLM (corrector) or donor-cell (predictor) fluxes.
+        reconstruction: The reconstruction of the stage (``DONOR_CELL`` or ``PIECEWISE_LINEAR``).
         cleaning_speed: The GLM cleaning speed (MHD only).
         damping_factor: The stage's psi damping factor (MHD only).
         gamma: The adiabatic index.
@@ -548,40 +672,22 @@ def _native_stage_from_primitive_base(
         The primitive state after the stage, and with a ``correction_mask`` also
         the ``(1, *grid)`` positivity failure codes of the update.
     """
-    base_conserved_state = _conserved_from_primitive_vl2(
+    base_conserved_state = _conserved_from_primitive(
         base_primitive_state,
         gamma,
         config,
         registered_variables,
     )
-    fluxes_per_axis = _fluxes_per_axis(
+    conserved_state, fluxes_per_axis = _flux_update(
         stage_primitive_state,
-        piecewise_linear,
-        config.solver_config.riemann_solver,
-        gamma,
+        base_conserved_state,
+        stage_time_step,
+        reconstruction,
         cleaning_speed,
+        gamma,
         config,
         registered_variables,
-    )
-    if correction_mask is not None:
-        first_order_fluxes = _fluxes_per_axis(
-            stage_primitive_state,
-            False,
-            LAX_FRIEDRICHS,
-            gamma,
-            cleaning_speed,
-            config,
-            registered_variables,
-        )
-        fluxes_per_axis = _corrected_fluxes(
-            fluxes_per_axis,
-            first_order_fluxes,
-            correction_mask[0] > 0.5,
-        )
-
-    conserved_state = base_conserved_state - stage_time_step * _flux_divergence(
-        fluxes_per_axis,
-        config,
+        correction_mask=correction_mask,
     )
     if correction_mask is not None:
         failure_codes = _positivity_failure_code(
@@ -594,17 +700,13 @@ def _native_stage_from_primitive_base(
             failure_codes,
             POSITIVE,
         )
-    if config.mhd:
-        conserved_state = _dedner_source(
-            conserved_state,
-            stage_primitive_state,
-            damping_factor,
-            stage_time_step,
-            config,
-            registered_variables,
-        )
-    primitive_state = _primitive_from_conserved_vl2(
+    primitive_state, _ = _sources_and_conversion(
         conserved_state,
+        fluxes_per_axis,
+        stage_primitive_state,
+        base_conserved_state,
+        stage_time_step,
+        damping_factor,
         gamma,
         config,
         params,

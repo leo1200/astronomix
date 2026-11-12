@@ -1,8 +1,9 @@
 """
-The fused stage kernel: the Pallas backend of the finite-volume stage (the VL2 finite-volume scheme).
+The fused stage kernel: the Pallas backend of the finite-volume stage (``_stage.py``).
 
-Each VL2 stage is a single fused Pallas kernel: for a block of cells it reads
-the stage's primitive stencil, reconstructs (donor cell or AthenaPK's PLM) the
+Each stage is a single fused Pallas kernel: for a block of cells it reads
+the stage's primitive stencil, reconstructs (donor cell, or piecewise linear
+with the configured limiter) the
 two interface states on every face of the cell, evaluates the configured
 Riemann solver on all ``2 * dim`` faces, forms the flux divergence, applies the
 Dedner GLM source, and converts the updated conserved state back to primitives.
@@ -37,10 +38,10 @@ import jax.numpy as jnp
 from astronomix.option_classes.simulation_config import (
     CARTESIAN,
     CONSTRAINED_TRANSPORT,
+    DONOR_CELL,
     GHOST_CELLS,
     LAX_FRIEDRICHS,
     PERIODIC_ROLL,
-    VL2,
 )
 
 # astronomix containers
@@ -60,7 +61,7 @@ from astronomix._finite_volume._interface_frame import (
     _interface_frame_indices,
     _state_components_from_frame,
 )
-from astronomix._finite_volume._reconstruction import _van_leer_slopes
+from astronomix._finite_volume._reconstruction import _limited_slopes
 from astronomix._finite_volume._stage import (
     _conserved_components_from_primitive,
     _native_stage_from_primitive_base,
@@ -103,20 +104,20 @@ def _fv_stage_block_shape(state, config: SimulationConfig):
 
 def _fv_stage_pallas_supported(state, config: SimulationConfig) -> bool:
     """
-    Whether the fused VL2 stage kernel applies to this state and configuration.
+    Whether the fused stage kernel applies to this state and configuration.
 
     Args:
         state: The (padded) primitive state.
         config: The simulation configuration.
 
     Returns:
-        True if the Pallas backend can run the VL2 stages.
+        True if the Pallas backend can run the stages.
     """
     if pl is None:
         return False
     if not _backend_is_pallas(config):
         return False
-    if config.solver_config.time_integrator != VL2 or config.geometry != CARTESIAN:
+    if config.geometry != CARTESIAN:
         return False
     if config.solver_config.divergence_control == CONSTRAINED_TRANSPORT:
         # The kernel has no face field and no edge electromotive forces.
@@ -159,7 +160,7 @@ def _fv_stage_pallas_local(
     density_floor,
     pressure_floor,
     *,
-    piecewise_linear: bool,
+    reconstruction: int,
     report_failures: bool,
     config: SimulationConfig,
     registered_variables: RegisteredVariables,
@@ -183,7 +184,7 @@ def _fv_stage_pallas_local(
         gamma: The adiabatic index.
         density_floor: The density floor (used only with floors active).
         pressure_floor: The pressure floor (used only with floors active).
-        piecewise_linear: PLM (else donor-cell) reconstruction.
+        reconstruction: ``DONOR_CELL`` or ``PIECEWISE_LINEAR``.
         report_failures: Also return the positivity failure code of every
             cell's update (for the first-order flux correction).
         config: The simulation configuration.
@@ -211,7 +212,7 @@ def _fv_stage_pallas_local(
     frame_indices_per_axis = [
         _interface_frame_indices(axis, config, registered_variables) for axis in range(1, ndim + 1)
     ]
-    stencil_reach = 2 if piecewise_linear else 1
+    stencil_reach = 1 if reconstruction == DONOR_CELL else 2
     has_base = base_primitive_state is not None
     has_mask = correction_mask is not None
     mhd = config.mhd
@@ -342,15 +343,16 @@ def _fv_stage_pallas_local(
             stencil_per_axis.append(stencil)
 
             # The (left, right) states of the faces at i - 1/2 and i + 1/2.
-            if piecewise_linear:
+            if reconstruction != DONOR_CELL:
                 right_face_values = {}
                 left_face_values = {}
                 for center in (-1, 0, 1):
                     faces = [
-                        _van_leer_slopes(
+                        _limited_slopes(
                             stencil[center - 1][variable],
                             stencil[center][variable],
                             stencil[center + 1][variable],
+                            config.solver_config.limiter,
                         )
                         for variable in range(num_vars)
                     ]
@@ -536,9 +538,11 @@ def _fv_stage_pallas_local(
     if compiler_params is not None:
         keyword_arguments["compiler_params"] = compiler_params
 
-    stage_name = "corrector" if has_base else "predictor"
-    reconstruction_name = "piecewise_linear" if piecewise_linear else "donor_cell"
-    kernel_name = f"vl2_{stage_name}_{reconstruction_name}"
+    base_name = "base_state" if has_base else "own_base"
+    reconstruction_name = "donor_cell"
+    if reconstruction != DONOR_CELL:
+        reconstruction_name = f"piecewise_linear_limiter_{config.solver_config.limiter}"
+    kernel_name = f"fv_stage_{base_name}_{reconstruction_name}"
     if has_mask:
         kernel_name += "_flux_correction"
 
@@ -578,7 +582,7 @@ def _fv_stage_pallas_once(
     cleaning_speed,
     damping_factor,
     gamma,
-    piecewise_linear: bool,
+    reconstruction: int,
     report_failures: bool,
     config: SimulationConfig,
     params: SimulationParams,
@@ -602,7 +606,7 @@ def _fv_stage_pallas_once(
         cleaning_speed: The GLM cleaning speed (zero for hydrodynamics).
         damping_factor: The stage's psi damping factor.
         gamma: The adiabatic index.
-        piecewise_linear: PLM (else donor-cell) reconstruction.
+        reconstruction: ``DONOR_CELL`` or ``PIECEWISE_LINEAR``.
         report_failures: Also return the positivity failure codes.
         config: The simulation configuration.
         params: The simulation parameters (floors).
@@ -614,7 +618,7 @@ def _fv_stage_pallas_once(
     """
     ndim = int(config.dimensionality)
     block_shape = _fv_stage_block_shape(stage_primitive_state, config)
-    halo = (2 if piecewise_linear else 1,) * ndim
+    halo = (1 if reconstruction == DONOR_CELL else 2,) * ndim
     has_base = base_primitive_state is not None
     has_mask = correction_mask is not None
     dtype = stage_primitive_state.dtype
@@ -653,7 +657,7 @@ def _fv_stage_pallas_once(
                 gamma_value,
                 simulation_params.minimum_density,
                 simulation_params.minimum_pressure,
-                piecewise_linear=piecewise_linear,
+                reconstruction=reconstruction,
                 report_failures=report_failures,
                 config=config,
                 registered_variables=registered_variables,
@@ -701,7 +705,7 @@ def _fv_stage_pallas_once(
             stage_state,
             base_state if has_base else stage_state,
             stage_time_step_value,
-            piecewise_linear,
+            reconstruction,
             cleaning_speed_value,
             damping_factor_value,
             gamma_value,
@@ -731,7 +735,7 @@ def _fv_stage_pallas(
     stage_primitive_state,
     base_primitive_state,
     stage_time_step,
-    piecewise_linear: bool,
+    reconstruction: int,
     cleaning_speed,
     damping_factor,
     gamma,
@@ -740,7 +744,7 @@ def _fv_stage_pallas(
     registered_variables: RegisteredVariables,
 ):
     """
-    One VL2 stage on the Pallas backend, including AthenaPK's first-order flux
+    One stage on the Pallas backend, including AthenaPK's first-order flux
     correction when it is configured.
 
     The flux correction mirrors AthenaPK's attempts: after an evaluation, the
@@ -755,7 +759,7 @@ def _fv_stage_pallas(
         base_primitive_state: ``W^n`` (``None`` in the predictor stage, where it
             is the stage state).
         stage_time_step: The stage's time-step weight ``beta * dt``.
-        piecewise_linear: PLM (else donor-cell) reconstruction.
+        reconstruction: ``DONOR_CELL`` or ``PIECEWISE_LINEAR``.
         cleaning_speed: The GLM cleaning speed (zero for hydrodynamics).
         damping_factor: The stage's psi damping factor.
         gamma: The adiabatic index.
@@ -776,7 +780,7 @@ def _fv_stage_pallas(
             cleaning_speed,
             damping_factor,
             gamma,
-            piecewise_linear,
+            reconstruction,
             report_failures,
             config,
             params,

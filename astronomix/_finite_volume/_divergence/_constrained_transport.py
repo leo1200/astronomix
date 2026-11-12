@@ -198,7 +198,8 @@ def _ct_interface_fluxes(
     cell_state: STATE_TYPE,
     normal_face_field,
     axis: int,
-    piecewise_linear: bool,
+    reconstruction: int,
+    limiter: int,
     riemann_solver: int,
     gamma,
     registered_variables: RegisteredVariables,
@@ -215,7 +216,8 @@ def _ct_interface_fluxes(
         cell_state: The cell-centred primitive variables (three spatial axes).
         normal_face_field: The face field of this axis (value at ``i - 1/2``).
         axis: The spatial axis (1-based).
-        piecewise_linear: Use PLM (else donor-cell) reconstruction.
+        reconstruction: ``DONOR_CELL`` or ``PIECEWISE_LINEAR``.
+        limiter: The slope limiter of the piecewise-linear reconstruction.
         riemann_solver: The Riemann solver.
         gamma: The adiabatic index.
         registered_variables: The registered variables.
@@ -223,7 +225,7 @@ def _ct_interface_fluxes(
     Returns:
         The flux array, laid out like ``cell_state``.
     """
-    left_states, right_states = _reconstructed_face_states(cell_state, axis, piecewise_linear)
+    left_states, right_states = _reconstructed_face_states(cell_state, axis, reconstruction, limiter)
     frame_indices = _ct_frame_indices(axis, registered_variables)
     zero = jnp.zeros_like(normal_face_field)
 
@@ -254,7 +256,8 @@ def _ct_interface_fluxes(
 
 def _ct_fluxes_per_axis(
     primitive_state: STATE_TYPE,
-    piecewise_linear: bool,
+    reconstruction: int,
+    limiter: int,
     riemann_solver: int,
     gamma,
     registered_variables: RegisteredVariables,
@@ -267,7 +270,8 @@ def _ct_fluxes_per_axis(
     Args:
         primitive_state: The primitive state in the layout of this module
             (three spatial axes, the face rows holding the value at ``i - 1/2``).
-        piecewise_linear: Use PLM (else donor-cell) reconstruction.
+        reconstruction: ``DONOR_CELL`` or ``PIECEWISE_LINEAR``.
+        limiter: The slope limiter of the piecewise-linear reconstruction.
         riemann_solver: The Riemann solver.
         gamma: The adiabatic index.
         registered_variables: The registered variables.
@@ -282,7 +286,8 @@ def _ct_fluxes_per_axis(
             cell_state,
             primitive_state[face_indices[axis - 1]],
             axis,
-            piecewise_linear,
+            reconstruction,
+            limiter,
             riemann_solver,
             gamma,
             registered_variables,

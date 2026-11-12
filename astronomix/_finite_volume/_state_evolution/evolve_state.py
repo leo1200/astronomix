@@ -1,10 +1,11 @@
 """
 Finite-volume state evolution.
 
-Drives one finite-volume hydro step: the dimensionally split (Strang) and the
-unsplit (SSP-RK2, optionally Pallas-fused) gas updates, the operator-split
-self-gravity source, and the top-level :func:`_evolve_state_fv` that couples
-the gas update to the magnetic-field update for MHD runs.
+Drives one finite-volume step: the dimensionally split (Strang) gas update,
+the operator-split self-gravity source, and the top-level
+:func:`_evolve_state_fv` that dispatches the time integrators (the unsplit
+schemes ``vl2_step`` and ``rk2_ssp_step`` of ``_integrators.py`` and the
+split scheme).
 """
 
 # general
@@ -38,19 +39,13 @@ from astronomix.option_classes.simulation_params import SimulationParams
 
 # astronomix functions
 from astronomix._finite_volume._riemann_solver._riemann_solver import _riemann_solver
-from astronomix._integrators._explicit_rk import rk2_ssp
 from astronomix._modules._time_integrator_sources import _time_integrator_sources
 from astronomix._stencil_operations._stencil_operations import _stencil_add
 from astronomix._geometry.geometric_terms import _pressure_nozzling_source
 from astronomix._finite_volume._state_evolution.reconstruction import (
     _reconstruct_at_interface_split,
-    _reconstruct_at_interface_unsplit_single,
 )
-from astronomix._finite_volume._state_evolution._pallas_evolve import (
-    _evolve_gas_state_unsplit_pallas,
-    _fv_pallas_evolve_supported,
-)
-from astronomix._finite_volume._integrators import vl2_step
+from astronomix._finite_volume._integrators import rk2_ssp_step, vl2_step
 from astronomix._geometry.boundaries import _boundary_handler
 from astronomix._fluid_equations._equations import (
     primitive_state_from_conserved,
@@ -394,153 +389,6 @@ def _evolve_gas_state_split(
 # ====================== ↑ Split Scheme ↑ =====================
 # -------------------------------------------------------------
 
-# -------------------------------------------------------------
-# ===================== ↓ Unsplit Scheme ↓ ====================
-# -------------------------------------------------------------
-
-
-# @jaxtyped(typechecker=typechecker)
-@partial(jax.jit, static_argnames=["config", "registered_variables"])
-def _evolve_gas_state_unsplit_inner(
-    primitive_state: STATE_TYPE,
-    dt: Float[Array, ""],
-    gamma: Union[float, Float[Array, ""]],
-    config: SimulationConfig,
-    params: SimulationParams,
-    helper_data: HelperData,
-    registered_variables: RegisteredVariables,
-) -> STATE_TYPE:
-    
-    if config.boundary_handling == GHOST_CELLS:
-        primitive_state = _boundary_handler(primitive_state, config, registered_variables, params)
-
-    conservative_states = conserved_state_from_primitive(
-        primitive_state, gamma, config, registered_variables
-    )
-
-    # Pallas-fused per-axis recon+Riemann+divergence: each axis writes
-    # ``conservative_states += -(dt/dx) * (F[i+1/2] - F[i-1/2])`` directly
-    # into the conservative buffer via ``input_output_aliases``.  No
-    # full-state q_L, q_R, fluxes are materialised.  Falls back to the
-    # original native chain when ``_fv_pallas_evolve_supported`` says no.
-    if _fv_pallas_evolve_supported(primitive_state, config):
-        return _evolve_gas_state_unsplit_pallas(
-            primitive_state,
-            conservative_states,
-            dt,
-            gamma,
-            config,
-            params,
-            helper_data,
-            registered_variables,
-        )
-
-    for axis in range(1, config.dimensionality + 1):
-
-        if config.boundary_handling == GHOST_CELLS:
-            primitive_state = _boundary_handler(primitive_state, config, registered_variables, params)
-
-        primitives_left_interface, primitives_right_interface = (
-            _reconstruct_at_interface_unsplit_single(
-                primitive_state, config, helper_data, axis
-            )
-        )
-
-        # get the fluxes at the interfaces
-        fluxes = _riemann_solver(
-            primitives_left_interface,
-            primitives_right_interface,
-            primitive_state,
-            gamma,
-            config,
-            registered_variables,
-            axis,
-        )
-
-        # update the conserved variables
-        conserved_change = (
-            1
-            / config.grid_spacing
-            * _stencil_add(fluxes, indices=(0, 1), factors=(1.0, -1.0), axis=axis)
-            * dt
-        )
-        conservative_states += conserved_change
-
-    # update the primitive state
-    primitive_state = primitive_state_from_conserved(
-        conservative_states, gamma, config, registered_variables
-    )
-
-    if config.boundary_handling == GHOST_CELLS:
-        primitive_state = _boundary_handler(primitive_state, config, registered_variables, params)
-
-    return primitive_state
-
-
-# @jaxtyped(typechecker=typechecker)
-@partial(jax.jit, static_argnames=["config", "registered_variables"])
-def _evolve_gas_state_unsplit(
-    primitive_state: STATE_TYPE,
-    dt: Float[Array, ""],
-    gamma: Union[float, Float[Array, ""]],
-    config: SimulationConfig,
-    params: SimulationParams,
-    helper_data: HelperData,
-    registered_variables: RegisteredVariables,
-) -> STATE_TYPE:
-
-    if config.gravity_config.gravity:
-        gravity_source = _gravity_source_presolve(
-            primitive_state, dt, gamma, config, params, helper_data, registered_variables
-        )
-
-    if config.solver_config.time_integrator == RK2_SSP:
-        # Generic SSP-RK2 (Heun) over the conserved state.  The stage
-        # increment is one forward-Euler hydro step expressed in conserved
-        # variables: dt * L(u) = conserved(inner(primitive(u))) - u.
-        def rhs(u, dt_step):
-            p = primitive_state_from_conserved(
-                u, gamma, config, registered_variables
-            )
-            p_stepped = _evolve_gas_state_unsplit_inner(
-                p,
-                dt_step,
-                gamma,
-                config,
-                params,
-                helper_data,
-                registered_variables,
-            )
-            return (
-                conserved_state_from_primitive(
-                    p_stepped, gamma, config, registered_variables
-                )
-                - u
-            )
-
-        u0 = conserved_state_from_primitive(
-            primitive_state, gamma, config, registered_variables
-        )
-        u_final = rk2_ssp(u0, dt, rhs=rhs)
-        primitive_state = primitive_state_from_conserved(
-            u_final, gamma, config, registered_variables
-        )
-    else:
-        raise ValueError(
-            "Only the RK2 SSP time integrator is currently supported for the unsplit scheme."
-        )
-
-    if config.gravity_config.gravity and config.solver_config.time_integrator:
-        primitive_state = _apply_gravity_source(
-            primitive_state, gravity_source, gamma, config, params, registered_variables
-        )
-
-    return primitive_state
-
-# -------------------------------------------------------------
-# ===================== ↑ Unsplit Scheme ↑ ====================
-# -------------------------------------------------------------
-
 
 # @jaxtyped(typechecker=typechecker)
 @partial(jax.jit, static_argnames=["config", "registered_variables"])
@@ -556,7 +404,7 @@ def _evolve_state_fv(
     # The AthenaPK-equivalent VL2 scheme (hydro, GLM-MHD and MHD with
     # constrained transport) replaces the whole finite-volume step with its own
     # Cartesian update, including Athena++'s self-gravity coupling. It has no
-    # geometric source terms (applied by the split / unsplit schemes below);
+    # geometric source terms (applied by the split scheme below);
     # finalize_config rejects that combination.
     if config.solver_config.time_integrator == VL2:
         return vl2_step(
@@ -572,7 +420,19 @@ def _evolve_state_fv(
     # The split and unsplit schemes are hydrodynamic: finite-volume MHD is the
     # VL2 scheme above (finalize_config rejects other combinations).
     if config.solver_config.time_integrator == RK2_SSP:
-        return _evolve_gas_state_unsplit(
+        # Gravity couples as in the split scheme: the source is built from
+        # the state before the step and added after it.
+        if config.gravity_config.gravity:
+            gravity_source = _gravity_source_presolve(
+                primitive_state,
+                dt,
+                gamma,
+                config,
+                params,
+                helper_data,
+                registered_variables,
+            )
+        primitive_state = rk2_ssp_step(
             primitive_state,
             dt,
             gamma,
@@ -581,6 +441,16 @@ def _evolve_state_fv(
             helper_data,
             registered_variables,
         )
+        if config.gravity_config.gravity:
+            primitive_state = _apply_gravity_source(
+                primitive_state,
+                gravity_source,
+                gamma,
+                config,
+                params,
+                registered_variables,
+            )
+        return primitive_state
     return _evolve_gas_state_split(
         primitive_state,
         dt,

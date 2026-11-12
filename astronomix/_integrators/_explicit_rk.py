@@ -40,7 +40,6 @@ Model contract (all closures operate on the state pytree ``u``):
 Schemes:
     ssprk4   - 5-stage 4th-order Spiteri-Ruuth SSPRK (3-register).
     lsrk4    - 5-stage 4th-order Carpenter-Kennedy 2N-storage low-storage RK.
-    rk2_ssp  - 2-stage 2nd-order SSP RK (Heun).
 """
 
 # general
@@ -54,11 +53,6 @@ import jax.numpy as jnp
 def _identity(u):
     """Identity hook: return the state pytree unchanged (the default stage hook)."""
     return u
-
-
-def _tree_axpby(a, x, b, y):
-    """Return the pytree ``a * x + b * y`` (``a``, ``b`` scalars)."""
-    return jax.tree_util.tree_map(lambda x_, y_: a * x_ + b * y_, x, y)
 
 
 def _tree_add(x, y):
@@ -315,31 +309,4 @@ def lsrk4(u0, dt, *, pre_stage=_identity, finalize=_identity, rhs=None, lsrk_inc
     du0 = jax.tree_util.tree_map(jnp.zeros_like, u0)
     u_final, _ = jax.lax.fori_loop(0, 5, stage, (u0, du0))
 
-    return finalize(u_final)
-
-
-# ---------------------------------------------------------------------------
-# RK2-SSP — 2-stage, 2nd-order strong-stability-preserving Runge-Kutta
-# (Heun's method):  u1 = u0 + dt L(u0);  u2 = u1 + dt L(u1);  u = (u0 + u2)/2.
-# ---------------------------------------------------------------------------
-def rk2_ssp(u0, dt, *, rhs, pre_stage=_identity, finalize=_identity):
-    """2-stage 2nd-order SSP RK (Heun).
-
-    Args:
-        u0: Initial state pytree at ``t = t_n``.
-        dt: Full time step.
-        rhs: ``rhs(u, dt) -> du`` increment.
-        pre_stage: Per-stage hook, defaults to the identity.
-        finalize: Post-integration hook, defaults to the identity.
-
-    Returns:
-        The state pytree at ``t = t_n + dt``.
-    """
-    u = pre_stage(u0)
-    u1 = _tree_add(u, rhs(u, dt))
-
-    u1 = pre_stage(u1)
-    u2 = _tree_add(u1, rhs(u1, dt))
-
-    u_final = _tree_axpby(0.5, u0, 0.5, u2)
     return finalize(u_final)

@@ -1,1 +1,1 @@
-"""Finite-volume state evolution: reconstruction, limiters and the FV update."""
+"""Finite-volume state evolution: reconstruction and the FV update."""

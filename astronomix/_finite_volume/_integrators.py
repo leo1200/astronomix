@@ -2,6 +2,19 @@
 Time integrators of the finite-volume framework: an integrator is a sequence
 of stages (``_stage.py``).
 
+``vl2_step`` is the VL2 finite-volume scheme of AthenaPK, ``rk2_ssp_step`` the
+unsplit second-order strong-stability-preserving Runge-Kutta scheme
+(hydrodynamics): two forward Euler stages and the average with the initial
+state::
+
+    U^(1)    = U^n   - dt L(W^n)
+    U^(2)    = U^(1) - dt L(W^(1))
+    U^{n+1}  = (U^n + U^(2)) / 2
+
+with the reconstruction, the limiter and the Riemann solver of the
+configuration. Gravity couples to it as a source around the step
+(``evolve_state.py``).
+
 ``vl2_step``: the VL2 finite-volume scheme of AthenaPK.
 
 A re-implementation of AthenaPK's default second-order scheme: the van Leer
@@ -78,7 +91,8 @@ from astronomix._finite_volume._divergence._constrained_transport import (
 from astronomix._finite_volume._divergence._glm import _cleaning_speed_and_damping
 from astronomix._finite_volume._gravity_coupling import _vl2_gravitational_potential
 from astronomix._finite_volume._stage import (
-    _conserved_from_primitive_vl2,
+    _conserved_from_primitive,
+    _primitive_from_conserved,
     _update_ghost_cells,
     fv_stage,
 )
@@ -106,8 +120,8 @@ def vl2_step(
     """
     Advance the primitive state by one VL2 step: a donor-cell predictor to the
     half step, then the corrector with the van Leer limited PLM, or with donor
-    cell when ``reconstruction=DONOR_CELL`` is set (``config.solver_config.limiter`` is not
-    read). Runs on the Pallas backend when it supports the configuration and
+    cell when ``reconstruction=DONOR_CELL`` is set (``finalize_config`` sets the
+    ``VAN_LEER`` limiter). Runs on the Pallas backend when it supports the configuration and
     natively otherwise; with gravity or constrained transport always natively.
 
     Args:
@@ -124,8 +138,6 @@ def vl2_step(
     Returns:
         The primitive state ``W^{n+1}``.
     """
-    corrector_piecewise_linear = config.solver_config.reconstruction != DONOR_CELL
-
     # Constrained transport works on a layout of its own (three spatial axes,
     # faces stored at their lower index); the step converts on entry and exit.
     if config.solver_config.divergence_control == CONSTRAINED_TRANSPORT:
@@ -162,7 +174,7 @@ def vl2_step(
             primitive_state,
             base_primitive_state=None,
             stage_time_step=0.5 * dt,
-            piecewise_linear=False,
+            reconstruction=DONOR_CELL,
             cleaning_speed=cleaning_speed,
             damping_factor=predictor_damping_factor,
             gamma=gamma,
@@ -180,7 +192,7 @@ def vl2_step(
             half_step_primitive_state,
             base_primitive_state=primitive_state,
             stage_time_step=dt,
-            piecewise_linear=corrector_piecewise_linear,
+            reconstruction=config.solver_config.reconstruction,
             cleaning_speed=cleaning_speed,
             damping_factor=corrector_damping_factor,
             gamma=gamma,
@@ -207,7 +219,7 @@ def vl2_step(
             registered_variables,
         )
 
-    initial_conserved_state = _conserved_from_primitive_vl2(
+    initial_conserved_state = _conserved_from_primitive(
         primitive_state,
         gamma,
         config,
@@ -217,7 +229,7 @@ def vl2_step(
         primitive_state,
         initial_conserved_state,
         stage_time_step=0.5 * dt,
-        piecewise_linear=False,
+        reconstruction=DONOR_CELL,
         cleaning_speed=cleaning_speed,
         damping_factor=predictor_damping_factor,
         gamma=gamma,
@@ -250,7 +262,7 @@ def vl2_step(
         half_step_primitive_state,
         initial_conserved_state,
         stage_time_step=dt,
-        piecewise_linear=corrector_piecewise_linear,
+        reconstruction=config.solver_config.reconstruction,
         cleaning_speed=cleaning_speed,
         damping_factor=corrector_damping_factor,
         gamma=gamma,
@@ -271,4 +283,108 @@ def vl2_step(
 
 # -------------------------------------------------------------
 # ===================== ↑ VL2 time step ↑ =====================
+# -------------------------------------------------------------
+
+# -------------------------------------------------------------
+# =================== ↓ RK2 SSP time step ↓ ===================
+# -------------------------------------------------------------
+
+
+def _forward_euler_stage(
+    primitive_state: STATE_TYPE,
+    dt: Float[Array, ""],
+    gamma: Union[float, Float[Array, ""]],
+    config: SimulationConfig,
+    params: SimulationParams,
+    registered_variables: RegisteredVariables,
+) -> STATE_TYPE:
+    """
+    One forward Euler stage ``U - dt L(W)`` from the state itself, on the
+    Pallas backend when it supports the configuration and natively otherwise.
+
+    Args:
+        primitive_state: The primitive state ``W`` (ghost cells updated).
+        dt: The time step.
+        gamma: The adiabatic index.
+        config: The simulation configuration.
+        params: The simulation parameters.
+        registered_variables: The registered variables.
+
+    Returns:
+        The primitive state after the stage, ghost cells updated.
+    """
+    # Hydrodynamics: a zero cleaning speed and no damping.
+    cleaning_speed, (_, damping_factor) = _cleaning_speed_and_damping(
+        primitive_state,
+        dt,
+        config,
+        params,
+        registered_variables,
+    )
+    stage_arguments = dict(
+        stage_time_step=dt,
+        reconstruction=config.solver_config.reconstruction,
+        cleaning_speed=cleaning_speed,
+        damping_factor=damping_factor,
+        gamma=gamma,
+        config=config,
+        params=params,
+        registered_variables=registered_variables,
+    )
+    if _fv_stage_pallas_supported(primitive_state, config):
+        new_primitive_state = _fv_stage_pallas(primitive_state, base_primitive_state=None, **stage_arguments)
+    else:
+        conserved_state = _conserved_from_primitive(primitive_state, gamma, config, registered_variables)
+        new_primitive_state, _ = fv_stage(primitive_state, conserved_state, **stage_arguments)
+    return _update_ghost_cells(new_primitive_state, config, params, registered_variables)
+
+
+@partial(jax.jit, static_argnames=["config", "registered_variables"])
+def rk2_ssp_step(
+    primitive_state: STATE_TYPE,
+    dt: Float[Array, ""],
+    gamma: Union[float, Float[Array, ""]],
+    config: SimulationConfig,
+    params: SimulationParams,
+    helper_data: HelperData,
+    registered_variables: RegisteredVariables,
+) -> STATE_TYPE:
+    """
+    Advance the primitive state by one step of the second-order
+    strong-stability-preserving Runge-Kutta scheme: two forward Euler stages
+    and the average with the initial state in conserved variables.
+
+    Args:
+        primitive_state: The primitive state ``W^n``.
+        dt: The time step.
+        gamma: The adiabatic index.
+        config: The simulation configuration.
+        params: The simulation parameters.
+        helper_data: The helper data (unused, kept for the common signature).
+        registered_variables: The registered variables.
+
+    Returns:
+        The primitive state ``W^{n+1}``.
+    """
+    # Updates between steps (turbulent forcing, cooling, ...) may have changed
+    # the physical cells without touching the halo.
+    primitive_state = _update_ghost_cells(primitive_state, config, params, registered_variables)
+
+    first_stage_state = _forward_euler_stage(primitive_state, dt, gamma, config, params, registered_variables)
+    second_stage_state = _forward_euler_stage(first_stage_state, dt, gamma, config, params, registered_variables)
+
+    initial_conserved_state = _conserved_from_primitive(primitive_state, gamma, config, registered_variables)
+    second_conserved_state = _conserved_from_primitive(second_stage_state, gamma, config, registered_variables)
+    new_primitive_state = _primitive_from_conserved(
+        0.5 * (initial_conserved_state + second_conserved_state),
+        gamma,
+        config,
+        params,
+        registered_variables,
+    )
+    return _update_ghost_cells(new_primitive_state, config, params, registered_variables)
+
+
+# -------------------------------------------------------------
+# =================== ↑ RK2 SSP time step ↑ ===================
 # -------------------------------------------------------------

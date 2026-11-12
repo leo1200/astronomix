@@ -104,12 +104,11 @@ PIECEWISE_LINEAR = 1
 # (``FVSolverConfig.limiter``).
 MINMOD = 0
 #: The harmonic-mean (van Leer) slope of AthenaPK's / Athena++'s piecewise
-#: linear reconstruction. This is the slope of the VL2 scheme, which always
-#: uses it and does not read ``limiter`` (its choice between piecewise-linear
-#: and donor-cell reconstruction is ``reconstruction``); ``finalize_config``
-#: sets ``limiter = VAN_LEER`` for VL2 only so that the configuration reports
-#: the reconstruction in use. The classic finite-volume scheme does not
-#: implement it.
+#: linear reconstruction. This is the slope of the VL2 scheme:
+#: ``finalize_config`` sets ``limiter = VAN_LEER`` for VL2 (its choice between
+#: piecewise-linear and donor-cell reconstruction is ``reconstruction``).
+#: ``RK2_SSP`` offers it as well; the split scheme (``MUSCL_HANCOCK``) does
+#: not implement it.
 VAN_LEER = 1
 SUPERBEE = 2
 DOUBLE_MINMOD = 3
@@ -502,14 +501,12 @@ class FVSolverConfig(NamedTuple):
     time_integrator: int = RK2_SSP
 
     #: Face states: ``PIECEWISE_LINEAR``, or ``DONOR_CELL`` for the first-order
-    #: Godunov scheme. Read by ``MUSCL_HANCOCK``, by ``VL2`` and by the Pallas
-    #: kernel of ``RK2_SSP``; the array form of ``RK2_SSP`` always reconstructs
-    #: piecewise linearly.
+    #: Godunov scheme.
     reconstruction: int = PIECEWISE_LINEAR
 
-    #: The limiter for the reconstruction of the classic finite-volume
-    #: scheme (``MINMOD``, ``SUPERBEE`` or ``DOUBLE_MINMOD``). The VL2 scheme
-    #: does not read it (see ``VAN_LEER``).
+    #: The limiter of the piecewise-linear reconstruction (``MINMOD``,
+    #: ``SUPERBEE``, ``DOUBLE_MINMOD``, or ``VAN_LEER`` with ``RK2_SSP``). The
+    #: VL2 scheme always uses ``VAN_LEER`` (see there).
     limiter: int = MINMOD
 
     #: The Riemann solver used: ``HLL``, ``HLLC`` or ``LAX_FRIEDRICHS``;
@@ -535,7 +532,7 @@ class FVSolverConfig(NamedTuple):
     #: only (AthenaPK's default ``dedner_plain``).
     glm_extended_source: bool = False
 
-    #: VL2 scheme only: AthenaPK's first-order flux correction. After each
+    #: ``VL2`` and ``RK2_SSP``: AthenaPK's first-order flux correction. After each
     #: stage, every cell whose update would produce a non-positive density or
     #: pressure has all its face fluxes replaced by first-order local
     #: Lax-Friedrichs fluxes (repeated up to four times, exactly as
@@ -1228,6 +1225,18 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
             "(time_integrator=VL2)."
         )
 
+    # The unsplit RK2_SSP scheme runs on the finite-volume stage, which
+    # evolves the fluid variables only.
+    if (
+        finite_volume
+        and config.solver_config.time_integrator == RK2_SSP
+        and config.wind_config.trace_wind_density
+    ):
+        raise ValueError(
+            "The RK2_SSP scheme does not evolve the stellar-wind tracer "
+            "(wind_config.trace_wind_density); use time_integrator=MUSCL_HANCOCK."
+        )
+
     if (
         finite_volume
         and config.gravity_config.gravity
@@ -1295,10 +1304,9 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
             )
 
         donor_cell = config.solver_config.reconstruction == DONOR_CELL
-        # The VL2 scheme does not read ``limiter``: its corrector always uses
-        # the van Leer slope, or donor cell with ``reconstruction=DONOR_CELL``.
-        # Setting VAN_LEER only makes the configuration report the
-        # reconstruction actually in use.
+        # The VL2 scheme is AthenaPK's: its corrector always uses the van Leer
+        # slope, or donor cell with ``reconstruction=DONOR_CELL``. The stage
+        # reads ``limiter``, so VAN_LEER is set here.
         if config.solver_config.limiter != VAN_LEER and not donor_cell:
             print("Setting the VAN_LEER (AthenaPK PLM) limiter for the VL2 scheme.")
             config = config._replace(

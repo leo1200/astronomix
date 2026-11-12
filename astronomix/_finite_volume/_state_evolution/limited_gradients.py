@@ -34,7 +34,7 @@ from astronomix.option_classes.simulation_config import SimulationConfig
 
 # astronomix functions
 from astronomix._stencil_operations._stencil_operations import _stencil_add
-from astronomix._finite_volume._state_evolution.limiters import _double_minmod, _minmod, _superbee
+from astronomix._finite_volume._reconstruction import _double_minmod, _minmod, _superbee
 
 
 # @jaxtyped(typechecker=typechecker)
