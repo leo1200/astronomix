@@ -15,6 +15,9 @@ the GLM cleaning (``_divergence/_glm.py``) or the field update of the
 constrained transport (``_divergence/_constrained_transport.py``). The
 divergence control enters at two points, the interface fluxes
 (``_fluxes_per_axis``) and the update of the field after the flux divergence.
+The split MHD scheme has a third form: the fluxes of the HLL5R solver with the
+induction source (``_divergence/_induction_source.py``), which is added with
+the flux divergence.
 The stage has two halves: ``_flux_update`` (fluxes, correction, update) and
 ``_sources_and_conversion`` (sources, divergence control, conversion).
 ``fv_stage`` is the stage on the native backend;
@@ -55,6 +58,8 @@ from astronomix.option_classes.simulation_config import (
     CONSTRAINED_TRANSPORT,
     DONOR_CELL,
     GHOST_CELLS,
+    GLM,
+    INDUCTION_SOURCE,
     LAX_FRIEDRICHS,
     POSITIVITY_HARD_FLOOR,
     STATE_TYPE,
@@ -72,6 +77,7 @@ from astronomix._finite_volume._divergence._constrained_transport import (
     _ct_fluxes_per_axis,
 )
 from astronomix._finite_volume._divergence._glm import _dedner_source
+from astronomix._finite_volume._divergence._induction_source import _sweep_fluxes_and_induction_source
 from astronomix._finite_volume._flux_correction import (
     POSITIVE,
     _corrected_fluxes,
@@ -86,6 +92,8 @@ from astronomix._finite_volume._gravity_coupling import (
     _vl2_gravitational_potential,
 )
 from astronomix._finite_volume._interface_frame import (
+    FRAME_FIELD,
+    FRAME_VELOCITY,
     BarotropicLaw,
     _barotropic_law,
     _interface_flux_from_states,
@@ -94,6 +102,7 @@ from astronomix._finite_volume._interface_frame import (
     _velocity_component_indices,
 )
 from astronomix._finite_volume._reconstruction import (
+    FieldRows,
     HancockTerms,
     _cell_distances,
     _reconstructed_face_states,
@@ -315,7 +324,7 @@ def _hancock_terms(
 ) -> HancockTerms:
     """
     The terms of the Hancock predictor of a sweep along ``axis`` (the split
-    scheme; hydrodynamics).
+    scheme; with the rows of the field for its MHD form).
 
     Args:
         axis: The spatial axis (1-based) of the sweep.
@@ -334,6 +343,14 @@ def _hancock_terms(
     carried_density_indices = tuple(
         index for index in range(registered_variables.num_vars) if index not in frame_indices
     )
+    field_rows = None
+    if config.mhd:
+        field_rows = FieldRows(
+            transverse_velocity_indices=frame_indices[FRAME_VELOCITY][1:],
+            normal_field_index=frame_indices[FRAME_FIELD][0],
+            transverse_field_indices=frame_indices[FRAME_FIELD][1:],
+            pressure_exponent=gamma if barotropic_law is None else barotropic_law.exponent,
+        )
     return HancockTerms(
         half_step=predictor_half_step,
         gamma=gamma,
@@ -343,6 +360,7 @@ def _hancock_terms(
         carried_density_indices=carried_density_indices,
         distances=_cell_distances(config, helper_data),
         sound_speed_squared_of=None if barotropic_law is None else barotropic_law.sound_speed_squared_of,
+        field_rows=field_rows,
     )
 
 
@@ -512,6 +530,54 @@ def _fluxes_per_axis(
     return fluxes_per_axis
 
 
+def _fluxes_and_induction_source(
+    primitive_state: STATE_TYPE,
+    axes,
+    reconstruction: int,
+    gamma,
+    config: SimulationConfig,
+    params: SimulationParams,
+    registered_variables: RegisteredVariables,
+    predictor_half_step=None,
+    helper_data: HelperData = None,
+):
+    """
+    The interface fluxes of the split MHD scheme (``divergence_control =
+    INDUCTION_SOURCE``) along the given axes and the sum of their induction
+    sources.
+
+    Args:
+        primitive_state: The primitive state.
+        axes: The spatial axes (1-based) the stage acts on.
+        reconstruction: ``DONOR_CELL`` or ``PIECEWISE_LINEAR`` (with ``config.solver_config.limiter``).
+        gamma: The adiabatic index.
+        config: The simulation configuration.
+        params: The simulation parameters (the barotropic law).
+        registered_variables: The registered variables.
+        predictor_half_step: Half the time step of the sweep, or ``None``
+            for face states at the time level of the state.
+        helper_data: The helper data.
+
+    Returns:
+        The interface fluxes (at ``i - 1/2``) per axis and the source array.
+    """
+    barotropic_law = _barotropic_law(params, config)
+    fluxes_per_axis = []
+    induction_source = 0.0
+    for axis in axes:
+        hancock = None
+        if predictor_half_step is not None:
+            hancock = _hancock_terms(
+                axis, predictor_half_step, gamma, config, helper_data, registered_variables, barotropic_law
+            )
+        fluxes, source = _sweep_fluxes_and_induction_source(
+            primitive_state, axis, reconstruction, gamma, config, registered_variables, hancock, barotropic_law
+        )
+        fluxes_per_axis.append(fluxes)
+        induction_source = induction_source + source
+    return fluxes_per_axis, induction_source
+
+
 # -------------------------------------------------------------
 # ================== ↑ Interface fluxes ↑ =====================
 # -------------------------------------------------------------
@@ -538,7 +604,8 @@ def _flux_update(
 ):
     """
     The first half of a stage: the interface fluxes, the first-order flux
-    correction and the update ``U = U_base - beta dt L(W_stage)``.
+    correction and the update ``U = U_base - beta dt L(W_stage)`` (with the
+    induction source of the split MHD scheme in ``L``).
 
     Args:
         stage_primitive_state: The primitive state the fluxes are computed from.
@@ -571,19 +638,33 @@ def _flux_update(
         num_axes = stage_primitive_state.ndim - 1 if is_constrained_transport else config.dimensionality
         axes = tuple(range(1, num_axes + 1))
 
-    fluxes_per_axis = _fluxes_per_axis(
-        stage_primitive_state,
-        axes,
-        reconstruction,
-        config.solver_config.riemann_solver,
-        gamma,
-        cleaning_speed,
-        config,
-        params,
-        registered_variables,
-        predictor_half_step,
-        helper_data,
-    )
+    induction_source = None
+    if config.solver_config.divergence_control == INDUCTION_SOURCE:
+        fluxes_per_axis, induction_source = _fluxes_and_induction_source(
+            stage_primitive_state,
+            axes,
+            reconstruction,
+            gamma,
+            config,
+            params,
+            registered_variables,
+            predictor_half_step,
+            helper_data,
+        )
+    else:
+        fluxes_per_axis = _fluxes_per_axis(
+            stage_primitive_state,
+            axes,
+            reconstruction,
+            config.solver_config.riemann_solver,
+            gamma,
+            cleaning_speed,
+            config,
+            params,
+            registered_variables,
+            predictor_half_step,
+            helper_data,
+        )
 
     has_mask = correction_mask is not None
     if has_mask or config.solver_config.first_order_flux_correction:
@@ -629,6 +710,8 @@ def _flux_update(
             registered_variables,
         )
     conserved_state = base_conserved_state - stage_time_step * flux_divergence
+    if induction_source is not None:
+        conserved_state = conserved_state - stage_time_step * induction_source
     return conserved_state, fluxes_per_axis
 
 
@@ -710,7 +793,7 @@ def _sources_and_conversion(
             config,
             registered_variables,
         )
-    elif config.mhd:
+    elif config.mhd and config.solver_config.divergence_control == GLM:
         conserved_state = _dedner_source(
             conserved_state,
             stage_primitive_state,

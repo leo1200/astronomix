@@ -770,7 +770,7 @@ def _integrate_core(
     # advances the state by one (adaptive) timestep, and — when snapshots are
     # requested — a recorder plus the predicate that decides when to record.
 
-    def _step(time, state, snapshot_index):
+    def _step(time, state, snapshot_index, step_index):
         """Advance the state by one timestep.
 
         Estimates ``dt``, clamps it to land on the next snapshot time / the
@@ -869,6 +869,7 @@ def _integrate_core(
                     params,
                     helper_data_pad,
                     registered_variables,
+                    step_index,
                 )
             elif config.solver_mode == FINITE_DIFFERENCE:
                 new_state = _evolve_state_fd(

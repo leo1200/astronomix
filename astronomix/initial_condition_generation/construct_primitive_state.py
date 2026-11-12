@@ -135,8 +135,10 @@ def _assemble_primitive_state(
     # The VL2 layout with constrained transport stores all three components
     # too, and the face-centred field next to the cell-centred one.
     is_vl2_ct = _uses_vl2_constrained_transport(config)
+    # Every finite-volume MHD layout stores all three velocity and field components.
+    is_finite_volume_mhd = config.solver_mode == FINITE_VOLUME and config.mhd
     if config.mhd:
-        if config.dimensionality >= 2 or registered_variables.magnetic_psi_active or is_vl2_ct:
+        if config.dimensionality >= 2 or is_finite_volume_mhd:
             if magnetic_field_x is not None:
                 state = state.at[registered_variables.magnetic_index.x].set(
                     magnetic_field_x
@@ -150,11 +152,7 @@ def _assemble_primitive_state(
                     magnetic_field_z
                 )
 
-        if (
-            config.solver_mode == FINITE_DIFFERENCE
-            or registered_variables.magnetic_psi_active
-            or is_vl2_ct
-        ):
+        if config.solver_mode == FINITE_DIFFERENCE or is_finite_volume_mhd:
             # The finite-difference and VL2 MHD states always carry all three
             # velocity components; any not supplied stay zero by default.
             if velocity_y is not None:

@@ -22,6 +22,7 @@ import jax.numpy as jnp
 from astronomix.option_classes.simulation_config import (
     DYNAMIC_VISCOSITY,
     GHOST_CELLS,
+    HLL5R,
     KINEMATIC_VISCOSITY,
     MUSCL_HANCOCK,
     RK2_SSP,
@@ -43,10 +44,16 @@ from astronomix._fluid_equations._equation_of_state import (
     sound_speed_squared,
 )
 from astronomix._fluid_equations._equations import speed_of_sound
+from astronomix._finite_volume._interface_frame import (
+    _barotropic_law,
+    _interface_frame_indices,
+    _mhd_face_state,
+)
 from astronomix._finite_volume._riemann._face_state import (
     adiabatic_sound_speed,
     fast_magnetosonic_speed,
 )
+from astronomix._finite_volume._riemann._hll5r import hll5r_signal_speed
 from astronomix.time_stepping._utils import _unpad
 
 
@@ -178,6 +185,54 @@ def _maximum_signal_speed_vl2(
     return maximum_speed
 
 
+def _maximum_hll5r_speed(
+    primitive_state: STATE_TYPE,
+    config: SimulationConfig,
+    params: SimulationParams,
+    registered_variables: RegisteredVariables,
+) -> Float[Array, ""]:
+    """
+    The largest signal speed of the HLL5R solver over the interfaces of all axes, with the cell values as face
+    states. The speeds of the solver exceed the fast speed of the cells (by up to 9.9 per cent for constant
+    data, by more where neighbouring cells approach each other), so a time step from ``|v| + c_fast`` does not
+    bound them (Waagan 2009, eq. 3.37, takes the speeds of the solver as well).
+
+    The speeds are those of the cell values at the start of the step. Waagan, Federrath & Klingenberg (2011) take
+    the largest wave speed of the previous step instead; the edge values inside the sweeps exceed the estimate
+    here by about ten per cent in Mach 4 turbulence (Courant number 0.85 to 0.88 for ``C_CFL = 0.8``).
+
+    Args:
+        primitive_state: The primitive state (padded when ghost cells are used).
+        config: The simulation configuration.
+        params: The simulation parameters.
+        registered_variables: The registered variables.
+
+    Returns:
+        The maximum signal speed of the solver.
+    """
+    barotropic_law = _barotropic_law(params, config)
+    exponent = params.gamma if barotropic_law is None else barotropic_law.exponent
+    sound_speed_squared_of = None if barotropic_law is None else barotropic_law.sound_speed_squared_of
+
+    maximum_speed = 0.0
+    for axis in range(1, config.dimensionality + 1):
+        if config.boundary_handling == GHOST_CELLS:
+            # all interfaces between the cells of the padded state
+            left_states = jax.lax.slice_in_dim(primitive_state, 0, -1, axis=axis)
+            right_states = jax.lax.slice_in_dim(primitive_state, 1, None, axis=axis)
+        else:
+            left_states, right_states = jnp.roll(primitive_state, 1, axis=axis), primitive_state
+        frame_indices = _interface_frame_indices(axis, config, registered_variables)
+        signal_speed = hll5r_signal_speed(
+            _mhd_face_state(left_states, frame_indices, barotropic_law),
+            _mhd_face_state(right_states, frame_indices, barotropic_law),
+            exponent,
+            sound_speed_squared_of,
+        )
+        maximum_speed = jnp.maximum(maximum_speed, jnp.max(signal_speed))
+    return maximum_speed
+
+
 # @jaxtyped(typechecker=typechecker)
 @partial(jax.jit, static_argnames=["config", "registered_variables"])
 def _cfl_time_step(
@@ -203,6 +258,10 @@ def _cfl_time_step(
     grid_spacing = config.grid_spacing
     dt_max = params.dt_max
     gamma = params.gamma
+
+    if config.solver_config.riemann_solver == HLL5R:
+        maximum_speed = _maximum_hll5r_speed(primitive_state, config, params, registered_variables)
+        return jnp.minimum(C_CFL * grid_spacing / maximum_speed, dt_max)
 
     # A barotropic gas under the split scheme takes the cell criterion as well: the interface estimate below is
     # the same maximum of |v_d| + c_d, read from the pressure slot.

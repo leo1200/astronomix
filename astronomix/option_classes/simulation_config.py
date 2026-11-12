@@ -146,6 +146,10 @@ LAX_FRIEDRICHS = 2
 #: LAX_FRIEDRICHS onto AthenaPK's HLLE, HLLC and LLF solvers); ``finalize_config``
 #: rejects it for the other finite-volume time integrators.
 HLLD = 3
+#: The five-wave relaxation solver of Bouchut, Klingenberg & Waagan (2007, 2010), with two fluxes of the magnetic
+#: field where the normal field jumps. The solver of the split scheme with
+#: ``divergence_control = INDUCTION_SOURCE``; ideal gas and isothermal gas.
+HLL5R = 4
 
 # Control of the magnetic divergence in the finite-volume solver
 # (``FVSolverConfig.divergence_control``).
@@ -153,6 +157,11 @@ HLLD = 3
 GLM = 0
 #: Face-centred field, updated with edge electromotive forces.
 CONSTRAINED_TRANSPORT = 1
+#: Cell-centred field without a cleaning scalar: Powell's term ``u div B`` in the induction equation only
+#: (Waagan 2009), as the pair of magnetic fluxes of ``HLL5R`` and a source per cell. The divergence is not kept
+#: at zero: it moves with the gas, and ``parabolic_cleaning`` diffuses it. The MHD form of the split scheme
+#: (``MUSCL_HANCOCK``), with full sweeps x, y, z whose order is reversed every other step.
+INDUCTION_SOURCE = 2
 
 # Halo exchange of the multi-device Pallas kernels
 # (``BackendConfig.halo_exchange``).
@@ -536,7 +545,8 @@ class FVSolverConfig(NamedTuple):
     limiter: int = MINMOD
 
     #: The Riemann solver used: ``HLL``, ``HLLC`` or ``LAX_FRIEDRICHS``;
-    #: ``HLLD`` is only available with the VL2 time integrator.
+    #: ``HLLD`` is only available with the VL2 time integrator, ``HLL5R``
+    #: only with ``divergence_control = INDUCTION_SOURCE``.
     riemann_solver: int = HLL
 
     #: VL2 scheme only (MHD): ``GLM`` cleaning or ``CONSTRAINED_TRANSPORT``,
@@ -549,7 +559,13 @@ class FVSolverConfig(NamedTuple):
     #: (2005, 2008), and there is no cleaning scalar psi. The face divergence
     #: stays at rounding. Periodic boundaries on every axis, no gravity, native
     #: JAX only (see ``_finite_volume/_divergence/_constrained_transport.py``).
+    #: ``INDUCTION_SOURCE`` is the MHD form of the split scheme (see the constant).
     divergence_control: int = GLM
+
+    #: With ``divergence_control = INDUCTION_SOURCE``: once per step the field gets ``dt eta grad(div B)`` with
+    #: ``eta = lambda h / (2 d)`` in ``d`` dimensions and ``lambda`` the largest signal speed of the step, the
+    #: diffusive cleaning of the eight-wave unit of FLASH.
+    parabolic_cleaning: bool = False
 
     #: VL2 scheme only: add the non-conservative Dedner et al. (2002) sources,
     #: ``-(div B) B`` in the momentum and ``-B . grad(psi)`` in the energy
@@ -1275,10 +1291,58 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
             "implemented for Cartesian geometry only."
         )
 
-    if finite_volume and config.mhd and not uses_vl2:
+    # The MHD form of the split scheme (preset BEATTIE_REFERENCE). The HLL5R solver and the induction source are
+    # the two halves of one discretisation: the solver returns the pair of magnetic fluxes that the source
+    # completes.
+    induction_source = finite_volume and config.solver_config.divergence_control == INDUCTION_SOURCE
+    if induction_source and config.geometry != CARTESIAN:
+        raise ValueError("divergence_control=INDUCTION_SOURCE is implemented for Cartesian geometry only.")
+    if finite_volume and (config.solver_config.riemann_solver == HLL5R) != induction_source:
         raise ValueError(
-            "Finite-volume MHD is available with the VL2 scheme only "
-            "(time_integrator=VL2)."
+            "riemann_solver=HLL5R and divergence_control=INDUCTION_SOURCE belong together: set both (preset "
+            "BEATTIE_REFERENCE) or neither."
+        )
+    if finite_volume and config.solver_config.parabolic_cleaning and not induction_source:
+        raise ValueError("parabolic_cleaning is the divergence cleaning of divergence_control=INDUCTION_SOURCE.")
+    if induction_source:
+        if not config.mhd:
+            raise ValueError("divergence_control=INDUCTION_SOURCE requires mhd=True.")
+        if config.solver_config.time_integrator != MUSCL_HANCOCK:
+            raise ValueError(
+                "divergence_control=INDUCTION_SOURCE is the MHD form of the split scheme: use "
+                "time_integrator=MUSCL_HANCOCK."
+            )
+        if config.equation_of_state == POLYTROPIC:
+            raise ValueError(
+                "divergence_control=INDUCTION_SOURCE is tested for the ideal gas and the isothermal gas only: use "
+                "equation_of_state=IDEAL_GAS or ISOTHERMAL."
+            )
+        if config.solver_config.first_order_flux_correction:
+            raise ValueError(
+                "The first-order flux correction replaces fluxes by Lax-Friedrichs fluxes of the GLM form, which "
+                "have no counterpart of the induction source: switch first_order_flux_correction off."
+            )
+        not_carried_by_the_sweep = (
+            ("gravity_config (self_gravity, external_potential)", config.gravity_config.gravity),
+            ("cooling_config.cooling", config.cooling_config.cooling),
+            ("diffusion_config.viscosity", config.diffusion_config.viscosity),
+            ("diffusion_config.resistivity", config.diffusion_config.resistivity),
+            ("diffusion_config.thermal_conduction", config.diffusion_config.thermal_conduction),
+            ("wind_config.stellar_wind", config.wind_config.stellar_wind),
+            ("wind_config.trace_wind_density", config.wind_config.trace_wind_density),
+            ("turbulent_forcing_config.turbulent_forcing", config.turbulent_forcing_config.turbulent_forcing),
+        )
+        for option, is_set in not_carried_by_the_sweep:
+            if is_set:
+                raise ValueError(
+                    f"{option} is not implemented with divergence_control=INDUCTION_SOURCE (the split MHD "
+                    "scheme carries ideal MHD only)."
+                )
+
+    if finite_volume and config.mhd and not (uses_vl2 or induction_source):
+        raise ValueError(
+            "Finite-volume MHD is available with the VL2 scheme (time_integrator=VL2) and with the split scheme "
+            "of the preset BEATTIE_REFERENCE (time_integrator=MUSCL_HANCOCK, divergence_control=INDUCTION_SOURCE)."
         )
 
     # The stage kernel of the unsplit RK2_SSP scheme evolves the fluid
@@ -1453,7 +1517,7 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
             "solver_mode=FINITE_VOLUME, or equation_of_state=ISOTHERMAL (a polytrope of exponent one)."
         )
     if finite_volume and config.equation_of_state != IDEAL_GAS:
-        if config.solver_config.riemann_solver not in (HLL, LAX_FRIEDRICHS):
+        if config.solver_config.riemann_solver not in (HLL, LAX_FRIEDRICHS, HLL5R):
             raise ValueError(
                 "HLLC and HLLD are Riemann solvers of the ideal gas: use riemann_solver=HLL (or LAX_FRIEDRICHS) "
                 "with a barotropic equation of state (ISOTHERMAL, POLYTROPIC)."
@@ -1702,6 +1766,8 @@ def riemann_solver_to_string(riemann_solver: int) -> str:
         return "Lax-Friedrichs"
     elif riemann_solver == HLLD:
         return "HLLD"
+    elif riemann_solver == HLL5R:
+        return "HLL5R"
 
 
 def limiter_to_string(limiter: int) -> str:

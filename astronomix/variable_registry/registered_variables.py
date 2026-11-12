@@ -28,6 +28,7 @@ from astronomix.option_classes.simulation_config import (
     FINITE_DIFFERENCE,
     FINITE_VOLUME,
     IDEAL_GAS,
+    INDUCTION_SOURCE,
     ISOTHERMAL,
     VL2,
 )
@@ -201,7 +202,9 @@ def get_registered_variables(config: SimulationConfig) -> RegisteredVariables:
     # may still be the ``None`` that stands for the default container.
     solver_config = get_solver_config(config)
 
-    if config.solver_mode == FINITE_VOLUME and config.mhd and solver_config.time_integrator == VL2:
+    if config.solver_mode == FINITE_VOLUME and config.mhd and (
+        solver_config.time_integrator == VL2 or solver_config.divergence_control == INDUCTION_SOURCE
+    ):
 
         # The AthenaPK-equivalent GLM-MHD scheme always carries all three
         # velocity and field components (also in 1D and 2D), followed by the
@@ -234,12 +237,23 @@ def get_registered_variables(config: SimulationConfig) -> RegisteredVariables:
                 num_vars=11,
             )
 
+        if solver_config.divergence_control == INDUCTION_SOURCE:
+            # The split scheme with the induction source: the cell-centred field and nothing behind it:
+            # (rho, v_x, v_y, v_z, p, B_x, B_y, B_z).
+            registered_variables = RegisteredVariables(
+                density_index=0,
+                velocity_index=StaticIntVector(1, 2, 3),
+                pressure_index=4,
+                magnetic_index=StaticIntVector(5, 6, 7),
+                num_vars=8,
+            )
+
     elif config.solver_mode == FINITE_VOLUME:
 
         if config.mhd:
             raise ValueError(
-                "Finite-volume MHD is available with the VL2 scheme only "
-                "(time_integrator=VL2)."
+                "Finite-volume MHD is available with the VL2 scheme (time_integrator=VL2) and with the split "
+                "scheme of the preset BEATTIE_REFERENCE (divergence_control=INDUCTION_SOURCE)."
             )
 
         if config.dimensionality == 2:

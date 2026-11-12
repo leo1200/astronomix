@@ -48,6 +48,7 @@ def _evolve_state_fv(
     params: SimulationParams,
     helper_data: HelperData,
     registered_variables: RegisteredVariables,
+    step_index=0,
 ) -> STATE_TYPE:
     """
     Advance the primitive state by one finite-volume time step.
@@ -60,6 +61,7 @@ def _evolve_state_fv(
         params: The simulation parameters.
         helper_data: The helper data.
         registered_variables: The registered variables.
+        step_index: The number of the step in the run (the split MHD scheme alternates its sweep order).
 
     Returns:
         The primitive state ``W^{n+1}``.
@@ -70,16 +72,15 @@ def _evolve_state_fv(
     if config.solver_config.time_integrator == VL2:
         return vl2_step(primitive_state, *step_arguments)
 
-    # The other two schemes are hydrodynamic (finalize_config sends
-    # finite-volume MHD to VL2) and take gravity first order in time: the
-    # source is built from the state before the step and added after it.
+    # The other two schemes take gravity (hydrodynamics only) first order in
+    # time: the source is built from the state before the step and added after it.
     if config.gravity_config.gravity:
         gravity_source = _gravity_source_presolve(primitive_state, *step_arguments)
 
     if config.solver_config.time_integrator == RK2_SSP:
         primitive_state = rk2_ssp_step(primitive_state, *step_arguments)
     else:
-        primitive_state = muscl_hancock_step(primitive_state, *step_arguments)
+        primitive_state = muscl_hancock_step(primitive_state, *step_arguments, step_index)
 
     if config.gravity_config.gravity:
         primitive_state = _apply_gravity_source(

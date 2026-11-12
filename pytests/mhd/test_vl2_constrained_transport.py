@@ -370,7 +370,7 @@ def test_alfven_wave_converges_at_second_order():
 @pytest.mark.parametrize(
     "overrides, message",
     [
-        (dict(solver_overrides=dict(time_integrator=RK2_SSP)), "VL2 scheme only"),
+        (dict(solver_overrides=dict(time_integrator=RK2_SSP)), "available with the VL2 scheme"),
         (dict(solver_overrides=dict(time_integrator=RK2_SSP), mhd=False), "option of the VL2"),
         (dict(solver_mode=FINITE_DIFFERENCE), "needs an FDSolverConfig"),
         (dict(mhd=False), "requires mhd=True"),

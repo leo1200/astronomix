@@ -18,7 +18,11 @@ configuration.
 (hydrodynamics): a Strang sequence of one-axis stages, each a forward Euler
 update with fluxes of face states that the Hancock predictor has advanced by
 half the sweep's time step (``_reconstruction.py``). It is the scheme of the
-spherical 1D grid and of the wind density tracer.
+spherical 1D grid and of the wind density tracer. Its MHD form
+(``divergence_control = INDUCTION_SOURCE``) runs full sweeps x, y, z and
+reverses their order every other step, as the reference it reproduces does
+(Waagan, Federrath & Klingenberg 2011), and diffuses the divergence once per
+step.
 
 Gravity couples to both as a source around the step (``_evolve_state.py``).
 
@@ -81,6 +85,7 @@ from astronomix.option_classes.simulation_config import (
     CONSTRAINED_TRANSPORT,
     DONOR_CELL,
     GLM,
+    INDUCTION_SOURCE,
     STATE_TYPE,
 )
 
@@ -96,6 +101,7 @@ from astronomix._finite_volume._divergence._constrained_transport import (
     _state_from_ct_layout,
 )
 from astronomix._finite_volume._divergence._glm import _cleaning_speed_and_damping
+from astronomix._finite_volume._divergence._induction_source import _parabolic_cleaning
 from astronomix._finite_volume._gravity_coupling import _vl2_gravitational_potential
 from astronomix._finite_volume._stage import (
     _conserved_from_primitive,
@@ -103,6 +109,7 @@ from astronomix._finite_volume._stage import (
     _update_ghost_cells,
     fv_stage,
 )
+from astronomix._finite_volume._timestep_estimation._timestep_estimator import _maximum_signal_speed_vl2
 from astronomix._finite_volume._stage_pallas import (
     _fv_stage_pallas,
     _fv_stage_pallas_supported,
@@ -418,9 +425,9 @@ def _strang_sequence(dimensionality: int):
     return half_sweeps + [(axes[-1], 1.0)] + half_sweeps[::-1]
 
 
-@partial(jax.jit, static_argnames=["config", "registered_variables"])
-def muscl_hancock_step(
+def _sweeps(
     primitive_state: STATE_TYPE,
+    sequence,
     dt: Float[Array, ""],
     gamma: Union[float, Float[Array, ""]],
     config: SimulationConfig,
@@ -429,12 +436,11 @@ def muscl_hancock_step(
     registered_variables: RegisteredVariables,
 ) -> STATE_TYPE:
     """
-    Advance the primitive state by one step of the dimensionally split
-    MUSCL-Hancock scheme: one-axis stages in Strang order, each from the
-    result of the one before.
+    Run a sequence of one-axis stages, each from the result of the one before.
 
     Args:
-        primitive_state: The primitive state ``W^n``.
+        primitive_state: The primitive state, with up-to-date ghost cells.
+        sequence: The sweeps as ``(axis, fraction of the time step)``.
         dt: The time step.
         gamma: The adiabatic index.
         config: The simulation configuration.
@@ -443,13 +449,9 @@ def muscl_hancock_step(
         registered_variables: The registered variables.
 
     Returns:
-        The primitive state ``W^{n+1}``.
+        The primitive state after the sweeps.
     """
-    # Updates between steps (wind injection, cooling, ...) may have changed
-    # the physical cells without touching the halo.
-    primitive_state = _update_ghost_cells(primitive_state, config, params, registered_variables)
-
-    for axis, fraction in _strang_sequence(config.dimensionality):
+    for axis, fraction in sequence:
         sweep_time_step = fraction * dt
         conserved_state = _conserved_from_primitive(primitive_state, gamma, config, registered_variables)
         primitive_state, _ = fv_stage(
@@ -457,7 +459,7 @@ def muscl_hancock_step(
             conserved_state,
             stage_time_step=sweep_time_step,
             reconstruction=config.solver_config.reconstruction,
-            # Hydrodynamics: a zero cleaning speed and no damping.
+            # No cleaning scalar: a zero cleaning speed and no damping.
             cleaning_speed=0.0,
             damping_factor=1.0,
             gamma=gamma,
@@ -470,6 +472,63 @@ def muscl_hancock_step(
         )
         primitive_state = _update_ghost_cells(primitive_state, config, params, registered_variables)
 
+    return primitive_state
+
+
+@partial(jax.jit, static_argnames=["config", "registered_variables"])
+def muscl_hancock_step(
+    primitive_state: STATE_TYPE,
+    dt: Float[Array, ""],
+    gamma: Union[float, Float[Array, ""]],
+    config: SimulationConfig,
+    params: SimulationParams,
+    helper_data: HelperData,
+    registered_variables: RegisteredVariables,
+    step_index=0,
+) -> STATE_TYPE:
+    """
+    Advance the primitive state by one step of the dimensionally split
+    MUSCL-Hancock scheme. Hydrodynamics: one-axis stages in Strang order
+    (``2 d - 1`` sweeps in ``d`` dimensions). MHD with the induction source:
+    ``d`` full sweeps, in the order x, y, z in even steps and z, y, x in odd
+    steps, then the parabolic cleaning of the field.
+
+    Args:
+        primitive_state: The primitive state ``W^n``.
+        dt: The time step.
+        gamma: The adiabatic index.
+        config: The simulation configuration.
+        params: The simulation parameters.
+        helper_data: The helper data (radii of the spherical 1D grid).
+        registered_variables: The registered variables.
+        step_index: The number of the step in the run (the MHD form: its parity sets the order of the sweeps).
+
+    Returns:
+        The primitive state ``W^{n+1}``.
+    """
+    # Updates between steps (wind injection, cooling, ...) may have changed
+    # the physical cells without touching the halo.
+    primitive_state = _update_ghost_cells(primitive_state, config, params, registered_variables)
+    sweep_arguments = (dt, gamma, config, params, helper_data, registered_variables)
+
+    if config.solver_config.divergence_control != INDUCTION_SOURCE:
+        return _sweeps(primitive_state, _strang_sequence(config.dimensionality), *sweep_arguments)
+
+    signal_speed = _maximum_signal_speed_vl2(primitive_state, config, params, registered_variables)
+    full_sweeps = [(axis, 1.0) for axis in range(1, config.dimensionality + 1)]
+    if config.dimensionality == 1:
+        primitive_state = _sweeps(primitive_state, full_sweeps, *sweep_arguments)
+    else:
+        primitive_state = jax.lax.cond(
+            step_index % 2 == 0,
+            lambda state: _sweeps(state, full_sweeps, *sweep_arguments),
+            lambda state: _sweeps(state, full_sweeps[::-1], *sweep_arguments),
+            primitive_state,
+        )
+
+    if config.solver_config.parabolic_cleaning:
+        primitive_state = _parabolic_cleaning(primitive_state, signal_speed, dt, config, registered_variables)
+        primitive_state = _update_ghost_cells(primitive_state, config, params, registered_variables)
     return primitive_state
 
 

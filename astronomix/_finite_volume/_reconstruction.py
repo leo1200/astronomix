@@ -13,6 +13,10 @@ with the limited slopes before they are extrapolated to the faces
 distances between the cell centres (``CellDistances``), which is one of the
 two places where a curvilinear geometry enters the scheme; the other one is
 the flux divergence (``_flux_correction.py``).
+
+The MHD form of the split scheme (``FieldRows``) adds the rows of the field to
+the predictor and clips the slopes of density, normal velocity and pressure
+(Waagan 2009, J. Comput. Phys. 228, 8609).
 """
 
 # typing
@@ -240,6 +244,24 @@ def _limited_gradients(cell_minus, cell, cell_plus, limiter: int, distances: Cel
     )
 
 
+class FieldRows(NamedTuple):
+    """
+    The rows of the MHD predictor of a sweep.
+
+    Attributes:
+        transverse_velocity_indices: The state indices of the two velocities across the sweep axis.
+        normal_field_index: The state index of the field along the sweep axis.
+        transverse_field_indices: The state indices of the two field components across the sweep axis.
+        pressure_exponent: The exponent of the density in the pressure at constant entropy: the adiabatic index,
+            or the exponent of a barotropic law.
+    """
+
+    transverse_velocity_indices: Tuple[int, int]
+    normal_field_index: int
+    transverse_field_indices: Tuple[int, int]
+    pressure_exponent: Union[float, Float[Array, ""]]
+
+
 class HancockTerms(NamedTuple):
     """
     What the Hancock predictor of a sweep needs beyond the reconstruction.
@@ -254,6 +276,7 @@ class HancockTerms(NamedTuple):
         distances: The distances between cell centres and to the faces.
         sound_speed_squared_of: ``None`` for the ideal gas; for a barotropic gas the squared sound speed as a
             function of the density.
+        field_rows: ``None`` for hydrodynamics; the rows of the MHD predictor.
     """
 
     half_step: Union[float, Float[Array, ""]]
@@ -264,6 +287,85 @@ class HancockTerms(NamedTuple):
     carried_density_indices: Tuple[int, ...]
     distances: CellDistances
     sound_speed_squared_of: Callable = None
+    field_rows: FieldRows = None
+
+
+#: Sign of the force ``B_n dB_n/dn`` on the normal velocity in the MHD predictor. The momentum flux of a sweep
+#: carries ``-B_n^2 / 2`` (the induction source leaves momentum and energy in conservation form), which gives -1;
+#: Waagan (2009), eq. 4.17, prints +1. Tests set the printed sign to measure the difference.
+_NORMAL_FIELD_FORCE_SIGN = -1.0
+
+#: Waagan (2009), section 3.4: the bounds of the slope clips are multiplied by 0.9 "to avoid marginality".
+_SLOPE_CLIP_MARGIN = 0.9
+
+
+def _with_field_rates(rate: STATE_TYPE, primitive_state: STATE_TYPE, gradients: STATE_TYPE, hancock: HancockTerms):
+    """
+    Add the magnetic couplings to the rate of the Hancock predictor: the primitive form of ideal MHD along the
+    sweep axis with Powell's term in the induction equation only (Waagan 2009, eq. 4.16 to 4.21),
+
+        du_n/dt = ... - (B_t . dB_t/dn - B_n dB_n/dn) / rho
+        du_t/dt = ... + (B_n dB_t/dn + B_t dB_n/dn) / rho
+        dB_t/dt = ... - B_t du_n/dn + B_n du_t/dn
+
+    The normal field is advected like every other row; the pressure row has no magnetic term.
+
+    Args:
+        rate: The rate of the hydrodynamic predictor.
+        primitive_state: The primitive state.
+        gradients: The limited gradients of the state along the sweep axis.
+        hancock: The predictor terms of the sweep, with ``field_rows``.
+
+    Returns:
+        The rate with the magnetic couplings.
+    """
+    rows = hancock.field_rows
+    density = primitive_state[hancock.density_index]
+    normal_velocity_gradient = gradients[hancock.normal_velocity_index]
+    normal_field = primitive_state[rows.normal_field_index]
+    normal_field_gradient = gradients[rows.normal_field_index]
+
+    magnetic_force = _NORMAL_FIELD_FORCE_SIGN * normal_field * normal_field_gradient
+    for velocity_index, field_index in zip(rows.transverse_velocity_indices, rows.transverse_field_indices):
+        field = primitive_state[field_index]
+        field_gradient = gradients[field_index]
+        magnetic_force = magnetic_force + field * field_gradient
+        tension = normal_field * field_gradient + field * normal_field_gradient
+        rate = rate.at[velocity_index].add(-tension / density)
+        rate = rate.at[field_index].add(field * normal_velocity_gradient - normal_field * gradients[velocity_index])
+    return rate.at[hancock.normal_velocity_index].add(magnetic_force / density)
+
+
+def _clipped_gradients(cell: STATE_TYPE, gradients: STATE_TYPE, hancock: HancockTerms) -> STATE_TYPE:
+    """
+    The slope clips of Waagan (2009), eq. 3.14, which keep the density and the pressure of the predicted edge
+    values positive: for the difference ``D`` over a cell of width ``h`` in a sweep of time step ``dt``
+
+        |D rho| < rho / 2,    |D u_n| < h / ((1 + gamma) dt),    |D p| < p / (1 + gamma),
+
+    each bound times ``_SLOPE_CLIP_MARGIN``. A barotropic gas has no pressure row; for the isothermal gas the
+    clip of the pressure is the clip of the density.
+
+    Args:
+        cell: The state in the cell.
+        gradients: The limited gradients.
+        hancock: The predictor terms of the sweep, with ``field_rows``.
+
+    Returns:
+        The clipped gradients.
+    """
+    width = hancock.distances.to_left_face + hancock.distances.to_right_face
+    one_plus_exponent = 1.0 + hancock.field_rows.pressure_exponent
+    bounds = [
+        (hancock.density_index, 0.5 * cell[hancock.density_index] / width),
+        (hancock.normal_velocity_index, 1.0 / (one_plus_exponent * 2.0 * hancock.half_step)),
+    ]
+    if hancock.sound_speed_squared_of is None:
+        bounds.append((hancock.pressure_index, cell[hancock.pressure_index] / (one_plus_exponent * width)))
+    for index, bound in bounds:
+        bound = _SLOPE_CLIP_MARGIN * bound
+        gradients = gradients.at[index].set(jnp.clip(gradients[index], -bound, bound))
+    return gradients
 
 
 def _hancock_predictor(primitive_state: STATE_TYPE, gradients: STATE_TYPE, hancock: HancockTerms) -> STATE_TYPE:
@@ -275,7 +377,8 @@ def _hancock_predictor(primitive_state: STATE_TYPE, gradients: STATE_TYPE, hanco
     A density carried with the gas is compressed like the gas density, so that
     a uniform concentration stays uniform at the faces. A barotropic gas has
     no pressure row: its pressure force follows from the density gradient,
-    ``dp/dn = a^2 drho/dn``.
+    ``dp/dn = a^2 drho/dn``. With ``hancock.field_rows`` the magnetic couplings
+    are added (``_with_field_rates``).
 
     Args:
         primitive_state: The primitive state.
@@ -298,15 +401,18 @@ def _hancock_predictor(primitive_state: STATE_TYPE, gradients: STATE_TYPE, hanco
     if hancock.sound_speed_squared_of is not None:
         # pressure force of a barotropic gas: du_n/dt = ... - (a^2 / rho) drho/dn
         pressure_gradient = hancock.sound_speed_squared_of(density) * gradients[hancock.density_index]
-        return rate.at[hancock.normal_velocity_index].add(pressure_gradient / density)
+        rate = rate.at[hancock.normal_velocity_index].add(pressure_gradient / density)
+    else:
+        pressure = primitive_state[hancock.pressure_index]
+        pressure_gradient = gradients[hancock.pressure_index]
+        # pressure force: du_n/dt = ... - (1 / rho) dp/dn
+        rate = rate.at[hancock.normal_velocity_index].add(pressure_gradient / density)
+        # compression work: dp/dt = ... - rho c^2 du_n/dn, with rho c^2 = gamma p
+        rate = rate.at[hancock.pressure_index].add(hancock.gamma * pressure * normal_velocity_gradient)
 
-    pressure = primitive_state[hancock.pressure_index]
-    pressure_gradient = gradients[hancock.pressure_index]
-    # pressure force: du_n/dt = ... - (1 / rho) dp/dn
-    rate = rate.at[hancock.normal_velocity_index].add(pressure_gradient / density)
-    # compression work: dp/dt = ... - rho c^2 du_n/dn, with rho c^2 = gamma p
-    rate = rate.at[hancock.pressure_index].add(hancock.gamma * pressure * normal_velocity_gradient)
-    return rate
+    if hancock.field_rows is None:
+        return rate
+    return _with_field_rates(rate, primitive_state, gradients, hancock)
 
 
 def _hancock_face_values(cell_minus, cell, cell_plus, limiter: int, hancock: HancockTerms):
@@ -314,6 +420,7 @@ def _hancock_face_values(cell_minus, cell, cell_plus, limiter: int, hancock: Han
     The piecewise-linear reconstruction of one cell of the split scheme: the
     cell value, minus half a step of the predictor, plus or minus the distance
     to the face times the limited gradient (MUSCL-Hancock, van Leer 1984).
+    The MHD form clips the gradients first (``_clipped_gradients``).
 
     Args:
         cell_minus: The state in the left neighbour.
@@ -327,6 +434,8 @@ def _hancock_face_values(cell_minus, cell, cell_plus, limiter: int, hancock: Han
     """
     distances = hancock.distances
     gradients = _limited_gradients(cell_minus, cell, cell_plus, limiter, distances)
+    if hancock.field_rows is not None:
+        gradients = _clipped_gradients(cell, gradients, hancock)
     predicted = cell - hancock.half_step * _hancock_predictor(cell, gradients, hancock)
     return predicted + distances.to_right_face * gradients, predicted - distances.to_left_face * gradients
 

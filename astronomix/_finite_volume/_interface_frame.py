@@ -20,11 +20,15 @@ from typing import (
     NamedTuple,
 )
 
+# jax
+import jax.numpy as jnp
+
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
     HLL,
     HLLC,
     HLLD,
+    ISOTHERMAL,
     LAX_FRIEDRICHS,
 )
 
@@ -62,6 +66,9 @@ from astronomix._finite_volume._riemann._llf import (
 #: Positions of density and pressure in the interface frame (:class:`HydroFaceState`, :class:`MHDFaceState`).
 FRAME_DENSITY = 0
 FRAME_PRESSURE = 4
+#: Positions of the velocity and of the field (normal, transverse 1, transverse 2) in :class:`MHDFaceState`.
+FRAME_VELOCITY = slice(1, 4)
+FRAME_FIELD = slice(5, 8)
 
 
 def _velocity_component_indices(registered_variables: RegisteredVariables):
@@ -119,11 +126,12 @@ def _interface_frame_indices(
         return hydro_indices
 
     field = tuple(registered_variables.magnetic_index)
+    psi_index = registered_variables.magnetic_psi_index
     return hydro_indices + (
         field[normal],
         field[transverse_1],
         field[transverse_2],
-        registered_variables.magnetic_psi_index,
+        psi_index if psi_index >= 0 else None,
     )
 
 
@@ -160,11 +168,13 @@ class BarotropicLaw(NamedTuple):
     """
     Pressure and squared sound speed of a barotropic gas as functions of the
     density: the form in which the Riemann solvers and the Hancock predictor
-    take the equation of state.
+    take the equation of state. ``exponent`` is the exponent of the density in
+    the pressure (one for the isothermal gas).
     """
 
     pressure_of: Callable
     sound_speed_squared_of: Callable
+    exponent: float
 
 
 def _barotropic_law(params: SimulationParams, config: SimulationConfig):
@@ -183,6 +193,7 @@ def _barotropic_law(params: SimulationParams, config: SimulationConfig):
     return BarotropicLaw(
         pressure_of=lambda density: barotropic_pressure(density, params, config),
         sound_speed_squared_of=lambda density: sound_speed_squared(density, None, params, config),
+        exponent=1.0 if config.equation_of_state == ISOTHERMAL else params.polytropic_exponent,
     )
 
 
@@ -190,6 +201,25 @@ def _with_pressure_of_law(frame_values, barotropic_law: BarotropicLaw):
     """Return the frame values with the pressure of the barotropic law at the pressure position."""
     pressure = barotropic_law.pressure_of(frame_values[FRAME_DENSITY])
     return frame_values[:FRAME_PRESSURE] + (pressure,) + frame_values[FRAME_PRESSURE + 1 :]
+
+
+def _mhd_face_state(state, frame_indices, barotropic_law: BarotropicLaw = None) -> MHDFaceState:
+    """
+    The rows of a state array as an MHD face state in the frame of an interface.
+
+    Args:
+        state: A primitive state array (values on one side of the interfaces).
+        frame_indices: The state indices of the frame (``_interface_frame_indices``).
+        barotropic_law: ``None`` for the ideal gas, or the law of a barotropic gas.
+
+    Returns:
+        The face state: zeros for the components the layout lacks, the pressure of the law for a barotropic gas.
+    """
+    zero = jnp.zeros_like(state[frame_indices[FRAME_DENSITY]])
+    values = tuple(state[index] if index is not None else zero for index in frame_indices)
+    if barotropic_law is not None:
+        values = _with_pressure_of_law(values, barotropic_law)
+    return MHDFaceState(*values)
 
 
 def _interface_flux_from_states(

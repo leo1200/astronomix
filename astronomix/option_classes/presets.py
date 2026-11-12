@@ -16,10 +16,14 @@ the equation of state, ``mhd``) stay with the script.
 """
 
 from astronomix.option_classes.simulation_config import (
+    DOUBLE_MINMOD,
     FDSolverConfig,
     FVSolverConfig,
     GLM,
+    HLL5R,
     HLLD,
+    INDUCTION_SOURCE,
+    MUSCL_HANCOCK,
     PIECEWISE_LINEAR,
     RIEMANN_FLUX,
     SSPRK33,
@@ -39,6 +43,20 @@ ATHENAPK_VL2 = FVSolverConfig(
     riemann_solver=HLLD,
     divergence_control=GLM,
     first_order_flux_correction=True,
+)
+
+#: The scheme of the 10080^3 turbulence run of Beattie et al. (2025), as published by Waagan, Federrath &
+#: Klingenberg (2011) (finite volume, ``solver_mode=FINITE_VOLUME``): dimensionally split MUSCL-Hancock on
+#: primitive variables with monotonised-central slopes, the HLL5R relaxation solver, Powell's term in the
+#: induction equation only and parabolic divergence cleaning; cell-centred field. Use with ``mhd=True``,
+#: ``equation_of_state=ISOTHERMAL`` (the ideal gas runs as well) and a CFL number of 0.8.
+BEATTIE_REFERENCE = FVSolverConfig(
+    time_integrator=MUSCL_HANCOCK,
+    reconstruction=PIECEWISE_LINEAR,
+    limiter=DOUBLE_MINMOD,
+    riemann_solver=HLL5R,
+    divergence_control=INDUCTION_SOURCE,
+    parabolic_cleaning=True,
 )
 
 #: The production scheme of the paper (finite difference,
