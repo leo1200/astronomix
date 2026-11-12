@@ -1,5 +1,5 @@
 """
-Pallas backend of the VL2 finite-volume scheme.
+The fused stage kernel: the Pallas backend of the finite-volume stage (the VL2 finite-volume scheme).
 
 Each VL2 stage is a single fused Pallas kernel: for a block of cells it reads
 the stage's primitive stencil, reconstructs (donor cell or AthenaPK's PLM) the
@@ -23,9 +23,9 @@ donor-cell local Lax-Friedrichs fluxes. In the common case that no cell fails,
 this costs only one reduction over the reported codes.
 
 The physics is not re-implemented here: the kernel calls the same elementwise
-functions as the native path (``_athena_riemann_solvers``, the component
-helpers of ``_van_leer_integrator`` and the extended Dedner source terms of
-``_glm_divergence_cleaning``), so both backends evaluate the same expressions.
+functions as the native path (the Riemann solvers of ``_riemann/``, the
+component helpers of ``_stage.py`` and the extended Dedner source terms of
+``_divergence/_glm.py``), so both backends evaluate the same expressions.
 """
 
 # jax
@@ -47,8 +47,20 @@ from astronomix.option_classes.simulation_params import SimulationParams
 from astronomix.variable_registry.registered_variables import RegisteredVariables
 
 # astronomix functions
-from astronomix._finite_volume._magnetic_update._glm_divergence_cleaning import (
-    _extended_dedner_source_terms,
+from astronomix._finite_volume._divergence._glm import _extended_dedner_source_terms
+from astronomix._finite_volume._flux_correction import (
+    NUM_FLUX_CORRECTION_ATTEMPTS,
+    _newly_flagged_cells,
+    _positivity_failure_code,
+)
+from astronomix._finite_volume._reconstruction import _van_leer_slopes
+from astronomix._finite_volume._stage import (
+    _conserved_components_from_primitive,
+    _interface_flux_from_states,
+    _interface_frame_indices,
+    _native_stage_from_primitive_base,
+    _primitive_components_from_conserved,
+    _state_components_from_frame,
 )
 from astronomix._pallas_helpers import (
     _as_3tuple_block_shape,
@@ -75,7 +87,7 @@ def _interior_spatial_shape(state, config: SimulationConfig):
     return spatial_shape
 
 
-def _vl2_block_shape(state, config: SimulationConfig):
+def _fv_stage_block_shape(state, config: SimulationConfig):
     """The Pallas block shape, resolved on the updated (interior) extents."""
     ndim = int(config.dimensionality)
     return _as_3tuple_block_shape(
@@ -85,7 +97,7 @@ def _vl2_block_shape(state, config: SimulationConfig):
     )
 
 
-def _vl2_pallas_supported(state, config: SimulationConfig) -> bool:
+def _fv_stage_pallas_supported(state, config: SimulationConfig) -> bool:
     """
     Whether the fused VL2 stage kernel applies to this state and configuration.
 
@@ -113,7 +125,7 @@ def _vl2_pallas_supported(state, config: SimulationConfig) -> bool:
         mesh = _current_pallas_mesh()
         if mesh is not None and mesh.size > 1:
             return False
-    block_shape = _vl2_block_shape(state, config)
+    block_shape = _fv_stage_block_shape(state, config)
     for extent, block in zip(_interior_spatial_shape(state, config), block_shape[:ndim], strict=True):
         if extent % block != 0:
             return False
@@ -129,7 +141,7 @@ def _vl2_pallas_supported(state, config: SimulationConfig) -> bool:
 # -------------------------------------------------------------
 
 
-def _vl2_stage_pallas_local(
+def _fv_stage_pallas_local(
     stage_primitive_state,
     base_primitive_state,
     correction_mask,
@@ -174,18 +186,6 @@ def _vl2_stage_pallas_local(
         The primitive state after the stage (ghost cells not updated), and with
         ``report_failures`` the ``(1, *grid)`` failure codes.
     """
-    # Imported here because the integrator module imports this module at its
-    # top.
-    from astronomix._finite_volume._state_evolution._van_leer_integrator import (
-        _conserved_components_from_primitive,
-        _interface_flux_from_states,
-        _interface_frame_indices,
-        _positivity_failure_code,
-        _primitive_components_from_conserved,
-        _state_components_from_frame,
-        _van_leer_slopes,
-    )
-
     # -------------------------------------------------------------
     # ===================== ↓ Static layout ↓ =====================
     # -------------------------------------------------------------
@@ -197,7 +197,7 @@ def _vl2_stage_pallas_local(
     extents_3d = spatial_shape + (1,) * (3 - ndim)
     ghost_cells = config.boundary_handling == GHOST_CELLS
     cell_offset = config.num_ghost_cells if ghost_cells else 0
-    block_extents = _vl2_block_shape(stage_primitive_state, config)
+    block_extents = _fv_stage_block_shape(stage_primitive_state, config)
     interior_extents = _interior_spatial_shape(stage_primitive_state, config)
     grid = tuple(interior_extents[axis] // block_extents[axis] for axis in range(ndim))
 
@@ -563,7 +563,7 @@ def _vl2_stage_pallas_local(
 # -------------------------------------------------------------
 
 
-def _vl2_stage_pallas_once(
+def _fv_stage_pallas_once(
     stage_primitive_state,
     base_primitive_state,
     correction_mask,
@@ -606,7 +606,7 @@ def _vl2_stage_pallas_once(
         ``report_failures`` the ``(1, *grid)`` failure codes.
     """
     ndim = int(config.dimensionality)
-    block_shape = _vl2_block_shape(stage_primitive_state, config)
+    block_shape = _fv_stage_block_shape(stage_primitive_state, config)
     halo = (2 if piecewise_linear else 1,) * ndim
     has_base = base_primitive_state is not None
     has_mask = correction_mask is not None
@@ -636,7 +636,7 @@ def _vl2_stage_pallas_once(
             local_stage = local_states.pop(0)
             local_base = local_states.pop(0) if has_base else None
             local_mask = local_states.pop(0) if has_mask else None
-            return _vl2_stage_pallas_local(
+            return _fv_stage_pallas_local(
                 local_stage,
                 local_base,
                 local_mask,
@@ -681,12 +681,6 @@ def _vl2_stage_pallas_once(
         simulation_params,
     ):
         """The same stage in native JAX, whose tangent serves as the Pallas tangent."""
-        # Imported here because the integrator module imports this module at
-        # its top.
-        from astronomix._finite_volume._state_evolution._van_leer_integrator import (
-            _native_stage_from_primitive_base,
-        )
-
         if has_mask:
             native_mask = mask
         elif report_failures:
@@ -726,7 +720,7 @@ def _vl2_stage_pallas_once(
     )
 
 
-def _vl2_stage_pallas(
+def _fv_stage_pallas(
     stage_primitive_state,
     base_primitive_state,
     stage_time_step,
@@ -765,16 +759,9 @@ def _vl2_stage_pallas(
     Returns:
         The primitive state after the stage (ghost cells not updated).
     """
-    # Imported here because the integrator module imports this module at its
-    # top.
-    from astronomix._finite_volume._state_evolution._van_leer_integrator import (
-        NUM_FLUX_CORRECTION_ATTEMPTS,
-        _newly_flagged_cells,
-    )
-
     def evaluate(correction_mask, report_failures):
         """One kernel evaluation with the given correction mask."""
-        return _vl2_stage_pallas_once(
+        return _fv_stage_pallas_once(
             stage_primitive_state,
             base_primitive_state,
             correction_mask,

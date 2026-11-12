@@ -1,0 +1,251 @@
+"""
+Time integrators of the finite-volume framework: an integrator is a sequence
+of stages (``_stage.py``).
+
+``vl2_step``: the VL2 finite-volume scheme of AthenaPK.
+
+A re-implementation of AthenaPK's default second-order scheme: the van Leer
+predictor-corrector ("VL2", Stone & Gardiner 2009) with a donor-cell predictor
+half step and a piecewise-linear (harmonic van Leer slope) corrector step,
+AthenaPK's HLLD / HLLE / HLLC / LLF interface solvers, and — for MHD — the
+cell-centred GLM-MHD system of Dedner et al. (2002) with the cleaning scalar psi
+carried as a ninth variable. AthenaPK's first-order flux correction and its
+density / pressure floors are available as options. Self-gravity (and an
+external potential) couple as in Athena++, whose VL2 integrator this is: every
+stage adds the source of ``_add_athena_gravity_source`` built from the
+potential of the stage's initial state and the stage's Riemann mass fluxes,
+optionally with the time-centred energy source of Mullen, Hanawa & Gammie
+(2021). The gravity source runs on the native backend only.
+
+One step of size ``dt`` from the primitive state ``W^n`` (conserved form
+``U^n``) reads, exactly as AthenaPK's task list::
+
+    c_h      = max over cells and axes of |v_d| + c_fast,d     (MHD only)
+    U^{n+½}  = U^n - dt/2 L_DC(W^n)       then  psi *= exp(-α c_h (dt/2) / dx)
+    W^{n+½}  = W(U^{n+½})
+    U^{n+1}  = U^n - dt   L_PLM(W^{n+½})  then  psi *= exp(-α c_h dt / dx)
+    W^{n+1}  = W(U^{n+1})
+
+with the flux divergence ``L(W)_i = (1/dx) Σ_d (F_{i+½} - F_{i-½})``. With
+gravity each stage adds ``beta dt S(rho_stage, F_stage, phi_stage)`` to its
+update, where ``phi_stage`` is the potential of the stage's initial density
+(two Poisson solves per step, as in Athena++; three with the time-centred
+energy source).
+
+The per-face physics (reconstruction, Riemann solvers, conversions) is written as
+elementwise functions that the Pallas kernels in ``_stage_pallas.py`` call as
+well, so both backends evaluate the same expressions. The scheme reproduces
+AthenaPK to round-off on its standard test problems
+(``pytests/mhd/vl2_athenapk_regression.py``; the full comparison is documented in
+``examples/scripts/validation/athenapk_vl2/README.md``).
+"""
+
+# general
+from functools import partial
+
+# typing
+from typing import Union
+from jaxtyping import (
+    Array,
+    Float,
+)
+
+# jax
+import jax
+
+# astronomix constants
+from astronomix.option_classes.simulation_config import (
+    DONOR_CELL,
+    STATE_TYPE,
+)
+
+# astronomix containers
+from astronomix.data_classes.simulation_helper_data import HelperData
+from astronomix.option_classes.simulation_config import SimulationConfig
+from astronomix.option_classes.simulation_params import SimulationParams
+from astronomix.variable_registry.registered_variables import RegisteredVariables
+
+# astronomix functions
+from astronomix._finite_volume._divergence._glm import _cleaning_speed_and_damping
+from astronomix._finite_volume._gravity_coupling import _vl2_gravitational_potential
+from astronomix._finite_volume._stage import (
+    _conserved_from_primitive_vl2,
+    _update_ghost_cells,
+    fv_stage,
+)
+from astronomix._finite_volume._stage_pallas import (
+    _fv_stage_pallas,
+    _fv_stage_pallas_supported,
+)
+
+
+# -------------------------------------------------------------
+# ===================== ↓ VL2 time step ↓ =====================
+# -------------------------------------------------------------
+
+
+@partial(jax.jit, static_argnames=["config", "registered_variables"])
+def vl2_step(
+    primitive_state: STATE_TYPE,
+    dt: Float[Array, ""],
+    gamma: Union[float, Float[Array, ""]],
+    config: SimulationConfig,
+    params: SimulationParams,
+    helper_data: HelperData,
+    registered_variables: RegisteredVariables,
+) -> STATE_TYPE:
+    """
+    Advance the primitive state by one VL2 step: a donor-cell predictor to the
+    half step, then the corrector with the van Leer limited PLM, or with donor
+    cell when ``reconstruction=DONOR_CELL`` is set (``config.solver_config.limiter`` is not
+    read). Runs on the Pallas backend when it supports the configuration and
+    natively otherwise; with gravity always natively.
+
+    Args:
+        primitive_state: The primitive state ``W^n``.
+        dt: The time step.
+        gamma: The adiabatic index.
+        config: The simulation configuration.
+        params: The simulation parameters.
+        helper_data: The helper data (unused, kept for the common signature).
+        registered_variables: The registered variables.
+
+    Returns:
+        The primitive state ``W^{n+1}``.
+    """
+    corrector_piecewise_linear = config.solver_config.reconstruction != DONOR_CELL
+
+    # Updates between steps (turbulent forcing, cooling, ...) may have changed
+    # the physical cells without touching the halo.
+    primitive_state = _update_ghost_cells(primitive_state, config, params, registered_variables)
+
+    cleaning_speed, damping_factors = _cleaning_speed_and_damping(
+        primitive_state,
+        dt,
+        config,
+        params,
+        registered_variables,
+    )
+    predictor_damping_factor, corrector_damping_factor = damping_factors
+
+    # The gravity source needs every face's mass flux, which the fused Pallas
+    # stage kernels never write out (they form the flux divergence in
+    # registers), so with gravity the stages run natively.
+    if not config.gravity_config.gravity and _fv_stage_pallas_supported(primitive_state, config):
+
+        # --------------- ↓ Pallas stages ↓ ----------------
+
+        # The Pallas stages take the base register in primitive form and
+        # recompute U^n in-kernel, which saves a state-sized buffer. In the
+        # predictor the base state is the stage state itself.
+        half_step_primitive_state = _fv_stage_pallas(
+            primitive_state,
+            base_primitive_state=None,
+            stage_time_step=0.5 * dt,
+            piecewise_linear=False,
+            cleaning_speed=cleaning_speed,
+            damping_factor=predictor_damping_factor,
+            gamma=gamma,
+            config=config,
+            params=params,
+            registered_variables=registered_variables,
+        )
+        half_step_primitive_state = _update_ghost_cells(
+            half_step_primitive_state,
+            config,
+            params,
+            registered_variables,
+        )
+        new_primitive_state = _fv_stage_pallas(
+            half_step_primitive_state,
+            base_primitive_state=primitive_state,
+            stage_time_step=dt,
+            piecewise_linear=corrector_piecewise_linear,
+            cleaning_speed=cleaning_speed,
+            damping_factor=corrector_damping_factor,
+            gamma=gamma,
+            config=config,
+            params=params,
+            registered_variables=registered_variables,
+        )
+
+        # --------------- ↑ Pallas stages ↑ ----------------
+
+        return _update_ghost_cells(new_primitive_state, config, params, registered_variables)
+
+    # --------------- ↓ Native stages ↓ ----------------
+
+    # The potential of each stage's initial state: Athena++ solves the
+    # Poisson equation after every stage, so the predictor sees phi(rho^n) and
+    # the corrector phi(rho^{n+1/2}).
+    initial_potential = None
+    if config.gravity_config.gravity:
+        initial_potential = _vl2_gravitational_potential(
+            primitive_state[registered_variables.density_index],
+            config,
+            params,
+            registered_variables,
+        )
+
+    initial_conserved_state = _conserved_from_primitive_vl2(
+        primitive_state,
+        gamma,
+        config,
+        registered_variables,
+    )
+    half_step_primitive_state, half_step_end_potential = fv_stage(
+        primitive_state,
+        initial_conserved_state,
+        stage_time_step=0.5 * dt,
+        piecewise_linear=False,
+        cleaning_speed=cleaning_speed,
+        damping_factor=predictor_damping_factor,
+        gamma=gamma,
+        config=config,
+        params=params,
+        registered_variables=registered_variables,
+        stage_potential=initial_potential,
+        initial_potential=initial_potential,
+    )
+    half_step_primitive_state = _update_ghost_cells(
+        half_step_primitive_state,
+        config,
+        params,
+        registered_variables,
+    )
+
+    # The time-centred energy source has already solved for the potential of
+    # the half-step density (before the floors, which only matters where they
+    # act), so it is reused rather than solved again.
+    half_step_potential = half_step_end_potential
+    if config.gravity_config.gravity and half_step_potential is None:
+        half_step_potential = _vl2_gravitational_potential(
+            half_step_primitive_state[registered_variables.density_index],
+            config,
+            params,
+            registered_variables,
+        )
+
+    new_primitive_state, _ = fv_stage(
+        half_step_primitive_state,
+        initial_conserved_state,
+        stage_time_step=dt,
+        piecewise_linear=corrector_piecewise_linear,
+        cleaning_speed=cleaning_speed,
+        damping_factor=corrector_damping_factor,
+        gamma=gamma,
+        config=config,
+        params=params,
+        registered_variables=registered_variables,
+        stage_potential=half_step_potential,
+        initial_potential=initial_potential,
+    )
+
+    # --------------- ↑ Native stages ↑ ----------------
+
+    return _update_ghost_cells(new_primitive_state, config, params, registered_variables)
+
+
+# -------------------------------------------------------------
+# ===================== ↑ VL2 time step ↑ =====================
+# -------------------------------------------------------------

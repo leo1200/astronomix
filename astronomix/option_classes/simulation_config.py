@@ -525,7 +525,7 @@ class FVSolverConfig(NamedTuple):
     #: electromotive forces come from the upwind formula of Gardiner & Stone
     #: (2005, 2008), and there is no cleaning scalar psi. The face divergence
     #: stays at rounding. Periodic boundaries on every axis, no gravity, native
-    #: JAX only (see ``_finite_volume/_state_evolution/_van_leer_ct.py``).
+    #: JAX only (see ``_finite_volume/_divergence/_constrained_transport.py``).
     divergence_control: int = GLM
 
     #: VL2 scheme only: add the non-conservative Dedner et al. (2002) sources,

@@ -783,7 +783,7 @@ a dedicated dual strong-scaling sweep has not been run.
 
 ### 4.7 FV VL2 scheme (AthenaPK's VL2 + PLM + HLLD + GLM) — DONE
 
-`_finite_volume/_state_evolution/_van_leer_pallas.py`. One fused kernel per
+`_finite_volume/_stage_pallas.py`. One fused kernel per
 VL2 stage (`vl2_predictor_dc`, `vl2_corrector_plm`): for a block of cells it
 loads the stage's primitive stencil along each axis (±1 cell for donor cell,
 ±2 for PLM), reconstructs, solves the Riemann problems on all `2*dim` faces of
@@ -796,8 +796,8 @@ dp vs 3.8 GiB native).
 Design notes worth keeping:
 
 - **Shared elementwise physics.** The kernel calls the same functions as the
-  native path (`_athena_riemann_solvers.py`, the `_*_components_*` helpers in
-  `_van_leer_integrator.py`), with state values passed as Python lists of
+  native path (the solvers of `_riemann/`, the `_*_components_*` helpers in
+  `_stage.py`), with state values passed as Python lists of
   tiles. Native and Pallas are bit-identical for MHD on an A100 and ≤1 ulp for
   hydro. Typed select arms: a `jnp.where` between two bare literals enters
   Triton as the default float type — build signs etc. from a typed operand
@@ -948,7 +948,7 @@ happens.  The ``pallasify`` skill must enforce this — see its
 | `astronomix/_finite_difference/_magnetic_update/_constrained_transport_pallas.py` | Optional Pallas CT (3 bounded-halo kernels). Gated by `config.pallas_ct` (default False — see §4.5 for the compile/runtime tradeoff). |
 | `astronomix/option_classes/simulation_config.py` | `backend`, `pallas_block_shape`, `pallas_use_triton`, `pallas_interpret`, `pallas_num_warps`, `pallas_ct`, `donate_state`, `time_integrator` knobs. |
 | `tests/pallas/sedov3D.py` | The canonical hydro Pallas benchmark — produces the figure + memory/runtime printout. |
-| `astronomix/_finite_volume/_state_evolution/_van_leer_pallas.py` | FV VL2 stage kernels (AthenaPK's scheme; §4.7). Native counterpart and dispatch: `_van_leer_integrator.py`. |
+| `astronomix/_finite_volume/_stage_pallas.py` | FV VL2 stage kernels (AthenaPK's scheme; §4.7). Native counterpart: `_stage.py`; dispatch: `_integrators.py`. |
 | `pytests/mhd/alfven_wave3D.py` | MHD convergence test (3D CP Alfvén wave, N=8..128, both FV and FD).  Acceptance gate for MHD Pallas changes — L1 error must match the NATIVE backend to machine precision. |
 
 ---

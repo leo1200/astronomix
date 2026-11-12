@@ -36,7 +36,7 @@ from compare_to_athenapk import athenapk_layout_to_astronomix, astronomix_layout
 
 # astronomix
 from astronomix.option_classes.simulation_config import NATIVE_JAX  # noqa: E402
-from astronomix._finite_volume._state_evolution._van_leer_integrator import _conserved_from_primitive_vl2  # noqa: E402
+from astronomix._finite_volume._stage import _conserved_from_primitive_vl2  # noqa: E402
 
 OUTPUT_DIRECTORY = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..", "pytests", "mhd", "data", "athenapk_vl2"

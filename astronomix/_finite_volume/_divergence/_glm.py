@@ -1,5 +1,5 @@
 """
-GLM divergence cleaning for the VL2 finite-volume MHD scheme.
+GLM divergence cleaning of the finite-volume stage (the VL2 finite-volume MHD scheme).
 
 AthenaPK controls the divergence of the cell-centred magnetic field with the
 hyperbolic-parabolic generalised Lagrange multiplier (GLM) method of Dedner et
@@ -140,7 +140,7 @@ def _dedner_source(
     non-conservative sources ``-(div B) B`` (momentum) and ``-B . grad(psi)``
     (energy) of Dedner et al. (2002) are added as well, evaluated with central
     differences of the primitive state the stage started from, as in AthenaPK.
-    The Pallas stage kernel (``_van_leer_pallas``) applies the same source with
+    The Pallas stage kernel (``_stage_pallas.py``) applies the same source with
     the shared ``_extended_dedner_source_terms``.
 
     Args:
@@ -186,3 +186,35 @@ def _dedner_source(
         )
 
     return conserved_state.at[psi_index].multiply(damping_factor)
+
+
+def _cleaning_speed_and_damping(
+    primitive_state: STATE_TYPE,
+    dt,
+    config: SimulationConfig,
+    params: SimulationParams,
+    registered_variables: RegisteredVariables,
+):
+    """
+    The step's GLM cleaning speed and the psi damping factors of the two stages
+    (``c_h = 0`` and no damping for hydrodynamics).
+
+    Args:
+        primitive_state: The primitive state at the start of the step.
+        dt: The time step.
+        config: The simulation configuration.
+        params: The simulation parameters.
+        registered_variables: The registered variables.
+
+    Returns:
+        The cleaning speed and the (predictor, corrector) damping factors.
+    """
+    if not config.mhd:
+        zero = jnp.zeros((), dtype=primitive_state.dtype)
+        return zero, (zero + 1.0, zero + 1.0)
+    cleaning_speed = _glm_cleaning_speed(primitive_state, config, params, registered_variables)
+    damping_factors = (
+        _psi_damping_factor(cleaning_speed, 0.5 * dt, config, params),
+        _psi_damping_factor(cleaning_speed, dt, config, params),
+    )
+    return cleaning_speed, damping_factors

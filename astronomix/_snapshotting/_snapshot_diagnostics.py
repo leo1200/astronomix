@@ -21,7 +21,7 @@ from astronomix.option_classes.simulation_config import FINITE_DIFFERENCE
 from astronomix.data_classes.simulation_snapshot_data import SnapshotData
 
 # astronomix functions
-from astronomix._finite_volume._magnetic_update._vector_maths import divergence3D
+from astronomix._spatial_operators._vector_maths import divergence3D
 from astronomix._fluid_equations.total_quantities import (
     calculate_gravitational_energy,
     calculate_internal_energy,

@@ -5,10 +5,10 @@ The second-order MHD integrator of Athena (Stone & Gardiner 2009, New
 Astronomy 14, 139, section 4, "SG09" below; the corner electromotive forces are
 those of Gardiner & Stone 2005, J. Comput. Phys. 205, 509, "GS05", and 2008,
 J. Comput. Phys. 227, 4123, "GS08"). It is the constrained-transport
-counterpart of the GLM scheme in :mod:`._van_leer_integrator`, selected by
+counterpart of the GLM scheme (``vl2_step`` in ``_integrators.py``), selected by
 ``divergence_control=CONSTRAINED_TRANSPORT``; the reconstruction, the Riemann solvers
 and the conversions between conserved and primitive variables are the ones of
-that module.
+that scheme (``_reconstruction.py``, ``_riemann/``, ``_stage.py``).
 
 Variables
 ---------
@@ -144,16 +144,18 @@ from astronomix.option_classes.simulation_params import SimulationParams
 from astronomix.variable_registry.registered_variables import RegisteredVariables
 
 # astronomix functions
-from astronomix._finite_volume._state_evolution._van_leer_integrator import (
+from astronomix._finite_volume._flux_correction import (
     NUM_FLUX_CORRECTION_ATTEMPTS,
-    _conserved_from_primitive_vl2,
     _corrected_fluxes,
-    _flux_divergence,
-    _interface_flux_from_states,
     _newly_flagged_cells,
     _positivity_failure_code,
+)
+from astronomix._finite_volume._reconstruction import _reconstructed_face_states
+from astronomix._finite_volume._stage import (
+    _conserved_from_primitive_vl2,
+    _flux_divergence,
+    _interface_flux_from_states,
     _primitive_from_conserved_vl2,
-    _reconstructed_face_states,
     _state_components_from_frame,
 )
 

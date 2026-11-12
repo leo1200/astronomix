@@ -51,12 +51,10 @@ from astronomix._finite_volume._state_evolution._pallas_evolve import (
     _evolve_gas_state_unsplit_pallas,
     _fv_pallas_evolve_supported,
 )
-from astronomix._finite_volume._state_evolution._van_leer_ct import (
+from astronomix._finite_volume._divergence._constrained_transport import (
     _evolve_state_vl2_ct,
 )
-from astronomix._finite_volume._state_evolution._van_leer_integrator import (
-    _evolve_state_vl2,
-)
+from astronomix._finite_volume._integrators import vl2_step
 from astronomix._geometry.boundaries import _boundary_handler
 from astronomix._fluid_equations._equations import (
     primitive_state_from_conserved,
@@ -575,7 +573,7 @@ def _evolve_state_fv(
                 helper_data,
                 registered_variables,
             )
-        return _evolve_state_vl2(
+        return vl2_step(
             primitive_state,
             dt,
             gamma,

@@ -51,7 +51,7 @@ from astronomix import SnapshotSettings
 
 # astronomix functions
 from astronomix import time_integration
-from astronomix._finite_volume._state_evolution._van_leer_integrator import _conserved_from_primitive_vl2
+from astronomix._finite_volume._stage import _conserved_from_primitive_vl2
 
 # validation helpers
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

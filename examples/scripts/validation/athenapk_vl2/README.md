@@ -40,9 +40,9 @@ params = SimulationParams(C_cfl=0.3, glm_alpha=0.1)  # AthenaPK cfl, glmmhd_alph
 The MHD state is `(rho, vx, vy, vz, p, Bx, By, Bz, psi)` in every dimensionality
 (`registered_variables.magnetic_psi_index`). Periodic boxes use the
 periodic-roll layout, other boundaries two ghost cells. The code is in
-`astronomix/_finite_volume/_state_evolution/_van_leer_integrator.py` (driver),
-`_van_leer_pallas.py` (Pallas kernels), `_riemann_solver/_athena_riemann_solvers.py`
-and `_magnetic_update/_glm_divergence_cleaning.py`; the per-face physics is
+`astronomix/_finite_volume/`: `_integrators.py` (the VL2 step), `_stage.py` (the stage),
+`_stage_pallas.py` (Pallas kernels), `_riemann/` (Riemann solvers)
+and `_divergence/_glm.py`; the per-face physics is
 written once as elementwise functions that both backends evaluate.
 
 ## Agreement with AthenaPK

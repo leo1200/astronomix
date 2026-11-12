@@ -38,7 +38,7 @@ from astronomix.variable_registry.registered_variables import RegisteredVariable
 from astronomix._modules._stellar_wind.stellar_wind import _wind_injection
 from astronomix._fluid_equations._fluxes import _euler_flux
 from astronomix._fluid_equations._equations import speed_of_sound
-from astronomix._finite_volume._riemann_solver._athena_riemann_solvers import (
+from astronomix._finite_volume._riemann._face_state import (
     adiabatic_sound_speed,
     fast_magnetosonic_speed,
 )

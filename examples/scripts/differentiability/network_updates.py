@@ -32,7 +32,7 @@ import jax.numpy as jnp
 import equinox as eqx
 
 # astronomix functions
-from astronomix._finite_volume._magnetic_update._vector_maths import curl2D
+from astronomix._spatial_operators._vector_maths import curl2D
 
 
 # -------------------------------------------------------------
