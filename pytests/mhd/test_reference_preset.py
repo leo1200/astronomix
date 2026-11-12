@@ -39,6 +39,7 @@ from astronomix.option_classes.simulation_config import (
     DONOR_CELL,
     DOUBLE_MINMOD,
     FINITE_VOLUME,
+    GHOST_CELLS,
     GLM,
     HLL,
     HLL5R,
@@ -49,6 +50,7 @@ from astronomix.option_classes.simulation_config import (
     MUSCL_HANCOCK,
     OPEN_BOUNDARY,
     PERIODIC_BOUNDARY,
+    PERIODIC_ROLL,
     PIECEWISE_LINEAR,
     POLYTROPIC,
     RK2_SSP,
@@ -227,9 +229,11 @@ def test_accepted_with_the_induction_source():
             for solver_config in (BEATTIE_REFERENCE, NO_CLEANING, FIRST_ORDER):
                 config = _finalized(shape, equation_of_state=equation_of_state, solver_config=solver_config)
                 assert config.solver_config.riemann_solver == HLL5R
-                # One sweep and the cleaning reach two cells each; the ghost cells are refreshed in between.
-                assert config.num_ghost_cells == 2
-    assert _finalized((16, 16), boundary=OPEN_BOUNDARY).num_ghost_cells == 2
+                # A fully periodic box runs on the periodic-roll layout, without ghost cells.
+                assert config.boundary_handling == PERIODIC_ROLL and config.num_ghost_cells == 0
+    # Other boxes keep two ghost cells: one sweep and the cleaning reach two cells each, refreshed in between.
+    open_box = _finalized((16, 16), boundary=OPEN_BOUNDARY)
+    assert open_box.boundary_handling == GHOST_CELLS and open_box.num_ghost_cells == 2
 
 
 # -------------------------------------------------------------

@@ -260,7 +260,16 @@ def _cfl_time_step(
     gamma = params.gamma
 
     if config.solver_config.riemann_solver == HLL5R:
-        maximum_speed = _maximum_hll5r_speed(primitive_state, config, params, registered_variables)
+        # The kernel module imports the stage, which imports this module: hence the import at its use.
+        from astronomix._finite_volume._reference_pallas import (
+            _maximum_hll5r_speed_pallas,
+            _periodic_kernels_supported,
+        )
+
+        if _periodic_kernels_supported(primitive_state, config):
+            maximum_speed = _maximum_hll5r_speed_pallas(primitive_state, config, params, registered_variables)
+        else:
+            maximum_speed = _maximum_hll5r_speed(primitive_state, config, params, registered_variables)
         return jnp.minimum(C_CFL * grid_spacing / maximum_speed, dt_max)
 
     # A barotropic gas under the split scheme takes the cell criterion as well: the interface estimate below is

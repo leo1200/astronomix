@@ -106,6 +106,7 @@ from astronomix._finite_volume._gravity_coupling import _vl2_gravitational_poten
 from astronomix._finite_volume._stage import (
     _conserved_from_primitive,
     _primitive_from_conserved,
+    _sweep_stage,
     _update_ghost_cells,
     fv_stage,
 )
@@ -113,6 +114,12 @@ from astronomix._finite_volume._timestep_estimation._timestep_estimator import _
 from astronomix._finite_volume._stage_pallas import (
     _fv_stage_pallas,
     _fv_stage_pallas_supported,
+)
+from astronomix._finite_volume._reference_pallas import (
+    _parabolic_cleaning_pallas,
+    _periodic_kernels_supported,
+    _reference_kernels_supported,
+    _reference_sweep_pallas,
 )
 
 
@@ -451,25 +458,13 @@ def _sweeps(
     Returns:
         The primitive state after the sweeps.
     """
+    use_kernels = _reference_kernels_supported(primitive_state, config)
     for axis, fraction in sequence:
-        sweep_time_step = fraction * dt
-        conserved_state = _conserved_from_primitive(primitive_state, gamma, config, registered_variables)
-        primitive_state, _ = fv_stage(
-            primitive_state,
-            conserved_state,
-            stage_time_step=sweep_time_step,
-            reconstruction=config.solver_config.reconstruction,
-            # No cleaning scalar: a zero cleaning speed and no damping.
-            cleaning_speed=0.0,
-            damping_factor=1.0,
-            gamma=gamma,
-            config=config,
-            params=params,
-            registered_variables=registered_variables,
-            axes=(axis,),
-            predictor_half_step=0.5 * sweep_time_step,
-            helper_data=helper_data,
-        )
+        stage_arguments = (axis, fraction * dt, gamma, config, params, registered_variables)
+        if use_kernels:
+            primitive_state = _reference_sweep_pallas(primitive_state, *stage_arguments)
+        else:
+            primitive_state = _sweep_stage(primitive_state, *stage_arguments, helper_data)
         primitive_state = _update_ghost_cells(primitive_state, config, params, registered_variables)
 
     return primitive_state
@@ -527,7 +522,11 @@ def muscl_hancock_step(
         )
 
     if config.solver_config.parabolic_cleaning:
-        primitive_state = _parabolic_cleaning(primitive_state, signal_speed, dt, config, registered_variables)
+        cleaning_arguments = (signal_speed, dt, config, registered_variables)
+        if _periodic_kernels_supported(primitive_state, config):
+            primitive_state = _parabolic_cleaning_pallas(primitive_state, *cleaning_arguments)
+        else:
+            primitive_state = _parabolic_cleaning(primitive_state, *cleaning_arguments)
         primitive_state = _update_ghost_cells(primitive_state, config, params, registered_variables)
     return primitive_state
 

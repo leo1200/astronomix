@@ -1338,6 +1338,15 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
                     f"{option} is not implemented with divergence_control=INDUCTION_SOURCE (the split MHD "
                     "scheme carries ideal MHD only)."
                 )
+        # A fully periodic box runs on the periodic-roll layout, which the kernels and a device mesh need; other
+        # boxes keep their ghost cells.
+        periodic_sides = BoundarySettings1D(left_boundary=PERIODIC_BOUNDARY, right_boundary=PERIODIC_BOUNDARY)
+        if config.dimensionality == 1:
+            sides_per_axis = (config.boundary_settings,)
+        else:
+            sides_per_axis = tuple(config.boundary_settings or ())[: config.dimensionality]
+        if sides_per_axis and all(sides == periodic_sides for sides in sides_per_axis):
+            config = config._replace(boundary_handling=PERIODIC_ROLL, num_ghost_cells=0)
 
     if finite_volume and config.mhd and not (uses_vl2 or induction_source):
         raise ValueError(

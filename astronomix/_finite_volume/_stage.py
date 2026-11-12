@@ -890,6 +890,53 @@ def fv_stage(
     )
 
 
+def _sweep_stage(
+    primitive_state: STATE_TYPE,
+    axis: int,
+    sweep_time_step,
+    gamma,
+    config: SimulationConfig,
+    params: SimulationParams,
+    registered_variables: RegisteredVariables,
+    helper_data: HelperData = None,
+) -> STATE_TYPE:
+    """
+    One sweep of a dimensionally split scheme: a one-axis stage from the state itself, with the predictor over
+    half of its time step.
+
+    Args:
+        primitive_state: The primitive state, with up-to-date ghost cells.
+        axis: The spatial axis (1-based) of the sweep.
+        sweep_time_step: The time step of the sweep.
+        gamma: The adiabatic index.
+        config: The simulation configuration.
+        params: The simulation parameters.
+        registered_variables: The registered variables.
+        helper_data: The helper data (radii of the spherical 1D grid).
+
+    Returns:
+        The primitive state after the sweep. Its ghost cells are not up to date.
+    """
+    conserved_state = _conserved_from_primitive(primitive_state, gamma, config, registered_variables)
+    primitive_state, _ = fv_stage(
+        primitive_state,
+        conserved_state,
+        stage_time_step=sweep_time_step,
+        reconstruction=config.solver_config.reconstruction,
+        # No cleaning scalar: a zero cleaning speed and no damping.
+        cleaning_speed=0.0,
+        damping_factor=1.0,
+        gamma=gamma,
+        config=config,
+        params=params,
+        registered_variables=registered_variables,
+        axes=(axis,),
+        predictor_half_step=0.5 * sweep_time_step,
+        helper_data=helper_data,
+    )
+    return primitive_state
+
+
 def _native_stage_from_primitive_base(
     stage_primitive_state: STATE_TYPE,
     base_primitive_state: STATE_TYPE,
