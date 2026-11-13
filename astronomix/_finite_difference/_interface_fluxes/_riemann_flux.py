@@ -1520,6 +1520,14 @@ def interface_flux(
     if _riemann_flux_pallas_supported(conserved_state, config):
 
         def pallas_branch(state, field, step, compression, parameters):
+            if setup.dimensionality < 3:
+                # the kernels tile three dimensions: a 1D or 2D grid is a layer of one cell across
+                layer = (1,) * (3 - setup.dimensionality)
+                flux = _interface_flux_pallas(
+                    state.reshape(state.shape + layer), field, step, compression.reshape(compression.shape + layer),
+                    parameters, config, registered_variables, axis=axis,
+                )
+                return flux.reshape(state.shape)
             return _interface_flux_pallas(
                 state, field, step, compression, parameters, config, registered_variables, axis=axis
             )

@@ -1,10 +1,15 @@
 """
-Pallas kernels of the finite-difference MHD flux of ``_riemann_flux.py``.
+Pallas kernels of the finite-difference flux of ``_riemann_flux.py``, for the
+MHD form (ideal and isothermal gas) and the hydrodynamic form (ideal,
+isothermal and polytropic gas) in three dimensions.
 
 This module is the compiled output of the array form: it holds the same
 statements, written for one tile (the values of one block of faces) instead
 of the whole grid. ``_riemann_flux.py`` is the description of the scheme and
-the path every derivative takes; nothing is decided here.
+the path every derivative takes; nothing is decided here. As there, the
+hydrodynamic form runs the functions of the MHD form with the field held as
+the constant 0.0; its flux components are (rho, m_x, m_y, m_z(, E)) where the
+MHD form has (rho, m_x, m_y, m_z, B_y, B_z(, E)).
 
 The functions carry the names and the order of the array form, so that the
 two files can be read side by side. Where a function differs, its docstring
@@ -16,7 +21,8 @@ says how. The differences are of three kinds:
     transformation between conserved and primitive variables written out
     (``_characteristic_variables``, ``_primitives_from_characteristic``): the
     interface velocity drops out of them, and the 7 by 7 (6 by 6) products
-    reduce to the sums and differences of the wave pairs. The WENO-Z values
+    reduce to the sums and differences of the wave pairs (for the Euler
+    waves, ``_hydrodynamic_characteristic_variables``). The WENO-Z values
     of the two sides of a face share their stencil differences
     (``_weno5z_point_pair``), and so do the two monotonicity-preserving
     bounds (``_mp_bounded_pair``).
@@ -47,7 +53,15 @@ import jax
 import jax.numpy as jnp
 
 # astronomix constants
-from astronomix.option_classes.simulation_config import HLLD_BOUNDED, HLLEM_T, IDEAL_GAS, ISOTHERMAL, RIEMANN_BY_EOS
+from astronomix.option_classes.simulation_config import (
+    HLLC,
+    HLLD_BOUNDED,
+    HLLEM_T,
+    IDEAL_GAS,
+    ISOTHERMAL,
+    POLYTROPIC,
+    RIEMANN_BY_EOS,
+)
 
 # astronomix containers
 from astronomix.option_classes.simulation_config import SimulationConfig
@@ -64,6 +78,7 @@ from astronomix._pallas_helpers import (
     pl,
 )
 from astronomix._finite_difference._interface_fluxes._weno_pallas import (
+    _hydro_indices_for_axis,
     _mhd_indices_for_axis,
     _mhd_iso_indices_for_axis,
 )
@@ -79,6 +94,10 @@ HOLE_FRACTION = 0.5
 _HALO = 3
 _GUARD_FLUX_HALO = 1
 
+#: The row of a component the 1D or 2D hydrodynamic state does not carry (a momentum across the grid): it reads
+#: as 0.0 and its flux is not written.
+ABSENT_ROW = -1
+
 
 class KernelSetup(NamedTuple):
     """
@@ -86,14 +105,20 @@ class KernelSetup(NamedTuple):
     scalars of a kernel, the latter typed like the state.
     """
 
-    #: ``HLL``, ``HLLEM_T`` or ``HLLD_BOUNDED`` (``RIEMANN_BY_EOS`` resolved).
+    #: ``HLL``, ``HLLEM_T``, ``HLLD_BOUNDED`` or ``HLLC`` (``RIEMANN_BY_EOS`` resolved).
     riemann_solver: int
+    #: The MHD form (or the hydrodynamic form).
+    mhd: bool
     ideal_gas: bool
+    polytropic: bool
     #: Adiabatic index (ideal gas, else None).
     gamma: object
     #: Isothermal sound speed and its square (isothermal gas, else None).
     sound_speed: object
     sound_speed_squared: object
+    #: K and Gamma of P = K rho^Gamma (polytropic gas, else None).
+    polytropic_constant: object
+    polytropic_exponent: object
     minimum_density: object
     #: Pressure floor (ideal gas, else None).
     minimum_pressure: object
@@ -110,28 +135,37 @@ def _kernel_setup(scalars, config: SimulationConfig) -> KernelSetup:
     The setup from the leading scalar inputs of a kernel: (gamma, minimum
     density, minimum pressure, eigen floor) for the ideal gas, (sound speed,
     squared sound speed, minimum density, eigen floor) for the isothermal
-    gas. The squared sound speed is an input because the array form squares
-    the parameter before it takes the precision of the state: the square of
-    the rounded sound speed differs from it by one unit in the last place.
+    gas, (K, Gamma, minimum density, eigen floor) for the polytropic gas. The
+    squared sound speed is an input because the array form squares the
+    parameter before it takes the precision of the state: the square of the
+    rounded sound speed differs from it by one unit in the last place.
     """
     ideal_gas = config.equation_of_state == IDEAL_GAS
+    polytropic = config.equation_of_state == POLYTROPIC
+    gamma = minimum_pressure = sound_speed = sound_speed_squared = None
+    polytropic_constant = polytropic_exponent = None
     if ideal_gas:
         gamma, minimum_density, minimum_pressure, eigen_floor = scalars[:4]
-        sound_speed = sound_speed_squared = None
-        zero = gamma - gamma
+    elif polytropic:
+        polytropic_constant, polytropic_exponent, minimum_density, eigen_floor = scalars[:4]
     else:
         sound_speed, sound_speed_squared, minimum_density, eigen_floor = scalars[:4]
-        gamma = minimum_pressure = None
-        zero = sound_speed - sound_speed
+    zero = minimum_density - minimum_density
     riemann_solver = config.solver_config.riemann_solver
     if riemann_solver == RIEMANN_BY_EOS:
-        riemann_solver = HLLEM_T if config.equation_of_state == ISOTHERMAL else HLLD_BOUNDED
+        riemann_solver = HLLEM_T
+        if ideal_gas:
+            riemann_solver = HLLD_BOUNDED if config.mhd else HLLC
     return KernelSetup(
         riemann_solver=riemann_solver,
+        mhd=config.mhd,
         ideal_gas=ideal_gas,
+        polytropic=polytropic,
         gamma=gamma,
         sound_speed=sound_speed,
         sound_speed_squared=sound_speed_squared,
+        polytropic_constant=polytropic_constant,
+        polytropic_exponent=polytropic_exponent,
         minimum_density=minimum_density,
         minimum_pressure=minimum_pressure,
         eigen_floor=eigen_floor,
@@ -146,7 +180,10 @@ def _kernel_setup(scalars, config: SimulationConfig) -> KernelSetup:
 
 
 class Primitives(NamedTuple):
-    """The primitive variables V = (rho, v, B_y, B_z, P) of one cell or face side."""
+    """
+    The primitive variables V = (rho, v, B_y, B_z, P) of one cell or face side
+    (B_y = B_z = 0.0 in the hydrodynamic form).
+    """
 
     rho: object
     vx: object
@@ -203,11 +240,27 @@ class Basis(NamedTuple):
     Bz: object
 
 
+class HydrodynamicBasis(NamedTuple):
+    """
+    The coefficients of L T and T^-1 R for the Euler waves at the interface
+    state (``_hydrodynamic_characteristic_variables``).
+    """
+
+    #: a, a^2 and 1 / a^2 (ideal gas) of the interface state.
+    a: object
+    a2: object
+    a2_inv: object
+    #: rho_bar / (2 a), rho_bar and 1 / rho_bar.
+    half_rho_over_a: object
+    rho: object
+    inv_rho: object
+
+
 class FluxState(NamedTuple):
     """
     A state with what the fluxes need. ``U`` and ``F`` are tuples of the
-    components that carry a flux, in the order rho, m_x, m_y, m_z, B_y, B_z
-    (, E); the speeds are None where they were left out.
+    components that carry a flux (``_components``); the speeds are None where
+    they were left out.
     """
 
     V: Primitives
@@ -234,10 +287,31 @@ class FanState(NamedTuple):
 # ===================== speeds, physical flux (shared) ========================
 
 
+def _components(setup: KernelSetup, rho, m_x, m_y, m_z, B_y, B_z, E):
+    """
+    The components that carry a flux, in the order of the kernels: (rho, m_x,
+    m_y, m_z, B_y, B_z(, E)) in the MHD form, (rho, m_x, m_y, m_z(, E))
+    without a field; E with the ideal gas only.
+    """
+    field = (B_y, B_z) if setup.mhd else ()
+    energy = (E,) if setup.ideal_gas else ()
+    return (rho, m_x, m_y, m_z) + field + energy
+
+
+def _barotropic_pressure(rho, setup: KernelSetup):
+    """P = c_s^2 rho (isothermal) or K rho^Gamma (polytropic)."""
+    if setup.polytropic:
+        return setup.polytropic_constant * rho**setup.polytropic_exponent
+    return setup.sound_speed_squared * rho
+
+
 def _sound_speed_squared(rho, P, setup: KernelSetup):
-    """a^2 = gamma P / rho (ideal gas) or c_s^2 (isothermal)."""
+    """a^2 = gamma P / rho (ideal gas), c_s^2 (isothermal) or Gamma K rho^(Gamma - 1) (polytropic)."""
     if setup.ideal_gas:
         return setup.gamma * P / rho
+    if setup.polytropic:
+        exponent = setup.polytropic_exponent
+        return exponent * setup.polytropic_constant * rho ** (exponent - 1.0)
     return setup.sound_speed_squared
 
 
@@ -267,28 +341,43 @@ def _flux_state(V: Primitives, B_x, setup: KernelSetup, speeds: bool = True) -> 
     a^2 and the fast speed (the cells of the cell-flux correction).
     """
     rho, v_x, v_y, v_z, B_y, B_z, P = V
-    B2 = B_x * B_x + B_y * B_y + B_z * B_z
-    P_T = P + 0.5 * B2
-    U = (rho, rho * v_x, rho * v_y, rho * v_z, B_y, B_z)
-    F = (
+    E = F_E = None
+    if setup.mhd:
+        B2 = B_x * B_x + B_y * B_y + B_z * B_z
+        P_T = P + 0.5 * B2
+        if setup.ideal_gas:
+            v2 = v_x * v_x + v_y * v_y + v_z * v_z
+            E = P / (setup.gamma - 1.0) + 0.5 * rho * v2 + 0.5 * B2
+            F_E = (E + P_T) * v_x - (v_x * B_x + v_y * B_y + v_z * B_z) * B_x
+    else:
+        P_T = P
+        if setup.ideal_gas:
+            v2 = v_x * v_x + v_y * v_y + v_z * v_z
+            E = P / (setup.gamma - 1.0) + 0.5 * rho * v2
+            F_E = (E + P_T) * v_x
+    U = _components(setup, rho, rho * v_x, rho * v_y, rho * v_z, B_y, B_z, E)
+    F = _components(
+        setup,
         rho * v_x,
         rho * v_x * v_x + P_T - B_x * B_x,
         rho * v_x * v_y - B_x * B_y,
         rho * v_x * v_z - B_x * B_z,
         B_y * v_x - B_x * v_y,
         B_z * v_x - B_x * v_z,
+        F_E,
     )
-    if setup.ideal_gas:
-        v2 = v_x * v_x + v_y * v_y + v_z * v_z
-        E = P / (setup.gamma - 1.0) + 0.5 * rho * v2 + 0.5 * B2
-        F_E = (E + P_T) * v_x - (v_x * B_x + v_y * B_y + v_z * B_z) * B_x
-        U = U + (E,)
-        F = F + (F_E,)
     if not speeds:
         return FluxState(V, U, F, P_T, None, None, None)
     a2 = _sound_speed_squared(rho, P, setup)
-    c_f, c_f2 = _wave_speeds(rho, B_x, B_y, B_z, a2, setup, slow=False)
+    c_f, c_f2 = _fast_speed(rho, B_x, B_y, B_z, a2, setup)
     return FluxState(V, U, F, P_T, a2, c_f, c_f2)
+
+
+def _fast_speed(rho, B_x, B_y, B_z, a2, setup: KernelSetup):
+    """The fast speed and its square (``_wave_speeds``); without a field a and a^2."""
+    if not setup.mhd:
+        return jnp.sqrt(a2), a2
+    return _wave_speeds(rho, B_x, B_y, B_z, a2, setup, slow=False)
 
 
 # ========================= 1. cell primitives ================================
@@ -297,22 +386,21 @@ def _flux_state(V: Primitives, B_x, setup: KernelSetup, speeds: bool = True) -> 
 def _cell_primitives(q, setup: KernelSetup) -> Tuple[Primitives, object]:
     """
     The primitive variables and the normal field of one cell from its
-    conserved variables q = (rho, m_x, m_y, m_z, B_x, B_y, B_z(, E)): the
-    density raised to its floor, the momentum and the energy kept, the
-    pressure raised to its floor.
+    conserved variables q = (rho, m_x, m_y, m_z, B_x, B_y, B_z(, E)), without
+    a field (rho, m_x, m_y, m_z(, E)): the density raised to its floor, the
+    momentum and the energy kept, the pressure raised to its floor.
     """
     rho = jnp.maximum(q[0], setup.minimum_density)
-    m_x, m_y, m_z, B_x, B_y, B_z = q[1:7]
+    m_x, m_y, m_z = q[1:4]
+    B_x, B_y, B_z = q[4:7] if setup.mhd else (0.0, 0.0, 0.0)
     v_x, v_y, v_z = m_x / rho, m_y / rho, m_z / rho
     if setup.ideal_gas:
-        P = (setup.gamma - 1.0) * (
-            q[7]
-            - 0.5 * (m_x * v_x + m_y * v_y + m_z * v_z)
-            - 0.5 * (B_x * B_x + B_y * B_y + B_z * B_z)
-        )
-        P = jnp.maximum(P, setup.minimum_pressure)
+        thermal = q[-1] - 0.5 * (m_x * v_x + m_y * v_y + m_z * v_z)
+        if setup.mhd:
+            thermal = thermal - 0.5 * (B_x * B_x + B_y * B_y + B_z * B_z)
+        P = jnp.maximum((setup.gamma - 1.0) * thermal, setup.minimum_pressure)
     else:
-        P = setup.sound_speed_squared * rho
+        P = _barotropic_pressure(rho, setup)
     return Primitives(rho, v_x, v_y, v_z, B_y, B_z, P), B_x
 
 
@@ -440,6 +528,48 @@ def _characteristic_variables(V: Primitives, basis: Basis, setup: KernelSetup) -
     if setup.ideal_gas:
         return minus + (b.entropy_from_density * V.rho - b.a2_inv * V.P,) + plus
     return minus + plus
+
+
+def _hydrodynamic_basis(bar: InterfaceState, setup: KernelSetup) -> HydrodynamicBasis:
+    """The coefficients of the Euler waves at the interface state (a = c_s for the isothermal gas)."""
+    a2 = bar.a2
+    a = setup.sound_speed if setup.sound_speed is not None else jnp.sqrt(a2)
+    a2_inv = 1.0 / a2 if setup.ideal_gas else None
+    return HydrodynamicBasis(a, a2, a2_inv, 0.5 * bar.rho / a, bar.rho, 1.0 / bar.rho)
+
+
+def _hydrodynamic_characteristic_variables(V: Primitives, basis: HydrodynamicBasis, setup: KernelSetup) -> Tuple:
+    """
+    w = L T V for the Euler waves (``_riemann_flux._hydrodynamic_characteristic_basis``
+    times the linearisation): with rho_bar, a of the interface state,
+
+        w^-+ = P / (2 a^2) -+ rho_bar u / (2 a)   (ideal gas),   rho / 2 -+ rho_bar u / (2 a)   (barotropic),
+        w^e  = rho - P / a^2   (ideal gas),        w^t = rho_bar v_t,
+
+    in the order u - a, (entropy,) shear y, shear z, u + a.
+    """
+    b = basis
+    thermal = 0.5 * (b.a2_inv * V.P) if setup.ideal_gas else 0.5 * V.rho
+    acoustic = b.half_rho_over_a * V.vx
+    entropy = (V.rho - b.a2_inv * V.P,) if setup.ideal_gas else ()
+    return (thermal - acoustic,) + entropy + (b.rho * V.vy, b.rho * V.vz, thermal + acoustic)
+
+
+def _primitives_from_hydrodynamic_characteristic(w, basis: HydrodynamicBasis, setup: KernelSetup) -> Primitives:
+    """
+    V = T^-1 R w for the Euler waves, by the sum S and the difference D of the
+    two sound waves: u = a D / rho_bar, v_t = w^t / rho_bar, and P = a^2 S,
+    rho = S + w^e (ideal gas) or rho = S (barotropic: the pressure is set by
+    the caller, None here).
+    """
+    b = basis
+    minus, plus = w[0], w[-1]
+    shear_y, shear_z = w[-3], w[-2]
+    total, difference = plus + minus, plus - minus
+    v_x = b.a * b.inv_rho * difference
+    if setup.ideal_gas:
+        return Primitives(total + w[1], v_x, b.inv_rho * shear_y, b.inv_rho * shear_z, 0.0, 0.0, b.a2 * total)
+    return Primitives(total, v_x, b.inv_rho * shear_y, b.inv_rho * shear_z, 0.0, 0.0, None)
 
 
 def _primitives_from_characteristic(w, basis: Basis, setup: KernelSetup) -> Primitives:
@@ -622,17 +752,26 @@ def _admissible(
         )
         vartheta = jnp.minimum(vartheta, vartheta_P)
     vartheta = jnp.clip(vartheta, 0.0, 1.0)
-    return Primitives(*(own + vartheta * (face - own) for face, own in zip(V_face, V_own)))
+    return Primitives(
+        *(own + vartheta * (face - own) if setup.mhd or n not in (4, 5) else own
+          for n, (face, own) in enumerate(zip(V_face, V_own)))
+    )
 
 
-def _face_states(V, basis: Basis, setup: KernelSetup) -> Tuple[Primitives, Primitives]:
+def _face_states(V, basis, setup: KernelSetup) -> Tuple[Primitives, Primitives]:
     """
     The two primitive states at the face i + 1/2 from the primitives V of the
     cells i - 2 ... i + 3: WENO5-Z of the characteristic variables with the
     monotonicity-preserving bound, back to primitives, the bound once more on
-    the primitives, the admissibility scaling.
+    the primitives (not on a field the form does not carry), the barotropic
+    pressure, the admissibility scaling. The pressure of the polytropic gas is
+    P(rho) of the admissible density (before the scaling the density can be
+    negative).
     """
-    w = [_characteristic_variables(V_cell, basis, setup) for V_cell in V]
+    if setup.mhd:
+        w = [_characteristic_variables(V_cell, basis, setup) for V_cell in V]
+    else:
+        w = [_hydrodynamic_characteristic_variables(V_cell, basis, setup) for V_cell in V]
     w_L, w_R = [], []
     for wave in zip(*w):  # the six stencil values of one wave
         differences = _stencil_differences(*wave)
@@ -640,24 +779,35 @@ def _face_states(V, basis: Basis, setup: KernelSetup) -> Tuple[Primitives, Primi
         left, right = _mp_bounded_pair(left, right, wave, differences)
         w_L.append(left)
         w_R.append(right)
-    V_L = _primitives_from_characteristic(w_L, basis, setup)
-    V_R = _primitives_from_characteristic(w_R, basis, setup)
+    if setup.mhd:
+        V_L = _primitives_from_characteristic(w_L, basis, setup)
+        V_R = _primitives_from_characteristic(w_R, basis, setup)
+    else:
+        V_L = _primitives_from_hydrodynamic_characteristic(w_L, basis, setup)
+        V_R = _primitives_from_hydrodynamic_characteristic(w_R, basis, setup)
 
     bounded_L, bounded_R = [], []
     for index in range(7 if setup.ideal_gas else 6):
-        left, right = _mp_bounded_pair(
-            V_L[index], V_R[index], tuple(V_cell[index] for V_cell in V)
-        )
+        if setup.mhd or index not in (4, 5):
+            left, right = _mp_bounded_pair(
+                V_L[index], V_R[index], tuple(V_cell[index] for V_cell in V)
+            )
+        else:
+            left, right = V_L[index], V_R[index]
         bounded_L.append(left)
         bounded_R.append(right)
-    if not setup.ideal_gas:
+    V_i, V_ip1 = V[2], V[3]
+    if setup.polytropic:
+        bounded_L.append(V_i.P)  # replaced below
+        bounded_R.append(V_ip1.P)
+    elif not setup.ideal_gas:
         bounded_L.append(setup.sound_speed_squared * bounded_L[0])
         bounded_R.append(setup.sound_speed_squared * bounded_R[0])
-    V_i, V_ip1 = V[2], V[3]
-    return (
-        _admissible(Primitives(*bounded_L), V_i, V_ip1, setup),
-        _admissible(Primitives(*bounded_R), V_ip1, V_i, setup),
-    )
+    V_L = _admissible(Primitives(*bounded_L), V_i, V_ip1, setup)
+    V_R = _admissible(Primitives(*bounded_R), V_ip1, V_i, setup)
+    if setup.polytropic:
+        V_L, V_R = (V_side._replace(P=_barotropic_pressure(V_side.rho, setup)) for V_side in (V_L, V_R))
+    return V_L, V_R
 
 
 # ============================ 4. Riemann flux ================================
@@ -681,14 +831,22 @@ def _hllem_t_flux(L: FluxState, R: FluxState, B_x, S_L, S_R, inv, setup: KernelS
     """
     The isothermal HLLEM flux with the two Alfven waves restored (the
     statements of the array form; components rho, m_x, m_y, m_z, B_y, B_z).
+    Without a field the two shear waves at u^*, one coefficient c(u^*).
     """
 
     def hll_state(n):
         return (S_R * R.U[n] - S_L * L.U[n] - (R.F[n] - L.F[n])) * inv
 
     rho = hll_state(0)
-    sqrt_rho = jnp.sqrt(rho)
     u = hll_state(1) / rho
+    if not setup.mhd:
+        c = _anti_diffusion(u, S_L, S_R, inv)
+        d_rho = R.U[0] - L.U[0]
+        F = list(_hll_flux(L, R, S_L, S_R, inv))
+        for n in (2, 3):
+            F[n] = F[n] + c * (R.U[n] - L.U[n] - hll_state(n) / rho * d_rho)
+        return tuple(F)
+    sqrt_rho = jnp.sqrt(rho)
     v_y = hll_state(2) / rho
     v_z = hll_state(3) / rho
     s = jnp.where(B_x >= 0.0, setup.one, setup.minus_one)
@@ -730,9 +888,15 @@ def _fast_alfven_gap(rho, B_x, B_y, B_z, a2, setup: KernelSetup):
 def _hlld_star_state(
     side: FluxState, j, w, du, nu: float, B_x, S_M, P_T_star, Gamma, setup: KernelSetup
 ) -> FanState:
-    """The state behind the outer wave of one side; nu = +1 on the left, -1 on the right."""
+    """
+    The state behind the outer wave of one side; nu = +1 on the left, -1 on
+    the right. Without a field the star state of HLLC (v_t kept, J = 0).
+    """
     V = side.V
-    E = side.U[6]
+    E = side.U[-1]
+    if not setup.mhd:
+        E_star = E + (du * E + nu * (side.P_T * V.vx - P_T_star * S_M)) / (w - du)
+        return FanState(j / (w - du), V.vy, V.vz, 0.0, 0.0, E_star, 0.0)
     G = _fast_alfven_gap(V.rho, B_x, V.By, V.Bz, side.a2, setup)
     dP = j * du
     N = G + V.rho * (w - side.c_f) * (w + side.c_f)
@@ -752,24 +916,30 @@ def _hlld_star_state(
     return FanState(rho, v_y, v_z, B_y, B_z, E_star, vB_star)
 
 
-def _fan_flux(state: FanState, S_M, P_T_star, B_x) -> Tuple:
+def _fan_flux(state: FanState, S_M, P_T_star, B_x, setup: KernelSetup) -> Tuple:
     """The physical flux of a state of the Riemann fan."""
     rho, v_y, v_z, B_y, B_z, E, vB = state
-    return (
+    energy_flux = (E + P_T_star) * S_M
+    if setup.mhd:
+        energy_flux = energy_flux - B_x * (S_M * B_x + vB)
+    return _components(
+        setup,
         rho * S_M,
         rho * S_M * S_M + P_T_star - B_x * B_x,
         rho * S_M * v_y - B_x * B_y,
         rho * S_M * v_z - B_x * B_z,
         B_y * S_M - B_x * v_y,
         B_z * S_M - B_x * v_z,
-        (E + P_T_star) * S_M - B_x * (S_M * B_x + vB),
+        energy_flux,
     )
 
 
 def _hlld_bounded_flux(L: FluxState, R: FluxState, B_x, setup: KernelSetup) -> Tuple:
-    """The HLLD flux with bounded outer speeds (ideal gas; the statements of the array form)."""
+    """
+    The HLLD flux with bounded outer speeds (ideal gas; the statements of the
+    array form). Without a field the HLLC flux with the same speeds.
+    """
     Gamma = 0.5 * (setup.gamma + 1.0)
-    s = jnp.where(B_x >= 0.0, setup.one, setup.minus_one)
     rho_L, u_L, P_T_L = L.V.rho, L.V.vx, L.P_T
     rho_R, u_R, P_T_R = R.V.rho, R.V.vx, R.P_T
 
@@ -806,8 +976,18 @@ def _hlld_bounded_flux(L: FluxState, R: FluxState, B_x, setup: KernelSetup) -> T
     # star states
     star_L = _hlld_star_state(L, j_L, w_L, du_L, 1.0, B_x, S_M, P_T_star, Gamma, setup)
     star_R = _hlld_star_state(R, j_R, w_R, du_R, -1.0, B_x, S_M, P_T_star, Gamma, setup)
+    fan = (S_M, P_T_star, B_x, setup)
+    F_star_L, F_star_R = _fan_flux(star_L, *fan), _fan_flux(star_R, *fan)
+    if not setup.mhd:
+        out = []
+        for n in range(len(L.F)):
+            F = jnp.where(S_R > 0.0, F_star_R[n], R.F[n])
+            F = jnp.where(S_M >= 0.0, F_star_L[n], F)
+            out.append(jnp.where(S_L >= 0.0, L.F[n], F))
+        return tuple(out)
 
     # double-star states
+    s = jnp.where(B_x >= 0.0, setup.one, setup.minus_one)
     sqrt_L = jnp.sqrt(star_L.rho)
     sqrt_R = jnp.sqrt(star_R.rho)
     inv_sqrt = 1.0 / (sqrt_L + sqrt_R)
@@ -828,8 +1008,6 @@ def _hlld_bounded_flux(L: FluxState, R: FluxState, B_x, setup: KernelSetup) -> T
     dstar_R = FanState(star_R.rho, v_y, v_z, B_y, B_z, E_R, vB)
 
     # the flux of the state at x / t = 0
-    fan = (S_M, P_T_star, B_x)
-    F_star_L, F_star_R = _fan_flux(star_L, *fan), _fan_flux(star_R, *fan)
     F_dstar_L, F_dstar_R = _fan_flux(dstar_L, *fan), _fan_flux(dstar_R, *fan)
     out = []
     for n in range(7):
@@ -843,7 +1021,7 @@ def _hlld_bounded_flux(L: FluxState, R: FluxState, B_x, setup: KernelSetup) -> T
 
 def _riemann_flux(L: FluxState, R: FluxState, B_x, setup: KernelSetup) -> Tuple:
     """The Riemann flux of the two face states (the static choice of the solver)."""
-    if setup.riemann_solver == HLLD_BOUNDED:
+    if setup.riemann_solver in (HLLD_BOUNDED, HLLC):
         return _hlld_bounded_flux(L, R, B_x, setup)
     S_L = jnp.minimum(L.V.vx - L.c_f, R.V.vx - R.c_f)
     S_R = jnp.maximum(L.V.vx + L.c_f, R.V.vx + R.c_f)
@@ -922,12 +1100,16 @@ def _pressure_of_conserved(q, B_x, setup: KernelSetup):
     """
     The pressure of a trial conserved vector q = (rho, m_x, m_y, m_z, B_y,
     B_z, E) of the guard with the normal field B_x of its cell, without
-    floors.
+    floors; without a field q = (rho, m_x, m_y, m_z, E).
     """
-    rho, m_x, m_y, m_z, B_y, B_z, E = q
+    rho, m_x, m_y, m_z = q[:4]
+    E = q[-1]
     m2 = m_x * m_x + m_y * m_y + m_z * m_z
-    B2 = B_x * B_x + B_y * B_y + B_z * B_z
-    return (setup.gamma - 1.0) * (E - 0.5 * m2 / jnp.maximum(rho, DIVISION_FLOOR) - 0.5 * B2)
+    thermal = E - 0.5 * m2 / jnp.maximum(rho, DIVISION_FLOOR)
+    if setup.mhd:
+        B_y, B_z = q[4:6]
+        thermal = thermal - 0.5 * (B_x * B_x + B_y * B_y + B_z * B_z)
+    return (setup.gamma - 1.0) * thermal
 
 
 def _budget_factors(t, g_low, l_plus, l_minus):
@@ -953,9 +1135,10 @@ def _guard(F_H, F_LF, q, rho, B2, B_x, v, a, reference_step, setup: KernelSetup)
             positions 0, 1, 2): all components at i + 1/2, at the other two
             the components the bounds read (density and momentum; with the
             ideal gas all).
-        q: The conserved variables (rho, m_x, m_y, m_z, B_y, B_z(, E)) of the
-            cells i, i + 1 as stored (density not floored).
-        rho, B2: Floored density and B^2 of the cells i - 2 ... i + 3.
+        q: The flux components (``_components``) of the cells i, i + 1 as
+            stored (density not floored).
+        rho, B2: Floored density and B^2 of the cells i - 2 ... i + 3 (the
+            hole bound; None without a field, where the bound is rho >= rho_min).
         B_x: The cell-centred normal field of the cells i, i + 1.
         v: The velocities (v_x, v_y, v_z) of the cells i - 1 ... i + 2.
         a: The signal speeds of the cells i - 1 ... i + 2.
@@ -963,7 +1146,8 @@ def _guard(F_H, F_LF, q, rho, B2, B_x, v, a, reference_step, setup: KernelSetup)
     """
     count = len(F_H[0])  # the components of the bounds
     A = [tuple(F_H_n - F_LF_n for F_H_n, F_LF_n in zip(F_H[face], F_LF[face])) for face in range(3)]
-    v_A2 = [B2_cell / rho_cell for B2_cell, rho_cell in zip(B2, rho)]
+    if setup.mhd:
+        v_A2 = [B2_cell / rho_cell for B2_cell, rho_cell in zip(B2, rho)]
 
     def factors(k):
         """(t^+, t^-) of the cell i + k, k = 0 or 1."""
@@ -977,15 +1161,17 @@ def _guard(F_H, F_LF, q, rho, B2, B_x, v, a, reference_step, setup: KernelSetup)
         t = (setup.one, setup.one)
 
         # density with the hole bound (cell i + k is at position k + 2 of rho, B2)
-        rho_ref = None
-        for left, right in ((-1, 1), (-1, 2), (-2, 1)):
-            v_A2_pair = jnp.maximum(v_A2[k + 2 + left], v_A2[k + 2 + right])
-            rho_pair = jnp.minimum(rho[k + 2 + left], rho[k + 2 + right])
-            rho_pair = jnp.minimum(rho_pair, B2[k + 2] / jnp.maximum(v_A2_pair, DIVISION_FLOOR))
-            rho_ref = rho_pair if rho_ref is None else jnp.maximum(rho_ref, rho_pair)
-        rho_lower = jnp.maximum(
-            setup.minimum_density, jnp.minimum(q_low[0], HOLE_FRACTION * rho_ref)
-        )
+        rho_lower = setup.minimum_density
+        if setup.mhd:
+            rho_ref = None
+            for left, right in ((-1, 1), (-1, 2), (-2, 1)):
+                v_A2_pair = jnp.maximum(v_A2[k + 2 + left], v_A2[k + 2 + right])
+                rho_pair = jnp.minimum(rho[k + 2 + left], rho[k + 2 + right])
+                rho_pair = jnp.minimum(rho_pair, B2[k + 2] / jnp.maximum(v_A2_pair, DIVISION_FLOOR))
+                rho_ref = rho_pair if rho_ref is None else jnp.maximum(rho_ref, rho_pair)
+            rho_lower = jnp.maximum(
+                setup.minimum_density, jnp.minimum(q_low[0], HOLE_FRACTION * rho_ref)
+            )
         t = _budget_factors(t, q_low[0] - rho_lower, c_plus[0], c_minus[0])
 
         # velocity components (cell i + k is at position k + 1 of v, a)
@@ -1033,7 +1219,8 @@ class _Tiles(NamedTuple):
     spatial_shape: Tuple[int, int, int]
     block: Tuple[int, int, int]
     grid: Tuple[int, int, int]
-    #: The state rows (rho, m_x, m_y, m_z, B_x, B_y, B_z(, E)) of the sweep along the axis.
+    #: The state rows (rho, m_x, m_y, m_z, B_x, B_y, B_z(, E)) of the sweep along the axis; without a field
+    #: (rho, m_x, m_y, m_z(, E)), with ``ABSENT_ROW`` for a momentum across a 1D or 2D grid.
     rows: Tuple[int, ...]
     #: The state rows of the flux components (the rows without B_x).
     slots: Tuple[int, ...]
@@ -1045,6 +1232,14 @@ def _tiles(conserved_state, config: SimulationConfig, registered_variables, axis
         config.backend_config.pallas_block_shape, 3, spatial_shape=spatial_shape
     )
     grid = tuple(n // b for n, b in zip(spatial_shape, block))
+    if not config.mhd:
+        rows = tuple(_hydro_indices_for_axis(config, registered_variables, axis))
+        if config.equation_of_state != IDEAL_GAS:
+            rows = rows[:-1]  # no energy row
+        # 1D and 2D: no momentum across the grid
+        momenta = int(config.dimensionality)
+        rows = rows[: 1 + momenta] + (ABSENT_ROW,) * (3 - momenta) + rows[1 + momenta :]
+        return _Tiles(int(conserved_state.shape[0]), spatial_shape, block, grid, rows, rows)
     if config.equation_of_state == IDEAL_GAS:
         rows = tuple(_mhd_indices_for_axis(config, registered_variables, axis))
     else:
@@ -1086,6 +1281,11 @@ def _tile_reader(tiles: _Tiles, axis: int):
     return read
 
 
+def _read_cell(read, q_ref, tiles: _Tiles, offset: int) -> Tuple:
+    """The components of the state rows ``tiles.rows`` at the cells shifted by ``offset`` (0.0 for an absent row)."""
+    return tuple(0.0 if row == ABSENT_ROW else read(q_ref, row, offset) for row in tiles.rows)
+
+
 def _whole_array_spec(array):
     """Every block sees the whole input."""
     return pl.BlockSpec(array.shape, lambda bi, bj, bk: (0,) * array.ndim)
@@ -1104,41 +1304,43 @@ def _interface_flux_pallas_local(
 
     Args:
         conserved_state: The conserved state (possibly halo-padded).
-        auxiliary: (face field, eta), each with a leading axis of length 1.
-        scalars: (gamma, minimum density, minimum pressure, eigen floor) or
-            (sound speed, squared sound speed, minimum density, eigen floor).
+        auxiliary: (face field, eta), without a field (eta,), each with a
+            leading axis of length 1.
+        scalars: The four scalars of ``_kernel_setup``.
 
     Returns:
-        F_H at the faces i + 1/2 (index i): the components rho, m_x, m_y,
-        m_z, B_y, B_z(, E) of the sweep, stacked.
+        F_H at the faces i + 1/2 (index i): the flux components
+        (``_components``) of the sweep, stacked.
     """
     tiles = _tiles(conserved_state, config, registered_variables, axis)
     num_out = len(tiles.slots)
     auxiliary = tuple(auxiliary)
     scalar_spec = pl.BlockSpec((), lambda bi, bj, bk: ())
 
-    def kernel(q_ref, face_field_ref, eta_ref, *other_refs):
-        scalar_refs, out_ref = other_refs[:-1], other_refs[-1]
+    def kernel(q_ref, *other_refs):
+        auxiliary_refs = other_refs[: len(auxiliary)]
+        scalar_refs, out_ref = other_refs[len(auxiliary) : -1], other_refs[-1]
+        eta_ref = auxiliary_refs[-1]
         setup = _kernel_setup(tuple(ref[()] for ref in scalar_refs), config)
         read = _tile_reader(tiles, axis)
 
         # 1. cell primitives of the cells i - 2 ... i + 3
         V, B_x = zip(
             *(
-                _cell_primitives(tuple(read(q_ref, row, offset) for row in tiles.rows), setup)
+                _cell_primitives(_read_cell(read, q_ref, tiles, offset), setup)
                 for offset in range(-2, 4)
             )
         )
 
         # 2. interface state and characteristic basis
         bar = _interface_state(V[2], V[3], B_x[2], B_x[3], setup)
-        basis = _characteristic_basis(bar, setup)
+        basis = _characteristic_basis(bar, setup) if setup.mhd else _hydrodynamic_basis(bar, setup)
 
         # 3. face states
         V_L, V_R = _face_states(V, basis, setup)
 
         # 4. Riemann flux
-        face_field = read(face_field_ref, 0, 0)
+        face_field = read(auxiliary_refs[0], 0, 0) if setup.mhd else 0.0
         L = _flux_state(V_L, face_field, setup)
         R = _flux_state(V_R, face_field, setup)
         F_RS = _riemann_flux(L, R, face_field, setup)
@@ -1192,7 +1394,7 @@ def _guard_pallas_local(
     """
     tiles = _tiles(conserved_state, config, registered_variables, axis)
     num_components = len(tiles.slots)
-    # the bounds of the isothermal gas read density and momentum only
+    # the bounds of a barotropic gas read density and momentum only
     num_bounded = num_components if config.equation_of_state == IDEAL_GAS else 4
     scalar_spec = pl.BlockSpec((), lambda bi, bj, bk: ())
 
@@ -1202,27 +1404,29 @@ def _guard_pallas_local(
         setup = _kernel_setup(tuple(setup_scalars), config)
         read = _tile_reader(tiles, axis)
 
-        # The cells i - 2 ... i + 3: floored density and B^2 (the hole bound);
+        # The cells i - 2 ... i + 3: floored density and B^2 (the hole bound, MHD only);
         # the cells i - 1 ... i + 2: primitives, flux state, signal speed.
-        rho, B2 = [], []
+        rho, B2 = ([], []) if setup.mhd else (None, None)
         cells, a, v, q, B_x = [], [], [], [], []
         for offset in range(-2, 4):
             if offset in (-2, 3):
-                rho_cell = jnp.maximum(read(q_ref, tiles.rows[0], offset), setup.minimum_density)
-                B_cell = [read(q_ref, row, offset) for row in tiles.rows[4:7]]
-                rho.append(rho_cell)
-                B2.append(B_cell[0] * B_cell[0] + B_cell[1] * B_cell[1] + B_cell[2] * B_cell[2])
+                if setup.mhd:
+                    rho_cell = jnp.maximum(read(q_ref, tiles.rows[0], offset), setup.minimum_density)
+                    B_cell = [read(q_ref, row, offset) for row in tiles.rows[4:7]]
+                    rho.append(rho_cell)
+                    B2.append(B_cell[0] * B_cell[0] + B_cell[1] * B_cell[1] + B_cell[2] * B_cell[2])
                 continue
-            q_cell = tuple(read(q_ref, row, offset) for row in tiles.rows)
+            q_cell = _read_cell(read, q_ref, tiles, offset)
             V, B_x_cell = _cell_primitives(q_cell, setup)
             cell = _flux_state(V, B_x_cell, setup)
-            rho.append(V.rho)
-            B2.append(B_x_cell * B_x_cell + V.By * V.By + V.Bz * V.Bz)
+            if setup.mhd:
+                rho.append(V.rho)
+                B2.append(B_x_cell * B_x_cell + V.By * V.By + V.Bz * V.Bz)
             cells.append(cell)
             a.append(jnp.abs(V.vx) + cell.c_f)
             v.append((V.vx, V.vy, V.vz))
             if offset in (0, 1):
-                q.append(q_cell[:4] + q_cell[5:])
+                q.append(q_cell[:4] + q_cell[5:] if setup.mhd else q_cell)
                 B_x.append(B_x_cell)
 
         # the faces i - 1/2, i + 1/2, i + 3/2
@@ -1241,7 +1445,8 @@ def _guard_pallas_local(
             if row not in tiles.slots:
                 out_ref[row, ...] = zero_tile
         for n, row in enumerate(tiles.slots):
-            out_ref[row, ...] = F[n]
+            if row != ABSENT_ROW:
+                out_ref[row, ...] = F[n]
 
     compiler_params = _pallas_compiler_params(config)
     kwargs = {} if compiler_params is None else {"compiler_params": compiler_params}
@@ -1264,31 +1469,29 @@ def _guard_pallas_local(
 def _riemann_flux_pallas_supported(conserved_state, config: SimulationConfig) -> bool:
     """
     Whether the kernels can run in place of ``_interface_flux_x``: the Pallas
-    backend, the MHD form with the ideal or the isothermal gas, single
-    precision on a GPU (or the interpreter, which takes any precision and
-    device), three dimensions and a block shape that divides the grid. What is
-    refused runs in the array form. The kernels hold every branch of the MHD
-    form with these two gases that ``_riemann_flux._scheme_setup`` accepts.
-    The stage (``_ssprk._riemann_flux_increment``) and the
-    constrained transport (``_flux_form_ct_pallas_supported``) ask the same
-    question, so one stage never mixes kernels with a refused condition.
+    backend, the MHD form with the ideal or the isothermal gas in 3D or the
+    hydrodynamic form with any gas in 1D to 3D (a 1D or 2D grid as a layer of
+    one cell across), single precision on a GPU (or the interpreter, which takes
+    any precision and device) and a block shape that divides the grid. What is
+    refused runs in the array form. The kernels hold every branch of these
+    forms and gases that ``_riemann_flux._scheme_setup`` accepts. The stage
+    (``_ssprk._riemann_flux_increment``) and the constrained transport
+    (``_flux_form_ct_pallas_supported``) ask the same question, so one stage
+    never mixes kernels with a refused condition.
     """
     if pl is None or not _backend_is_pallas(config):
         return False
-    if not config.mhd or config.equation_of_state not in (IDEAL_GAS, ISOTHERMAL):
+    if config.mhd and config.equation_of_state not in (IDEAL_GAS, ISOTHERMAL):
         return False
     compiled = not config.backend_config.pallas_interpret
     if compiled and (jax.config.jax_enable_x64 or jax.default_backend() == "cpu"):
         return False
-    if int(config.dimensionality) != 3 or conserved_state.ndim != 4:
+    dimensionality = int(config.dimensionality)
+    if dimensionality not in ((3,) if config.mhd else (1, 2, 3)) or conserved_state.ndim != dimensionality + 1:
         return False
-    block_shape = _as_3tuple_block_shape(
-        config.backend_config.pallas_block_shape, 3, spatial_shape=conserved_state.shape[1:]
-    )
-    return all(
-        int(extent) % int(block) == 0
-        for extent, block in zip(conserved_state.shape[1:], block_shape, strict=True)
-    )
+    spatial_shape = tuple(conserved_state.shape[1:]) + (1,) * (3 - dimensionality)
+    block_shape = _as_3tuple_block_shape(config.backend_config.pallas_block_shape, 3, spatial_shape=spatial_shape)
+    return all(int(extent) % int(block) == 0 for extent, block in zip(spatial_shape, block_shape, strict=True))
 
 
 def _interface_flux_pallas(
@@ -1305,10 +1508,12 @@ def _interface_flux_pallas(
     """
     ``_riemann_flux.interface_flux`` through the two kernels (the arguments
     and the result of that function, in the layout of the state: the kernels
-    read along ``axis`` instead of moving it to the front).
+    read along ``axis`` instead of moving it to the front; ``face_field`` is
+    None in the hydrodynamic form).
     """
     dtype = conserved_state.dtype
-    auxiliary = tuple(jnp.asarray(field, dtype=dtype)[None] for field in (face_field, eta))
+    fields = (face_field, eta) if config.mhd else (eta,)
+    auxiliary = tuple(jnp.asarray(field, dtype=dtype)[None] for field in fields)
     block_shape = _as_3tuple_block_shape(
         config.backend_config.pallas_block_shape, 3, spatial_shape=conserved_state.shape[1:]
     )
@@ -1319,6 +1524,8 @@ def _interface_flux_pallas(
     eigen_floor = 1e-30 if jax.config.jax_enable_x64 else 1e-20
     if config.equation_of_state == IDEAL_GAS:
         scalars = (params.gamma, params.minimum_density, params.minimum_pressure, eigen_floor)
+    elif config.equation_of_state == POLYTROPIC:
+        scalars = (params.polytropic_constant, params.polytropic_exponent, params.minimum_density, eigen_floor)
     else:
         scalars = (
             params.isothermal_sound_speed,
