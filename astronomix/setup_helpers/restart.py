@@ -38,17 +38,17 @@ def restart_from_latest_checkpoint(
             where it left off.
         step: The checkpoint step to restore. ``None`` (default) restores the
             latest one.
-        sharding: Optional target sharding for the restored state / forcing
-            (e.g. when resuming on a different device topology). When ``None``
-            the sharding stored in the checkpoint is recovered.
+        sharding: Optional target sharding for the restored state (e.g. when
+            resuming on a different device topology). When ``None`` the arrays
+            are restored onto the default device.
 
     Returns:
         ``(primitive_state, params, restart_state)`` where ``primitive_state``
         is the restored (unpadded) state to pass as the first argument of
         :func:`~astronomix.time_stepping.time_integration.time_integration`,
         ``params`` has ``t_start`` set to the checkpoint time, and
-        ``restart_state`` is the :class:`LoopState` carrying the PRNG key and OU
-        forcing field to pass via ``restart_state=``.
+        ``restart_state`` is the :class:`LoopState` carrying the state of the
+        turbulence driving to pass via ``restart_state=``.
 
     Example::
 
@@ -63,11 +63,7 @@ def restart_from_latest_checkpoint(
     checkpoint = load_loop_checkpoint(directory, step, sharding=sharding)
 
     params = params._replace(t_start=checkpoint.time)
-    restart_state = LoopState(
-        primitive_state=checkpoint.primitive_state,
-        key=checkpoint.key,
-        forcing=checkpoint.forcing,
-    )
+    restart_state = LoopState(primitive_state=checkpoint.primitive_state, driving_state=checkpoint.driving_state)
     return checkpoint.primitive_state, params, restart_state
 
 

@@ -1,8 +1,8 @@
 """
 Stellar wind blown into a turbulently-driven, magnetized ISM (3D finite difference).
 
-The run is split into two phases that share the same turbulent (Ornstein-Uhlenbeck-
-style) driving:
+The run is split into two phases that share the same turbulent (Ornstein-Uhlenbeck)
+driving, the TurbGen driving of the code (natural mixture, 1 <= k <= 3):
 
   1. an OPTIONAL turbulence spin-up phase (driving only, no wind) that lets the ISM
      develop a realistic turbulent density/velocity field, and
@@ -53,10 +53,7 @@ from astronomix import (
     BoundarySettings1D,
 )
 from astronomix.option_classes import WindConfig
-from astronomix._modules._turbulent_forcing._turbulent_forcing_options import (
-    TurbulentForcingConfig,
-    TurbulentForcingParams,
-)
+from astronomix import TurbulenceDrivingConfig, TurbulenceDrivingParams
 
 # astronomix functions
 from astronomix import (
@@ -87,8 +84,8 @@ gamma = 5 / 3
 C_cfl = 0.8
 dt_max = 0.1
 
-# turbulent driving amplitude (energy injection rate, code units)
-energy_injection_rate = 0.2
+# target velocity dispersion of the turbulent driving (sets its amplitude)
+turbulent_velocity_dispersion = 30 * u.km / u.s
 
 # stellar-wind injection
 num_injection_cells = 4
@@ -138,8 +135,8 @@ config = SimulationConfig(
     dimensionality=3,
     box_size=box_size,
     num_cells=num_cells,
-    turbulent_forcing_config=TurbulentForcingConfig(
-        turbulent_forcing=turbulence,
+    turbulence_driving_config=TurbulenceDrivingConfig(
+        turbulence_driving=turbulence,
     ),
     boundary_settings=BoundarySettings(
         BoundarySettings1D(left_boundary=PERIODIC_BOUNDARY, right_boundary=PERIODIC_BOUNDARY),
@@ -184,15 +181,12 @@ params = SimulationParams(
     minimum_density=1e-3,
     minimum_pressure=1e-3,
     wind_params=wind_params,
-    turbulent_forcing_params=TurbulentForcingParams(
-        energy_injection_rate=energy_injection_rate,
+    turbulence_driving_params=TurbulenceDrivingParams(
+        velocity=turbulent_velocity_dispersion.to(code_units.code_velocity).value,
     ),
 )
 
-print(
-    "Turbulent energy injection rate:",
-    (energy_injection_rate * code_units.code_energy / code_units.code_time).to(u.erg / u.s),
-)
+print("Target velocity dispersion of the driving:", turbulent_velocity_dispersion)
 
 # -------------------------------------------------------------
 # =============== ↑ Code units and parameters ↑ ===============

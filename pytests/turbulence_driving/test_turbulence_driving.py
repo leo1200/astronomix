@@ -15,7 +15,10 @@ What is checked:
   the rms of the field for solenoidal weights 0, 0.5 and 1;
 * the field of a part of the grid (four slabs with index offsets, a padded
   grid, an array sharded over four devices) equals that of the whole grid;
-* ``jax.grad`` with respect to the parameters, single precision, the kick.
+* ``jax.grad`` with respect to the parameters, single precision, the kick
+  with the bulk-motion correction of the FLASH plugin and the measured
+  velocity dispersion (the wiring into the time loop is checked in
+  ``test_driving_in_the_time_loop.py``).
 
 The four devices need ``JAX_PLATFORMS=cpu`` and jax not started by another
 test file before this one::
@@ -33,6 +36,7 @@ if os.environ.get("JAX_PLATFORMS") == "cpu":
 
 # general
 import json
+from types import SimpleNamespace
 
 # jax
 import jax
@@ -62,6 +66,7 @@ from astronomix._modules._turbulence_driving import (
     ornstein_uhlenbeck_update,
     turnover_time,
     update_interval,
+    velocity_dispersion,
 )
 from astronomix._modules._turbulence_driving._modes import driving_wavenumber_range
 from astronomix._modules._turbulence_driving._turbulence_driving import (
@@ -117,6 +122,16 @@ def reference_case(case):
 
 def grid_cell_centers(config, grid, dtype=None):
     return tuple(cell_center_coordinates(n, length / n, dtype=dtype) for n, length in zip(grid, config.box_size))
+
+
+def simulation_stand_in(config, params, grid, velocity_index=(1, 2, 3)):
+    """The fields of the simulation configuration, parameters and registry that the kick reads."""
+    simulation_config = SimpleNamespace(
+        dimensionality=config.dimensionality, num_cells=tuple(grid), turbulence_driving_config=config
+    )
+    simulation_params = SimpleNamespace(turbulence_driving_params=params)
+    registered_variables = SimpleNamespace(density_index=0, velocity_index=velocity_index)
+    return simulation_config, simulation_params, registered_variables
 
 
 def stationary_state(config, seed=0, batch=()):
@@ -387,13 +402,14 @@ def test_sharded_evaluation_equals_single_device():
 
     state_sharding = NamedSharding(mesh, P(None, "x"))
     primitive_state = jax.device_put(jnp.ones((5, *NON_CUBIC_GRID)), state_sharding)
-    kick = jax.jit(lambda primitive_state, state, x: apply_turbulence_driving(
-        primitive_state, state, 0.1, NON_CUBIC, params, (x, y, z), (1, 2, 3)))
-    for coordinates in (x_sharded, x):  # sharded like the state, or a plain array as from the helper data
-        kicked = kick(primitive_state, state, coordinates)
-        assert kicked.sharding.is_equivalent_to(state_sharding, kicked.ndim)
-        np.testing.assert_allclose(kicked[1:4], 1.0 + 0.1 * whole, rtol=ROUND_OFF)
-        np.testing.assert_array_equal(kicked[0], 1.0)
+    stand_in = simulation_stand_in(NON_CUBIC, params, NON_CUBIC_GRID)
+    kick = jax.jit(lambda primitive_state, state: apply_turbulence_driving(primitive_state, state, 0.1, *stand_in))
+    kicked = kick(primitive_state, state)
+    assert kicked.sharding.is_equivalent_to(state_sharding, kicked.ndim)
+    # the uniform velocity 1 is bulk motion and goes; the mean of the field is zero but for round-off
+    bulk_motion = np.mean(np.asarray(whole), axis=(1, 2, 3), keepdims=True)
+    np.testing.assert_allclose(kicked[1:4], 0.1 * (whole - bulk_motion), rtol=0, atol=ROUND_OFF)
+    np.testing.assert_array_equal(kicked[0], 1.0)
 
 
 # -------------------------------------------------------------
@@ -458,27 +474,58 @@ def test_single_precision():
 
 
 @pytest.mark.parametrize("dimensionality, velocity_index", [(1, 1), (2, (1, 2, -1)), (3, (1, 2, 3)), (2, (4, 2))])
-def test_velocity_kick(dimensionality, velocity_index):
-    """v <- v + dt a on the velocity components, everything else untouched."""
-    config = BEATTIE._replace(dimensionality=dimensionality)
+@pytest.mark.parametrize("ghost_layers", [0, 2])
+def test_velocity_kick(dimensionality, velocity_index, ghost_layers):
+    """
+    v <- v + dt a - (dt F + P) / M in the physical cells, F = sum rho a and
+    P = sum rho v (FLASH: no net momentum after the kick); everything else,
+    the ghost cells included, untouched.
+    """
+    config = BEATTIE._replace(dimensionality=dimensionality, box_size=(1.0, 0.75, 0.5)[:dimensionality])
     params = TurbulenceDrivingParams()
     state = stationary_state(config, seed=3)
     grid = (16, 12, 8)[:dimensionality]
-    cell_centers = grid_cell_centers(config, grid)
-    primitive_state = jax.random.uniform(jax.random.key(4), (6, *grid))
-    acceleration = driving_acceleration(state, config, params, cell_centers)
+    acceleration = np.asarray(driving_acceleration(state, config, params, grid_cell_centers(config, grid)))
     assert acceleration.shape == (dimensionality, *grid)
 
-    kick = jax.jit(lambda primitive_state, state: apply_turbulence_driving(
-        primitive_state, state, 0.01, config, params, cell_centers, velocity_index))
-    kicked = kick(primitive_state, state)
-    stored = add_velocity_kick(primitive_state, acceleration, 0.01, velocity_index)  # the kick with a stored field
-    np.testing.assert_allclose(kicked, stored, rtol=0, atol=ROUND_OFF)
+    padded = tuple(n + 2 * ghost_layers for n in grid)
+    primitive_state = jax.random.uniform(jax.random.key(4), (6, *padded), minval=0.5, maxval=1.5)
+    stand_in = simulation_stand_in(config, params, grid, velocity_index=velocity_index)
+    dt = 0.01
+    kicked = jax.jit(lambda primitive_state, state: apply_turbulence_driving(primitive_state, state, dt, *stand_in))(
+        primitive_state, state
+    )
+
+    cells = (slice(None),) + tuple(slice(ghost_layers, ghost_layers + n) for n in grid)
+    inner = np.asarray(primitive_state)[cells]
     indices = [velocity_index] if isinstance(velocity_index, int) else list(velocity_index[:dimensionality])
+    density = inner[0]
+    momentum = np.array([np.sum(density * inner[index]) for index in indices])
+    force = np.sum(density * acceleration, axis=tuple(range(1, dimensionality + 1)))
+    correction = (dt * force + momentum) / np.sum(density)
     expected = np.array(primitive_state)
-    expected[indices] += 0.01 * np.asarray(acceleration)
+    for component, index in enumerate(indices):
+        expected[(index,) + cells[1:]] += dt * acceleration[component] - correction[component]
     np.testing.assert_allclose(kicked, expected, rtol=0, atol=ROUND_OFF)
-    assert float(jnp.max(jnp.abs(kicked[indices[0]] - primitive_state[indices[0]]))) > 0
+    kicked_inner = np.asarray(kicked)[cells]
+    net_momentum = [np.sum(kicked_inner[0] * kicked_inner[index]) for index in indices]
+    np.testing.assert_allclose(net_momentum, 0.0, atol=ROUND_OFF * np.sum(density))
+    stored_kick = jnp.asarray(expected[indices] - np.asarray(primitive_state)[indices])  # the kick as a stored field
+    stored = add_velocity_kick(primitive_state, stored_kick, velocity_index)
+    np.testing.assert_allclose(stored, expected, rtol=0, atol=ROUND_OFF)
+
+
+def test_velocity_dispersion_is_that_of_the_flash_plugin():
+    """s_d = sqrt(<v_d^2>_V - (P_d / M)^2) over the physical cells (Stir.F90)."""
+    config = BEATTIE
+    grid = (8, 6, 4)
+    stand_in = simulation_stand_in(config, TurbulenceDrivingParams(), grid)
+    primitive_state = jax.random.uniform(jax.random.key(5), (5, 12, 10, 8), minval=0.5, maxval=1.5)
+    measured = velocity_dispersion(primitive_state, stand_in[0], stand_in[2])
+    inner = np.asarray(primitive_state)[:, 2:10, 2:8, 2:6]
+    mean_velocity = [np.sum(inner[0] * inner[d]) / np.sum(inner[0]) for d in (1, 2, 3)]
+    expected = [np.sqrt(np.mean(inner[d] ** 2) - mean_velocity[d - 1] ** 2) for d in (1, 2, 3)]
+    np.testing.assert_allclose(measured, expected, rtol=1e-12)
 
 
 # -------------------------------------------------------------

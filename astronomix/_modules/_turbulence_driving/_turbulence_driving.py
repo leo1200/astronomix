@@ -252,8 +252,11 @@ def driving_acceleration(
     as one matrix product, which writes the field in memory order. The cost
     per cell and component is two multiply-adds per distinct k_z (8 for the
     modes of Beattie et al.) instead of one sine and cosine per mode (122).
-    In 2D the last axis is y, in 1D only the matrix product remains.
+    In 2D the last axis is y, in 1D only the matrix product remains. The
+    contractions run at full precision: the default single-precision matrix
+    product of a GPU (TF32) would leave relative errors of 1e-4 to 1e-3.
     """
+    highest = jax.lax.Precision.HIGHEST
     lattice = separable_lattice(config)
     coefficients = mode_coefficients(driving_state, config, params)
     coefficients = jnp.where(lattice.mirrored[:, None], coefficients.conj(), coefficients)
@@ -263,49 +266,133 @@ def driving_acceleration(
 
     phase = [jnp.exp(1j * jnp.outer(jnp.asarray(k, x.dtype), x)) for k, x in zip(lattice.wave_numbers, cell_centers)]
     if config.dimensionality >= 2:
-        planes = jnp.einsum("da...,ax->dx...", planes, phase[0])
+        planes = jnp.einsum("da...,ax->dx...", planes, phase[0], precision=highest)
     if config.dimensionality == 3:
-        planes = jnp.einsum("dxbc,by->dxyc", planes, phase[1])
+        planes = jnp.einsum("dxbc,by->dxyc", planes, phase[1], precision=highest)
     tables = jnp.concatenate([phase[-1].real, -phase[-1].imag])
     planes = jnp.concatenate([planes.real, planes.imag], axis=-1)
-    return planes @ tables
+    return jnp.matmul(planes, tables, precision=highest)
 
 
-def add_velocity_kick(primitive_state, acceleration, dt, velocity_index: Union[int, Sequence[int]]):
+def driven_velocity_indices(velocity_index: Union[int, Sequence[int]], num_components: int):
+    """The state rows of the first ``num_components`` velocity components."""
+    return (velocity_index,) if isinstance(velocity_index, int) else tuple(velocity_index)[:num_components]
+
+
+def add_velocity_kick(primitive_state, kick, velocity_index: Union[int, Sequence[int]], cells=()):
     """
-    v_d <- v_d + dt a_d on the velocity components of a primitive state.
+    v_d <- v_d + kick_d on the velocity components of a primitive state, in
+    the cells selected by the slices ``cells`` (all cells if empty).
     Adjacent velocity components (the layout of the variable registry) are
     updated as one block: on a GPU every separate update of a component
     costs a pass over the whole state.
     """
-    num_components = acceleration.shape[0]
-    indices = (velocity_index,) if isinstance(velocity_index, int) else tuple(velocity_index)[:num_components]
-    kick = (dt * acceleration).astype(primitive_state.dtype)
+    num_components = kick.shape[0]
+    indices = driven_velocity_indices(velocity_index, num_components)
+    kick = kick.astype(primitive_state.dtype)
     if indices == tuple(range(indices[0], indices[0] + num_components)):
-        return primitive_state.at[indices[0] : indices[0] + num_components].add(kick)
+        return primitive_state.at[(slice(indices[0], indices[0] + num_components), *cells)].add(kick)
     for component, index in enumerate(indices):
-        primitive_state = primitive_state.at[index].add(kick[component])
+        primitive_state = primitive_state.at[(index, *cells)].add(kick[component])
     return primitive_state
-
-
-def apply_turbulence_driving(
-    primitive_state,
-    driving_state: TurbulenceDrivingState,
-    dt,
-    config: TurbulenceDrivingConfig,
-    params: TurbulenceDrivingParams,
-    cell_centers: Sequence[jnp.ndarray],
-    velocity_index: Union[int, Sequence[int]],
-):
-    """
-    The velocity kick v <- v + dt a of the current pattern. The acceleration
-    is recomputed from the mode state on every call; nothing is stored on
-    the grid.
-    """
-    acceleration = driving_acceleration(driving_state, config, params, cell_centers)
-    return add_velocity_kick(primitive_state, acceleration, dt, velocity_index)
 
 
 # -------------------------------------------------------------
 # ================ ↑ acceleration field ↑ =====================
+# -------------------------------------------------------------
+
+# -------------------------------------------------------------
+# ============== ↓ driving of a simulation state ↓ ============
+# -------------------------------------------------------------
+
+# The functions below take the simulation configuration, the simulation
+# parameters and the variable registry of astronomix (duck-typed, so that the
+# configuration module can import the options above without a cycle).
+
+
+def physical_cells(primitive_state, config):
+    """
+    Slices of the physical cells of a primitive state: a padded state carries
+    the same number of ghost layers on every axis; an empty tuple if it
+    carries none.
+    """
+    num_cells = tuple(config.num_cells)[: config.dimensionality]
+    ghost_layers = (primitive_state.shape[1] - num_cells[0]) // 2
+    if ghost_layers == 0:
+        return ()
+    return tuple(slice(ghost_layers, ghost_layers + n) for n in num_cells)
+
+
+def physical_cell_centers(config, dtype):
+    """The cell centres of the physical grid per axis, lower box edge at 0."""
+    driving_config = config.turbulence_driving_config
+    num_cells = tuple(config.num_cells)[: config.dimensionality]
+    return [cell_center_coordinates(n, length / n, 0, dtype) for n, length in zip(num_cells, driving_config.box_size)]
+
+
+def velocity_dispersion(primitive_state, config, registered_variables):
+    """
+    The velocity dispersion per driven component as the FLASH plugin of
+    TurbGen measures it for the automatic amplitude adjustment
+    (plugins/flash/StirMain/Stir.F90, the sums before
+    ``st_stir_check_for_update_of_turb_pattern_c``):
+
+        s_d = sqrt(<v_d^2>_V - (P_d / M)^2)
+
+    with the volume average <.>_V, the momentum P_d and the mass M of the
+    physical cells. Shape (num_components,).
+    """
+    cells = physical_cells(primitive_state, config)
+    density = primitive_state[(registered_variables.density_index, *cells)]
+    indices = driven_velocity_indices(registered_variables.velocity_index, config.dimensionality)
+    mass = jnp.sum(density)
+    dispersion = []
+    for index in indices:
+        velocity = primitive_state[(index, *cells)]
+        mean_velocity = jnp.sum(density * velocity) / mass
+        variance = jnp.maximum(jnp.mean(velocity**2) - mean_velocity**2, 0.0)
+        dispersion.append(jnp.sqrt(variance + jnp.finfo(primitive_state.dtype).tiny))
+    return jnp.stack(dispersion)
+
+
+def apply_turbulence_driving(
+    primitive_state, driving_state: TurbulenceDrivingState, dt, config, params, registered_variables
+):
+    """
+    The kick of the turbulence driving at the end of a time step, as the
+    FLASH plugin of TurbGen applies it (plugins/flash/StirMain/Stir.F90 with
+    CORRECT_BULK_MOTION, the only setting there):
+
+        v <- v + dt a - (dt F + P) / M,   F = sum rho a dV,
+
+    with the acceleration a of the current pattern and the mass M and
+    momentum P of the physical cells before the kick, so that the net
+    momentum after it is zero. Density, pressure and magnetic field are
+    unchanged: for the ideal gas the internal energy stays and the total
+    energy grows by the change of the kinetic energy (Stir.F90: ENER, the
+    specific total energy, gets d_ekin = e_kin_new - e_kin_old).
+
+    The acceleration is recomputed from the mode state on every call; nothing
+    of grid size is stored. Only the physical cells are kicked; the ghost
+    cells are left to the boundary fill of the scheme.
+    """
+    driving_config = config.turbulence_driving_config
+    cells = physical_cells(primitive_state, config)
+    cell_centers = physical_cell_centers(config, primitive_state.dtype)
+    acceleration = driving_acceleration(driving_state, driving_config, params.turbulence_driving_params, cell_centers)
+    acceleration = acceleration.astype(primitive_state.dtype)
+
+    density = primitive_state[(registered_variables.density_index, *cells)]
+    indices = driven_velocity_indices(registered_variables.velocity_index, driving_config.dimensionality)
+    spatial_axes = tuple(range(1, acceleration.ndim))
+    mass = jnp.sum(density)
+    momentum = jnp.stack([jnp.sum(density * primitive_state[(index, *cells)]) for index in indices])
+    force = jnp.sum(density * acceleration, axis=spatial_axes)
+    correction = (dt * force + momentum) / mass
+    kick = dt * acceleration - jnp.expand_dims(correction, spatial_axes)
+    return add_velocity_kick(primitive_state, kick, registered_variables.velocity_index, cells)
+
+
+# -------------------------------------------------------------
+# ============== ↑ driving of a simulation state ↑ ============
 # -------------------------------------------------------------

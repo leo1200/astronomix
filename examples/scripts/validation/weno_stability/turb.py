@@ -1,7 +1,7 @@
 """Driven supersonic turbulence (HOW-MHD ISM case) with every protection switchable.
 
 Mirrors ``examples/scripts/forward/mhd/turbulence/paper_turbulence.py`` (OU
-forcing, v_rms ~ 1 normalisation, a = 1 / M_turb, B along z), but defaults to
+driving, TurbGen now, v_rms ~ 1 normalisation, a = 1 / M_turb, B along z), but defaults to
 NO stabilisation at all and records min(rho), max|v| and the first NaN through
 a snapshot callback. The last finite state before a blow-up is written to disk
 for forensics.
@@ -79,10 +79,7 @@ from astronomix import (
     initialize_interface_fields,
     time_integration,
 )
-from astronomix._modules._turbulent_forcing._turbulent_forcing_options import (
-    TurbulentForcingConfig,
-    TurbulentForcingParams,
-)
+from astronomix import TurbulenceDrivingConfig, TurbulenceDrivingParams
 from astronomix.option_classes.simulation_config import (
     IDEAL_GAS,
     ISOTHERMAL,
@@ -109,11 +106,10 @@ config = SimulationConfig(
     num_cells=args.N,
     box_size=1.0,
     mhd=bool(args.mhd),
-    random_seed=args.seed,
     backend_config=BackendConfig(backend=NATIVE_JAX if args.backend == "native" else PALLAS),
     boundary_settings=BoundarySettings(periodic, periodic, periodic),
-    turbulent_forcing_config=TurbulentForcingConfig(
-        turbulent_forcing=True, ou_forcing=True,
+    turbulence_driving_config=TurbulenceDrivingConfig(
+        turbulence_driving=True, k_min=1.0, k_max=2.0, random_seed=args.seed, amplitude_auto_adjust=True,
     ),
     positivity_config=PositivityConfig(
         per_step_mode=POSITIVITY_MODES[args.step],
@@ -132,11 +128,7 @@ params = SimulationParams(
     gamma=gamma,
     isothermal_sound_speed=sound_speed,
     t_end=args.tcross * t_cross,
-    turbulent_forcing_params=TurbulentForcingParams(
-        forcing_amplitude=3.5,
-        correlation_time=0.5,
-        forcing_wavenumber=3.0 * np.pi,
-    ),
+    turbulence_driving_params=TurbulenceDrivingParams(velocity=1.0, k_driving=1.5, solenoidal_weight=1.0),
     minimum_density=args.rhomin,
     minimum_pressure=args.pmin,
 )

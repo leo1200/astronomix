@@ -15,6 +15,7 @@ from astronomix._modules._turbulence_driving._turbulence_driving import (
     ornstein_uhlenbeck_update,
     turnover_time,
     update_interval,
+    velocity_dispersion,
 )
 from astronomix._modules._turbulence_driving._turbulence_driving_options import (
     BAND,

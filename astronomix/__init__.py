@@ -59,6 +59,7 @@ from astronomix.option_classes.simulation_config import (
 from astronomix.option_classes.presets import ATHENAPK_VL2, FD_PAPER
 from astronomix.option_classes.simulation_params import SimulationParams
 from astronomix._modules._stellar_wind.stellar_wind_options import WindParams
+from astronomix._modules._turbulence_driving import TurbulenceDrivingConfig, TurbulenceDrivingParams
 from astronomix.units import CodeUnits
 
 # astronomix functions

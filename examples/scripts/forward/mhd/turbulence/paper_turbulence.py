@@ -1,9 +1,12 @@
 """
 Driven isothermal-MHD turbulence after HOW-MHD (Seo & Ryu 2023,
 arXiv:2304.04360, Secs. 3.9 / 3.10), with Ornstein-Uhlenbeck (temporally
-correlated) forcing instead of the paper's white-in-time driving. Produces the
+correlated) driving instead of the paper's white-in-time driving. Produces the
 data of the paper's ``turbulence_slices`` and ``turbulence_spectra`` figures
-(``make_fig14.py`` / ``make_fig15.py``).
+(``make_fig14.py`` / ``make_fig15.py``). It runs the TurbGen driving now
+(solenoidal, parabola over 1 <= k <= 2 with the peak at 1.5 in units of
+2 pi / L, amplitude adjusted to the target dispersion); the paper's figures
+were made with the earlier forcing module (tag ``pre-streamline``).
 
 Cases (one per invocation):
   ISM : isothermal, M_turb ~ 10,  beta_p = 0.1, run to  5 t_cross
@@ -16,12 +19,13 @@ beta) with P_thermal = a^2 rho0 (isothermal) or P0 (adiabatic,
 a = sqrt(gamma P0 / rho0)). It is physically identical to the paper's a = 1,
 v_rms = M_turb normalisation for every dimensionless diagnostic.
 
-The forcing spectrum matches the paper, |dv_k|^2 ~ k^6 exp(-8 k / k_exp) with
-k_exp = 4 pi / L0, i.e. an OU forcing peaked at k_f = 0.75 k_exp = 3 pi.
+The driving peaks where the paper's spectrum |dv_k|^2 ~ k^6 exp(-8 k / k_exp),
+k_exp = 4 pi / L0, does: at k_f = 0.75 k_exp = 3 pi, i.e. 1.5 in units of
+2 pi / L (``--kdrive``).
 
 The run is split into ``--nsnap`` equal intervals. Each interval is one
 ``time_integration`` call in the disk-checkpointing (``TO_DISK``) mode, which
-writes the loop carry (state, PRNG key, OU forcing) as an Orbax checkpoint to
+writes the loop carry (state, driving state) as an Orbax checkpoint to
 ``<ckpt-root>/<tag>/<interval>``; the next interval continues from that
 checkpoint, so a run resumed in a new Slurm job takes exactly the path of an
 uninterrupted one. The state at the end of every interval is reduced on the
@@ -81,10 +85,7 @@ from astronomix import (
     SimulationConfig,
     SimulationParams,
 )
-from astronomix._modules._turbulent_forcing._turbulent_forcing_options import (
-    TurbulentForcingConfig,
-    TurbulentForcingParams,
-)
+from astronomix._modules._turbulence_driving import TurbulenceDrivingConfig, TurbulenceDrivingParams
 from astronomix.time_stepping.time_integration import LoopState
 
 # astronomix functions
@@ -181,13 +182,17 @@ def parse_arguments():
     parser.add_argument("--gamma", type=float, default=5.0 / 3.0)
     parser.add_argument("--N", type=int, default=128, help="cells per dimension")
     parser.add_argument("--tcross", type=float, default=5.0, help="t_end in crossing times")
-    parser.add_argument("--F0", type=float, default=3.5, help="OU forcing amplitude")
-    parser.add_argument("--tau", type=float, default=0.5, help="OU correlation time")
     parser.add_argument(
-        "--kf",
+        "--kdrive",
         type=float,
-        default=3.0 * np.pi,
-        help="OU peak wavenumber (= 0.75 k_exp)",
+        default=1.5,
+        help="peak of the driving in units of 2 pi / L (= 0.75 k_exp); driven band kdrive -+ 0.5",
+    )
+    parser.add_argument(
+        "--amplitude-factor",
+        type=float,
+        default=1.0,
+        help="TurbGen amplitude factor at the start (adjusted automatically towards the target dispersion)",
     )
     parser.add_argument(
         "--nsnap",
@@ -415,9 +420,11 @@ def build_setup(args):
         box_size=1.0,
         mhd=bool(args.mhd),
         boundary_settings=BoundarySettings(periodic, periodic, periodic),
-        turbulent_forcing_config=TurbulentForcingConfig(
-            turbulent_forcing=True,
-            ou_forcing=True,
+        turbulence_driving_config=TurbulenceDrivingConfig(
+            turbulence_driving=True,
+            k_min=args.kdrive - 0.5,
+            k_max=args.kdrive + 0.5,
+            amplitude_auto_adjust=True,
         ),
         solver_config=FDSolverConfig(
             weno_z=bool(args.weno_z),
@@ -433,7 +440,7 @@ def build_setup(args):
         ),
         # One interval per time_integration call: TO_DISK with a single
         # segment integrates [t_start, t_end] and checkpoints the loop carry
-        # (state, PRNG key, OU forcing) at its end, which is what lets the
+        # (state, driving state) at its end, which is what lets the
         # next interval -- in this job or the next one -- continue the same
         # stochastic realisation.
         snapshot_storage_mode=TO_DISK,
@@ -450,10 +457,11 @@ def build_setup(args):
         gamma=args.gamma,
         isothermal_sound_speed=sound_speed,
         t_end=end_time,
-        turbulent_forcing_params=TurbulentForcingParams(
-            forcing_amplitude=args.F0,
-            correlation_time=args.tau,
-            forcing_wavenumber=args.kf,
+        turbulence_driving_params=TurbulenceDrivingParams(
+            velocity=vrms_target,
+            k_driving=args.kdrive,
+            solenoidal_weight=1.0,
+            amplitude_factor=args.amplitude_factor,
         ),
         minimum_density=args.rhomin,
         minimum_pressure=1e-6,
@@ -474,8 +482,8 @@ def build_setup(args):
     del initial_state
 
     print(f"[{args.tag}] eos={args.eos} M_turb_aim={args.mturb} beta={args.beta:g} "
-          f"a={sound_speed:.3f} P0={initial_pressure} B0={magnetic_field:.4g} F0={args.F0} "
-          f"tau={args.tau} kf={args.kf:.3f} cfl={args.cfl} rhomin={args.rhomin} "
+          f"a={sound_speed:.3f} P0={initial_pressure} B0={magnetic_field:.4g} "
+          f"kdrive={args.kdrive} amplitude_factor={args.amplitude_factor} cfl={args.cfl} rhomin={args.rhomin} "
           f"weno_z={bool(args.weno_z)} positivity_preserving={positivity_preserving} "
           f"t_end={end_time:.4f} ({args.tcross} t_cross) intervals={args.nsnap}", flush=True)
 
@@ -512,9 +520,9 @@ def run_signature(args, setup):
             gamma=args.gamma,
             N=args.N,
             tcross=args.tcross,
-            F0=args.F0,
-            tau=args.tau,
-            kf=args.kf,
+            driving="TurbGen",
+            kdrive=args.kdrive,
+            amplitude_factor=args.amplitude_factor,
             nsnap=args.nsnap,
             cfl=args.cfl,
             rhomin=args.rhomin,
@@ -807,7 +815,7 @@ def run_segmented(args, setup):
     checkpoints when they exist.
 
     Every interval after the first continues from the Orbax checkpoint the
-    previous interval wrote (state, PRNG key, OU forcing), and its start and
+    previous interval wrote (state, driving state), and its start and
     end times come from the fixed interval grid, not from the stored clock. An
     uninterrupted run and one resumed in a new job therefore execute identical
     integrations.
@@ -844,7 +852,7 @@ def run_segmented(args, setup):
             setup.magnetic_field,
             setup.initial_pressure,
         )
-        key = forcing = None
+        driving_state = None
         log.append(0.0, *jax.device_get(reduce_snapshot(state)))
         print_snapshot_line(args, setup, log)
     else:
@@ -856,7 +864,7 @@ def run_segmented(args, setup):
                 "--tag or --fresh"
             )
         checkpoint = load_loop_checkpoint(checkpoint_directory, completed_intervals)
-        state, key, forcing = checkpoint.primitive_state, checkpoint.key, checkpoint.forcing
+        state, driving_state = checkpoint.primitive_state, checkpoint.driving_state
         # The diagnostics are saved right after each checkpoint, so a job
         # killed in between leaves them exactly one snapshot behind.
         if log.num_snapshots == completed_intervals:
@@ -904,12 +912,12 @@ def run_segmented(args, setup):
             t_start=interval_times[interval],
             t_end=interval_times[interval + 1],
         )
-        # The first interval of a fresh run seeds the key and the OU forcing
-        # from config.random_seed; every later one continues the stored ones.
-        if key is None:
+        # The first interval of a fresh run seeds the driving from its random
+        # seed; every later one continues the stored driving state.
+        if driving_state is None:
             restart_state = None
         else:
-            restart_state = LoopState(primitive_state=None, key=key, forcing=forcing)
+            restart_state = LoopState(primitive_state=None, driving_state=driving_state)
         final_state = time_integration(
             state,
             setup.config,
@@ -923,7 +931,7 @@ def run_segmented(args, setup):
         # array: the two are bit-identical, and this makes the in-job path the
         # very path a resumed job takes.
         checkpoint = load_loop_checkpoint(checkpoint_directory, interval + 1)
-        state, key, forcing = checkpoint.primitive_state, checkpoint.key, checkpoint.forcing
+        state, driving_state = checkpoint.primitive_state, checkpoint.driving_state
         log.append(checkpoint.time, *jax.device_get(reduce_snapshot(state)))
         log.interval_steps.append(int(checkpoint.num_iterations))
         del checkpoint
@@ -1004,9 +1012,8 @@ def write_paper_data(args, setup, log):
         N=args.N,
         a=setup.sound_speed,
         B0=setup.magnetic_field,
-        F0=args.F0,
-        tau=args.tau,
-        kf=args.kf,
+        kdrive=args.kdrive,
+        amplitude_factor=args.amplitude_factor,
         tcross=args.tcross,
         t_cross=setup.crossing_time,
         nsnap=args.nsnap,

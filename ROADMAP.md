@@ -60,7 +60,8 @@ astronomix WENO5/WENO-Z + CT against AthenaPK PLM/PPM/WENO-Z + GLM, in-flight
 spectra and transfer functions, the numerical viscosity and resistivity measured
 at matched E_B/E_K (Pm_num is a scheme constant: CT ~1.21, every GLM scheme
 0.48-0.63), explicit-diffusivity calibration ladders, AthenaPK-style few-modes
-forcing (`TurbulentForcingConfig.forcing_modes`). The hydro counterpart against
+forcing (`TurbulentForcingConfig.forcing_modes` of the forcing module before the
+TurbGen driving, tag `pre-streamline`). The hydro counterpart against
 AthenaK is in `examples/scripts/forward/hydro/turbulence`.
 
 **Done since** (paper revision): the study with astronomix's own VL2 scheme

@@ -6,20 +6,16 @@ forced turbulence in a unit periodic box with the 5th-order FD/WENO solver, whil
 PLM + HLLC finite-volume solver. ``spectra.py`` then computes time-averaged
 kinetic-energy spectra for both with one shared estimator.
 
-The forcing is matched to AthenaK's ``turb_driver`` term-by-term:
+The script runs the TurbGen driving of the code now: solenoidal, a flat band
+``nlow <= n <= nhigh`` in mode number n = k L / 2pi, Ornstein-Uhlenbeck with the
+turnover time ``L / (k_driving v_rms)`` as correlation time, the amplitude
+adjusted automatically towards the target velocity dispersion. The earlier
+term-by-term match with AthenaK's ``turb_driver`` (its ``k^-(expo+2)/2``
+envelope, ``tcorr`` and the exact injection ``dedt * dt``) was made with the
+forcing module before the streamline branch (tag ``pre-streamline``); the
+stored ``dedt`` is NaN now and ``tcorr`` is the correlation time of the driving.
 
-    - discrete driving band ``nlow <= n <= nhigh`` in mode number n = k L / 2pi
-      (``banded_spectrum=True``), with the isotropic ``k^-(expo+2)/2`` envelope,
-    - solenoidal projection of the forcing field,
-    - Ornstein-Uhlenbeck update with ``fcorr = exp(-dt / tcorr)``,
-    - exact energy injection ``dedt * dt`` per step via the same quadratic
-      normalisation (``ou_exact_injection=True``).
-
-Because the box has unit volume, astronomix's ``energy_injection_rate`` (a total
-rate) and AthenaK's ``dedt`` (a rate per unit volume) are numerically the same
-number, so both codes are given the identical ``--dedt``.
-
-The two codes draw independent random forcing realisations, so the comparison is
+The two codes draw independent random driving realisations, so the comparison is
 statistical: spectra are averaged over snapshots in the stationary window.
 
     PYTHONPATH=$(git rev-parse --show-toplevel) \
@@ -62,10 +58,8 @@ from astronomix import (
     SimulationParams,
     SnapshotSettings,
 )
-from astronomix._modules._turbulent_forcing._turbulent_forcing_options import (
-    TurbulentForcingConfig,
-    TurbulentForcingParams,
-)
+from astronomix import TurbulenceDrivingConfig, TurbulenceDrivingParams
+from astronomix._modules._turbulence_driving import BAND
 
 # astronomix functions
 from astronomix import (
@@ -82,7 +76,7 @@ DATA_DIR = Path(__file__).resolve().parent / "data"
 SCRATCH_DIR = Path("/export/data/lstorcks/turb_spectra")
 
 #: Shared physical setup (see athenak_turb.py — these must stay in sync).
-BOX_SIZE = 1.0          # unit box, so dedt (per volume) == E_inj (total)
+BOX_SIZE = 1.0          # unit box
 RHO0 = 1.0              # uniform initial density
 CS = 1.0                # isothermal sound speed; Mach = v_rms / CS
 
@@ -110,11 +104,13 @@ def build_config(args):
         # positivity machinery off keeps the scheme unconditionally 5th order,
         # which is exactly what this study is measuring.
         positivity_config=PositivityConfig(),
-        turbulent_forcing_config=TurbulentForcingConfig(
-            turbulent_forcing=True,
-            ou_forcing=True,              # temporally correlated, like AthenaK
-            ou_exact_injection=True,      # inject exactly dedt * dt per step
-            banded_spectrum=True,         # discrete nlow..nhigh band
+        turbulence_driving_config=TurbulenceDrivingConfig(
+            turbulence_driving=True,      # temporally correlated, like AthenaK
+            spectral_form=BAND,           # flat nlow..nhigh band
+            k_min=args.nlow,
+            k_max=args.nhigh,
+            random_seed=args.seed,
+            amplitude_auto_adjust=True,
         ),
         return_snapshots=True,
         num_snapshots=args.nsnap,
@@ -123,7 +119,6 @@ def build_config(args):
             return_kinetic_energy=True,
             return_total_mass=True,
         ),
-        random_seed=args.seed,
         progress_bar=True,
     )
 # -------------------------------------------------------------
@@ -135,15 +130,9 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--n", type=int, default=128, help="cells per dimension")
     p.add_argument("--mach", type=float, default=0.3,
-                   help="target turbulent Mach number (sets the default dedt)")
-    p.add_argument("--dedt", type=float, default=-1.0,
-                   help="energy injection rate; <0 uses the v_rms^3 / (2 L) estimate")
-    p.add_argument("--tcorr", type=float, default=-1.0,
-                   help="OU correlation time; 0 = white-in-time driving; "
-                        "<0 uses L / (2 pi v_rms)")
+                   help="target turbulent Mach number (the target velocity dispersion of the driving)")
     p.add_argument("--nlow", type=int, default=1, help="driving band, low mode number")
     p.add_argument("--nhigh", type=int, default=2, help="driving band, high mode number")
-    p.add_argument("--expo", type=float, default=5.0 / 3.0, help="driving envelope exponent")
     p.add_argument("--nturn", type=float, default=10.0,
                    help="run length in large-eddy turnover times L / (2 v_rms)")
     p.add_argument("--nsnap", type=int, default=41, help="snapshots over the whole run")
@@ -164,22 +153,9 @@ def main():
         jax.config.update("jax_enable_x64", True)
 
     v_target = args.mach * CS
-    # AthenaK's turb.athinput convention, dedt ~ v_rms^3 / (2 L), which puts
-    # astronomix at Mach ~0.31-0.32 at every resolution in this ladder — its
-    # injection really is the requested rate, so no per-N calibration is needed
-    # on this side (AthenaK's is; see calibrate_athenak.py).
-    dedt = args.dedt if args.dedt > 0 else v_target ** 3 / (2.0 * BOX_SIZE)
-    if args.tcorr < 0:
-        tcorr = BOX_SIZE / (2.0 * np.pi * v_target)
-    elif args.tcorr == 0.0:
-        # White-in-time driving: exp(-dt / tcorr) underflows to 0, so the OU
-        # field is a fresh draw each step, matching AthenaK's tcorr <= 1e-6
-        # branch. Kept as an option for the driving diagnostics; note it did NOT
-        # rescue AthenaK's resolution dependence (check_athenak_driving.py finds
-        # a 66% Mach spread under white driving, worse than OU's 22%).
-        tcorr = 1e-30
-    else:
-        tcorr = args.tcorr
+    # The correlation time of the driving is its turnover time L / (k_driving v_target).
+    k_driving = 0.5 * (args.nlow + args.nhigh)
+    tcorr = BOX_SIZE / (k_driving * v_target)
     t_turnover = BOX_SIZE / (2.0 * v_target)
     t_end = args.nturn * t_turnover
 
@@ -200,18 +176,13 @@ def main():
         C_cfl=args.cfl,
         t_end=t_end,
         isothermal_sound_speed=CS,
-        turbulent_forcing_params=TurbulentForcingParams(
-            energy_injection_rate=dedt,      # unit box volume => same as AthenaK dedt
-            correlation_time=tcorr,
-            forcing_nlow=args.nlow,
-            forcing_nhigh=args.nhigh,
-            forcing_expo=args.expo,
+        turbulence_driving_params=TurbulenceDrivingParams(
+            velocity=v_target, k_driving=k_driving, solenoidal_weight=1.0
         ),
     )
 
     print(f"[astronomix-turb] N={args.n}^3  target Mach={args.mach}  cs={CS}")
-    print(f"[astronomix-turb] dedt={dedt:.6g}  tcorr={tcorr:.4f}  band n=[{args.nlow},{args.nhigh}] "
-          f"expo={args.expo:.4f}")
+    print(f"[astronomix-turb] TurbGen driving  tcorr={tcorr:.4f}  band n=[{args.nlow},{args.nhigh}]")
     print(f"[astronomix-turb] t_turnover={t_turnover:.4f}  t_end={t_end:.4f} "
           f"({args.nturn} turnovers, {args.nsnap} snapshots)")
 
@@ -241,8 +212,8 @@ def main():
     out = DATA_DIR / f"astronomix_{tag}.npz"
     np.savez_compressed(
         out, **reduced,
-        n=args.n, box_size=BOX_SIZE, cs=CS, dedt=dedt, tcorr=tcorr,
-        nlow=args.nlow, nhigh=args.nhigh, expo=args.expo, weighted=args.weighted,
+        n=args.n, box_size=BOX_SIZE, cs=CS, dedt=np.nan, tcorr=tcorr,
+        nlow=args.nlow, nhigh=args.nhigh, weighted=args.weighted,
         t_turnover=t_turnover, runtime=runtime,
         num_iterations=int(result.num_iterations),
         label="astronomix (WENO5 FD, 5th order)",

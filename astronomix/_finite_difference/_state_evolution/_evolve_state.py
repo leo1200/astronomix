@@ -3,8 +3,9 @@ One finite-difference time step on the primitive state.
 
 Converts the primitive state to conserved variables, dispatches to the
 requested Runge-Kutta integrator (SSPRK4 or low-storage RK4, with constrained
-transport for MHD), converts back to primitives, and re-fills ghost cells when
-ghost-cell boundaries are in use.
+transport for MHD), converts back to primitives, adds the kick of the
+turbulence driving, and re-fills ghost cells when ghost-cell boundaries are in
+use.
 
 The rows the finite-difference solver appends behind the gas / field variables
 are handled around that update by operator splitting: the passive-scalar block
@@ -66,6 +67,7 @@ from astronomix._finite_difference._time_integrators._ssprk import (
     _ssprk4_with_ct,
 )
 from astronomix._geometry.boundaries import _boundary_handler
+from astronomix._modules._turbulence_driving import apply_turbulence_driving
 
 
 @partial(
@@ -81,6 +83,7 @@ def _evolve_state_fd(
     params: SimulationParams,
     helper_data: HelperData,
     registered_variables: RegisteredVariables,
+    driving_state=None,
 ) -> STATE_TYPE:
     """
     Advance the primitive state by one finite-difference time step.
@@ -99,6 +102,8 @@ def _evolve_state_fd(
         params: The simulation parameters.
         helper_data: The helper data.
         registered_variables: The registered variables.
+        driving_state: The state of the turbulence driving at the end of the
+            step, or ``None`` without driving.
 
     Returns:
         The primitive state after one time step.
@@ -320,6 +325,12 @@ def _evolve_state_fd(
             config,
             registered_variables,
             internal_energy_density=internal_energy_density,
+        )
+
+    # The kick of the turbulence driving, operator-split after the update.
+    if driving_state is not None:
+        primitive_state = apply_turbulence_driving(
+            primitive_state, driving_state, dt, config, params, registered_variables
         )
 
     # When ghost-cell boundaries are in use, refill the ghost zones from the

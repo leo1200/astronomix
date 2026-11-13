@@ -21,7 +21,18 @@ class TurbulenceDrivingConfig(NamedTuple):
     """
     Static part of the turbulence driving: everything that fixes the list of
     modes and the array shapes. The defaults are the driving of Beattie et
-    al. (2025): parabola over 1 <= k <= 3 in three dimensions.
+    al. (2025): parabola over 1 <= k <= 3, peak at k = 2 (the parameter
+    ``k_driving``), natural mixture. Their run, isothermal at rms Mach 4, is
+
+        SimulationConfig(..., turbulence_driving_config=TurbulenceDrivingConfig(turbulence_driving=True))
+        SimulationParams(..., turbulence_driving_params=TurbulenceDrivingParams(velocity=4.0 * sound_speed))
+
+    with ``amplitude_auto_adjust=True`` or a calibrated ``amplitude_factor``
+    (the factor that holds Mach 4 depends on the scheme and the resolution;
+    1.2 for BEATTIE_REFERENCE and FD_RIEMANN_ISOTHERMAL at 128^3).
+
+    In a simulation, ``finalize_config`` sets ``dimensionality`` and
+    ``box_size`` from the simulation configuration.
     """
 
     #: Drive turbulence with the Ornstein-Uhlenbeck acceleration field.
@@ -31,7 +42,7 @@ class TurbulenceDrivingConfig(NamedTuple):
     #: and 2.5 of TurbGen are not ported). The field has as many components.
     dimensionality: int = 3
 
-    #: Box size per axis (``L``).
+    #: Box size per axis (``L``); the lower box edge is at the origin.
     box_size: Tuple[float, ...] = (1.0, 1.0, 1.0)
 
     #: Spectral form of the amplitudes: BAND, PARABOLA or POWER_LAW
@@ -61,7 +72,8 @@ class TurbulenceDrivingConfig(NamedTuple):
 
     #: Adjust the amplitude towards the target velocity dispersion with the
     #: measured dispersion handed to ``advance_turbulence_driving``
-    #: (``ampl_auto_adjust``).
+    #: (``ampl_auto_adjust``); in a simulation the time loop measures it at
+    #: the start of every step.
     amplitude_auto_adjust: bool = False
 
 

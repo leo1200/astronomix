@@ -16,7 +16,7 @@ import jax.numpy as jnp
 # astronomix containers
 from astronomix._modules._cooling.cooling_options import CoolingParams
 from astronomix._modules._stellar_wind.stellar_wind_options import WindParams
-from astronomix._modules._turbulent_forcing._turbulent_forcing_options import TurbulentForcingParams
+from astronomix._modules._turbulence_driving._turbulence_driving_options import TurbulenceDrivingParams
 
 
 class FixedBoundaryState1D(NamedTuple):
@@ -131,8 +131,8 @@ class SimulationParams(NamedTuple):
 
     # parameters of physics modules
 
-    #: The parameters of the turbulent forcing module.
-    turbulent_forcing_params: TurbulentForcingParams = TurbulentForcingParams()
+    #: The parameters of the turbulence driving (differentiable).
+    turbulence_driving_params: TurbulenceDrivingParams = TurbulenceDrivingParams()
 
     #: The parameters of the stellar wind module.
     wind_params: WindParams = WindParams()

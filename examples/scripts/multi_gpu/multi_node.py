@@ -108,10 +108,7 @@ from astronomix import (
     BoundarySettings1D,
     FDSolverConfig,
 )
-from astronomix._modules._turbulent_forcing._turbulent_forcing_options import (
-    TurbulentForcingConfig,
-    TurbulentForcingParams,
-)
+from astronomix import TurbulenceDrivingConfig, TurbulenceDrivingParams
 
 # astronomix functions
 from astronomix import (
@@ -150,7 +147,7 @@ config = SimulationConfig(
         BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY),
         BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY),
     ),
-    turbulent_forcing_config = TurbulentForcingConfig(turbulent_forcing = True),
+    turbulence_driving_config = TurbulenceDrivingConfig(turbulence_driving = True),
     # let the integrator reuse the state buffer and use the 2N-storage LSRK4
     # integrator — both cut the peak memory of the run
     donate_state = True,
@@ -164,7 +161,8 @@ params = SimulationParams(
     isothermal_sound_speed = sound_speed,
     t_end = 2.0 * 0.5,
     minimum_density = 0.02,
-    turbulent_forcing_params = TurbulentForcingParams(energy_injection_rate = 1.65),
+    # target velocity dispersion 1, rms Mach number about 2
+    turbulence_driving_params = TurbulenceDrivingParams(velocity = 1.0),
 )
 
 # domain-decompose across ALL global devices along the x axis. The mesh axes are

@@ -75,7 +75,12 @@ from astronomix._modules._iteration_level_updates import (
     _apply_density_floor,
     _iteration_level_updates,
 )
-from astronomix._modules._turbulent_forcing._turbulent_forcing import _init_ou_forcing_state
+from astronomix._modules._turbulence_driving import (
+    advance_turbulence_driving,
+    init_turbulence_driving,
+    update_interval,
+    velocity_dispersion,
+)
 from astronomix._snapshotting._snapshot_diagnostics import (
     build_snapshot_store,
     record_snapshot,
@@ -113,19 +118,16 @@ class LoopState(NamedTuple):
     """The physics evolving-state threaded through the generic time-loop driver.
 
     The driver (``astronomix.time_stepping._time_loop.integrate``) treats this
-    as an opaque pytree; only the closures here unpack it. Holding the PRNG key
-    and the persistent Ornstein-Uhlenbeck forcing field here (rather than
-    overloading a bare tuple slot) keeps the carry explicit and extensible.
+    as an opaque pytree; only the closures here unpack it.
 
     Attributes:
         primitive_state: The (padded) primitive fluid state being evolved.
-        key: The PRNG key advanced by stochastic per-step modules (forcing, ...).
-        forcing: The persistent OU forcing field ``f`` (shape (3, nx, ny, nz)),
-            or ``None`` when OU forcing is inactive.
+        driving_state: The ``TurbulenceDrivingState`` of the turbulence driving
+            (mode amplitudes, pattern number, key; a few kilobytes), or
+            ``None`` without driving.
     """
     primitive_state: Any
-    key: Any
-    forcing: Any = None
+    driving_state: Any = None
 
 
 def _raise_with_time_integration_hint(error: Exception, config: SimulationConfig):
@@ -252,9 +254,9 @@ def time_integration(
             e.g. only the slice or summary statistics you need.
         sharding: The sharding to use for the padded helper data. If None,
                   no sharding is applied.
-        restart_state: An optional :class:`LoopState` providing the PRNG key
-            and persistent OU forcing field to resume from (typically obtained
-            from ``astronomix.setup_helpers.restart_from_latest_checkpoint``).
+        restart_state: An optional :class:`LoopState` providing the state of
+            the turbulence driving to resume from (typically obtained from
+            ``astronomix.setup_helpers.restart_from_latest_checkpoint``).
             Its ``primitive_state`` slot is ignored; pass the restored state as
             the ``primitive_state`` argument. Mainly used together with
             ``snapshot_storage_mode == TO_DISK`` and ``params.t_start``.
@@ -680,34 +682,13 @@ def _warn_if_clock_stalled(final_time, end_time):
         )
 
 
-def _seed_key_and_forcing(config, params):
-    """Seed the PRNG key and (when OU forcing is active) the persistent forcing
-    field from ``config.random_seed`` for a fresh run."""
-    key0 = jax.random.key(config.random_seed)
-    if (config.turbulent_forcing_config.turbulent_forcing
-            and config.turbulent_forcing_config.ou_forcing):
-        key0, forcing0 = _init_ou_forcing_state(
-            key0, config, params.turbulent_forcing_params
-        )
-    else:
-        forcing0 = None
-    return key0, forcing0
-
-
-def _build_initial_loop_state(primitive_state, config, params, restart_state=None):
-    """Construct the initial loop carry for an (already padded) state.
-
-    When ``restart_state`` is given, its PRNG key and persistent OU forcing
-    field are reused so a resumed run continues the same stochastic realisation;
-    otherwise they are seeded from ``config.random_seed``. The OU forcing (when
-    active) needs a persistent solenoidal field; otherwise the forcing slot
-    stays ``None`` and costs nothing in the carry.
-    """
-    if restart_state is not None:
-        return LoopState(primitive_state, restart_state.key, restart_state.forcing)
-
-    key0, forcing0 = _seed_key_and_forcing(config, params)
-    return LoopState(primitive_state, key0, forcing0)
+def _initial_driving_state(config, dtype):
+    """The state of the turbulence driving before the first step of a fresh
+    run (seeded from ``turbulence_driving_config.random_seed``), or ``None``
+    without driving."""
+    if not config.turbulence_driving_config.turbulence_driving:
+        return None
+    return init_turbulence_driving(config.turbulence_driving_config, dtype)
 
 
 def _integrate_core(
@@ -778,8 +759,8 @@ def _integrate_core(
         ``(dt, new_state)``; the driver advances the time.
         """
         primitive_state = state.primitive_state
-        key = state.key
-        forcing = state.forcing
+        driving_state = state.driving_state
+        driving = config.turbulence_driving_config.turbulence_driving
 
         # determine the time step size
         if not config.fixed_timestep:
@@ -834,6 +815,16 @@ def _integrate_core(
         else:
             dt = params.t_end / config.num_timesteps
 
+        # The turbulence driving limits the time step to half its update
+        # interval, as FLASH does (TurbGen, plugins/flash/StirMain/Stir_computeDt.F90).
+        if driving and not config.fixed_timestep:
+            dt = jnp.minimum(
+                dt,
+                jax.lax.stop_gradient(
+                    0.5 * update_interval(config.turbulence_driving_config, params.turbulence_driving_params)
+                ),
+            )
+
         # make sure we exactly hit the snapshot time points
         if config.use_specific_snapshot_timepoints and (
             config.return_snapshots or config.activate_snapshot_callback
@@ -846,13 +837,36 @@ def _integrate_core(
         if config.exact_end_time and not config.use_specific_snapshot_timepoints:
             dt = jnp.minimum(dt, params.t_end - time)
 
+        # The velocity dispersion for the automatic amplitude adjustment of
+        # the driving, measured at the start of a step that ends in a new
+        # pattern (zero otherwise, which the adjustment ignores).
+        measured_dispersion = None
+        if driving and config.turbulence_driving_config.amplitude_auto_adjust:
+            interval = update_interval(config.turbulence_driving_config, params.turbulence_driving_params)
+            measured_dispersion = jax.lax.stop_gradient(
+                jax.lax.cond(
+                    jnp.floor((time + dt) / interval) > driving_state.step,
+                    lambda state: velocity_dispersion(state, config, registered_variables),
+                    lambda state: jnp.zeros(config.turbulence_driving_config.dimensionality, state.dtype),
+                    primitive_state,
+                )
+            )
+
         def advance(step_size):
-            """The per-step modules and the evolve over ``step_size``, from the
-            state, PRNG key and forcing at the start of the step."""
-            new_key, new_forcing, new_state = _iteration_level_updates(
+            """The per-step modules, the pattern of the driving at the end of
+            the step and the evolve over ``step_size``, from the state and the
+            driving state at the start of the step."""
+            new_driving_state = None
+            if driving:
+                new_driving_state = advance_turbulence_driving(
+                    driving_state,
+                    time + step_size,
+                    config.turbulence_driving_config,
+                    params.turbulence_driving_params,
+                    measured_dispersion,
+                )
+            new_state = _iteration_level_updates(
                 primitive_state,
-                key,
-                forcing,
                 step_size,
                 config,
                 params,
@@ -870,6 +884,7 @@ def _integrate_core(
                     helper_data_pad,
                     registered_variables,
                     step_index,
+                    new_driving_state,
                 )
             elif config.solver_mode == FINITE_DIFFERENCE:
                 new_state = _evolve_state_fd(
@@ -880,8 +895,9 @@ def _integrate_core(
                     params,
                     helper_data_pad,
                     registered_variables,
+                    new_driving_state,
                 )
-            return new_key, new_forcing, new_state
+            return new_driving_state, new_state
 
         if config.positivity_config.step_retry:
             # Repeat a step that left a non-finite value or a non-positive
@@ -899,22 +915,22 @@ def _integrate_core(
                 return admissible_state
 
             def retry_pending(carry):
-                attempt, _, _, _, _, accepted = carry
+                attempt, _, _, _, accepted = carry
                 return jnp.logical_not(accepted) & (attempt <= MAXIMUM_STEP_RETRIES)
 
             def attempt_step(carry):
-                attempt, step_size, _, _, _, _ = carry
+                attempt, step_size, _, _, _ = carry
                 step_size = jnp.where(attempt == 0, step_size, 0.5 * step_size)
-                new_key, new_forcing, new_state = advance(step_size)
-                return attempt + 1, step_size, new_key, new_forcing, new_state, admissible(new_state)
+                new_driving_state, new_state = advance(step_size)
+                return attempt + 1, step_size, new_driving_state, new_state, admissible(new_state)
 
-            _, dt, key, forcing, primitive_state, _ = jax.lax.while_loop(
+            _, dt, driving_state, primitive_state, _ = jax.lax.while_loop(
                 retry_pending,
                 attempt_step,
-                (jnp.asarray(0), dt, key, forcing, primitive_state, jnp.asarray(False)),
+                (jnp.asarray(0), dt, driving_state, primitive_state, jnp.asarray(False)),
             )
         else:
-            key, forcing, primitive_state = advance(dt)
+            driving_state, primitive_state = advance(dt)
 
         # AthenaPK floors the density in every stage's conversion to
         # primitives, so its time step and output see the floored state; the
@@ -929,7 +945,7 @@ def _integrate_core(
                 params.maximum_alfven_speed,
             )
 
-        return dt, LoopState(primitive_state, key, forcing)
+        return dt, LoopState(primitive_state, driving_state)
 
     def _record_snapshot(time, state, store, idx):
         """Record snapshot ``idx`` (the requested diagnostics)."""
@@ -1074,7 +1090,7 @@ def _time_integration(
         snapshot_callable: The user callable for
             ``config.activate_snapshot_callback``, or ``None``.
         initial_loop_state: An optional explicit initial loop carry (used to
-            resume a run); seeded from ``config.random_seed`` when ``None``.
+            resume a run); a fresh driving state when ``None``.
 
     Returns:
         Depending on the configuration (return_snapshots, num_snapshots)
@@ -1095,8 +1111,8 @@ def _time_integration(
     )
 
     if initial_loop_state is None:
-        initial_loop_state = _build_initial_loop_state(
-            primitive_state, config, params
+        initial_loop_state = LoopState(
+            primitive_state, _initial_driving_state(config, primitive_state.dtype)
         )
 
     _, loop_state, snapshot_store, num_iterations = _integrate_core(
@@ -1145,8 +1161,7 @@ def _run_segment(
     params: SimulationParams,
     registered_variables: RegisteredVariables,
     helper_data_pad: Union[HelperData, NoneType],
-    init_key,
-    init_forcing,
+    initial_driving_state,
 ):
     """Integrate one segment for the disk-checkpointing (TO_DISK) driver.
 
@@ -1158,14 +1173,14 @@ def _run_segment(
     left uninterrupted. ``config`` always has snapshots disabled here (each
     segment end is itself a checkpoint), so no snapshot buffers are allocated.
 
-    Returns ``(t_final, primitive_state_unpadded, key, forcing, num_iterations)``.
+    Returns ``(t_final, primitive_state_unpadded, driving_state, num_iterations)``.
     """
     primitive_state = _seed_internal_energy(primitive_state, params, registered_variables)
     original_shape = primitive_state.shape
     primitive_state = _prepare_padded_state(
         primitive_state, config, params, registered_variables
     )
-    initial_loop_state = LoopState(primitive_state, init_key, init_forcing)
+    initial_loop_state = LoopState(primitive_state, initial_driving_state)
     t_final, loop_state, _, num_iterations = _integrate_core(
         config,
         params,
@@ -1178,13 +1193,7 @@ def _run_segment(
     primitive_state = loop_state.primitive_state
     if config.boundary_handling != PERIODIC_ROLL:
         primitive_state = _unpad(primitive_state, config)
-    return (
-        t_final,
-        primitive_state,
-        loop_state.key,
-        loop_state.forcing,
-        num_iterations,
-    )
+    return t_final, primitive_state, loop_state.driving_state, num_iterations
 
 
 def _time_integration_to_disk(
@@ -1202,8 +1211,8 @@ def _time_integration_to_disk(
 
     The run is split into ``config.num_snapshots`` segments spanning
     ``[params.t_start, params.t_end]``. Each segment is integrated by the JIT'd
-    :func:`_run_segment`; afterwards the loop carry (primitive state, PRNG key,
-    OU forcing) plus the time and cumulative iteration count are written to
+    :func:`_run_segment`; afterwards the loop carry (primitive state, driving
+    state) plus the time and cumulative iteration count are written to
     ``config.snapshot_storage_path`` via Orbax. The carry stays on device
     (sharded) between segments, and Orbax writes each device's shard
     independently, so this scales to multiple devices / nodes.
@@ -1221,12 +1230,12 @@ def _time_integration_to_disk(
 
     primitive_state = state
 
-    # The carry between segments is the unpadded state plus the stochastic
-    # bits (PRNG key, OU forcing). On a restart these come from the checkpoint.
+    # The carry between segments is the unpadded state plus the state of the
+    # turbulence driving. On a restart the latter comes from the checkpoint.
     if restart_state is not None:
-        key, forcing = restart_state.key, restart_state.forcing
+        driving_state = restart_state.driving_state
     else:
-        key, forcing = _seed_key_and_forcing(config, params)
+        driving_state = _initial_driving_state(config, jnp.result_type(primitive_state))
 
     # Segment config: snapshots stay off (each segment end *is* a checkpoint)
     # and ON_DEVICE so the segment runner does not recurse into this driver.
@@ -1291,14 +1300,13 @@ def _time_integration_to_disk(
                 pallas_spec,
                 config.backend_config.halo_exchange,
             ):
-                t_final, primitive_state, key, forcing, num_iterations = run_segment_jit(
+                t_final, primitive_state, driving_state, num_iterations = run_segment_jit(
                     primitive_state,
                     segment_config,
                     segment_params,
                     registered_variables,
                     helper_data_pad,
-                    key,
-                    forcing,
+                    driving_state,
                 )
 
             cumulative_iterations = cumulative_iterations + num_iterations
@@ -1309,28 +1317,19 @@ def _time_integration_to_disk(
             # device_put onto the explicit NamedSharding makes it concrete (and
             # is a no-op data-movement-wise when already so placed).
             store_state = primitive_state
-            store_forcing = forcing
+            store_driving_state = driving_state
             if sharding is not None:
                 store_state = jax.device_put(primitive_state, sharding)
-                if forcing is not None:
-                    # The full-grid OU field shards like the state; the coarse
-                    # spectral OU state (synthesis_resolution > 0) is a small
-                    # replicated array and must stay replicated -- its nc^3
-                    # axes generally do not divide the mesh.
-                    forcing_sharding = (
-                        replicated
-                        if config.turbulent_forcing_config.synthesis_resolution > 0
-                        else sharding
-                    )
-                    store_forcing = jax.device_put(forcing, forcing_sharding)
+                # The driving state (modes, not grid) stays replicated.
+                if driving_state is not None:
+                    store_driving_state = jax.device_put(driving_state, replicated)
 
             save_loop_checkpoint(
                 checkpointer,
                 step=start_step + i + 1,
                 time=t_final,
                 primitive_state=store_state,
-                key=key,
-                forcing=store_forcing,
+                driving_state=store_driving_state,
                 num_iterations=cumulative_iterations,
             )
 

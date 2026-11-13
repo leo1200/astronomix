@@ -2,7 +2,7 @@
 Cost per time step of the upwind dissipation of the constrained-transport EMFs.
 
 Times the finite-difference MHD step of the supersonic turbulence setup
-(isothermal, M_turb = 10, beta_p = 0.1, OU forcing, WENO-Z with the
+(isothermal, M_turb = 10, beta_p = 0.1, TurbGen driving, WENO-Z with the
 positivity-preserving reconstruction, SSPRK4, Pallas backend, single precision)
 with and without ``ct_upwind_dissipation`` at a fixed time step, and prints the
 time per step of both and their ratio.
@@ -35,10 +35,7 @@ from astronomix import (
     SimulationConfig,
     SimulationParams,
 )
-from astronomix._modules._turbulent_forcing._turbulent_forcing_options import (
-    TurbulentForcingConfig,
-    TurbulentForcingParams,
-)
+from astronomix import TurbulenceDrivingConfig, TurbulenceDrivingParams
 
 # astronomix functions
 from astronomix import (
@@ -77,7 +74,7 @@ def time_per_step(resolution, upwind_dissipation):
         box_size=1.0,
         mhd=True,
         boundary_settings=BoundarySettings(periodic, periodic, periodic),
-        turbulent_forcing_config=TurbulentForcingConfig(turbulent_forcing=True, ou_forcing=True),
+        turbulence_driving_config=TurbulenceDrivingConfig(turbulence_driving=True),
         solver_config=FDSolverConfig(
             weno_z=True,
             weno_positivity_preserving=True,
@@ -94,7 +91,7 @@ def time_per_step(resolution, upwind_dissipation):
         C_cfl=0.75,
         isothermal_sound_speed=sound_speed,
         t_end=NUM_STEPS * time_step,
-        turbulent_forcing_params=TurbulentForcingParams(forcing_amplitude=3.5, correlation_time=0.5),
+        turbulence_driving_params=TurbulenceDrivingParams(velocity=1.0),
     )
     registered_variables = get_registered_variables(config)
     shape = (resolution, resolution, resolution)

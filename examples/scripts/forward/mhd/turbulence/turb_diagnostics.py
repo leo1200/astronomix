@@ -150,7 +150,7 @@ def main():
     spectra = {}
     for step in steps:
         ckpt = load_loop_checkpoint(
-            args.ckpt, step, sharding=sharding, replicated_keys=("forcing",)
+            args.ckpt, step, sharding=sharding
         )
         stats = np.asarray(_scalar_diagnostics(ckpt.primitive_state))
         times.append(float(ckpt.time))

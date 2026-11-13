@@ -59,7 +59,6 @@ from astronomix.option_classes.simulation_config import (
 )
 
 # astronomix containers
-from astronomix._modules._turbulent_forcing._turbulent_forcing_options import TurbulentForcingConfig
 from astronomix.option_classes.presets import BEATTIE_REFERENCE
 from astronomix.option_classes.simulation_config import (
     BoundarySettings,
@@ -204,10 +203,6 @@ def test_settings_of_the_preset():
         ),
         (dict(wind_config=WindConfig(stellar_wind=True)), "wind_config.stellar_wind is not implemented"),
         (dict(wind_config=WindConfig(trace_wind_density=True)), "wind_config.trace_wind_density is not implemented"),
-        (
-            dict(turbulent_forcing_config=TurbulentForcingConfig(turbulent_forcing=True)),
-            "turbulent_forcing_config.turbulent_forcing is not implemented",
-        ),
     ],
 )
 def test_rejected_with_the_induction_source(settings, message):

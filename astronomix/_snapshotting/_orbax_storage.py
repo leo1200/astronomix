@@ -5,10 +5,10 @@ Used by the ``snapshot_storage_mode == TO_DISK`` path of the time integration
 the restart helper in :mod:`astronomix.setup_helpers`.
 
 Each on-disk checkpoint stores the loop carry threaded through the integrator
-— the (unpadded) primitive state, the PRNG key and the persistent OU forcing
-field (when active) — plus the current simulation time and iteration count.
-This mirrors :class:`~astronomix.time_stepping.time_integration.LoopState`, so a
-checkpoint is everything needed to resume a run bit-reproducibly.
+— the (unpadded) primitive state and the state of the turbulence driving (when
+active) — plus the current simulation time and iteration count. This mirrors
+:class:`~astronomix.time_stepping.time_integration.LoopState`, so a checkpoint
+is everything needed to resume a run bit-reproducibly.
 
 Implementation notes
 --------------------
@@ -20,10 +20,11 @@ multi-device setting. The synchronous checkpointer writes one sharded array per
 device directly (scaling to multiple devices / nodes) and, crucially, restores
 straight into a sharded target without the async machinery.
 
-The PRNG key is stored as raw key data (``jax.random.key_data`` -> a plain
-uint32 array tensorstore can serialise) and rebuilt with
-``jax.random.wrap_key_data`` on load. The OU forcing field is only written when
-present; its absence on load is reported as ``forcing = None``.
+The driving state is written as the sub-tree ``turbulence_driving`` (only when
+present; its absence on load is reported as ``driving_state = None``), its key
+as raw key data (``jax.random.key_data`` -> a plain uint32 array tensorstore
+can serialise), rebuilt with ``jax.random.wrap_key_data`` on load. It holds
+modes, not grid cells, and is restored replicated.
 """
 
 # general
@@ -36,6 +37,9 @@ from typing import Any, NamedTuple, Optional
 # jax
 import jax
 from jax.sharding import NamedSharding, PartitionSpec
+
+# astronomix containers
+from astronomix._modules._turbulence_driving import TurbulenceDrivingState
 
 # checkpointing (optional dependency — only needed for the TO_DISK snapshot and
 # restart path). The import is guarded so that ``import astronomix`` keeps
@@ -70,10 +74,8 @@ class LoopCheckpoint(NamedTuple):
     time: float
     #: The (unpadded) primitive fluid state.
     primitive_state: Any
-    #: The reconstructed typed PRNG key.
-    key: Any
-    #: The persistent OU forcing field, or ``None`` if it was not stored.
-    forcing: Any
+    #: The ``TurbulenceDrivingState``, or ``None`` if the run was not driven.
+    driving_state: Any
     #: Cumulative number of integration steps taken up to this checkpoint.
     num_iterations: int
     #: The step index of this checkpoint.
@@ -87,21 +89,19 @@ class _LoopCheckpointWriter:
         self._checkpointer = checkpointer
         self._directory = Path(directory).resolve()
 
-    def save(self, step, *, time, primitive_state, key, forcing, num_iterations):
+    def save(self, step, *, time, primitive_state, driving_state, num_iterations):
         """Serialise one loop carry into the ``<root>/<step>`` sub-directory.
 
-        The PRNG key is stored as raw key data (a plain uint32 array
-        tensorstore can serialise) and the OU forcing field is only written
-        when present, so its absence is unambiguous on load.
+        The driving state is only written when present, so its absence is
+        unambiguous on load; its typed key is stored as raw key data.
         """
         tree = {
             "time": time,
             "primitive_state": primitive_state,
-            "key_data": jax.random.key_data(key),
             "num_iterations": num_iterations,
         }
-        if forcing is not None:
-            tree["forcing"] = forcing
+        if driving_state is not None:
+            tree["turbulence_driving"] = driving_state._replace(key=jax.random.key_data(driving_state.key))._asdict()
         # Synchronous save; ``force`` overwrites a partially written step dir.
         self._checkpointer.save(self._directory / str(step), tree, force=True)
 
@@ -129,8 +129,7 @@ def save_loop_checkpoint(
     *,
     time,
     primitive_state,
-    key,
-    forcing,
+    driving_state,
     num_iterations,
 ) -> None:
     """Write one loop checkpoint at ``step`` through an open ``writer``.
@@ -142,8 +141,7 @@ def save_loop_checkpoint(
         step,
         time=time,
         primitive_state=primitive_state,
-        key=key,
-        forcing=forcing,
+        driving_state=driving_state,
         num_iterations=num_iterations,
     )
 
@@ -161,20 +159,16 @@ def latest_step(directory) -> Optional[int]:
     return max(steps) if steps else None
 
 
-def _abstract_pytree(tree_metadata, sharding, replicated_keys=()):
+def _abstract_pytree(tree_metadata, sharding, replicated_keys=("turbulence_driving",)):
     """Build an Orbax restore target (``ShapeDtypeStruct`` pytree) from saved
     array metadata, pinning each leaf to a concrete sharding.
 
     Passing an explicit target is what lets a checkpoint written on a
     multi-device mesh restore straight into its shards. Full-rank leaves (the
-    state / forcing fields) get the requested ``sharding``; scalars and the
-    PRNG key data are replicated. When ``sharding`` is ``None`` everything is
-    placed on the default device.
-
-    Top-level entries named in ``replicated_keys`` are forced onto the
-    replicated sharding regardless of rank -- used for the coarse spectral OU
-    forcing state, which is full-rank (3, nc, nc, nc) but logically
-    replicated (its axes generally do not divide the mesh).
+    state) get the requested ``sharding``; scalars and the entries named in
+    ``replicated_keys`` (the driving state, whatever the rank of its arrays)
+    are replicated. When ``sharding`` is ``None`` everything is placed on the
+    default device.
     """
     if sharding is not None:
         spec_len = len(sharding.spec)
@@ -210,22 +204,16 @@ def load_loop_checkpoint(
     step: Optional[int] = None,
     *,
     sharding: Optional[jax.sharding.Sharding] = None,
-    replicated_keys: tuple = (),
 ) -> LoopCheckpoint:
     """Load a loop checkpoint from ``directory``.
 
     Args:
         directory: The checkpoint root directory.
         step: The step to load. ``None`` loads the latest checkpoint.
-        sharding: Target :class:`~jax.sharding.NamedSharding` for the array
-            leaves (``primitive_state`` / ``forcing``) — pass the sharding the
-            resumed run will use so each device reads only its shard. When
-            ``None`` the arrays are restored onto the default device.
-        replicated_keys: Top-level checkpoint entries to restore fully
-            replicated regardless of rank. Pass ``("forcing",)`` when the run
-            uses the coarse spectral OU forcing
-            (``synthesis_resolution > 0``), whose (3, nc, nc, nc) state is
-            logically replicated.
+        sharding: Target :class:`~jax.sharding.NamedSharding` for the
+            primitive state — pass the sharding the resumed run will use so
+            each device reads only its shard. When ``None`` the arrays are
+            restored onto the default device.
 
     Returns:
         A :class:`LoopCheckpoint`.
@@ -246,16 +234,19 @@ def load_loop_checkpoint(
         tree_metadata = (
             metadata.tree if hasattr(metadata, "tree") else metadata.item_metadata.tree
         )
-        target = _abstract_pytree(tree_metadata, sharding, replicated_keys)
+        target = _abstract_pytree(tree_metadata, sharding)
         tree = checkpointer.restore(path, target)
     finally:
         checkpointer.close()
 
+    driving_state = None
+    if "turbulence_driving" in tree:
+        driving_state = TurbulenceDrivingState(**tree["turbulence_driving"])
+        driving_state = driving_state._replace(key=jax.random.wrap_key_data(driving_state.key))
     return LoopCheckpoint(
         time=tree["time"],
         primitive_state=tree["primitive_state"],
-        key=jax.random.wrap_key_data(tree["key_data"]),
-        forcing=tree.get("forcing", None),
+        driving_state=driving_state,
         num_iterations=tree["num_iterations"],
         step=step,
     )

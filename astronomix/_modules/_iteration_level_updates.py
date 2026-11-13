@@ -3,10 +3,11 @@ Iteration-level updates applied once before each hydro step.
 
 These are the physics modules that run as a discrete update on the primitive
 state at the start of every time step — stellar wind, cooling, the
-user-supplied ``config.per_step_update``, viscosity, turbulent forcing and the
-per-step positivity floor. Their counterpart is
-``_time_integrator_sources``, which instead enters the hydro integrator as a
-right-hand-side source term.
+user-supplied ``config.per_step_update``, viscosity and the per-step
+positivity floor. Their counterpart is ``_time_integrator_sources``, which
+instead enters the hydro integrator as a right-hand-side source term. The
+turbulence driving is added at the end of the scheme's own update
+(``apply_turbulence_driving``).
 """
 
 # general
@@ -37,10 +38,6 @@ from astronomix.variable_registry.registered_variables import RegisteredVariable
 # astronomix functions
 from astronomix._modules._cooling._cooling import update_pressure_by_cooling
 from astronomix._modules._stellar_wind.stellar_wind import _wind_injection
-from astronomix._modules._turbulent_forcing._turbulent_forcing import (
-    _apply_forcing,
-    _apply_ou_forcing,
-)
 from astronomix._modules._viscosity._viscosity import fv_viscosity_update
 
 
@@ -123,8 +120,6 @@ def _apply_density_floor(
 
 def _iteration_level_updates(
     primitive_state: STATE_TYPE,
-    key,
-    forcing,
     dt: Float[Array, ""],
     config: SimulationConfig,
     params: SimulationParams,
@@ -140,9 +135,6 @@ def _iteration_level_updates(
 
     Args:
         primitive_state: The primitive state array.
-        key: The PRNG key.
-        forcing: The persistent Ornstein-Uhlenbeck forcing field (or ``None``
-            when OU forcing is inactive). Carried across steps in ``LoopState``.
         dt: The time step.
         config: The simulation configuration.
         params: The simulation parameters.
@@ -151,8 +143,7 @@ def _iteration_level_updates(
         current_time: The current simulation time.
 
     Returns:
-        ``(key, forcing, primitive_state)`` with the iteration-level updates
-        applied.
+        The primitive state with the iteration-level updates applied.
     """
 
     # Stellar wind.
@@ -206,32 +197,6 @@ def _iteration_level_updates(
             dt,
         )
 
-    # Turbulent forcing. The PRNG key and (for OU forcing) the persistent
-    # forcing field are threaded through the loop in ``LoopState`` (see
-    # astronomix/time_stepping/time_integration.py).
-    if config.turbulent_forcing_config.turbulent_forcing:
-        if config.turbulent_forcing_config.ou_forcing:
-            # OU forcing carries a persistent solenoidal field ``forcing``;
-            # bundle it with the key into the (key, field) state the OU update
-            # expects and unpack the advanced state back out.
-            (key, forcing), primitive_state = _apply_ou_forcing(
-                (key, forcing),
-                primitive_state,
-                dt,
-                params.turbulent_forcing_params,
-                config,
-                registered_variables,
-            )
-        else:
-            key, primitive_state = _apply_forcing(
-                key,
-                primitive_state,
-                dt,
-                params.turbulent_forcing_params,
-                config,
-                registered_variables,
-            )
-
     # Per-step state floor (HARD_FLOOR): AthenaPK's density floor, momentum and
     # total energy kept (see _apply_density_floor), then the pressure floor.
     # The finite-difference scheme stays positive through the
@@ -258,4 +223,4 @@ def _iteration_level_updates(
                 )
             )
 
-    return key, forcing, primitive_state
+    return primitive_state

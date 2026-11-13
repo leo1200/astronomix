@@ -1,7 +1,8 @@
 """
 One finite-volume time step: the choice of the time integrator
-(``_integrators.py``) and, for the schemes that take gravity as a source around
-the step, that source (``_gravity_coupling.py``).
+(``_integrators.py``), for the schemes that take gravity as a source around
+the step, that source (``_gravity_coupling.py``), and the kick of the
+turbulence driving after the step.
 """
 
 # general
@@ -37,6 +38,7 @@ from astronomix._finite_volume._integrators import (
     rk2_ssp_step,
     vl2_step,
 )
+from astronomix._modules._turbulence_driving import apply_turbulence_driving
 
 
 @partial(jax.jit, static_argnames=["config", "registered_variables"])
@@ -49,6 +51,7 @@ def _evolve_state_fv(
     helper_data: HelperData,
     registered_variables: RegisteredVariables,
     step_index=0,
+    driving_state=None,
 ) -> STATE_TYPE:
     """
     Advance the primitive state by one finite-volume time step.
@@ -62,28 +65,37 @@ def _evolve_state_fv(
         helper_data: The helper data.
         registered_variables: The registered variables.
         step_index: The number of the step in the run (the split MHD scheme alternates its sweep order).
+        driving_state: The state of the turbulence driving at the end of the
+            step, or ``None`` without driving.
 
     Returns:
         The primitive state ``W^{n+1}``.
     """
     step_arguments = (dt, gamma, config, params, helper_data, registered_variables)
 
-    # VL2 has its gravity coupling inside the stages.
+    # VL2 has its gravity coupling inside the stages. The other two schemes
+    # take gravity (hydrodynamics only) first order in time: the source is
+    # built from the state before the step and added after it.
     if config.solver_config.time_integrator == VL2:
-        return vl2_step(primitive_state, *step_arguments)
-
-    # The other two schemes take gravity (hydrodynamics only) first order in
-    # time: the source is built from the state before the step and added after it.
-    if config.gravity_config.gravity:
-        gravity_source = _gravity_source_presolve(primitive_state, *step_arguments)
-
-    if config.solver_config.time_integrator == RK2_SSP:
-        primitive_state = rk2_ssp_step(primitive_state, *step_arguments)
+        primitive_state = vl2_step(primitive_state, *step_arguments)
     else:
-        primitive_state = muscl_hancock_step(primitive_state, *step_arguments, step_index)
+        if config.gravity_config.gravity:
+            gravity_source = _gravity_source_presolve(primitive_state, *step_arguments)
 
-    if config.gravity_config.gravity:
-        primitive_state = _apply_gravity_source(
-            primitive_state, gravity_source, gamma, config, params, registered_variables
+        if config.solver_config.time_integrator == RK2_SSP:
+            primitive_state = rk2_ssp_step(primitive_state, *step_arguments)
+        else:
+            primitive_state = muscl_hancock_step(primitive_state, *step_arguments, step_index)
+
+        if config.gravity_config.gravity:
+            primitive_state = _apply_gravity_source(
+                primitive_state, gravity_source, gamma, config, params, registered_variables
+            )
+
+    # The kick of the turbulence driving, operator-split after the update; the
+    # ghost cells are filled at the start of the next step.
+    if driving_state is not None:
+        primitive_state = apply_turbulence_driving(
+            primitive_state, driving_state, dt, config, params, registered_variables
         )
     return primitive_state

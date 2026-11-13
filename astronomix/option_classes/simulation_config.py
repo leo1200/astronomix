@@ -25,9 +25,7 @@ import jax
 # astronomix containers
 from astronomix._modules._cooling.cooling_options import CoolingConfig
 from astronomix._modules._stellar_wind.stellar_wind_options import WindConfig
-from astronomix._modules._turbulent_forcing._turbulent_forcing_options import (
-    TurbulentForcingConfig,
-)
+from astronomix._modules._turbulence_driving._turbulence_driving_options import TurbulenceDrivingConfig
 
 # -------------------------------------------------------------
 # ================= ↓ Constant definitions ↓ ==================
@@ -446,8 +444,8 @@ class PositivityConfig(NamedTuple):
     #: recovery is unclamped).
     clamp_in_estimates: bool = True
 
-    #: Redo a time step at half the step size, from the same state, forcing
-    #: and PRNG key, when it leaves a non-finite value or a non-positive
+    #: Redo a time step at half the step size, from the same state and
+    #: driving state, when it leaves a non-finite value or a non-positive
     #: density (or pressure, for an ideal gas), up to ``MAXIMUM_STEP_RETRIES``
     #: times. The positivity-preserving WENO keeps every stage positive only
     #: while no stage's splitting speeds exceed those the step was sized with;
@@ -860,16 +858,14 @@ class SimulationConfig(NamedTuple):
     #: The configuration for the cooling module.
     cooling_config: CoolingConfig = CoolingConfig()
 
-    #: Turbulent forcing configuration (see TurbulentForcingConfig).
-    turbulent_forcing_config: TurbulentForcingConfig = TurbulentForcingConfig()
-
-    #: The random seed for any stochastic processes
-    #: in the simulation, e.g. turbulent forcing.
-    random_seed: int = 42
+    #: The configuration of the turbulence driving (TurbGen port, see
+    #: TurbulenceDrivingConfig); its parameters are
+    #: ``SimulationParams.turbulence_driving_params``.
+    turbulence_driving_config: TurbulenceDrivingConfig = TurbulenceDrivingConfig()
 
     #: User-supplied update of the primitive state, called once per time
     #: step before the hydro update (after the stellar wind and cooling
-    #: updates, before viscosity and turbulent forcing):
+    #: updates, before viscosity):
     #: ``per_step_update(primitive_state, dt, current_time, config, params,
     #: helper_data, registered_variables)`` returns the new primitive state
     #: (same shape, ghost cells included). ``helper_data`` only holds the
@@ -920,8 +916,8 @@ class SimulationConfig(NamedTuple):
     #: snapshot diagnostics in preallocated device buffers and returns them
     #: at the end (the classic behaviour). ``TO_DISK`` instead streams each
     #: snapshot to disk via Orbax: the run is split into segments between the
-    #: snapshot times, and the loop carry (primitive state, PRNG key, OU
-    #: forcing field) plus the time is written to ``snapshot_storage_path``
+    #: snapshot times, and the loop carry (primitive state and the state of
+    #: the turbulence driving) plus the time is written to ``snapshot_storage_path``
     #: after each segment. Each device writes its own shard, so this scales
     #: to multiple devices / nodes. TO_DISK is forward-mode only.
     snapshot_storage_mode: int = ON_DEVICE
@@ -1183,8 +1179,8 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
     cross-field consistency: the solver settings (the default container of
     the solver mode when ``solver_config`` is ``None``), the
     positivity-protection defaults, the number
-    of cells per axis, the grid spacing, the geometry- and solver-specific
-    overrides, the master gravity switch, the boundary defaults, and the
+    of cells per axis, the grid spacing, the box of the turbulence driving,
+    the geometry- and solver-specific overrides, the master gravity switch, the boundary defaults, and the
     disk-snapshot requirements. Combinations the solvers do not implement
     (e.g. self-gravity or non-Cartesian geometry with VL2, HLLD outside VL2,
     a solver container or a time integrator of the other solver) raise a
@@ -1305,6 +1301,17 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
                 f"Got grid spacing {grid_spacing_vec}."
             )
 
+    # The modes of the turbulence driving are those of the box.
+    if config.turbulence_driving_config.turbulence_driving:
+        if config.geometry != CARTESIAN:
+            raise ValueError("turbulence_driving_config.turbulence_driving requires geometry=CARTESIAN.")
+        config = config._replace(
+            turbulence_driving_config=config.turbulence_driving_config._replace(
+                dimensionality=config.dimensionality,
+                box_size=tuple(config.box_size)[: config.dimensionality],
+            )
+        )
+
     if config.geometry == SPHERICAL:
         print(
             "For spherical geometry, only HLL and the dimensionally split "
@@ -1401,7 +1408,6 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
             ("diffusion_config.thermal_conduction", config.diffusion_config.thermal_conduction),
             ("wind_config.stellar_wind", config.wind_config.stellar_wind),
             ("wind_config.trace_wind_density", config.wind_config.trace_wind_density),
-            ("turbulent_forcing_config.turbulent_forcing", config.turbulent_forcing_config.turbulent_forcing),
         )
         for option, is_set in not_carried_by_the_sweep:
             if is_set:
@@ -1622,7 +1628,6 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
             ("diffusion_config.viscosity", config.diffusion_config.viscosity),
             ("wind_config.stellar_wind", config.wind_config.stellar_wind),
             ("wind_config.trace_wind_density", config.wind_config.trace_wind_density),
-            ("turbulent_forcing_config.turbulent_forcing", config.turbulent_forcing_config.turbulent_forcing),
         )
         for option, is_set in not_carried_yet:
             if is_set:
@@ -1754,7 +1759,6 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
                 "passive scalars": config.passive_scalar_config.num_scalars > 0,
                 "stellar winds": config.wind_config.stellar_wind,
                 "cooling": config.cooling_config.cooling,
-                "turbulent forcing": config.turbulent_forcing_config.turbulent_forcing,
                 "the per-step floor and the step retry": config.positivity_config.step_retry
                 or config.positivity_config.per_step_mode != POSITIVITY_NONE,
             }

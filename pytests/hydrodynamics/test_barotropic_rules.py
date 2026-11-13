@@ -57,7 +57,6 @@ from astronomix import (
 )
 from astronomix._modules._cooling.cooling_options import CoolingConfig
 from astronomix._modules._stellar_wind.stellar_wind_options import WindConfig
-from astronomix._modules._turbulent_forcing._turbulent_forcing_options import TurbulentForcingConfig
 
 # astronomix functions
 from astronomix import finalize_config
@@ -120,10 +119,6 @@ def _finalized(equation_of_state=ISOTHERMAL, solver_overrides=None, **overrides)
                 solver_overrides=dict(time_integrator=MUSCL_HANCOCK),
             ),
             "wind_config.trace_wind_density is not implemented",
-        ),
-        (
-            dict(turbulent_forcing_config=TurbulentForcingConfig(turbulent_forcing=True)),
-            "turbulent_forcing_config.turbulent_forcing is not implemented",
         ),
     ],
 )

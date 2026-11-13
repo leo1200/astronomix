@@ -132,10 +132,7 @@ from astronomix import (
     BoundarySettings1D,
     FDSolverConfig,
 )
-from astronomix._modules._turbulent_forcing._turbulent_forcing_options import (
-    TurbulentForcingConfig,
-    TurbulentForcingParams,
-)
+from astronomix import TurbulenceDrivingConfig, TurbulenceDrivingParams
 
 # astronomix functions
 from astronomix import (
@@ -153,11 +150,12 @@ CU = CodeUnits(3 * u.parsec, 100 * u.M_sun, 100 * u.km / u.s)
 RHO0 = (2 * c.m_p / u.cm**3).to(CU.code_density).value
 P0 = (3e4 * u.K / u.cm**3 * c.k_B).to(CU.code_pressure).value
 B0 = (13.5 * u.microgauss / c.mu0**0.5).to(CU.code_magnetic_field).value
-DEDT = (4.3e34 * u.erg / u.s).to(CU.code_energy / CU.code_time).value
+# target velocity dispersion of the TurbGen driving of the background (v_rms ~ 0.42 v_0)
+TURBULENT_VELOCITY_DISPERSION = 0.42
 NF, NC = args.fine_N, args.coarse_N
 
 
-def make_cfg(N, forcing, backward):
+def make_cfg(N, driving, backward):
     return SimulationConfig(
         solver_config=FDSolverConfig(weno_z=True, weno_positivity_preserving=True),
         backend_config=BackendConfig(backend=PALLAS),
@@ -170,7 +168,7 @@ def make_cfg(N, forcing, backward):
         differentiation_mode=BACKWARDS if backward else FORWARDS,
         num_checkpoints=args.num_checkpoints,
         rematerialize_stages=args.rematerialize_stages,
-        turbulent_forcing_config=TurbulentForcingConfig(turbulent_forcing=forcing),
+        turbulence_driving_config=TurbulenceDrivingConfig(turbulence_driving=driving),
         boundary_settings=BoundarySettings(
             *[BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY) for _ in range(3)]),
     )
@@ -210,7 +208,8 @@ def main():
     # C_cfl = 0.75: the positivity-preserving WENO's bound with SSPRK4.
     params = SimulationParams(C_cfl=0.75, dt_max=0.1, gamma=5 / 3,
                               minimum_density=1e-2 * RHO0, minimum_pressure=1e-2 * P0,
-                              turbulent_forcing_params=TurbulentForcingParams(energy_injection_rate=DEDT))
+                              turbulence_driving_params=TurbulenceDrivingParams(
+                                  velocity=TURBULENT_VELOCITY_DISPERSION))
     sh = (NF,) * 3; z = jnp.zeros(sh)
     s0 = build(finalize_config(cfgg, (11,) + sh), rv, jnp.ones(sh) * RHO0, (z, z, z),
                jnp.ones(sh) * P0, (jnp.ones(sh) * B0, z, z))
