@@ -231,11 +231,13 @@ def ssprk4(u0, dt, *, rhs, pre_stage=_identity, post_stage=_identity, finalize=_
     u_final_init = jax.tree_util.tree_map(lambda x: final_s[0] * x, u0)
 
     # Stages 0..3 in a loop; the 5th stage uses a different final combination
-    # (it adds its raw increment to ``u_final`` without the k0/kcurr update and
-    # without a pre_stage hook), matching the Spiteri-Ruuth construction.
+    # (it adds its raw increment to ``u_final`` without the k0/kcurr update),
+    # matching the Spiteri-Ruuth construction. Its right-hand side is evaluated
+    # after the pre_stage hook like every other one, so the boundary is filled
+    # before each of the five right-hand sides.
     u4, u_final = jax.lax.fori_loop(0, 4, stage, (u0, u_final_init))
 
-    du4 = rhs(u4, krhs_s[4] * dt)
+    du4 = rhs(pre_stage(u4), krhs_s[4] * dt)
     u_final = _tree_add(u_final, du4)
 
     return finalize(u_final)

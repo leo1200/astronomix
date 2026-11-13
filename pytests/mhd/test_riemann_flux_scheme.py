@@ -340,8 +340,9 @@ def test_mach_ten_collision_stays_positive():
 
 
 #: The ghost layers that ``finalize_config`` derives from the stencils of the scheme and from the boundary
-#: fills of the time integrator: 7 with SSPRK(3,3) (isothermal preset), 13 with SSPRK(5,4) (ideal-gas preset).
-DERIVED_GHOST_CELLS = {ISOTHERMAL: 7, IDEAL_GAS: 13}
+#: fills of the time integrator: 7 with SSPRK(3,3) (isothermal preset) and SSPRK(5,4) (ideal-gas preset), which
+#: both fill the boundary before every right-hand side, rounded up to 8 so that a kernel block tiles the grid.
+DERIVED_GHOST_CELLS = {ISOTHERMAL: 8, IDEAL_GAS: 8}
 
 
 @functools.lru_cache(maxsize=None)

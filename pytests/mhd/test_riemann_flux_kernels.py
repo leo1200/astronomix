@@ -96,11 +96,11 @@ STEP_TOLERANCE = 1e-4
 #: form moves by 4.3e-06 at this entry under a change of the input by one unit in the last place), 1.8e-07
 #: elsewhere.
 OPEN_BOUNDARY_TOLERANCE = 1e-4
-#: The ghost layers that ``finalize_config`` derives (the stage-1 test checks the two numbers), and a larger
-#: count with which a block shape tiles the padded grid of 16^3 cells (32^3 and 48^3; 30^3 and 42^3 with the
-#: derived counts are twice an odd number, which no block of at least a warp tiles).
-DERIVED_GHOST_CELLS = {ISOTHERMAL: 7, IDEAL_GAS: 13}
-TILED_GHOST_CELLS = {ISOTHERMAL: 8, IDEAL_GAS: 16}
+#: The ghost layers that ``finalize_config`` derives (the stage-1 test checks the numbers: the seven layers that
+#: one right-hand side reads, rounded up to 8 so that a block shape tiles the padded grid of 16^3 cells, 32^3),
+#: and the count with which a block shape tiles it (the same since the fill before every right-hand side).
+DERIVED_GHOST_CELLS = {ISOTHERMAL: 8, IDEAL_GAS: 8}
+TILED_GHOST_CELLS = {ISOTHERMAL: 8, IDEAL_GAS: 8}
 
 
 def _config(equation_of_state, backend, interpret=False, boundary=PERIODIC_BOUNDARY, **backend_fields):
@@ -301,8 +301,9 @@ def test_open_boundaries_with_the_kernels(interpret):
 def test_predicates_refuse_what_the_kernels_do_not_serve(equation_of_state):
     """
     The conditions under which a stage runs in the array form although the backend is Pallas: a grid that no
-    block shape tiles (open boundaries with the derived ghost layers), a state that is not three-dimensional,
-    and the compiled kernels on a CPU or in double precision. The interpreter takes any device and precision.
+    block shape tiles (open boundaries with seven ghost layers, the count before rounding), a state that is not
+    three-dimensional, and the compiled kernels on a CPU or in double precision. The interpreter takes any device
+    and precision.
     """
     registered_variables = get_registered_variables(_config(equation_of_state, PALLAS))
     probe = _probe(registered_variables)
@@ -319,9 +320,10 @@ def test_predicates_refuse_what_the_kernels_do_not_serve(equation_of_state):
     with jax.enable_x64(True):
         assert _kernels_selected(probe, final(PALLAS)) == (False, False)
         assert _kernels_selected(probe, interpreted) == (True, True)
-    padded_derived = _probe(registered_variables, NUM_CELLS + 2 * DERIVED_GHOST_CELLS[equation_of_state])
+    # 30^3 (seven layers) is twice an odd number, which no block of at least a warp tiles; 32^3 is tiled
+    padded_unrounded = _probe(registered_variables, NUM_CELLS + 2 * 7)
     padded_tiled = _probe(registered_variables, NUM_CELLS + 2 * TILED_GHOST_CELLS[equation_of_state])
-    assert _kernels_selected(padded_derived, interpreted) == (False, False)
+    assert _kernels_selected(padded_unrounded, interpreted) == (False, False)
     assert _kernels_selected(padded_tiled, interpreted) == (True, True)
     # a block shape of the user that does not divide the grid
     assert _kernels_selected(probe, final(PALLAS, interpret=True, pallas_block_shape=(1, 1, 48))) == (False, False)

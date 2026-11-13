@@ -1105,6 +1105,76 @@ def _nvidia_smi_compute_capability_at_least_80() -> bool:
     return all(compute_cap >= (8, 0) for compute_cap in compute_caps)
 
 
+def _rounded_for_kernels(layers: int, config: SimulationConfig) -> int:
+    """
+    Kernels (hydrodynamics in 2D and 3D, MHD in 3D): the block is the largest power of two per axis that divides
+    the padded grid, and with too few cells in it the run falls back to the native path without a message. A
+    multiple of 4 keeps the padded extents multiples of 8 where the cell counts are, as with the old count 4: a
+    full block of 128 cells in 3D, 64 cells in 2D (6 layers: 64 cells in 3D, native in 2D; 7: no block at all).
+    """
+    if config.dimensionality == 3 or (config.dimensionality == 2 and not config.mhd):
+        layers += -layers % 4
+    return layers
+
+
+def _required_ghost_cells(config: SimulationConfig) -> int:
+    """
+    The smallest number of ghost-cell layers with which every stencil read between two boundary fills sees
+    filled cells, so that the result does not change when layers are added. All stencils wrap around the padded
+    array: with fewer layers the cells next to a boundary read the opposite edge.
+    """
+    if config.solver_mode == FINITE_VOLUME:
+        # Every stage ends with a boundary fill. The flux at a face reads the limited slopes of its two cells,
+        # and a slope reads both neighbours of its cell: 2 (first-order flux correction and GLM included).
+        return 2
+
+    solver = config.solver_config
+    if solver.scheme == RIEMANN_FLUX:
+        # Both gases, both integrators (each fills the boundary before every right-hand side). One right-hand
+        # side reads seven layers: the guarded flux at a face reads the cells from three below to four above it,
+        # the update of a cell therefore four cells to either side, and each of those cells holds a field
+        # rebuilt from the faces three below to two above it. The constrained transport and the energy flux
+        # read six layers. The scheme is 3D only, so the count is 7 rounded up for the kernels: 8.
+        return _rounded_for_kernels(7, config)
+
+    # WENO_FLUX_SPLITTING. Both integrators fill the boundary before every right-hand side, so the count is
+    # the reach of one right-hand side. Cells of the state it reads to either side of the cell it updates:
+    # the WENO5 flux difference 3, the fourth-order conduction flux 4, the viscous flux (a sixth-order
+    # derivative of sixth-order derivatives) 6, the fourth-order gravitational work 4 (the sixth-order slope
+    # of the potential, averaged onto the faces).
+    layers = 3
+    if config.diffusion_config.thermal_conduction and config.diffusion_config.conduction_order == 4:
+        layers = 4
+    gravity = config.gravity_config
+    if gravity.gravity and gravity.self_gravity_version == FOURTH_ORDER_CONSERVATIVE:
+        layers = 4
+    if config.diffusion_config.viscosity:
+        layers = 6
+    if solver.dual_energy:
+        # The internal energy of the dual-energy formalism is advected once per step from one cell to either side
+        # and not filled afterwards, and the WENO flux recovers the pressure from it in every cell it reads: one
+        # layer more than the flux differences reach.
+        layers = max(layers, 4)
+    if config.mhd:
+        # Cells that the update of a transverse face field reads along one axis: the sixth-order difference of the
+        # edge-averaged electric field reads edge values 3.5 cells away, and an edge value the fluxes of the
+        # cells up to 2.5 further: 6. The positivity-preserving flux of an ideal gas reads one cell further
+        # along its own axis (7) and, where the inflow of a cell is summed over the axes (not in 1D, not with
+        # the dual energy), three cells across it, interpolated to the edge from 1.5 cells away (8). The
+        # cell-centred field in these cells is rebuilt from the normal face field 2.5 cells further: 3 more
+        # layers (9, 10, 11). The Ohmic term reads the transverse face field 7 cells away (sixth-order
+        # difference of edge values 2.5, interpolation to the edge 1.5, sixth-order slope 3): within these.
+        field_reach = 6
+        if solver.weno_positivity_preserving and config.equation_of_state == IDEAL_GAS:
+            field_reach = 8 if config.dimensionality > 1 and not solver.dual_energy else 7
+        layers = max(layers, 3 + field_reach)
+    if config.passive_scalar_config.num_scalars > 0:
+        # The scalar advection is one SSPRK3 sub-step per step without a boundary fill inside: three
+        # right-hand sides with the WENO5 reach 3. (A sub-cycled step would need 9 per sub-step.)
+        layers = max(layers, 9)
+    return _rounded_for_kernels(layers, config)
+
+
 def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
     """Fill in derived configuration fields and validate the configuration.
 
@@ -1474,7 +1544,7 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
         if fully_periodic:
             config = config._replace(boundary_handling=PERIODIC_ROLL, num_ghost_cells=0)
         else:
-            config = config._replace(boundary_handling=GHOST_CELLS, num_ghost_cells=2)
+            config = config._replace(boundary_handling=GHOST_CELLS)
 
         # VL2 with constrained transport: the staggered update is written for
         # the periodic-roll layout only and has no counterpart of the GLM
@@ -1569,17 +1639,13 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
     # Finite-difference-specific checks.
     if finite_difference:
 
-        # The WENO5 stencil reaches three cells beyond each interface, so the
-        # default ghost-cell count (2) is too few:
-        # 1D runs then read wrapped / stale values at the edges, and smooth
-        # periodic problems converged at first order. Same rule as 2D/3D.
+        # Layout: fully periodic boundaries are served by rolling the arrays, every other case by ghost cells,
+        # whose number of layers is set below (``_required_ghost_cells``).
         if config.dimensionality == 1:
             if config.boundary_settings == BoundarySettings1D(
                 left_boundary=PERIODIC_BOUNDARY, right_boundary=PERIODIC_BOUNDARY
             ):
                 config = config._replace(boundary_handling=PERIODIC_ROLL, num_ghost_cells=0)
-            elif config.boundary_handling == GHOST_CELLS:
-                config = config._replace(num_ghost_cells=max(config.num_ghost_cells, 4))
 
         if config.dimensionality == 3 and config.boundary_settings == BoundarySettings(
             BoundarySettings1D(
@@ -1601,7 +1667,7 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
             config = config._replace(boundary_handling=PERIODIC_ROLL, num_ghost_cells=0)
         else:
             if config.dimensionality == 3:
-                config = config._replace(boundary_handling=GHOST_CELLS, num_ghost_cells=4)
+                config = config._replace(boundary_handling=GHOST_CELLS)
 
         if config.dimensionality == 2 and config.boundary_settings == BoundarySettings(
             BoundarySettings1D(
@@ -1620,17 +1686,10 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
             config = config._replace(boundary_handling=PERIODIC_ROLL, num_ghost_cells=0)
         else:
             if config.dimensionality == 2:
-                config = config._replace(boundary_handling=GHOST_CELLS, num_ghost_cells=4)
+                config = config._replace(boundary_handling=GHOST_CELLS)
 
         if config.boundary_handling == PERIODIC_ROLL:
             config = config._replace(num_ghost_cells=0)
-
-        if config.boundary_handling == GHOST_CELLS and (
-            config.diffusion_config.viscosity
-            or config.diffusion_config.thermal_conduction
-            or config.diffusion_config.resistivity
-        ):
-            config = config._replace(num_ghost_cells=max(config.num_ghost_cells, 6))
 
         # The upwind EMF dissipation acts on the constrained-transport
         # interface fields, which only the MHD scheme carries.
@@ -1707,23 +1766,14 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
             config = config._replace(
                 backend_config=config.backend_config._replace(pallas_ct=config.backend_config.backend == PALLAS)
             )
-            # Ghost cells, both gases. One stage (boundary fill, right-hand
-            # side, update) reads seven layers: the guarded flux at a face
-            # reads the cells from three below to four above it, the update
-            # of a cell therefore four cells to either side, and each of
-            # those cells holds a field rebuilt from the faces three below
-            # to two above it. The constrained transport and the energy flux
-            # read six layers. SSPRK(3,3) fills the boundary before every
-            # right-hand side: seven layers. The fifth right-hand side of
-            # SSPRK(5,4) is evaluated on the fourth stage state without a
-            # boundary fill, so the reach of two stages adds: thirteen.
-            if config.boundary_handling == GHOST_CELLS:
-                stage_layers = 7 if fd_config.time_integrator == SSPRK33 else 13
-                config = config._replace(num_ghost_cells=max(config.num_ghost_cells, stage_layers))
         else:
             raise ValueError(
                 f"FDSolverConfig.scheme must be WENO_FLUX_SPLITTING or RIEMANN_FLUX, got {fd_config.scheme!r}."
             )
+
+    # Ghost-cell layers: the user's number, raised to what the scheme reads between two boundary fills.
+    if config.boundary_handling == GHOST_CELLS:
+        config = config._replace(num_ghost_cells=max(config.num_ghost_cells, _required_ghost_cells(config)))
 
     # Pick sensible default boundary conditions when the user left them unset.
     if config.boundary_settings is None:
