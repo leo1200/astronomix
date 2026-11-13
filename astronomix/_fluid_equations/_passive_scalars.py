@@ -1,5 +1,5 @@
 """
-Passive scalars (advected per-parcel labels) for the finite-difference solver.
+Passive scalars (advected per-parcel labels), in every scheme.
 
 A passive scalar ``C`` is a label carried by the fluid without acting back on it:
 
@@ -8,6 +8,13 @@ A passive scalar ``C`` is a label carried by the fluid without acting back on it
 Passive scalars are what lets a single-fluid simulation be compared with a
 spectrum rather than only with an image: chemical stratification per element
 (Orlando et al.'s ``C_el``) or an ejecta-versus-circumstellar discriminator.
+
+**Operator splitting, the same for every scheme.** The block of scalars is
+split off the end of the state before the solver step and advected with the
+flow at the start of the step (``split_off_passive_scalars``), the solver
+evolves the state without it, and the block is reattached after the step
+(``reattach_passive_scalars``). The advection needs only the density and the
+velocity, so the finite-difference and the finite-volume schemes share it.
 
 **Why this is operator-split rather than an extra characteristic field.**
 The WENO flux is characteristic-wise: adding scalars to it means extending the
@@ -74,6 +81,8 @@ import jax.numpy as jnp
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
     BACKWARDS,
+    FINITE_DIFFERENCE,
+    GHOST_CELLS,
     OPEN_BOUNDARY,
     PERIODIC_BOUNDARY,
     REFLECTIVE_BOUNDARY,
@@ -137,19 +146,12 @@ def _clip_keep_derivative_jvp(primals, tangents):
 
 
 def _velocity_components(primitive_state, config, registered_variables):
-    """The velocity components of the primitive state, as a list per dimension."""
-    if config.dimensionality == 1:
-        return [primitive_state[registered_variables.velocity_index]]
-    if config.dimensionality == 2:
-        return [
-            primitive_state[registered_variables.velocity_index.x],
-            primitive_state[registered_variables.velocity_index.y],
-        ]
-    return [
-        primitive_state[registered_variables.velocity_index.x],
-        primitive_state[registered_variables.velocity_index.y],
-        primitive_state[registered_variables.velocity_index.z],
-    ]
+    """The velocity components along the spatial axes, as a list per dimension (an MHD layout carries all three
+    components in every dimensionality)."""
+    velocity_index = registered_variables.velocity_index
+    if isinstance(velocity_index, int):
+        return [primitive_state[velocity_index]]
+    return [primitive_state[index] for index in tuple(velocity_index)[: config.dimensionality]]
 
 
 def _split_companion_stack(conserved_stack):
@@ -389,7 +391,8 @@ def advect_passive_scalars(
     # differentiated, and an unbounded label with a large jump across the
     # stencil makes the float32 Jiang-Shu weight VJP NaN even for a zero
     # cotangent.
-    omega_weights = _weno_omega_weights_z if config.solver_config.weno_z else _weno_omega_weights_ad
+    weno_z = config.solver_mode == FINITE_DIFFERENCE and config.solver_config.weno_z
+    omega_weights = _weno_omega_weights_z if weno_z else _weno_omega_weights_ad
 
     density = primitive_state[registered_variables.density_index]
     velocities = _velocity_components(primitive_state, config, registered_variables)
@@ -518,6 +521,72 @@ def advect_passive_scalars(
     # -------------------------------------------------------------
 
     return _recover_ratios(advected_stack, density, scalars, config=config)
+
+
+def split_off_passive_scalars(
+    primitive_state: STATE_TYPE,
+    dt: Union[float, Float[Array, ""]],
+    config: SimulationConfig,
+    registered_variables: RegisteredVariables,
+):
+    """
+    Split the block of passive scalars off the end of the state and advect it with the flow at the start of the
+    step, so that the solver step sees the layout without it.
+
+    Args:
+        primitive_state: The primitive state at the start of the step, scalars included.
+        dt: The time step.
+        config: The simulation configuration.
+        registered_variables: The registered variables of the full state.
+
+    Returns:
+        The state without the scalars, the advected scalars and the registered variables of the state without
+        the scalars.
+    """
+    passive_scalar_index = registered_variables.passive_scalar_index
+    passive_scalars = primitive_state[passive_scalar_index:]
+    primitive_state = primitive_state[:passive_scalar_index]
+    registered_variables = registered_variables._replace(
+        num_vars=passive_scalar_index,
+        passive_scalar_index=-1,
+        num_passive_scalars=0,
+        passive_scalars_active=False,
+    )
+    # ``advect_passive_scalars`` sub-cycles internally when the flow requires it.
+    passive_scalars = advect_passive_scalars(
+        passive_scalars,
+        primitive_state,
+        dt,
+        config.grid_spacing,
+        config,
+        registered_variables,
+    )
+    if config.differentiation_mode == BACKWARDS:
+        # Reverse-mode memory: the scalars never feed back on the gas, so the backward pass of their advection is
+        # independent of the solver's and XLA is free to schedule the two together, adding the transient memory
+        # of the scalar sub-steps to the solver's peak. Tying the two through a barrier (a numerical no-op, whose
+        # transpose is a barrier on the cotangents) makes the scalar backward pass wait for the solver's. Only on
+        # the reverse-mode (masked) path, so the FORWARDS program is untouched.
+        passive_scalars, primitive_state = jax.lax.optimization_barrier((passive_scalars, primitive_state))
+    return primitive_state, passive_scalars, registered_variables
+
+
+def reattach_passive_scalars(primitive_state: STATE_TYPE, passive_scalars, config: SimulationConfig) -> STATE_TYPE:
+    """
+    Fill the ghost cells of the advected scalars and attach the block to the end of the state after the solver
+    step.
+
+    Args:
+        primitive_state: The primitive state after the solver step, without the scalars.
+        passive_scalars: The advected scalars.
+        config: The simulation configuration.
+
+    Returns:
+        The full primitive state.
+    """
+    if config.boundary_handling == GHOST_CELLS:
+        passive_scalars = _fill_scalar_ghost_cells(passive_scalars, config)
+    return jnp.concatenate([primitive_state, passive_scalars], axis=0)
 
 
 def _recover_ratios(advected_stack, density, scalars, *, config):

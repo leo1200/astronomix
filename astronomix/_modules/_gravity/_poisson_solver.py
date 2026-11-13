@@ -35,6 +35,7 @@ from astronomix._pallas_helpers import _current_pallas_mesh
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
     FIELD_TYPE,
+    GHOST_CELLS,
     PERIODIC_BOUNDARY,
 )
 
@@ -188,19 +189,21 @@ def _compute_gravitational_potential(
     Compute the gravitational potential using FFT to solve Poisson's equation for
     periodic and open boundaries (via the Hockney & Eastwood method).
 
+    A field with ghost cells is solved for the mass of the domain alone: a
+    periodic domain on its interior, the ghost cells wrapped around; an open
+    domain with the ghost density set to zero, so that the ghost cells receive
+    the potential of the domain's mass.
+
     Args:
-        gas_density: The gas density field.
+        gas_density: The gas density field (with or without ghost cells).
         grid_spacing: The grid spacing.
         config: The simulation configuration.
         G: The gravitational constant.
 
     Returns:
-        The gravitational potential.
+        The gravitational potential, shaped like the density.
 
     """
-
-    # TODO: remove ghost cells in this computation, which currently treats the
-    # padded field directly.
 
     dimensionality = config.dimensionality
     discrete_laplacian = config.gravity_config.poisson_discrete_laplacian
@@ -238,6 +241,15 @@ def _compute_gravitational_potential(
 
     if config.gravity_config.poisson_manual_open_boundaries:
         non_periodic_boundaries = True
+
+    interior_shape = tuple(config.num_cells)[:dimensionality]
+    if config.boundary_handling == GHOST_CELLS and gas_density.shape != interior_shape:
+        num_ghost_cells = config.num_ghost_cells
+        interior = (slice(num_ghost_cells, -num_ghost_cells),) * dimensionality
+        if not non_periodic_boundaries:
+            potential = _compute_gravitational_potential(gas_density[interior], grid_spacing, config, G)
+            return jnp.pad(potential, num_ghost_cells, mode="wrap")
+        gas_density = jnp.zeros_like(gas_density).at[interior].set(gas_density[interior])
 
     # The Jeans swindle: only a meaningful periodic solution exists once the
     # (unphysical) mean density is removed, so subtract it for periodic domains.

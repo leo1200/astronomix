@@ -26,6 +26,13 @@ step.
 
 Gravity couples to both as a source around the step (``_evolve_state.py``).
 
+The explicit sources of the modules (``_modules/_explicit_sources.py``) enter
+every stage of ``vl2_step`` and ``rk2_ssp_step``, evaluated at the state the
+stage's fluxes are computed from, and around the sweeps of
+``muscl_hancock_step`` (half a step before and after them, each by the
+explicit midpoint rule); they are added in array form after the stage, also
+after a fused kernel.
+
 ``vl2_step``: the VL2 finite-volume scheme of AthenaPK.
 
 A re-implementation of AthenaPK's default second-order scheme: the van Leer
@@ -111,6 +118,10 @@ from astronomix._finite_volume._stage import (
     fv_stage,
 )
 from astronomix._finite_volume._timestep_estimation._timestep_estimator import _maximum_signal_speed_vl2
+from astronomix._modules._explicit_sources import (
+    explicit_sources,
+    has_explicit_sources,
+)
 from astronomix._finite_volume._stage_pallas import (
     _fv_stage_pallas,
     _fv_stage_pallas_supported,
@@ -122,6 +133,58 @@ from astronomix._finite_volume._reference_pallas import (
     _reference_sweep_pallas,
 )
 
+
+# -------------------------------------------------------------
+# ================== ↓ Explicit sources ↓ =====================
+# -------------------------------------------------------------
+
+
+def _add_explicit_sources(
+    new_primitive_state: STATE_TYPE,
+    stage_primitive_state: STATE_TYPE,
+    stage_time_step,
+    gamma: Union[float, Float[Array, ""]],
+    config: SimulationConfig,
+    params: SimulationParams,
+    helper_data: HelperData,
+    registered_variables: RegisteredVariables,
+) -> STATE_TYPE:
+    """
+    Add the explicit sources of the modules over ``stage_time_step``, evaluated at ``stage_primitive_state``,
+    to the conserved form of ``new_primitive_state`` (unchanged without active modules).
+
+    Args:
+        new_primitive_state: The primitive state after the stage's flux update.
+        stage_primitive_state: The primitive state the sources are evaluated at.
+        stage_time_step: The stage's time-step weight ``beta * dt``.
+        gamma: The adiabatic index.
+        config: The simulation configuration.
+        params: The simulation parameters.
+        helper_data: The helper data.
+        registered_variables: The registered variables.
+
+    Returns:
+        The primitive state with the sources added; its ghost cells are not up to date.
+    """
+    if not has_explicit_sources(config):
+        return new_primitive_state
+    increment = explicit_sources(
+        _conserved_from_primitive(stage_primitive_state, gamma, config, registered_variables),
+        stage_time_step,
+        gamma,
+        config,
+        params,
+        helper_data,
+        registered_variables,
+        primitive_state=stage_primitive_state,
+    )
+    conserved_state = _conserved_from_primitive(new_primitive_state, gamma, config, registered_variables)
+    return _primitive_from_conserved(conserved_state + increment, gamma, config, params, registered_variables)
+
+
+# -------------------------------------------------------------
+# ================== ↑ Explicit sources ↑ =====================
+# -------------------------------------------------------------
 
 # -------------------------------------------------------------
 # ===================== ↓ VL2 time step ↓ =====================
@@ -153,7 +216,7 @@ def vl2_step(
         gamma: The adiabatic index.
         config: The simulation configuration.
         params: The simulation parameters.
-        helper_data: The helper data (unused, kept for the common signature).
+        helper_data: The helper data (the explicit sources).
         registered_variables: The registered variables.
 
     Returns:
@@ -167,6 +230,8 @@ def vl2_step(
     # Updates between steps (turbulent forcing, cooling, ...) may have changed
     # the physical cells without touching the halo.
     primitive_state = _update_ghost_cells(primitive_state, config, params, registered_variables)
+
+    source_arguments = (gamma, config, params, helper_data, registered_variables)
 
     # The cleaning speed and the psi damping are quantities of the GLM
     # cleaning; constrained transport has none.
@@ -203,6 +268,9 @@ def vl2_step(
             params=params,
             registered_variables=registered_variables,
         )
+        half_step_primitive_state = _add_explicit_sources(
+            half_step_primitive_state, primitive_state, 0.5 * dt, *source_arguments
+        )
         half_step_primitive_state = _update_ghost_cells(
             half_step_primitive_state,
             config,
@@ -220,6 +288,10 @@ def vl2_step(
             config=config,
             params=params,
             registered_variables=registered_variables,
+        )
+
+        new_primitive_state = _add_explicit_sources(
+            new_primitive_state, half_step_primitive_state, dt, *source_arguments
         )
 
         # --------------- ↑ Pallas stages ↑ ----------------
@@ -260,6 +332,9 @@ def vl2_step(
         stage_potential=initial_potential,
         initial_potential=initial_potential,
     )
+    half_step_primitive_state = _add_explicit_sources(
+        half_step_primitive_state, primitive_state, 0.5 * dt, *source_arguments
+    )
     half_step_primitive_state = _update_ghost_cells(
         half_step_primitive_state,
         config,
@@ -293,6 +368,9 @@ def vl2_step(
         stage_potential=half_step_potential,
         initial_potential=initial_potential,
     )
+    new_primitive_state = _add_explicit_sources(
+        new_primitive_state, half_step_primitive_state, dt, *source_arguments
+    )
 
     # --------------- ↑ Native stages ↑ ----------------
 
@@ -317,11 +395,13 @@ def _forward_euler_stage(
     gamma: Union[float, Float[Array, ""]],
     config: SimulationConfig,
     params: SimulationParams,
+    helper_data: HelperData,
     registered_variables: RegisteredVariables,
 ) -> STATE_TYPE:
     """
-    One forward Euler stage ``U - dt L(W)`` from the state itself, on the
-    Pallas backend when it supports the configuration and natively otherwise.
+    One forward Euler stage ``U - dt L(W) + dt S(W)`` from the state itself, on
+    the Pallas backend when it supports the configuration and natively
+    otherwise (the wind density tracer: natively).
 
     Args:
         primitive_state: The primitive state ``W`` (ghost cells updated).
@@ -329,6 +409,7 @@ def _forward_euler_stage(
         gamma: The adiabatic index.
         config: The simulation configuration.
         params: The simulation parameters.
+        helper_data: The helper data (the explicit sources).
         registered_variables: The registered variables.
 
     Returns:
@@ -352,11 +433,14 @@ def _forward_euler_stage(
         params=params,
         registered_variables=registered_variables,
     )
-    if _fv_stage_pallas_supported(primitive_state, config):
+    if not config.wind_config.trace_wind_density and _fv_stage_pallas_supported(primitive_state, config):
         new_primitive_state = _fv_stage_pallas(primitive_state, base_primitive_state=None, **stage_arguments)
     else:
         conserved_state = _conserved_from_primitive(primitive_state, gamma, config, registered_variables)
         new_primitive_state, _ = fv_stage(primitive_state, conserved_state, **stage_arguments)
+    new_primitive_state = _add_explicit_sources(
+        new_primitive_state, primitive_state, dt, gamma, config, params, helper_data, registered_variables
+    )
     return _update_ghost_cells(new_primitive_state, config, params, registered_variables)
 
 
@@ -381,7 +465,7 @@ def rk2_ssp_step(
         gamma: The adiabatic index.
         config: The simulation configuration.
         params: The simulation parameters.
-        helper_data: The helper data (unused, kept for the common signature).
+        helper_data: The helper data (the explicit sources).
         registered_variables: The registered variables.
 
     Returns:
@@ -391,8 +475,9 @@ def rk2_ssp_step(
     # the physical cells without touching the halo.
     primitive_state = _update_ghost_cells(primitive_state, config, params, registered_variables)
 
-    first_stage_state = _forward_euler_stage(primitive_state, dt, gamma, config, params, registered_variables)
-    second_stage_state = _forward_euler_stage(first_stage_state, dt, gamma, config, params, registered_variables)
+    stage_arguments = (dt, gamma, config, params, helper_data, registered_variables)
+    first_stage_state = _forward_euler_stage(primitive_state, *stage_arguments)
+    second_stage_state = _forward_euler_stage(first_stage_state, *stage_arguments)
 
     initial_conserved_state = _conserved_from_primitive(primitive_state, gamma, config, registered_variables)
     second_conserved_state = _conserved_from_primitive(second_stage_state, gamma, config, registered_variables)
@@ -506,8 +591,22 @@ def muscl_hancock_step(
     primitive_state = _update_ghost_cells(primitive_state, config, params, registered_variables)
     sweep_arguments = (dt, gamma, config, params, helper_data, registered_variables)
 
+    # The explicit sources of the modules: half a step before the sweeps and half a step after them, each by the
+    # explicit midpoint rule, so that the splitting stays second order.
+    source_arguments = (gamma, config, params, helper_data, registered_variables)
+
+    def half_step_of_sources(state):
+        if not has_explicit_sources(config):
+            return state
+        midpoint_state = _add_explicit_sources(state, state, 0.25 * dt, *source_arguments)
+        midpoint_state = _update_ghost_cells(midpoint_state, config, params, registered_variables)
+        state = _add_explicit_sources(state, midpoint_state, 0.5 * dt, *source_arguments)
+        return _update_ghost_cells(state, config, params, registered_variables)
+
+    primitive_state = half_step_of_sources(primitive_state)
     if config.solver_config.divergence_control != INDUCTION_SOURCE:
-        return _sweeps(primitive_state, _strang_sequence(config.dimensionality), *sweep_arguments)
+        primitive_state = _sweeps(primitive_state, _strang_sequence(config.dimensionality), *sweep_arguments)
+        return half_step_of_sources(primitive_state)
 
     signal_speed = _maximum_signal_speed_vl2(primitive_state, config, params, registered_variables)
     full_sweeps = [(axis, 1.0) for axis in range(1, config.dimensionality + 1)]
@@ -528,7 +627,7 @@ def muscl_hancock_step(
         else:
             primitive_state = _parabolic_cleaning(primitive_state, *cleaning_arguments)
         primitive_state = _update_ghost_cells(primitive_state, config, params, registered_variables)
-    return primitive_state
+    return half_step_of_sources(primitive_state)
 
 
 # -------------------------------------------------------------

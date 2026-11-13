@@ -39,10 +39,7 @@ from astronomix.option_classes.simulation_config import (
 )
 
 # astronomix functions
-from astronomix.option_classes.simulation_config import (
-    get_solver_config,
-    solver_mode_to_string,
-)
+from astronomix.option_classes.simulation_config import get_solver_config
 
 
 # =============================================================
@@ -371,30 +368,22 @@ def get_registered_variables(config: SimulationConfig) -> RegisteredVariables:
                 internal_energy_active=True,
             )
 
-        # Passive scalars: one contiguous block behind everything else, so that
-        # stripping it off leaves a state the hydro / MHD machinery already
-        # understands.
-        num_scalars = int(config.passive_scalar_config.num_scalars)
-        if num_scalars > 0:
-            registered_variables = registered_variables._replace(
-                passive_scalar_index=registered_variables.num_vars,
-                num_passive_scalars=num_scalars,
-                num_vars=registered_variables.num_vars + num_scalars,
-                passive_scalars_active=True,
-            )
-
-    elif config.passive_scalar_config.num_scalars > 0:
-        raise NotImplementedError(
-            "passive scalars are implemented for the finite-difference solver "
-            "only (the finite-volume Riemann solvers would each need a scalar "
-            "flux); got solver_mode = "
-            f"{solver_mode_to_string(config.solver_mode)}"
-        )
-
     # A barotropic gas (every equation of state but the ideal gas) has no energy equation: the finite-volume
     # layouts built above lose their pressure slot, as the isothermal finite-difference layouts do.
     if config.solver_mode == FINITE_VOLUME and config.equation_of_state != IDEAL_GAS:
         registered_variables = _without_pressure_slot(registered_variables)
+
+    # Passive scalars: one contiguous block behind everything else, in every
+    # layout, so that stripping it off leaves a state the solvers already
+    # understand.
+    num_scalars = int(config.passive_scalar_config.num_scalars)
+    if num_scalars > 0:
+        registered_variables = registered_variables._replace(
+            passive_scalar_index=registered_variables.num_vars,
+            num_passive_scalars=num_scalars,
+            num_vars=registered_variables.num_vars + num_scalars,
+            passive_scalars_active=True,
+        )
 
     # shorthands
     registered_variables = registered_variables._replace(

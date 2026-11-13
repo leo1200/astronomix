@@ -287,7 +287,7 @@ def install_powell_source():
     integrator, by wrapping its per-stage physics-source call in this process.
     """
     ssprk_module = importlib.import_module("astronomix._finite_difference._time_integrators._ssprk")
-    original_sources = ssprk_module._time_integrator_sources
+    original_sources = ssprk_module.explicit_sources
     weights = {1: 45.0 / 60.0, 2: -9.0 / 60.0, 3: 1.0 / 60.0}
 
     def derivative(field, axis, spacing):
@@ -296,10 +296,10 @@ def install_powell_source():
             for shift, weight in weights.items()
         ) / spacing
 
-    def sources_with_powell(conserved_state, density_fluxes, drho, dt, gamma, config, params,
-                            helper_data, registered_variables):
-        sources = original_sources(conserved_state, density_fluxes, drho, dt, gamma, config, params,
-                                   helper_data, registered_variables)
+    def sources_with_powell(conserved_state, dt, gamma, config, params, helper_data, registered_variables,
+                            **stage_quantities):
+        sources = original_sources(conserved_state, dt, gamma, config, params, helper_data, registered_variables,
+                                   **stage_quantities)
         magnetic_index = registered_variables.magnetic_index
         momentum_index = registered_variables.velocity_index
         magnetic = [conserved_state[i] for i in (magnetic_index.x, magnetic_index.y, magnetic_index.z)]
@@ -312,7 +312,7 @@ def install_powell_source():
         sources = sources.at[registered_variables.energy_index].add(-dt * v_dot_b * divergence)
         return sources
 
-    ssprk_module._time_integrator_sources = sources_with_powell
+    ssprk_module.explicit_sources = sources_with_powell
 
 
 def build_diagnostics(config, params, registered_variables, N, normal_vector):

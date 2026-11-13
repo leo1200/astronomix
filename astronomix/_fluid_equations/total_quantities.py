@@ -28,6 +28,7 @@ from astronomix.data_classes.simulation_helper_data import HelperData
 from astronomix.option_classes.simulation_params import SimulationParams
 
 # astronomix functions
+from astronomix._fluid_equations._equation_of_state import is_barotropic
 from astronomix._modules._gravity._poisson_solver import (
     _compute_gravitational_potential,
 )
@@ -137,7 +138,8 @@ def calculate_total_energy(
     registered_variables: RegisteredVariables,
 ) -> Float[Array, ""]:
     """
-    Calculate the total energy in the domain.
+    Calculate the total energy in the domain (for a barotropic gas, which has
+    no energy equation, the kinetic and the potential energy).
 
     Args:
         primitive_state: The primitive state array.
@@ -154,9 +156,12 @@ def calculate_total_energy(
 
     rho = primitive_state[registered_variables.density_index]
     u = get_absolute_velocity(primitive_state, config, registered_variables)
-    p = primitive_state[registered_variables.pressure_index]
-
-    energy = total_energy_from_primitives(rho, u, p, gamma)
+    if is_barotropic(config):
+        # No energy equation: the kinetic energy (and the potential energy below).
+        energy = 0.5 * rho * u**2
+    else:
+        p = primitive_state[registered_variables.pressure_index]
+        energy = total_energy_from_primitives(rho, u, p, gamma)
 
     # self-gravity carries the factor 1/2 (mutual interaction); a fixed
     # external potential contributes its full potential energy rho * phi_ext.

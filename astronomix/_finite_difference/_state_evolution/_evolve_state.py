@@ -31,7 +31,6 @@ import jax.numpy as jnp
 
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
-    BACKWARDS,
     GHOST_CELLS,
     IDEAL_GAS,
     LSRK4,
@@ -57,8 +56,8 @@ from astronomix._fluid_equations._equations_mhd import (
 )
 from astronomix._fluid_equations._dual_energy import advect_internal_energy
 from astronomix._fluid_equations._passive_scalars import (
-    _fill_scalar_ghost_cells,
-    advect_passive_scalars,
+    reattach_passive_scalars,
+    split_off_passive_scalars,
 )
 from astronomix._finite_difference._time_integrators._ssprk import (
     _lsrk4_hydro,
@@ -119,40 +118,10 @@ def _evolve_state_fd(
     # sees exactly the state it was written for; they are advected
     # operator-split with the pre-step flow and reattached at the end.
     passive_scalars_active = registered_variables.passive_scalars_active
-    passive_scalars = None
     if passive_scalars_active:
-        passive_scalar_index = registered_variables.passive_scalar_index
-        passive_scalars = primitive_state[passive_scalar_index:]
-        primitive_state = primitive_state[:passive_scalar_index]
-        registered_variables = registered_variables._replace(
-            num_vars=passive_scalar_index,
-            passive_scalar_index=-1,
-            num_passive_scalars=0,
-            passive_scalars_active=False,
+        primitive_state, passive_scalars, registered_variables = split_off_passive_scalars(
+            primitive_state, dt, config, registered_variables
         )
-        # Advect with the pre-step flow (operator splitting);
-        # ``advect_passive_scalars`` sub-cycles internally when the flow
-        # requires it.
-        passive_scalars = advect_passive_scalars(
-            passive_scalars,
-            primitive_state,
-            dt,
-            config.grid_spacing,
-            config,
-            registered_variables,
-        )
-        if config.differentiation_mode == BACKWARDS:
-            # Reverse-mode memory: the scalars never feed back on the hydro, so
-            # the backward pass of their advection is independent of the hydro
-            # backward pass and XLA is free to schedule the two together,
-            # adding the scalar sub-steps' transient memory to the hydro peak.
-            # Tying the two through a barrier (a numerical no-op, whose
-            # transpose is a barrier on the cotangents) makes the scalar
-            # backward pass wait for the hydro one. Only on the reverse-mode
-            # (masked) path, so the FORWARDS program is untouched.
-            passive_scalars, primitive_state = jax.lax.optimization_barrier(
-                (passive_scalars, primitive_state)
-            )
 
     # -------------------------------------------------------------
     # ============= ↑ Split off and advect passive scalars ↑ =======
@@ -373,9 +342,7 @@ def _evolve_state_fd(
     # Fill the scalars' ghost cells and reattach the block at the end of the
     # state.
     if passive_scalars_active:
-        if config.boundary_handling == GHOST_CELLS:
-            passive_scalars = _fill_scalar_ghost_cells(passive_scalars, config)
-        primitive_state = jnp.concatenate([primitive_state, passive_scalars], axis=0)
+        primitive_state = reattach_passive_scalars(primitive_state, passive_scalars, config)
 
     # -------------------------------------------------------------
     # =================== ↑ Reattaching the scalars ↑ ==============

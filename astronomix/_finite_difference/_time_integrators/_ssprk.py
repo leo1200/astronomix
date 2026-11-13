@@ -86,8 +86,8 @@ from astronomix._finite_difference._magnetic_update._flux_form_ct import (
 from astronomix._finite_difference._ratio_rules import _floored_ratio
 from astronomix._geometry.boundaries import _boundary_handler
 from astronomix._integrators._explicit_rk import lsrk4, ssprk33, ssprk4
-from astronomix._modules._time_integrator_sources import _time_integrator_sources
-from astronomix._modules._resistivity._resistivity import fd_ohmic_interface_rhs
+from astronomix._modules._explicit_sources import explicit_sources
+from astronomix._modules._resistivity._resistivity import resistive_face_increment
 from astronomix._pallas_helpers import (
     _backend_is_pallas,
     _pallas_mesh_splits_axis,
@@ -407,14 +407,14 @@ def _ssprk4_with_ct(
         # Explicit ohmic resistivity: a further curl of an edge EMF on the
         # interface fields, so div(B) = 0 is kept exactly (see _resistivity).
         if config.diffusion_config.resistivity:
-            resistive_rhs_bx, resistive_rhs_by, resistive_rhs_bz = fd_ohmic_interface_rhs(
+            resistive_rhs_bx, resistive_rhs_by, resistive_rhs_bz = resistive_face_increment(
                 bx,
                 by,
                 bz,
                 params.resistivity,
                 dt_tilde,
                 grid_spacing,
-                config,
+                config.dimensionality,
             )
             rhs_bx = rhs_bx + resistive_rhs_bx
             rhs_by = rhs_by + resistive_rhs_by
@@ -430,16 +430,16 @@ def _ssprk4_with_ct(
         # Add the physics source terms; the density increment is handed in
         # separately for the modules that need it.
         density_increment = rhs_q[registered_variables.density_index]
-        rhs_q += _time_integrator_sources(
+        rhs_q += explicit_sources(
             current_q,
-            density_fluxes,
-            density_increment,
             dt_tilde,
             gamma,
             config,
             params,
             helper_data,
             registered_variables,
+            density_fluxes=density_fluxes,
+            density_increment=density_increment,
         )
 
         return rhs_q, rhs_bx, rhs_by, rhs_bz
@@ -571,16 +571,16 @@ def _hydro_step_rhs(
         rhs_q, density_fluxes = _riemann_flux_increment(
             current_q, None, dtdx, params, config, registered_variables
         )
-        return rhs_q + _time_integrator_sources(
+        return rhs_q + explicit_sources(
             current_q,
-            density_fluxes,
-            rhs_q[registered_variables.density_index],
             dt_tilde,
             gamma,
             config,
             params,
             helper_data,
             registered_variables,
+            density_fluxes=density_fluxes,
+            density_increment=rhs_q[registered_variables.density_index],
         )
 
     # Fused WENO + axis-flux-divergence: each axis is built and consumed one
@@ -688,16 +688,16 @@ def _hydro_step_rhs(
     # Add the physics source terms; the density increment is handed in
     # separately for the modules that need it.
     density_increment = rhs_q[registered_variables.density_index]
-    rhs_q += _time_integrator_sources(
+    rhs_q += explicit_sources(
         current_q,
-        density_fluxes,
-        density_increment,
         dt_tilde,
         gamma,
         config,
         params,
         helper_data,
         registered_variables,
+        density_fluxes=density_fluxes,
+        density_increment=density_increment,
     )
 
     return rhs_q
@@ -912,19 +912,18 @@ def _lsrk4_hydro(
                 del dF_z
 
             # Physics source terms.  Sedov-style hydro with no active modules
-            # makes this a no-op (``_time_integrator_sources`` returns zeros); for
+            # makes this a no-op (``explicit_sources`` returns zeros); for
             # active modules the dt-scaled source is added on top of the
             # already-scaled ``A[i] * dq + dt * L(q)`` value in ``dq``.
-            sources = _time_integrator_sources(
+            sources = explicit_sources(
                 q,
-                None,
-                dq[registered_variables.density_index],
                 dt_step,
                 gamma,
                 config,
                 params,
                 helper_data,
                 registered_variables,
+                density_increment=dq[registered_variables.density_index],
             )
             if sources is not None:
                 dq = dq + sources
@@ -1348,14 +1347,14 @@ def _lsrk4_with_ct(
         # Explicit ohmic resistivity: a further curl of an edge EMF on the
         # interface fields, so div(B) = 0 is kept exactly (see _resistivity).
         if config.diffusion_config.resistivity:
-            resistive_rhs_bx, resistive_rhs_by, resistive_rhs_bz = fd_ohmic_interface_rhs(
+            resistive_rhs_bx, resistive_rhs_by, resistive_rhs_bz = resistive_face_increment(
                 bx,
                 by,
                 bz,
                 params.resistivity,
                 dt,
                 grid_spacing,
-                config,
+                config.dimensionality,
             )
             rhs_bx = rhs_bx + resistive_rhs_bx
             rhs_by = rhs_by + resistive_rhs_by
@@ -1373,30 +1372,30 @@ def _lsrk4_with_ct(
         # On the native fallback we still have a standalone ``rhs_q_for_phys``
         # and fold the full LSRK4 update at the end.
         if use_pallas_div:
-            sources = _time_integrator_sources(
+            sources = explicit_sources(
                 current_q,
-                density_fluxes,
-                dq[registered_variables.density_index],
                 dt,
                 gamma,
                 config,
                 params,
                 helper_data,
                 registered_variables,
+                density_fluxes=density_fluxes,
+                density_increment=dq[registered_variables.density_index],
             )
             if sources is not None:
                 dq = dq + sources
         else:
-            rhs_q_for_phys += _time_integrator_sources(
+            rhs_q_for_phys += explicit_sources(
                 current_q,
-                density_fluxes,
-                rhs_q_for_phys[registered_variables.density_index],
                 dt,
                 gamma,
                 config,
                 params,
                 helper_data,
                 registered_variables,
+                density_fluxes=density_fluxes,
+                density_increment=rhs_q_for_phys[registered_variables.density_index],
             )
             dq = a_coef * dq + rhs_q_for_phys
 

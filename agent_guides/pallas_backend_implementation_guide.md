@@ -697,7 +697,7 @@ MHD. Files:
 (kernel). **Since removed** together with the per-stage floors: FD
 positivity now comes from `weno_positivity_preserving`, and the remaining
 per-step floor (`PositivityConfig.per_step_mode`) is a native
-`jnp.maximum` in `astronomix/_modules/_iteration_level_updates.py`. The
+`jnp.maximum` in `astronomix/_modules/_per_step_updates.py`. The
 kernel is still the reference skeleton for pointwise leaf ops; recover it
 from the parent of the commit that deleted it
 (`git log --diff-filter=D -- astronomix/_fluid_equations/_enforce_positivity_pallas.py`).

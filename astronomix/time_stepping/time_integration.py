@@ -71,9 +71,9 @@ from astronomix._finite_difference._timestep_estimation._timestep_estimator impo
     _cfl_time_step_fd_hydro,
 )
 from astronomix._fluid_equations._passive_scalars import _fill_scalar_ghost_cells
-from astronomix._modules._iteration_level_updates import (
+from astronomix._modules._per_step_updates import (
     _apply_density_floor,
-    _iteration_level_updates,
+    per_step_updates,
 )
 from astronomix._modules._turbulence_driving import (
     advance_turbulence_driving,
@@ -865,7 +865,7 @@ def _integrate_core(
                     params.turbulence_driving_params,
                     measured_dispersion,
                 )
-            new_state = _iteration_level_updates(
+            new_state = per_step_updates(
                 primitive_state,
                 step_size,
                 config,

@@ -192,16 +192,7 @@ def test_settings_of_the_preset():
             dict(solver_config=BEATTIE_REFERENCE._replace(first_order_flux_correction=True)),
             "switch first_order_flux_correction off",
         ),
-        # Ideal MHD only.
-        (dict(gravity_config=GravityConfig(self_gravity=True)), "gravity_config .* is not implemented"),
-        (dict(cooling_config=CoolingConfig(cooling=True)), "cooling_config.cooling is not implemented"),
-        (dict(diffusion_config=DiffusionConfig(viscosity=True)), "diffusion_config.viscosity is not implemented"),
-        (dict(diffusion_config=DiffusionConfig(resistivity=True)), "diffusion_config.resistivity is not implemented"),
-        (
-            dict(diffusion_config=DiffusionConfig(thermal_conduction=True)),
-            "diffusion_config.thermal_conduction is not implemented",
-        ),
-        (dict(wind_config=WindConfig(stellar_wind=True)), "wind_config.stellar_wind is not implemented"),
+        # The MHD layout has no tracer row.
         (dict(wind_config=WindConfig(trace_wind_density=True)), "wind_config.trace_wind_density is not implemented"),
     ],
 )
@@ -209,6 +200,21 @@ def test_rejected_with_the_induction_source(settings, message):
     equation_of_state = settings.pop("equation_of_state", IDEAL_GAS)
     with pytest.raises(ValueError, match=message):
         _finalized(equation_of_state=equation_of_state, **settings)
+
+
+def test_modules_accepted_with_the_induction_source():
+    """The modules of the explicit sources enter around the sweeps (the cross-scheme tests in ``pytests/modules``
+    run them)."""
+    for settings in (
+        dict(gravity_config=GravityConfig(self_gravity=True)),
+        dict(cooling_config=CoolingConfig(cooling=True)),
+        dict(diffusion_config=DiffusionConfig(viscosity=True)),
+        dict(diffusion_config=DiffusionConfig(resistivity=True)),
+        dict(diffusion_config=DiffusionConfig(thermal_conduction=True)),
+        dict(wind_config=WindConfig(stellar_wind=True)),
+    ):
+        config = _finalized(equation_of_state=IDEAL_GAS, **settings)
+        assert config.solver_config.divergence_control == INDUCTION_SOURCE
 
 
 def test_split_scheme_without_the_induction_source_carries_no_field():

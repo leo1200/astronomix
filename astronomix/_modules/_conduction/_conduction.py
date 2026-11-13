@@ -1,5 +1,5 @@
 """
-Thermal conduction for the finite-difference scheme.
+Thermal conduction (an ideal gas), in every scheme.
 
 We add a Fourier heat-conduction term to the energy equation,
 
@@ -180,9 +180,9 @@ def _laplacian_conduction_source(
 
 
 @partial(jax.jit, static_argnames=("config", "registered_variables"))
-def fd_conduction_source(primitive_state, params, config, registered_variables):
+def conduction_source(primitive_state, params, config, registered_variables):
     """
-    Conductive energy source div(kappa grad T) for the finite-difference scheme.
+    Conductive energy source div(kappa grad T) (per unit time).
 
     Selects the discretisation from ``config.diffusion_config.conduction_order`` and
     ``config.diffusion_config.conduction_density_weighted`` (see the module docstring). The

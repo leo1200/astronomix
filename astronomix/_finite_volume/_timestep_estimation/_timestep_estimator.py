@@ -20,10 +20,8 @@ import jax.numpy as jnp
 
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
-    DYNAMIC_VISCOSITY,
     GHOST_CELLS,
     HLL5R,
-    KINEMATIC_VISCOSITY,
     MUSCL_HANCOCK,
     RK2_SSP,
     STATE_TYPE,
@@ -37,13 +35,23 @@ from astronomix.option_classes.simulation_params import SimulationParams
 from astronomix.variable_registry.registered_variables import RegisteredVariables
 
 # astronomix functions
-from astronomix._modules._stellar_wind.stellar_wind import _wind_injection
-from astronomix._fluid_equations._fluxes import _euler_flux
+from astronomix._finite_difference._timestep_estimation._timestep_estimator import (
+    _apply_parabolic_and_source_limits,
+)
+from astronomix._modules._explicit_sources import wind_source_active
+from astronomix._modules._stellar_wind.stellar_wind import (
+    _wind_ei3D_source,
+    _wind_injection,
+)
 from astronomix._fluid_equations._equation_of_state import (
     is_barotropic,
     sound_speed_squared,
 )
-from astronomix._fluid_equations._equations import speed_of_sound
+from astronomix._fluid_equations._equations import (
+    conserved_state_from_primitive,
+    primitive_state_from_conserved,
+    speed_of_sound,
+)
 from astronomix._finite_volume._interface_frame import (
     _barotropic_law,
     _interface_frame_indices,
@@ -241,17 +249,46 @@ def _cfl_time_step(
     params: SimulationParams,
     registered_variables: RegisteredVariables,
 ) -> Float[Array, ""]:
-    """Calculate the time step based on the CFL condition.
+    """The time step of the CFL condition, tightened by the parabolic and cooling limits of the active modules
+    (those of the finite-difference solver).
 
     Args:
         primitive_state: The primitive state array.
-        params: The simulation parameters.
         config: The simulation configuration.
+        params: The simulation parameters.
         registered_variables: The registered variables.
 
     Returns:
         The time step.
+    """
+    return _apply_parabolic_and_source_limits(
+        _advective_time_step(primitive_state, config, params, registered_variables),
+        primitive_state,
+        config.grid_spacing,
+        params.gamma,
+        config,
+        params,
+        registered_variables,
+        params.C_cfl,
+    )
 
+
+def _advective_time_step(
+    primitive_state: STATE_TYPE,
+    config: SimulationConfig,
+    params: SimulationParams,
+    registered_variables: RegisteredVariables,
+) -> Float[Array, ""]:
+    """The time step of the CFL condition of the finite-volume schemes.
+
+    Args:
+        primitive_state: The primitive state array.
+        config: The simulation configuration.
+        params: The simulation parameters.
+        registered_variables: The registered variables.
+
+    Returns:
+        The time step.
     """
 
     C_CFL = params.C_cfl
@@ -388,25 +425,6 @@ def _cfl_time_step(
 
         dt = jnp.minimum(dt, dt_max)
 
-    # viscous time step constraint
-    if config.diffusion_config.viscosity:
-        
-        if config.positivity_config.clamp_in_estimates:
-            rho_min = jnp.maximum(
-                jnp.min(primitive_state[registered_variables.density_index]),
-                params.minimum_density,
-            )
-        else:
-            rho_min = jnp.min(primitive_state[registered_variables.density_index])
-        
-        if config.diffusion_config.viscosity_type == DYNAMIC_VISCOSITY:
-            nu_max = params.viscosity / rho_min
-        elif config.diffusion_config.viscosity_type == KINEMATIC_VISCOSITY:
-            nu_max = params.viscosity
-
-        dt_visc = C_CFL * grid_spacing**2 / (2.0 * config.dimensionality * nu_max)
-        dt = jnp.minimum(dt, dt_visc)
-
     return dt
 
 
@@ -443,17 +461,30 @@ def _source_term_aware_time_step(
         params,
         registered_variables,
     )
-
     dt = jnp.minimum(dt, params.dt_max)
 
     # ONLY ADD THE STELLAR WIND SOURCE TERM
     # DO NOT RUN ALL PHYSICS MODULES HERE
-
     # TODO: HOW TO HANDLE FURTHER SOURCE TERMS?
-
-    hypothetical_new_state = _wind_injection(
-        primitive_state, dt, config, params, helper_data, registered_variables
-    )
+    if wind_source_active(config):
+        # the 3D wind: its source of the stages over dt
+        conserved_state = conserved_state_from_primitive(primitive_state, params.gamma, config, registered_variables)
+        conserved_state = conserved_state + _wind_ei3D_source(
+            params.wind_params,
+            conserved_state,
+            dt,
+            config,
+            helper_data,
+            config.wind_config.num_injection_cells,
+            registered_variables,
+        )
+        hypothetical_new_state = primitive_state_from_conserved(
+            conserved_state, params.gamma, config, registered_variables
+        )
+    else:
+        hypothetical_new_state = _wind_injection(
+            primitive_state, dt, config, params, helper_data, registered_variables
+        )
 
     dt = _cfl_time_step(
         hypothetical_new_state,

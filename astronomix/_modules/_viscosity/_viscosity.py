@@ -108,25 +108,15 @@ def _central_first_derivative(field, axis, grid_spacing):
 
 
 @partial(jax.jit, static_argnames=("config", "registered_variables"))
-def fv_viscosity_update(primitive_state, params, config, registered_variables, dt):
+def viscosity_source(primitive_state, params, config, registered_variables):
     """
-    Finite-volume viscosity update.
-
-    NOTE: Not yet implemented. The finite-volume viscosity is intended to be
-    folded into a unified all-source-term scheme in the future; until then it
-    raises ``NotImplementedError``.
-    """
-    raise NotImplementedError("Not implemented yet.")
-
-
-@partial(jax.jit, static_argnames=("config", "registered_variables"))
-def fd_viscosity_source(primitive_state, params, config, registered_variables):
-    """
-    Finite-difference Newtonian viscosity source term.
+    Newtonian viscosity source term (per unit time) of every scheme.
 
     Builds the deviatoric viscous stress tensor under Stokes' hypothesis and
     returns its divergence as a momentum source plus the divergence of v·τ as an
-    energy source (see the module docstring for the derivation).
+    energy source (see the module docstring for the derivation). A layout with
+    more velocity components than spatial axes (MHD in 1D and 2D) has no
+    derivative along the missing axes.
 
     Args:
         primitive_state: The primitive state array.
@@ -152,40 +142,44 @@ def fd_viscosity_source(primitive_state, params, config, registered_variables):
     grid_spacing = config.grid_spacing
     dimensionality = config.dimensionality
 
-    # The velocity components of the spatial dimensions are stored
-    # contiguously behind the first one (see the variable registry), so they
-    # are read and written as one slice.
+    # The velocity components are stored contiguously behind the first one
+    # (see the variable registry), so they are read and written as one slice.
     velocity_index = registered_variables.velocity_index
     if isinstance(velocity_index, int):
         first_velocity_index = velocity_index
+        num_components = 1
     else:
         first_velocity_index = velocity_index.x
-    velocity_slice = slice(first_velocity_index, first_velocity_index + dimensionality)
-    velocity = primitive_state[velocity_slice]  # shape (dimensionality, *spatial)
+        num_components = sum(1 for index in velocity_index if index >= 0)
+    velocity_slice = slice(first_velocity_index, first_velocity_index + num_components)
+    velocity = primitive_state[velocity_slice]  # shape (num_components, *spatial)
 
     # Velocity gradient tensor G_{ij} = ∂v_i/∂x_j, shape
-    # (dimensionality, dimensionality, *spatial). The array axis of spatial
-    # direction j is j + 1, behind the leading component axis.
+    # (num_components, num_components, *spatial), zero along a missing axis.
+    # The array axis of spatial direction j is j + 1, behind the leading
+    # component axis.
     velocity_gradient = jnp.stack(
         [
             _central_first_derivative(velocity, j + 1, grid_spacing)
-            for j in range(dimensionality)
+            if j < dimensionality
+            else jnp.zeros_like(velocity)
+            for j in range(num_components)
         ],
         axis=1,
     )
 
     # Deviatoric viscous stress tensor τ_{ij} = μ (G_{ij} + G_{ji} − ⅔ δ_{ij} ∇·v).
     velocity_divergence = jnp.trace(velocity_gradient, axis1=0, axis2=1)  # shape (*spatial)
-    kronecker_delta = jnp.eye(dimensionality)[
+    kronecker_delta = jnp.eye(num_components)[
         (slice(None), slice(None)) + (None,) * density.ndim
     ]
     viscous_stress = dynamic_viscosity * (
         velocity_gradient
         + velocity_gradient.swapaxes(0, 1)
         - (2.0 / 3.0) * kronecker_delta * velocity_divergence
-    )  # shape (dimensionality, dimensionality, *spatial)
+    )  # shape (num_components, num_components, *spatial)
 
-    # Momentum source (∇·τ)_i = Σ_j ∂τ_{ij}/∂x_j, shape (dimensionality, *spatial).
+    # Momentum source (∇·τ)_i = Σ_j ∂τ_{ij}/∂x_j, shape (num_components, *spatial).
     momentum_source = sum(
         _central_first_derivative(viscous_stress[:, j], j + 1, grid_spacing)
         for j in range(dimensionality)
@@ -197,7 +191,7 @@ def fd_viscosity_source(primitive_state, params, config, registered_variables):
         'i...,ij...->j...',
         velocity,
         viscous_stress,
-    )  # shape (dimensionality, *spatial)
+    )  # shape (num_components, *spatial)
     energy_source = sum(
         _central_first_derivative(velocity_dot_stress[j], j, grid_spacing)
         for j in range(dimensionality)
@@ -206,9 +200,8 @@ def fd_viscosity_source(primitive_state, params, config, registered_variables):
     source_term = jnp.zeros_like(primitive_state)
     source_term = source_term.at[velocity_slice].set(momentum_source)
 
-    # An isothermal state has no energy variable. Its ``energy_index`` is -1,
-    # which would otherwise address the last variable of the state (e.g. the
-    # face-centred B_z in isothermal constrained-transport MHD).
+    # A barotropic gas has no energy variable. Its ``energy_index`` is -1,
+    # which would otherwise address the last variable of the state.
     if registered_variables.energy_index >= 0:
         source_term = source_term.at[registered_variables.energy_index].set(energy_source)
 

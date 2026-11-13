@@ -2,8 +2,8 @@
 What ``finalize_config`` rejects for a barotropic gas (``ISOTHERMAL``, ``POLYTROPIC``).
 
 A barotropic gas has no energy equation. The finite-volume framework runs it with the Riemann solvers that need
-no energy jump (``HLL``, ``LAX_FRIEDRICHS``) and with gravity; everything that acts on the energy equation, and the
-modules that are not carried yet, are rejected with a message that names what to use instead. One line per rule.
+no energy jump (``HLL``, ``LAX_FRIEDRICHS``), with gravity and viscosity; everything that acts on the energy equation
+is rejected in every scheme with a message that names what to use instead. One line per rule.
 
 Run on the CPU::
 
@@ -54,6 +54,7 @@ from astronomix import (
     FVSolverConfig,
     GravityConfig,
     SimulationConfig,
+    SnapshotSettings,
 )
 from astronomix._modules._cooling.cooling_options import CoolingConfig
 from astronomix._modules._stellar_wind.stellar_wind_options import WindConfig
@@ -109,16 +110,28 @@ def _finalized(equation_of_state=ISOTHERMAL, solver_overrides=None, **overrides)
             dict(gravity_config=GravityConfig(self_gravity=True, time_centred_energy_source=True)),
             "gravity_config.time_centred_energy_source acts on the energy equation",
         ),
-        # What is not carried yet.
-        (dict(diffusion_config=DiffusionConfig(viscosity=True)), "diffusion_config.viscosity is not implemented"),
-        (dict(wind_config=WindConfig(stellar_wind=True)), "wind_config.stellar_wind is not implemented"),
-        # (The tracer exists under the split scheme only.)
+        # The stellar wind injects thermal energy; its tracer follows the wind.
+        (dict(wind_config=WindConfig(stellar_wind=True)), "wind_config.stellar_wind acts on the energy equation"),
         (
             dict(
                 wind_config=WindConfig(trace_wind_density=True),
                 solver_overrides=dict(time_integrator=MUSCL_HANCOCK),
             ),
-            "wind_config.trace_wind_density is not implemented",
+            "wind_config.trace_wind_density acts on the energy equation",
+        ),
+        # The same in the finite-difference schemes.
+        (
+            dict(
+                solver_mode=FINITE_DIFFERENCE,
+                solver_config=FDSolverConfig(),
+                cooling_config=CoolingConfig(cooling=True),
+            ),
+            "cooling_config.cooling acts on the energy equation",
+        ),
+        # A thermal diagnostic reads the pressure.
+        (
+            dict(snapshot_settings=SnapshotSettings(return_temperature_pdf=True)),
+            "snapshot_settings.return_temperature_pdf reads the pressure",
         ),
     ],
 )
@@ -141,6 +154,7 @@ def test_accepted_for_a_barotropic_gas():
                         time_integrator=time_integrator, riemann_solver=riemann_solver, reconstruction=reconstruction
                     ),
                     gravity_config=GravityConfig(self_gravity=True),
+                    diffusion_config=DiffusionConfig(viscosity=True),
                 )
                 assert config.solver_config.riemann_solver == riemann_solver
                 assert config.solver_config.time_integrator == time_integrator

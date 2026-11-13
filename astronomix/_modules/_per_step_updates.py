@@ -1,13 +1,14 @@
 """
-Iteration-level updates applied once before each hydro step.
+Hook 2 of the physics modules: the operator-split updates, once per time step.
 
-These are the physics modules that run as a discrete update on the primitive
-state at the start of every time step — stellar wind, cooling, the
-user-supplied ``config.per_step_update``, viscosity and the per-step
-positivity floor. Their counterpart is ``_time_integrator_sources``, which
-instead enters the hydro integrator as a right-hand-side source term. The
-turbulence driving is added at the end of the scheme's own update
-(``apply_turbulence_driving``).
+``per_step_updates`` runs between two solver steps on the primitive state: the
+spherical 1D stellar-wind injection, the user-supplied
+``config.per_step_update`` and the per-step positivity floor. Two further
+operator-split updates sit inside the step of every scheme, because they need
+the state at its start or the driving pattern at its end: the advection of the
+passive scalars (``_fluid_equations/_passive_scalars.py``) and the kick of the
+turbulence driving (``apply_turbulence_driving``). Its counterpart inside the
+stages is ``_explicit_sources.py``.
 """
 
 # general
@@ -23,7 +24,6 @@ import jax.numpy as jnp
 
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
-    FINITE_VOLUME,
     IDEAL_GAS,
     POSITIVITY_HARD_FLOOR,
     STATE_TYPE,
@@ -36,9 +36,8 @@ from astronomix.option_classes.simulation_params import SimulationParams
 from astronomix.variable_registry.registered_variables import RegisteredVariables
 
 # astronomix functions
-from astronomix._modules._cooling._cooling import update_pressure_by_cooling
+from astronomix._modules._explicit_sources import wind_source_active
 from astronomix._modules._stellar_wind.stellar_wind import _wind_injection
-from astronomix._modules._viscosity._viscosity import fv_viscosity_update
 
 
 @partial(jax.jit, static_argnames=["config", "registered_variables"])
@@ -118,7 +117,7 @@ def _apply_density_floor(
     return primitive_state
 
 
-def _iteration_level_updates(
+def per_step_updates(
     primitive_state: STATE_TYPE,
     dt: Float[Array, ""],
     config: SimulationConfig,
@@ -128,28 +127,24 @@ def _iteration_level_updates(
     current_time: Union[float, Float[Array, ""]],
 ) -> STATE_TYPE:
     """
-    Apply the updates that run once before each hydro iteration.
-
-    The counterpart of this are the ``_time_integrator_sources``, which are
-    handled as right-hand-side source terms inside the hydro integrator.
+    Apply the operator-split updates that run between two solver steps.
 
     Args:
         primitive_state: The primitive state array.
-        dt: The time step.
+        dt: The time step that follows.
         config: The simulation configuration.
         params: The simulation parameters.
         helper_data: The helper data.
         registered_variables: The registered variables.
-        current_time: The current simulation time.
+        current_time: The time at the end of the step that follows.
 
     Returns:
-        The primitive state with the iteration-level updates applied.
+        The primitive state with the updates applied.
     """
 
-    # Stellar wind.
-    # In the finite-difference case this is instead handled as a source term
-    # inside the hydro integrator.
-    if config.wind_config.stellar_wind and config.solver_mode == FINITE_VOLUME:
+    # The spherical 1D stellar wind: injected once per step (the 3D wind is a
+    # source of the stages).
+    if config.wind_config.stellar_wind and not wind_source_active(config):
         primitive_state = _wind_injection(
             primitive_state,
             dt,
@@ -157,20 +152,6 @@ def _iteration_level_updates(
             params,
             helper_data,
             registered_variables,
-        )
-
-    # Cooling.
-    # In the finite-difference case this is instead handled as a source term
-    # inside the hydro integrator. The grid spacing enables the
-    # cooling-resolution limiter, as on the finite-difference path.
-    if config.cooling_config.cooling and config.solver_mode == FINITE_VOLUME:
-        primitive_state = update_pressure_by_cooling(
-            primitive_state,
-            registered_variables,
-            config.cooling_config,
-            params,
-            dt,
-            grid_spacing=config.grid_spacing,
         )
 
     # User-supplied per-step update (config.per_step_update).
@@ -185,18 +166,6 @@ def _iteration_level_updates(
             registered_variables,
         )
 
-    # Viscosity.
-    # In the finite-difference case this is instead handled as a source term
-    # inside the hydro integrator.
-    if config.diffusion_config.viscosity and config.solver_mode == FINITE_VOLUME:
-        primitive_state = fv_viscosity_update(
-            primitive_state,
-            params,
-            config,
-            registered_variables,
-            dt,
-        )
-
     # Per-step state floor (HARD_FLOOR): AthenaPK's density floor, momentum and
     # total energy kept (see _apply_density_floor), then the pressure floor.
     # The finite-difference scheme stays positive through the
@@ -205,7 +174,7 @@ def _iteration_level_updates(
     # set a vanishing time step. It also serves the finite-volume solver. The
     # time loop applies the density floor once more right after the state
     # update, so the time step and the snapshots see the floored state; here
-    # it then only acts on density that a module above has changed.
+    # it then only acts on density that an update above has changed.
     if config.positivity_config.per_step_mode == POSITIVITY_HARD_FLOOR:
         primitive_state = _apply_density_floor(
             primitive_state,

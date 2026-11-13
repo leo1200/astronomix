@@ -28,7 +28,7 @@ from astronomix._finite_difference._interface_fluxes._weno import (
 )
 from astronomix._fluid_equations._equations import primitive_state_from_conserved
 from astronomix._geometry.boundaries import _boundary_handler
-from astronomix._modules._viscosity._viscosity import fd_viscosity_source
+from astronomix._modules._viscosity._viscosity import viscosity_source
 from astronomix._stencil_operations._stencil_operations import _shift
 from astronomix.time_stepping._utils import _pad, _unpad
 
@@ -110,7 +110,7 @@ def _exposed_rhs(conserved_state, params, config, registered_variables):
         # Add the active source terms to the RHS. Only viscosity is wired up
         # here; the other physics modules are not yet exposed in this RHS.
         if config.diffusion_config.viscosity:
-            rhs_q = rhs_q + fd_viscosity_source(
+            rhs_q = rhs_q + viscosity_source(
                 primitive_state, params, config, registered_variables
             )
 

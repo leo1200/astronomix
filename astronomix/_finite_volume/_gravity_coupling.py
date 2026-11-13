@@ -1,53 +1,33 @@
 """
-The gravity couplings of the finite-volume schemes.
+The gravity coupling of the VL2 scheme, as Athena++ couples it: every stage
+adds the source of ``_add_athena_gravity_source``, built from the potential of
+the stage's initial state (``_vl2_gravitational_potential``) and the stage's
+Riemann mass fluxes, optionally with the time-centred energy source of Mullen,
+Hanawa & Gammie (2021). A barotropic gas has no energy equation: the coupling
+then acts on the momenta alone.
 
-VL2 couples as Athena++ does: every stage adds the source of
-``_add_athena_gravity_source``, built from the potential of the stage's initial
-state (``_vl2_gravitational_potential``) and the stage's Riemann mass fluxes,
-optionally with the time-centred energy source of Mullen, Hanawa & Gammie
-(2021).
-
-``RK2_SSP`` and ``MUSCL_HANCOCK`` couple first order in time, around the step:
-the source of ``_modules/_gravity/_gravity.py`` is built from the state before
-the step (``_gravity_source_presolve``) and added to the state after it
-(``_apply_gravity_source``).
-
-A barotropic gas has no energy equation: both couplings then act on the
-momenta alone.
+``RK2_SSP`` and ``MUSCL_HANCOCK`` take gravity from the explicit sources of the
+modules (``_modules/_explicit_sources.py``), as the finite-difference schemes
+do.
 """
-
-# jax
-import jax.numpy as jnp
-
-# typing
-from typing import Union
-from jaxtyping import Array, Float
 
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
     FIELD_TYPE,
-    GHOST_CELLS,
     STATE_TYPE,
 )
 
 # astronomix containers
-from astronomix.data_classes.simulation_helper_data import HelperData
 from astronomix.option_classes.simulation_config import SimulationConfig
 from astronomix.option_classes.simulation_params import SimulationParams
 from astronomix.variable_registry.registered_variables import RegisteredVariables
 
 # astronomix functions
 from astronomix._fluid_equations._equation_of_state import is_barotropic
-from astronomix._fluid_equations._equations import (
-    conserved_state_from_primitive,
-    primitive_state_from_conserved,
-)
-from astronomix._geometry.boundaries import _boundary_handler
 from astronomix._modules._gravity._gravity import (
     _component_index,
     _compute_total_potential,
 )
-from astronomix._modules._time_integrator_sources import _time_integrator_sources
 from astronomix._stencil_operations._stencil_operations import _shift
 
 # -------------------------------------------------------------
@@ -174,122 +154,4 @@ def _add_athena_gravity_source(
 
 # -------------------------------------------------------------
 # ============== ↑ Coupling inside the VL2 stage ↑ ============
-# -------------------------------------------------------------
-
-# -------------------------------------------------------------
-# ================ ↓ Coupling around the step ↓ ===============
-# -------------------------------------------------------------
-
-
-def _barotropic_gravity_source(
-    primitive_state: STATE_TYPE,
-    dt: Float[Array, ""],
-    config: SimulationConfig,
-    params: SimulationParams,
-    registered_variables: RegisteredVariables,
-) -> STATE_TYPE:
-    """
-    The gravity source of one time step for a barotropic gas: the momenta
-    receive ``dt rho g`` with the centred acceleration
-    ``g_i = -(phi_{i+1} - phi_{i-1}) / (2 dx)``, the same momentum source as
-    with an energy equation; there is no energy row to charge.
-
-    Args:
-        primitive_state: The primitive state before the step.
-        dt: The time step.
-        config: The simulation configuration.
-        params: The simulation parameters.
-        registered_variables: The registered variables.
-
-    Returns:
-        The source, as a change of the conserved state over the step.
-    """
-    density = primitive_state[registered_variables.density_index]
-    potential = _vl2_gravitational_potential(density, config, params, registered_variables)
-    source = jnp.zeros_like(primitive_state)
-    for spatial_axis in range(config.dimensionality):
-        momentum_index = _component_index(registered_variables.momentum_index, spatial_axis)
-        potential_difference = _shift(potential, -1, axis=spatial_axis) - _shift(potential, 1, axis=spatial_axis)
-        acceleration = -potential_difference / (2 * config.grid_spacing)
-        source = source.at[momentum_index].set(dt * density * acceleration)
-    return source
-
-
-def _gravity_source_presolve(
-    primitive_state: STATE_TYPE,
-    dt: Float[Array, ""],
-    gamma: Union[float, Float[Array, ""]],
-    config: SimulationConfig,
-    params: SimulationParams,
-    helper_data: HelperData,
-    registered_variables: RegisteredVariables,
-) -> STATE_TYPE:
-    """
-    The gravity source of one time step, built from the state before the
-    step.
-
-    Args:
-        primitive_state: The primitive state before the step.
-        dt: The time step.
-        gamma: The adiabatic index.
-        config: The simulation configuration.
-        params: The simulation parameters.
-        helper_data: The helper data.
-        registered_variables: The registered variables.
-
-    Returns:
-        The source, as a change of the conserved state over the step.
-    """
-    if is_barotropic(config):
-        return _barotropic_gravity_source(primitive_state, dt, config, params, registered_variables)
-    return _time_integrator_sources(
-        conserved_state_from_primitive(primitive_state, gamma, config, registered_variables),
-        None,
-        None,
-        dt,
-        gamma,
-        config,
-        params,
-        helper_data,
-        registered_variables,
-    )
-
-
-def _apply_gravity_source(
-    primitive_state: STATE_TYPE,
-    gravity_source: STATE_TYPE,
-    gamma: Union[float, Float[Array, ""]],
-    config: SimulationConfig,
-    params: SimulationParams,
-    registered_variables: RegisteredVariables,
-) -> STATE_TYPE:
-    """
-    Add the source of ``_gravity_source_presolve`` to the state after the step.
-
-    Args:
-        primitive_state: The primitive state after the step.
-        gravity_source: The source, as a change of the conserved state.
-        gamma: The adiabatic index.
-        config: The simulation configuration.
-        params: The simulation parameters.
-        registered_variables: The registered variables.
-
-    Returns:
-        The primitive state with the source added, ghost cells updated.
-    """
-    if is_barotropic(config):
-        # The source changes the momenta only, so each velocity takes its share over the density (the source of
-        # the density row is zero).
-        primitive_state = primitive_state + gravity_source / primitive_state[registered_variables.density_index]
-    else:
-        conserved_state = conserved_state_from_primitive(primitive_state, gamma, config, registered_variables)
-        conserved_state = conserved_state + gravity_source
-        primitive_state = primitive_state_from_conserved(conserved_state, gamma, config, registered_variables)
-    if config.boundary_handling == GHOST_CELLS:
-        primitive_state = _boundary_handler(primitive_state, config, registered_variables, params)
-    return primitive_state
-
-
-# -------------------------------------------------------------
-# ================ ↑ Coupling around the step ↑ ===============
 # -------------------------------------------------------------

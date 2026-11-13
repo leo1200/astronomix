@@ -99,8 +99,7 @@ def _apply_parabolic_and_source_limits(
 
     The parabolic limits are the usual explicit-diffusion bound
     ``dt <= C_CFL dx^2 / (2 d D_max)`` for the largest diffusivity ``D_max`` of
-    the grid. Resistivity is only reachable for 3D finite-difference MHD:
-    ``finalize_config`` rejects it for every other setup.
+    the grid. The finite-volume time step applies the same limits.
 
     Args:
         dt_cfl: The time step to tighten.
@@ -226,7 +225,8 @@ def _cfl_time_step_fd_polytropic(
     The CFL time step of a polytropic gas (``scheme = RIEMANN_FLUX``, MHD or
     hydrodynamics), ``C_CFL dx / sum_d lambda_d`` with the signal speed
     lambda_d = max(|v_d| + c_f,d) of the scheme, whose fast speed takes the
-    local sound speed of the law, a^2 = Gamma K rho^(Gamma - 1).
+    local sound speed of the law, a^2 = Gamma K rho^(Gamma - 1), tightened by
+    the parabolic limits of the active modules.
 
     Args:
         primitive_state: The primitive state array (MHD: with the interface fields behind the cell rows).
@@ -245,7 +245,10 @@ def _cfl_time_step_fd_polytropic(
         maximum_signal_speed(conserved_state, params, config, registered_variables, axis)
         for axis in range(config.dimensionality)
     ]
-    return jnp.minimum(C_CFL * grid_spacing / sum(signal_speeds), dt_max)
+    dt_cfl = jnp.minimum(C_CFL * grid_spacing / sum(signal_speeds), dt_max)
+    return _apply_parabolic_and_source_limits(
+        dt_cfl, primitive_state, grid_spacing, params.gamma, config, params, registered_variables, C_CFL
+    )
 
 
 # -------------------------------------------------------------

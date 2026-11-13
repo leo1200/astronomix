@@ -18,14 +18,14 @@ Functions
    :class: autosummary longtable
    :align: left
 
-   * - :py:obj:`fd_conduction_source <astronomix._modules._conduction._conduction.fd_conduction_source>`
-     - .. autodoc2-docstring:: astronomix._modules._conduction._conduction.fd_conduction_source
+   * - :py:obj:`conduction_source <astronomix._modules._conduction._conduction.conduction_source>`
+     - .. autodoc2-docstring:: astronomix._modules._conduction._conduction.conduction_source
           :summary:
 
 API
 ~~~
 
-.. py:function:: fd_conduction_source(primitive_state, params, config, registered_variables)
-   :canonical: astronomix._modules._conduction._conduction.fd_conduction_source
+.. py:function:: conduction_source(primitive_state, params, config, registered_variables)
+   :canonical: astronomix._modules._conduction._conduction.conduction_source
 
-   .. autodoc2-docstring:: astronomix._modules._conduction._conduction.fd_conduction_source
+   .. autodoc2-docstring:: astronomix._modules._conduction._conduction.conduction_source

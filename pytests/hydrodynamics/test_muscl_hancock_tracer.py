@@ -1,5 +1,6 @@
 """
-The split finite-volume scheme (MUSCL_HANCOCK) carries the wind density tracer with the gas.
+The split finite-volume scheme (MUSCL_HANCOCK) carries the wind density tracer with the gas, and so does the unsplit
+RK2_SSP scheme (on the native stage, which carries every row outside the gas as a density).
 
 A smooth compressive flow in a periodic 1D box starts with the tracer at three tenths of the gas density everywhere. The
 tracer is a density, so its concentration (tracer over gas density) is constant along the flow and has to stay at
@@ -30,7 +31,7 @@ import numpy as np
 
 # astronomix constants
 from astronomix import FINITE_VOLUME, PERIODIC_BOUNDARY
-from astronomix.option_classes.simulation_config import HLL, HLLC, MINMOD, MUSCL_HANCOCK, VAN_LEER
+from astronomix.option_classes.simulation_config import HLL, HLLC, MINMOD, MUSCL_HANCOCK, RK2_SSP, VAN_LEER
 
 # astronomix containers
 from astronomix import (
@@ -56,14 +57,14 @@ T_END = 0.2
 CFL = 0.4
 
 
-def _final_state(riemann_solver, limiter):
+def _final_state(riemann_solver, limiter, time_integrator=MUSCL_HANCOCK):
     """Final state of the compressive flow and the registered variables."""
     config = SimulationConfig(
         dimensionality=1,
         box_size=1.0,
         boundary_settings=BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY),
         solver_mode=FINITE_VOLUME,
-        solver_config=FVSolverConfig(time_integrator=MUSCL_HANCOCK, riemann_solver=riemann_solver, limiter=limiter),
+        solver_config=FVSolverConfig(time_integrator=time_integrator, riemann_solver=riemann_solver, limiter=limiter),
         # The tracer row without the wind source.
         wind_config=WindConfig(stellar_wind=False, trace_wind_density=True),
         mhd=False,
@@ -101,5 +102,17 @@ def test_uniform_concentration_stays_uniform():
         assert deviation < 1e-12
 
 
+def test_uniform_concentration_stays_uniform_under_rk2_ssp():
+    """The same with the unsplit scheme."""
+    final_state, registered_variables = _final_state(HLLC, VAN_LEER, time_integrator=RK2_SSP)
+    density = final_state[registered_variables.density_index]
+    tracer = final_state[registered_variables.wind_density_index]
+    deviation = np.max(np.abs(tracer / density - CONCENTRATION))
+    print(f"RK2_SSP: concentration off by {deviation:.3e}")
+    assert np.max(np.abs(density - 1.0)) > 0.2
+    assert deviation < 1e-12
+
+
 if __name__ == "__main__":
     test_uniform_concentration_stays_uniform()
+    test_uniform_concentration_stays_uniform_under_rk2_ssp()

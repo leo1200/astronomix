@@ -1114,6 +1114,36 @@ def _rounded_for_kernels(layers: int, config: SimulationConfig) -> int:
     return layers
 
 
+def _module_reach(config: SimulationConfig) -> int:
+    """
+    Cells to either side of a cell that the modules read between two boundary fills of the finite-volume
+    schemes and of the scheme with a Riemann flux: the explicit sources of a stage (``_explicit_sources.py``)
+    and the advection of the passive scalars.
+    """
+    reach = 0
+    diffusion = config.diffusion_config
+    if diffusion.thermal_conduction:
+        # The fourth-order flux: a fourth-order slope (2) interpolated onto the faces (2); the second-order
+        # forms difference the neighbours (1).
+        reach = 4 if diffusion.conduction_order == 4 else 1
+    if diffusion.viscosity or diffusion.resistivity:
+        # A sixth-order derivative (3) of sixth-order derivatives (3): the viscous stress, the curl of eta J on
+        # a cell-centred field and the divergence of the resistive Poynting flux.
+        reach = max(reach, 6)
+    gravity = config.gravity_config
+    if gravity.gravity and config.solver_mode == FINITE_VOLUME and config.solver_config.time_integrator != VL2:
+        # The sixth-order slope of the potential (3) of the SIMPLE_SOURCE coupling (VL2 couples gravity itself).
+        reach = max(reach, 3)
+    if gravity.gravity and gravity.self_gravity_version == FOURTH_ORDER_CONSERVATIVE:
+        # The sixth-order slope of the potential (3), averaged onto the faces (1).
+        reach = max(reach, 4)
+    if config.passive_scalar_config.num_scalars > 0:
+        # One SSPRK3 sub-step per step without a boundary fill inside: three right-hand sides with the WENO5
+        # reach 3. (A sub-cycled step would need 9 per sub-step.)
+        reach = max(reach, 9)
+    return reach
+
+
 def _required_ghost_cells(config: SimulationConfig) -> int:
     """
     The smallest number of ghost-cell layers with which every stencil read between two boundary fills sees
@@ -1122,8 +1152,9 @@ def _required_ghost_cells(config: SimulationConfig) -> int:
     """
     if config.solver_mode == FINITE_VOLUME:
         # Every stage ends with a boundary fill. The flux at a face reads the limited slopes of its two cells,
-        # and a slope reads both neighbours of its cell: 2 (first-order flux correction and GLM included).
-        return 2
+        # and a slope reads both neighbours of its cell: 2 (first-order flux correction and GLM included). The
+        # explicit sources of a stage read the stage's state, filled before the stage.
+        return max(2, _module_reach(config))
 
     solver = config.solver_config
     if solver.scheme == RIEMANN_FLUX:
@@ -1131,8 +1162,10 @@ def _required_ghost_cells(config: SimulationConfig) -> int:
         # side reads four layers: the guarded flux at a face reads the cells from three below to four above it,
         # the update of a cell therefore four cells to either side. In MHD each of those cells holds a field
         # rebuilt from the faces three below to two above it (seven layers); the constrained transport and the
-        # energy flux read six. MHD is 3D only, so its count is 7 rounded up for the kernels: 8.
-        return _rounded_for_kernels(7 if config.mhd else 4, config)
+        # energy flux read six, the resistive electromotive force (sixth-order difference of edge values 2.5,
+        # interpolation to the edge 1.5, sixth-order slope 3) seven. MHD is 3D only, so its count is 7 rounded
+        # up for the kernels: 8. The explicit sources are part of the right-hand side.
+        return _rounded_for_kernels(max(7 if config.mhd else 4, _module_reach(config)), config)
 
     # WENO_FLUX_SPLITTING. Both integrators fill the boundary before every right-hand side, so the count is
     # the reach of one right-hand side. Cells of the state it reads to either side of the cell it updates:
@@ -1400,21 +1433,12 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
                 "The first-order flux correction replaces fluxes by Lax-Friedrichs fluxes of the GLM form, which "
                 "have no counterpart of the induction source: switch first_order_flux_correction off."
             )
-        not_carried_by_the_sweep = (
-            ("gravity_config (self_gravity, external_potential)", config.gravity_config.gravity),
-            ("cooling_config.cooling", config.cooling_config.cooling),
-            ("diffusion_config.viscosity", config.diffusion_config.viscosity),
-            ("diffusion_config.resistivity", config.diffusion_config.resistivity),
-            ("diffusion_config.thermal_conduction", config.diffusion_config.thermal_conduction),
-            ("wind_config.stellar_wind", config.wind_config.stellar_wind),
-            ("wind_config.trace_wind_density", config.wind_config.trace_wind_density),
-        )
-        for option, is_set in not_carried_by_the_sweep:
-            if is_set:
-                raise ValueError(
-                    f"{option} is not implemented with divergence_control=INDUCTION_SOURCE (the split MHD "
-                    "scheme carries ideal MHD only)."
-                )
+        # The modules enter through the explicit sources around the sweeps; the MHD layout has no tracer row.
+        if config.wind_config.trace_wind_density:
+            raise ValueError(
+                "wind_config.trace_wind_density is not implemented with divergence_control=INDUCTION_SOURCE (the "
+                "MHD layout of the split scheme has no tracer row): switch it off."
+            )
         # A fully periodic box runs on the periodic-roll layout, which the kernels and a device mesh need; other
         # boxes keep their ghost cells.
         periodic_sides = BoundarySettings1D(left_boundary=PERIODIC_BOUNDARY, right_boundary=PERIODIC_BOUNDARY)
@@ -1431,18 +1455,6 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
             "of the preset BEATTIE_REFERENCE (time_integrator=MUSCL_HANCOCK, divergence_control=INDUCTION_SOURCE)."
         )
 
-    # The stage kernel of the unsplit RK2_SSP scheme evolves the fluid
-    # variables only.
-    if (
-        finite_volume
-        and config.solver_config.time_integrator == RK2_SSP
-        and config.wind_config.trace_wind_density
-    ):
-        raise ValueError(
-            "The RK2_SSP scheme does not evolve the stellar-wind tracer "
-            "(wind_config.trace_wind_density); use time_integrator=MUSCL_HANCOCK."
-        )
-
     if (
         finite_volume
         and config.gravity_config.gravity
@@ -1454,7 +1466,7 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
 
     # Athena++'s gravity coupling needs the per-stage Riemann mass fluxes of
     # the VL2 scheme; the other couplings are those of the finite-difference
-    # solver (``RK2_SSP`` and ``MUSCL_HANCOCK`` ignore the choice).
+    # solver.
     if (
         config.gravity_config.gravity
         and config.gravity_config.self_gravity_version == ATHENA_SECOND_ORDER
@@ -1463,6 +1475,19 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
         raise ValueError(
             "The ATHENA_SECOND_ORDER self-gravity coupling is only available "
             "with the VL2 finite-volume scheme (time_integrator=VL2)."
+        )
+    # RK2_SSP and MUSCL_HANCOCK take gravity from the explicit sources, added
+    # after a stage without its mass fluxes, which the conservative couplings
+    # read.
+    if (
+        finite_volume
+        and not uses_vl2
+        and config.gravity_config.gravity
+        and config.gravity_config.self_gravity_version != SIMPLE_SOURCE
+    ):
+        print("Setting the SIMPLE_SOURCE gravity coupling for the RK2_SSP and MUSCL_HANCOCK schemes.")
+        config = config._replace(
+            gravity_config=config.gravity_config._replace(self_gravity_version=SIMPLE_SOURCE)
         )
 
     constrained_transport = (
@@ -1613,10 +1638,14 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
                 "HLLC and HLLD are Riemann solvers of the ideal gas: use riemann_solver=HLL (or LAX_FRIEDRICHS) "
                 "with a barotropic equation of state (ISOTHERMAL, POLYTROPIC)."
             )
+    if config.equation_of_state != IDEAL_GAS:
+        # The stellar wind injects thermal energy (its tracer follows the wind).
         acts_on_the_energy_equation = (
             ("cooling_config.cooling", config.cooling_config.cooling),
             ("diffusion_config.thermal_conduction", config.diffusion_config.thermal_conduction),
             ("gravity_config.time_centred_energy_source", config.gravity_config.time_centred_energy_source),
+            ("wind_config.stellar_wind", config.wind_config.stellar_wind),
+            ("wind_config.trace_wind_density", config.wind_config.trace_wind_density),
         )
         for option, is_set in acts_on_the_energy_equation:
             if is_set:
@@ -1624,18 +1653,40 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
                     f"{option} acts on the energy equation, which a barotropic gas (ISOTHERMAL, POLYTROPIC) does "
                     "not have: switch it off, or use equation_of_state=IDEAL_GAS."
                 )
-        not_carried_yet = (
-            ("diffusion_config.viscosity", config.diffusion_config.viscosity),
-            ("wind_config.stellar_wind", config.wind_config.stellar_wind),
-            ("wind_config.trace_wind_density", config.wind_config.trace_wind_density),
+        snapshots = config.snapshot_settings
+        thermal_diagnostics = (
+            ("snapshot_settings.return_internal_energy", snapshots.return_internal_energy),
+            ("snapshot_settings.return_temperature_pdf", snapshots.return_temperature_pdf),
         )
-        for option, is_set in not_carried_yet:
+        for option, is_set in thermal_diagnostics:
             if is_set:
                 raise ValueError(
-                    f"{option} is not implemented for a barotropic gas (ISOTHERMAL, POLYTROPIC) in the "
-                    "finite-volume solver: use equation_of_state=IDEAL_GAS (an adiabatic index close to one "
-                    "emulates the isothermal gas)."
+                    f"{option} reads the pressure of an ideal gas, which a barotropic gas (ISOTHERMAL, "
+                    "POLYTROPIC) does not carry: switch it off, or use equation_of_state=IDEAL_GAS."
                 )
+
+    # The physics modules (``_modules/``) in every scheme: what each needs.
+    if config.diffusion_config.resistivity and not config.mhd:
+        raise ValueError("diffusion_config.resistivity acts on the magnetic field: use mhd=True.")
+    if config.geometry != CARTESIAN:
+        # The stencils of the diffusive sources and of the scalar advection are Cartesian.
+        cartesian_only = (
+            ("diffusion_config.viscosity", config.diffusion_config.viscosity),
+            ("diffusion_config.resistivity", config.diffusion_config.resistivity),
+            ("diffusion_config.thermal_conduction", config.diffusion_config.thermal_conduction),
+            ("passive_scalar_config.num_scalars > 0", config.passive_scalar_config.num_scalars > 0),
+        )
+        for option, is_set in cartesian_only:
+            if is_set:
+                raise ValueError(f"{option} is implemented for geometry=CARTESIAN only: switch it off.")
+    if config.wind_config.stellar_wind and config.dimensionality != 3:
+        # The 3D wind is a source of the stages of every scheme; the 1D wind is the injection of the spherical
+        # grid, which the split finite-volume scheme carries.
+        if not (config.dimensionality == 1 and config.geometry == SPHERICAL and finite_volume):
+            raise ValueError(
+                "wind_config.stellar_wind is implemented in 3D (every scheme) and on the spherical 1D grid "
+                "(solver_mode=FINITE_VOLUME, geometry=SPHERICAL): use one of them."
+            )
 
     # A retried step needs a step size to reduce, and its data-dependent loop
     # has no reverse-mode derivative.
@@ -1707,15 +1758,6 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
         if config.solver_config.ct_upwind_dissipation and not config.mhd:
             raise ValueError("ct_upwind_dissipation requires finite-difference MHD")
 
-        if config.diffusion_config.resistivity:
-            if not config.mhd or config.dimensionality != 3:
-                raise ValueError("resistivity requires 3D finite-difference MHD")
-            if config.equation_of_state != ISOTHERMAL:
-                raise ValueError(
-                    "resistivity is implemented for the ISOTHERMAL EOS only: the "
-                    "ohmic heating eta J^2 is not added to the energy equation"
-                )
-
         # The scheme and what goes with it.
         fd_config = config.solver_config
         if fd_config.scheme == WENO_FLUX_SPLITTING:
@@ -1751,17 +1793,7 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
                 if getattr(fd_config, name) != FDSolverConfig._field_defaults[name]:
                     raise ValueError(f"FDSolverConfig.{name} is read with scheme=WENO_FLUX_SPLITTING only.")
             # What has not been checked with the scheme.
-            not_checked = {
-                "gravity": config.gravity_config.self_gravity or config.gravity_config.external_potential,
-                "viscosity, resistivity, thermal conduction": config.diffusion_config.viscosity
-                or config.diffusion_config.resistivity
-                or config.diffusion_config.thermal_conduction,
-                "passive scalars": config.passive_scalar_config.num_scalars > 0,
-                "stellar winds": config.wind_config.stellar_wind,
-                "cooling": config.cooling_config.cooling,
-                "the per-step floor and the step retry": config.positivity_config.step_retry
-                or config.positivity_config.per_step_mode != POSITIVITY_NONE,
-            }
+            not_checked = {}
             if config.boundary_settings is not None:
                 axes = config.boundary_settings
                 if config.dimensionality == 1:
@@ -1864,14 +1896,6 @@ def limiter_to_string(limiter: int) -> str:
         return "Double Minmod"
     elif limiter == VAN_LEER:
         return "Van Leer"
-
-
-def solver_mode_to_string(solver_mode: int) -> str:
-    """Return the short label (``"FV"`` / ``"FD"``) of a solver-mode constant."""
-    if solver_mode == FINITE_VOLUME:
-        return "FV"
-    elif solver_mode == FINITE_DIFFERENCE:
-        return "FD"
 
 
 def config_to_string(config: SimulationConfig) -> str:
