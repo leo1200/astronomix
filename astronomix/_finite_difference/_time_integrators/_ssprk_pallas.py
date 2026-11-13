@@ -34,6 +34,8 @@ from astronomix._pallas_helpers import (
     _as_3tuple_block_shape,
     _pallas_call_sharded,
     _pallas_compiler_params,
+    _shard_cells,
+    _shifted_index,
     diffable_pallas_call,
     diffable_pallas_call_n,
     pl,
@@ -209,6 +211,7 @@ def _hydro_flux_div_axis_pallas(
                 state_inputs=(flux_in,),
                 halo=halo,
                 block_shape=block_shape[:ndim],
+                local_output=True,
             )
 
         def native_branch(flux_in, dt_over_dx_in):
@@ -245,6 +248,7 @@ def _hydro_flux_div_axis_pallas(
             # only the flux is exchanged.
             input_halos=(zero_halo, halo),
             block_shape=block_shape[:ndim],
+            local_output=True,
         )
 
     def native_branch_accumulate(flux_in, dt_over_dx_in, rhs_in, scale_in_array):
@@ -307,6 +311,7 @@ def _hydro_flux_div_axis_with_energy_flux_pallas(
                 # The accumulator is only read and written at the cell itself.
                 input_halos=(zero_halo, halo, halo),
                 block_shape=block_shape[:ndim],
+                local_output=True,
             )
         return _pallas_call_sharded(
             lambda flux_local, state_local: _hydro_flux_div_axis_pallas_local(
@@ -322,6 +327,7 @@ def _hydro_flux_div_axis_with_energy_flux_pallas(
             state_inputs=(flux_in, state_in),
             halo=halo,
             block_shape=block_shape[:ndim],
+            local_output=True,
         )
 
     def native_branch(flux_in, dt_over_dx_in, state_in, *accumulation):
@@ -472,15 +478,21 @@ def _hydro_flux_div_axis_pallas_local(
     ndim = int(config.dimensionality)
     num_vars = int(interface_flux.shape[0])
     spatial_shape = tuple(int(extent) for extent in interface_flux.shape[1:])
+    # On the shard of a device mesh the blocks cover the shard's cells, which
+    # the padded flux (and state) hold after their halo; the accumulator and
+    # the output have the shard's shape.
+    first_cells, written_extents = _shard_cells(spatial_shape)
+    first_x, first_y, first_z = first_cells + (0,) * (3 - ndim)
     nx = spatial_shape[0]
     ny = spatial_shape[1] if ndim >= 2 else 1
     nz = spatial_shape[2] if ndim == 3 else 1
     bx, by, bz = _as_3tuple_block_shape(
         config.backend_config.pallas_block_shape,
         ndim,
-        spatial_shape=spatial_shape,
+        spatial_shape=written_extents,
     )
-    grid = (nx // bx, ny // by, nz // bz)
+    written_x, written_y, written_z = written_extents + (1,) * (3 - ndim)
+    grid = (written_x // bx, written_y // by, written_z // bz)
 
     accumulate = rhs_accumulator is not None
     corrected = magnetic_state is not None
@@ -520,14 +532,14 @@ def _hydro_flux_div_axis_pallas_local(
         bk = pl.program_id(2)
 
         if ndim == 1:
-            ii = (bi * bx + jnp.arange(bx)) % nx
+            ii = _shifted_index(bi * bx + jnp.arange(bx), first_x) % nx
         elif ndim == 2:
-            ii = (bi * bx + jnp.arange(bx)[:, None]) % nx
-            jj = (bj * by + jnp.arange(by)[None, :]) % ny
+            ii = _shifted_index(bi * bx + jnp.arange(bx)[:, None], first_x) % nx
+            jj = _shifted_index(bj * by + jnp.arange(by)[None, :], first_y) % ny
         else:
-            ii = (bi * bx + jnp.arange(bx)[:, None, None]) % nx
-            jj = (bj * by + jnp.arange(by)[None, :, None]) % ny
-            kk = (bk * bz + jnp.arange(bz)[None, None, :]) % nz
+            ii = _shifted_index(bi * bx + jnp.arange(bx)[:, None, None], first_x) % nx
+            jj = _shifted_index(bj * by + jnp.arange(by)[None, :, None], first_y) % ny
+            kk = _shifted_index(bk * bz + jnp.arange(bz)[None, None, :], first_z) % nz
 
         dt_over_dx_value = dt_over_dx_ref[()]
 
@@ -601,7 +613,7 @@ def _hydro_flux_div_axis_pallas_local(
 
     return pl.pallas_call(
         kernel,
-        out_shape=jax.ShapeDtypeStruct(interface_flux.shape, interface_flux.dtype),
+        out_shape=jax.ShapeDtypeStruct((num_vars,) + written_extents, interface_flux.dtype),
         grid=grid,
         in_specs=in_specs,
         out_specs=out_spec,

@@ -71,8 +71,10 @@ from astronomix._pallas_helpers import (
     _current_pallas_mesh,
     _pallas_call_sharded,
     _pallas_compiler_params,
+    _shard_halos,
     diffable_pallas_call_n,
     pl,
+    pltriton,
 )
 
 #: The number of cells a sweep reads on each side of a cell along its axis.
@@ -195,9 +197,11 @@ def _block_kernel(block_rows, arrays, scalars, config: SimulationConfig, name: s
     """
     Run one function per block of cells as a kernel.
 
-    All shapes are read from the first array, so the same build serves the whole grid and the padded shard of
-    a device mesh. Indices along an axis wrap, which is the periodic boundary on one device. With ghost cells
-    the blocks cover the cells inside them and the output has their shape.
+    All shapes are read from the arrays, so the same build serves the whole grid and a shard of a device mesh,
+    where the blocks cover the cells of the shard. Indices along an axis wrap, which is the periodic boundary on
+    one device; on a shard a read across its edge along a split axis takes the cell from the halo received from
+    the neighbouring shard (``_shard_halos``; masked loads select shard or halo). With ghost cells the blocks
+    cover the cells inside them and the output has their shape.
 
     Args:
         block_rows: The function of a block, ``block_rows(read, *scalar_values) -> {row: tile}``, where
@@ -223,6 +227,15 @@ def _block_kernel(block_rows, arrays, scalars, config: SimulationConfig, name: s
     grid = tuple(extent // block for extent, block in zip(updated_extents, block_extents, strict=True))
     in_place = output_rows is None
     output_shape = arrays[0].shape if in_place else (output_rows,) + updated_extents
+    # The halos of a shard: the position of each (left, right) pair among the halo arrays, by (array, axis).
+    shard_halos = _shard_halos() or ()
+    halo_arrays, halo_positions = [], {}
+    for position, axis_halos in enumerate(shard_halos[: len(arrays)]):
+        for array_axis, pair in enumerate(axis_halos):
+            if pair is not None:
+                halo_positions[(position, array_axis)] = len(halo_arrays)
+                halo_arrays.extend(pair)
+    inputs = tuple(arrays) + tuple(halo_arrays)
 
     def whole_array_spec(array):
         return pl.BlockSpec(array.shape, lambda *program_ids: (0,) * array.ndim)
@@ -233,8 +246,8 @@ def _block_kernel(block_rows, arrays, scalars, config: SimulationConfig, name: s
     )
 
     def kernel(*references):
-        array_references = references[: len(arrays)]
-        scalar_values = [reference[()] for reference in references[len(arrays) : -1]]
+        input_references = references[: len(inputs)]
+        scalar_values = [reference[()] for reference in references[len(inputs) : len(inputs) + len(scalars)]]
         output_reference = references[-1]
         cell_indices = []
         for array_axis in range(dimensionality):
@@ -243,11 +256,27 @@ def _block_kernel(block_rows, arrays, scalars, config: SimulationConfig, name: s
             local = jnp.arange(block_extents[array_axis]).reshape(shape)
             cell_indices.append(first_cell + pl.program_id(array_axis) * block_extents[array_axis] + local)
 
+        def load(reference, row, array_axis, index, mask):
+            indices = list(cell_indices)
+            indices[array_axis] = index
+            return pltriton.load(reference.at[(row, *indices)], mask=jnp.broadcast_to(mask, block_extents), other=0)
+
         def read(position, row, array_axis=0, offset=0):
             indices = list(cell_indices)
-            if offset != 0:
-                indices[array_axis] = (indices[array_axis] + offset) % spatial_shape[array_axis]
-            return array_references[position][(row, *indices)]
+            halo = halo_positions.get((position, array_axis))
+            if halo is None or offset == 0:
+                if offset != 0:
+                    indices[array_axis] = (indices[array_axis] + offset) % spatial_shape[array_axis]
+                return input_references[position][(row, *indices)]
+            left, right = input_references[len(arrays) + halo : len(arrays) + halo + 2]
+            extent, width = spatial_shape[array_axis], halo_arrays[halo].shape[array_axis + 1]
+            index = indices[array_axis] + offset
+            from_left, from_right = index < 0, index >= extent
+            inside = ~(from_left | from_right)
+            shard_value = load(input_references[position], row, array_axis, jnp.clip(index, 0, extent - 1), inside)
+            left_value = load(left, row, array_axis, jnp.clip(index + width, 0, width - 1), from_left)
+            right_value = load(right, row, array_axis, jnp.clip(index - extent, 0, width - 1), from_right)
+            return jnp.where(from_left, left_value, jnp.where(from_right, right_value, shard_value))
 
         for row, tile in block_rows(read, *scalar_values).items():
             output_reference[(row,) + (slice(None),) * dimensionality] = tile
@@ -260,12 +289,12 @@ def _block_kernel(block_rows, arrays, scalars, config: SimulationConfig, name: s
         kernel,
         out_shape=jax.ShapeDtypeStruct(output_shape, dtype),
         grid=grid,
-        in_specs=[whole_array_spec(array) for array in arrays] + [scalar_spec] * len(scalars),
+        in_specs=[whole_array_spec(array) for array in inputs] + [scalar_spec] * len(scalars),
         out_specs=output_spec,
         interpret=config.backend_config.pallas_interpret,
         name=name,
         **keyword_arguments,
-    )(*arrays, *(jnp.asarray(scalar, dtype=dtype) for scalar in scalars))
+    )(*inputs, *(jnp.asarray(scalar, dtype=dtype) for scalar in scalars))
 
 
 def _central_difference_at(read, position: int, row: int, array_axis: int):
@@ -459,7 +488,9 @@ def _reference_sweep_pallas(
         def local_build(local_state):
             return _block_kernel(block_rows, (local_state,), scalars, config, f"reference_sweep_{axis}", num_vars)
 
-        updated = _pallas_call_sharded(local_build, state_inputs=(state,), halo=halo, block_shape=block_extents)
+        updated = _pallas_call_sharded(
+            local_build, state_inputs=(state,), halo=halo, block_shape=block_extents, separate_halos=True
+        )
         return state.at[updated_cells].set(updated) if ghost_cells else updated
 
     def native_branch(state, time_step, gamma_value, simulation_params):
@@ -512,7 +543,7 @@ def _parabolic_cleaning_pallas(
             return _block_kernel(diffusion_rows, arrays, (step_diffusivity,), config, "reference_diffusion")
 
         divergence = _pallas_call_sharded(
-            divergence_build, state_inputs=(state,), halo=one_cell, block_shape=block_extents
+            divergence_build, state_inputs=(state,), halo=one_cell, block_shape=block_extents, separate_halos=True
         )
         return _pallas_call_sharded(
             diffusion_build,
@@ -520,6 +551,7 @@ def _parabolic_cleaning_pallas(
             halo=one_cell,
             block_shape=block_extents,
             input_halos=(no_cell, one_cell),
+            separate_halos=True,
         )
 
     def native_branch(state, speed, time_step):
@@ -562,7 +594,11 @@ def _maximum_hll5r_speed_pallas(
             return _block_kernel(block_rows, (local_state,), scalars, config, "reference_signal_speed", 1)
 
         signal_speeds = _pallas_call_sharded(
-            local_build, state_inputs=(state,), halo=(1,) * dimensionality, block_shape=block_extents
+            local_build,
+            state_inputs=(state,),
+            halo=(1,) * dimensionality,
+            block_shape=block_extents,
+            separate_halos=True,
         )
         return jnp.max(signal_speeds)
 

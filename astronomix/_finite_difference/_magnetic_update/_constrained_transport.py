@@ -346,8 +346,7 @@ def update_cell_center_fields(
 
     The Pallas implementation in ``_constrained_transport_pallas`` is
     used transparently when the Pallas backend is active and the
-    predicate applies (3D ideal-gas MHD); it holds the pressure, so
-    ``scheme = RIEMANN_FLUX`` takes the array form.
+    predicate applies (3D ideal-gas MHD), with either energy update.
 
     Args:
         conserved_state: The conserved MHD state.
@@ -361,8 +360,7 @@ def update_cell_center_fields(
     Returns:
         The conserved state with updated cell-centered fields (and energy).
     """
-    holds_pressure = config.solver_config.scheme != RIEMANN_FLUX
-    if holds_pressure and _ct_update_cell_center_fields_pallas_supported(conserved_state, config):
+    if _ct_update_cell_center_fields_pallas_supported(conserved_state, config):
         return _ct_update_cell_center_fields_pallas(
             conserved_state,
             bx_interface,
@@ -370,6 +368,7 @@ def update_cell_center_fields(
             bz_interface,
             config,
             registered_variables,
+            params,
         )
 
     BX = registered_variables.magnetic_index.x

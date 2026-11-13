@@ -46,7 +46,7 @@ from astronomix.option_classes.simulation_params import SimulationParams
 from astronomix.variable_registry.registered_variables import RegisteredVariables
 
 # astronomix functions
-from astronomix._pallas_helpers import _pallas_call_sharded, pl
+from astronomix._pallas_helpers import _pallas_call_sharded, _shard_cells, pl
 from astronomix._finite_difference._interface_fluxes._riemann_flux_pallas import _riemann_flux_pallas_supported
 from astronomix._finite_difference._magnetic_update._constrained_transport_pallas import (
     _block_cell_indices,
@@ -253,6 +253,7 @@ def _edge_emfs_pallas(
         other_args=(jnp.asarray(params.minimum_density, dtype=dtype),),
         halo=(_HALO,) * 3,
         block_shape=block_shape,
+        local_output=True,
     )
 
     def build_emfs(fields_local, auxiliary_local, relative_epsilon, epsilon_floor):
@@ -267,6 +268,7 @@ def _edge_emfs_pallas(
         ),
         halo=(_EMF_HALO,) * 3,
         block_shape=block_shape,
+        local_output=True,
     )
 
 
@@ -294,6 +296,7 @@ def _edge_emf_curl_pallas(emfs, dt_over_dx, config: SimulationConfig):
         other_args=(jnp.asarray(dt_over_dx, dtype=emfs.dtype),),
         halo=(_HALO,) * 3,
         block_shape=block_shape,
+        local_output=True,
     )
 
 
@@ -363,7 +366,7 @@ def _cell_velocity_and_cold_speed_pallas_local(
         field_squared = field[0] * field[0] + field[1] * field[1] + field[2] * field[2]
         out_ref[_COLD_SPEED_CHANNEL, ...] = jnp.sqrt(field_squared * inverse_density(0, 0))
 
-    out_shape = jax.ShapeDtypeStruct((_NUM_CHANNELS,) + tuple(spatial_shape), state.dtype)
+    out_shape = jax.ShapeDtypeStruct((_NUM_CHANNELS,) + _shard_cells(spatial_shape)[1], state.dtype)
     return pl.pallas_call(
         kernel,
         out_shape=out_shape,
@@ -435,7 +438,7 @@ def _edge_emfs_pallas_local(
         out_ref[1, ...] = transport_flux(1, 2) - transport_flux(2, 1)
         out_ref[2, ...] = transport_flux(2, 0) - transport_flux(0, 2)
 
-    out_shape = jax.ShapeDtypeStruct((3,) + tuple(spatial_shape), interface_fields.dtype)
+    out_shape = jax.ShapeDtypeStruct((3,) + _shard_cells(spatial_shape)[1], interface_fields.dtype)
     return pl.pallas_call(
         kernel,
         out_shape=out_shape,

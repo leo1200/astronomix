@@ -34,7 +34,7 @@ import jax.numpy as jnp
 from astronomix.option_classes.simulation_config import SimulationConfig
 
 # astronomix functions
-from astronomix._pallas_helpers import _pallas_call_sharded, pl
+from astronomix._pallas_helpers import _pallas_call_sharded, _shard_cells, pl
 from astronomix._finite_difference._magnetic_update._constrained_transport_pallas import (
     _block_cell_indices,
     _channel_reader,
@@ -94,6 +94,7 @@ def _ct_energy_flux_rhs_pallas(conserved_state, emfs, dt_over_dx, config: Simula
         halo=(_EMF_HALO,) * 3,
         input_halos=((_FIELD_HALO,) * 3, (_EMF_HALO,) * 3),
         block_shape=block_shape,
+        local_output=True,
     )
 
 
@@ -112,6 +113,7 @@ def _ct_energy_flux_rhs_pallas_local(state, emfs, dt_over_dx, *, config: Simulat
         The ``(1, nx, ny, nz)`` energy increment.
     """
     spatial_shape, block_shape, grid = _ct_block_and_grid(state.shape[1:], config)
+    emf_shape = tuple(int(extent) for extent in emfs.shape[1:])
 
     state_spec = pl.BlockSpec(state.shape, lambda bi, bj, bk: (0, 0, 0, 0))
     emf_spec = pl.BlockSpec(emfs.shape, lambda bi, bj, bk: (0, 0, 0, 0))
@@ -120,8 +122,10 @@ def _ct_energy_flux_rhs_pallas_local(state, emfs, dt_over_dx, *, config: Simulat
 
     def kernel(state_ref, emf_ref, dt_over_dx_ref, out_ref):
         ii, jj, kk = _block_cell_indices(block_shape, spatial_shape)
+        same_cells = emf_shape == tuple(spatial_shape)
+        ei, ej, ek = (ii, jj, kk) if same_cells else _block_cell_indices(block_shape, emf_shape)
         emf_readers = {
-            component: _channel_reader(emf_ref, _EMF_CHANNEL[component], ii, jj, kk, spatial_shape)
+            component: _channel_reader(emf_ref, _EMF_CHANNEL[component], ei, ej, ek, emf_shape)
             for component in range(3)
         }
         field_readers = {
@@ -181,7 +185,7 @@ def _ct_energy_flux_rhs_pallas_local(state, emfs, dt_over_dx, *, config: Simulat
             increment = increment - time_step_over_spacing * (energy_flux(axis, 0) - energy_flux(axis, -1))
         out_ref[0, ...] = increment
 
-    out_shape = jax.ShapeDtypeStruct((1,) + tuple(spatial_shape), emfs.dtype)
+    out_shape = jax.ShapeDtypeStruct((1,) + _shard_cells(spatial_shape)[1], emfs.dtype)
     return pl.pallas_call(
         kernel,
         out_shape=out_shape,

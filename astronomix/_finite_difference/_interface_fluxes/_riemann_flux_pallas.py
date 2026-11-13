@@ -60,6 +60,7 @@ from astronomix._pallas_helpers import (
     _backend_is_pallas,
     _pallas_call_sharded,
     _pallas_compiler_params,
+    _shard_cells,
     pl,
 )
 from astronomix._finite_difference._interface_fluxes._weno_pallas import (
@@ -1039,7 +1040,7 @@ class _Tiles(NamedTuple):
 
 
 def _tiles(conserved_state, config: SimulationConfig, registered_variables, axis: int) -> _Tiles:
-    spatial_shape = tuple(int(x) for x in conserved_state.shape[1:])
+    _, spatial_shape = _shard_cells(conserved_state.shape[1:])
     block = _as_3tuple_block_shape(
         config.backend_config.pallas_block_shape, 3, spatial_shape=spatial_shape
     )
@@ -1056,7 +1057,8 @@ def _tile_reader(tiles: _Tiles, axis: int):
     """
     ``read(ref, row, offset)``: the values of one row of an input at the
     cells (faces) of this block shifted by ``offset`` along the sweep axis,
-    periodic in the array.
+    periodic in the array. On the shard of a device mesh an input padded by
+    a halo holds the cells of the block after it (``_shard_cells``).
     """
     nx, ny, nz = tiles.spatial_shape
     bx_, by_, bz_ = tiles.block
@@ -1065,6 +1067,14 @@ def _tile_reader(tiles: _Tiles, axis: int):
     kk = (pl.program_id(2) * bz_ + jnp.arange(bz_)[None, None, :]) % nz
 
     def read(ref, row, offset):
+        extents = ref.shape[1:]
+        if extents != tiles.spatial_shape:
+            indices = [
+                index + (extent - cells) // 2 for index, extent, cells in zip((ii, jj, kk), extents, (nx, ny, nz))
+            ]
+            if offset != 0:
+                indices[axis] = (indices[axis] + offset) % extents[axis]
+            return ref[(row, *indices)]
         if offset == 0:
             return ref[row, ii, jj, kk]
         if axis == 0:
@@ -1237,7 +1247,7 @@ def _guard_pallas_local(
     kwargs = {} if compiler_params is None else {"compiler_params": compiler_params}
     return pl.pallas_call(
         kernel,
-        out_shape=jax.ShapeDtypeStruct(conserved_state.shape, conserved_state.dtype),
+        out_shape=jax.ShapeDtypeStruct((tiles.num_vars,) + tiles.spatial_shape, conserved_state.dtype),
         grid=tiles.grid,
         in_specs=[_whole_array_spec(conserved_state), _whole_array_spec(flux_high)]
         + [scalar_spec] * len(scalars),
@@ -1334,6 +1344,7 @@ def _interface_flux_pallas(
         other_args=scalars,
         halo=halo,
         block_shape=block_shape,
+        local_output=True,
     )
 
     def build_guard(state_local, flux_local, *guard_scalars):
@@ -1353,4 +1364,5 @@ def _interface_flux_pallas(
         halo=halo,
         block_shape=block_shape,
         input_halos=(halo, flux_halo),
+        local_output=True,
     )

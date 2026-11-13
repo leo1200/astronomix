@@ -74,6 +74,8 @@ from astronomix._pallas_helpers import (
     _current_pallas_mesh,
     _pallas_call_sharded,
     _pallas_compiler_params,
+    _shard_cells,
+    _shifted_index,
     diffable_pallas_call_n,
     pl,
 )
@@ -206,11 +208,19 @@ def _fv_stage_pallas_local(
     num_vars = int(stage_primitive_state.shape[0])
     dtype = stage_primitive_state.dtype
     spatial_shape = tuple(int(extent) for extent in stage_primitive_state.shape[1:])
-    extents_3d = spatial_shape + (1,) * (3 - ndim)
     ghost_cells = config.boundary_handling == GHOST_CELLS
     cell_offset = config.num_ghost_cells if ghost_cells else 0
-    block_extents = _fv_stage_block_shape(stage_primitive_state, config)
-    interior_extents = _interior_spatial_shape(stage_primitive_state, config)
+    # The cells the kernel updates: the interior with ghost cells, otherwise the
+    # whole array or, on the shard of a device mesh, the shard's cells, which
+    # an input padded by a halo holds after it (``_shard_cells``).
+    if ghost_cells:
+        interior_extents = _interior_spatial_shape(stage_primitive_state, config)
+    else:
+        interior_extents = _shard_cells(spatial_shape)[1]
+    output_extents = spatial_shape if ghost_cells else interior_extents
+    block_extents = _as_3tuple_block_shape(
+        config.backend_config.pallas_block_shape, ndim, spatial_shape=interior_extents
+    )
     grid = tuple(interior_extents[axis] // block_extents[axis] for axis in range(ndim))
 
     frame_indices_per_axis = [
@@ -300,11 +310,15 @@ def _fv_stage_pallas_local(
 
         def load(ref, variable_index, axis, offset):
             """Value of ``variable_index`` at the cell shifted by ``offset`` along ``axis``."""
-            indices = list(cell_indices)
+            extents = ref.shape[1:]
+            indices = [
+                _shifted_index(index, (extent - cells) // 2)
+                for index, extent, cells in zip(cell_indices, extents, output_extents, strict=True)
+            ]
             if offset != 0:
                 shifted = indices[axis] + offset
                 if not ghost_cells:
-                    shifted = shifted % extents_3d[axis]
+                    shifted = shifted % extents[axis]
                 indices[axis] = shifted
             return ref[(variable_index, *indices)]
 
@@ -518,10 +532,10 @@ def _fv_stage_pallas_local(
     ]
     in_specs += [scalar_spec] * len(scalar_arguments)
 
-    out_shape = [jax.ShapeDtypeStruct(stage_primitive_state.shape, dtype)]
+    out_shape = [jax.ShapeDtypeStruct((num_vars,) + output_extents, dtype)]
     out_specs = [cell_block_spec(num_vars)]
     if report_failures:
-        out_shape.append(jax.ShapeDtypeStruct((1,) + spatial_shape, dtype))
+        out_shape.append(jax.ShapeDtypeStruct((1,) + output_extents, dtype))
         out_specs.append(cell_block_spec(1))
 
     input_output_aliases = {}
@@ -683,6 +697,7 @@ def _fv_stage_pallas_once(
             block_shape=block_shape[:ndim],
             num_state_outputs=2 if report_failures else 1,
             input_halos=tuple(input_halos),
+            local_output=True,
         )
 
     def native_branch(
