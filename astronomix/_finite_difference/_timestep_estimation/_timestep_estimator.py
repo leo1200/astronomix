@@ -27,9 +27,9 @@ import jax.numpy as jnp
 from astronomix.option_classes.simulation_config import (
     DYNAMIC_VISCOSITY,
     IDEAL_GAS,
-    ISOTHERMAL,
     KINEMATIC_VISCOSITY,
     POLYTROPIC,
+    RIEMANN_FLUX,
     STATE_TYPE,
 )
 from astronomix._modules._cooling.cooling_options import EXPLICIT_COOLING
@@ -45,6 +45,10 @@ from astronomix._fluid_equations._eigen_hydro import _eigen_all_lambdas_hydro
 from astronomix._fluid_equations._eigen_hydro_iso import _eigen_all_lambdas_hydro_iso
 from astronomix._fluid_equations._eigen_mhd import _eigen_all_lambdas
 from astronomix._fluid_equations._eigen_mhd_iso import _eigen_all_lambdas_iso
+from astronomix._fluid_equations._equation_of_state import (
+    barotropic_law,
+    law_sound_speed,
+)
 from astronomix._fluid_equations._equations import conserved_state_from_primitive
 from astronomix._fluid_equations._equations_mhd import (
     conserved_state_from_primitive_isothermal,
@@ -300,7 +304,9 @@ def _cfl_time_step_fd_mhd_fast(
     Mirrors the hydro fast path: the fast magnetosonic speed along each axis,
     ``c_fast_d^2 = 0.5 (b^2/rho + c_s^2 + sqrt((b^2/rho + c_s^2)^2 - 4 (B_d^2/rho) c_s^2))``,
     is computed pointwise and the signal speed is ``max(|v_d| + c_fast_d)`` per
-    axis, so no full-state characteristic-eigenvalue array is materialised.
+    axis, so no full-state characteristic-eigenvalue array is materialised. A
+    barotropic gas takes the sound speed of its law (local for a polytropic gas,
+    at the density floored by ``minimum_density``).
 
     Args:
         primitive_state: The primitive state array.
@@ -336,10 +342,13 @@ def _cfl_time_step_fd_mhd_fast(
             pressure = jnp.maximum(pressure, params.minimum_pressure)
         sound_speed_squared = jnp.maximum(gamma * pressure / density, 1e-12)
     else:
-        # The isothermal equation of state.
+        # A barotropic gas (isothermal or polytropic).
         if config.positivity_config.clamp_in_estimates:
             density = jnp.maximum(density, params.minimum_density)
-        sound_speed_squared = jnp.full_like(density, params.isothermal_sound_speed ** 2)
+        _, sound_speed_squared = law_sound_speed(
+            barotropic_law(params, config), jnp.maximum(density, params.minimum_density)
+        )
+        sound_speed_squared = jnp.full_like(density, sound_speed_squared)
 
     magnetic_field_squared = (
         magnetic_field_x * magnetic_field_x
@@ -411,7 +420,9 @@ def _cfl_time_step_fd(
     absolute eigenvalue is taken as the local signal speed; the advective limit
     is then combined with the optional parabolic and explicit-cooling limits.
     When the Pallas fast path is available, the equivalent lower-storage
-    estimator is used instead.
+    estimator is used instead. A barotropic gas takes the sound speed of its
+    law; the polytropic gas of ``scheme = RIEMANN_FLUX`` takes the signal speed
+    of that scheme (``_cfl_time_step_fd_polytropic``).
 
     Args:
         primitive_state: The primitive state array.
@@ -426,7 +437,7 @@ def _cfl_time_step_fd(
     Returns:
         The CFL-limited time step.
     """
-    if config.equation_of_state == POLYTROPIC:
+    if config.equation_of_state == POLYTROPIC and config.solver_config.scheme == RIEMANN_FLUX:
         return _cfl_time_step_fd_polytropic(
             primitive_state, grid_spacing, dt_max, config, params, registered_variables, C_CFL
         )
@@ -446,7 +457,7 @@ def _cfl_time_step_fd(
         conserved_state = conserved_state_from_primitive_mhd(
             primitive_state, gamma, registered_variables
         )
-    elif config.equation_of_state == ISOTHERMAL:
+    else:
         conserved_state = conserved_state_from_primitive_isothermal(
             primitive_state, config, registered_variables
         )
@@ -460,11 +471,11 @@ def _cfl_time_step_fd(
                 gamma,
                 registered_variables,
             )
-        elif config.equation_of_state == ISOTHERMAL:
+        else:
             eigenvalues = _eigen_all_lambdas_iso(
                 swept_state,
                 params.minimum_density,
-                params.isothermal_sound_speed,
+                barotropic_law(params, config),
                 registered_variables,
             )
         return jnp.max(jnp.abs(eigenvalues))
@@ -575,7 +586,7 @@ def _cfl_time_step_fd_hydro_native(
         conserved_state = conserved_state_from_primitive(
             primitive_state, gamma, config, registered_variables
         )
-    elif config.equation_of_state == ISOTHERMAL:
+    else:
         conserved_state = conserved_state_from_primitive_isothermal(
             primitive_state, config, registered_variables
         )
@@ -590,11 +601,11 @@ def _cfl_time_step_fd_hydro_native(
                 config,
                 registered_variables,
             )
-        elif config.equation_of_state == ISOTHERMAL:
+        else:
             eigenvalues = _eigen_all_lambdas_hydro_iso(
                 swept_state,
                 params.minimum_density,
-                params.isothermal_sound_speed,
+                barotropic_law(params, config),
                 config,
                 registered_variables,
             )
@@ -716,8 +727,11 @@ def _cfl_time_step_fd_hydro_fast(
             density = jnp.maximum(density, params.minimum_density)
             pressure = jnp.maximum(pressure, params.minimum_pressure)
         sound_speed = jnp.sqrt(jnp.maximum(gamma * pressure / density, 1e-12))
-    elif config.equation_of_state == ISOTHERMAL:
-        sound_speed = params.isothermal_sound_speed
+    else:
+        # A barotropic gas: the sound speed of its law at the floored density.
+        sound_speed, _ = law_sound_speed(
+            barotropic_law(params, config), jnp.maximum(density, params.minimum_density)
+        )
 
     lambda_x = jnp.max(jnp.abs(velocity_x) + sound_speed)
     if config.dimensionality >= 2:
@@ -777,7 +791,7 @@ def _cfl_time_step_fd_hydro(
     Returns:
         The CFL-limited time step.
     """
-    if config.equation_of_state == POLYTROPIC:
+    if config.equation_of_state == POLYTROPIC and config.solver_config.scheme == RIEMANN_FLUX:
         return _cfl_time_step_fd_polytropic(
             primitive_state, grid_spacing, dt_max, config, params, registered_variables, C_CFL
         )

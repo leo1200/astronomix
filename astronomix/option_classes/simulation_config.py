@@ -811,8 +811,8 @@ class SimulationConfig(NamedTuple):
     #: The equation of state for the simulation: ``IDEAL_GAS``, ``ISOTHERMAL``
     #: (p = c_s^2 rho, ``params.isothermal_sound_speed``) or ``POLYTROPIC``
     #: (p = K rho^Gamma, ``params.polytropic_constant`` and
-    #: ``params.polytropic_exponent``; finite volume only). The last two are
-    #: barotropic: no energy equation and no pressure slot in the state.
+    #: ``params.polytropic_exponent``). The last two are barotropic: no energy
+    #: equation and no pressure slot in the state.
     equation_of_state: int = IDEAL_GAS
 
     #: Magnetohydrodynamics switch.
@@ -1620,18 +1620,7 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
         )
 
     # A barotropic gas (ISOTHERMAL, POLYTROPIC) has no energy equation. The finite-volume framework carries it
-    # with the two solvers that need no energy jump and with gravity; of the finite-difference schemes the
-    # production scheme knows ISOTHERMAL only.
-    if (
-        finite_difference
-        and config.equation_of_state == POLYTROPIC
-        and config.solver_config.scheme != RIEMANN_FLUX
-    ):
-        raise ValueError(
-            "The POLYTROPIC equation of state is implemented for the finite-volume solver and the finite-difference "
-            "scheme=RIEMANN_FLUX only: use scheme=RIEMANN_FLUX, solver_mode=FINITE_VOLUME, or "
-            "equation_of_state=ISOTHERMAL (a polytrope of exponent one)."
-        )
+    # with the two solvers that need no energy jump and with gravity; both finite-difference schemes carry it.
     if finite_volume and config.equation_of_state != IDEAL_GAS:
         if config.solver_config.riemann_solver not in (HLL, LAX_FRIEDRICHS, HLL5R):
             raise ValueError(

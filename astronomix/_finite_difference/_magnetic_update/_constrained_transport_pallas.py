@@ -58,7 +58,7 @@ import jax
 import jax.numpy as jnp
 
 # astronomix constants
-from astronomix.option_classes.simulation_config import IDEAL_GAS, RIEMANN_FLUX
+from astronomix.option_classes.simulation_config import IDEAL_GAS, POLYTROPIC, RIEMANN_FLUX
 
 # astronomix containers
 from astronomix.option_classes.simulation_config import SimulationConfig
@@ -1560,7 +1560,7 @@ def _ct_upwind_dissipation_pallas(
         dt_over_dx: The (stage) time step over the cell size.
         gamma: The adiabatic index (ideal gas).
         params: The simulation parameters (minimum density and pressure,
-            isothermal sound speed).
+            the barotropic law).
         config: The simulation configuration.
         registered_variables: The registered variables.
 
@@ -1570,8 +1570,13 @@ def _ct_upwind_dissipation_pallas(
     ndim = int(config.dimensionality)
     dtype = interface_fields.dtype
     _, block_shape, _ = _ct_block_and_grid(interface_fields.shape[1:], config)
+    # The two scalars of the gas: (unused, gamma) for the ideal gas, (c_s^2, unused)
+    # for the isothermal gas and (K, Gamma) for the polytropic gas.
     if config.equation_of_state == IDEAL_GAS:
         sound_speed_squared = jnp.zeros((), dtype=dtype)
+    elif config.equation_of_state == POLYTROPIC:
+        sound_speed_squared = jnp.asarray(params.polytropic_constant, dtype=dtype)
+        gamma = params.polytropic_exponent
     else:
         sound_speed_squared = jnp.asarray(params.isothermal_sound_speed ** 2, dtype=dtype)
 
@@ -1631,9 +1636,10 @@ def _ct_upwind_emf_pallas_local(
         interface_fields: The stacked interface fields (possibly halo-padded).
         minimum_density: The density floor of the speed estimate (scalar array).
         minimum_pressure: The pressure floor of the speed estimate (scalar array).
-        sound_speed_squared: The isothermal sound speed squared (scalar array;
-            unused for an ideal gas).
-        gamma: The adiabatic index (scalar array; ideal gas only).
+        sound_speed_squared: The isothermal sound speed squared, or the constant K
+            of a polytropic gas (scalar array; unused for an ideal gas).
+        gamma: The adiabatic index, or the exponent Gamma of a polytropic gas
+            (scalar array; unused for an isothermal gas).
         config: The simulation configuration.
         registered_variables: The registered variables.
 
@@ -1644,6 +1650,7 @@ def _ct_upwind_emf_pallas_local(
     nx, ny, nz = spatial_shape
     extents = (nx, ny, nz)
     ideal_gas = config.equation_of_state == IDEAL_GAS
+    polytropic = config.equation_of_state == POLYTROPIC
     half_strength = 0.5 * config.solver_config.ct_upwind_strength
     density_index = registered_variables.density_index
     momentum_indices = (
@@ -1684,6 +1691,9 @@ def _ct_upwind_emf_pallas_local(
                     state_ref[(energy_index,) + index] - kinetic - 0.5 * field_squared
                 )
                 cs2 = gamma_ref[()] * jnp.maximum(pressure, pmin_ref[()]) / density
+            elif polytropic:
+                # a^2 = Gamma K rho^(Gamma - 1)
+                cs2 = gamma_ref[()] * cs2_ref[()] * density ** (gamma_ref[()] - 1.0)
             else:
                 cs2 = cs2_ref[()]
             total = cs2 + field_squared / density

@@ -63,6 +63,10 @@ from astronomix._finite_difference._magnetic_update._constrained_transport_palla
     _ct_upwind_pallas_supported,
 )
 from astronomix._finite_difference._magnetic_update._rebuild_energy import rebuilt_total_energy
+from astronomix._fluid_equations._equation_of_state import (
+    barotropic_law,
+    law_sound_speed,
+)
 from astronomix._spatial_operators._differencing import finite_difference_int6
 from astronomix._spatial_operators._interpolate import (
     interp_center_to_face,
@@ -506,7 +510,7 @@ def ct_upwind_dissipation_rhs(
         grid_spacing: The cell size.
         gamma: The adiabatic index (ideal gas).
         params: The simulation parameters (minimum density and pressure,
-            isothermal sound speed).
+            the barotropic law).
         config: The simulation configuration.
         registered_variables: The registered variables.
 
@@ -557,7 +561,8 @@ def ct_upwind_dissipation_rhs(
         )
         sound_speed_squared = gamma * jnp.maximum(gas_pressure, params.minimum_pressure) / density
     else:
-        sound_speed_squared = params.isothermal_sound_speed ** 2
+        # a barotropic gas: the sound speed of its law (local for a polytropic gas)
+        _, sound_speed_squared = law_sound_speed(barotropic_law(params, config), density)
 
     alfven_speed_squared = magnetic_field_squared / density
     total_speed_squared = sound_speed_squared + alfven_speed_squared

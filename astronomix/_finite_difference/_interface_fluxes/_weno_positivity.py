@@ -36,8 +36,8 @@ scalings in [0, 1] enforce the conditions, both inside the reconstruction:
   monotone for every cell of the stencil, however differently the basis
   represents it (a low-density cell with a large fast speed next to dense
   gas). Per-field speeds chosen only to keep the split states admissible
-  are positive but not robust in high-Mach MHD turbulence. For an
-  isothermal gas, where admissibility asks only for a positive density, the
+  are positive but not robust in high-Mach MHD turbulence. For a
+  barotropic gas, where admissibility asks only for a positive density, the
   fields that carry no mass (shear waves, MHD Alfven waves) keep their own
   speed, so vortical modes keep the default dissipation; their ``z`` leaves
   the density unchanged. For an ideal gas every field is split with
@@ -67,10 +67,7 @@ import jax.numpy as jnp
 import numpy as np
 
 # astronomix constants
-from astronomix.option_classes.simulation_config import (
-    IDEAL_GAS,
-    ISOTHERMAL,
-)
+from astronomix.option_classes.simulation_config import IDEAL_GAS
 
 # astronomix containers
 from astronomix.option_classes.simulation_config import SimulationConfig
@@ -78,6 +75,7 @@ from astronomix.option_classes.simulation_params import SimulationParams
 from astronomix.variable_registry.registered_variables import RegisteredVariables
 
 # astronomix functions
+from astronomix._fluid_equations._equation_of_state import is_barotropic
 from astronomix._stencil_operations._stencil_operations import _shift
 
 
@@ -90,7 +88,7 @@ DIVISION_FLOOR = 1e-30
 def mass_free_modes(config: SimulationConfig) -> tuple:
     """
     Indices of the characteristic fields that keep their own splitting speed,
-    in the mode order of the eigensystem modules: for an isothermal gas the
+    in the mode order of the eigensystem modules: for a barotropic gas the
     fields that carry no mass, i.e. the shear waves of hydrodynamics and the
     Alfven waves of MHD (admissibility asks only for a positive density, which
     their shifts leave unchanged). For an ideal gas every field is split with
@@ -102,7 +100,7 @@ def mass_free_modes(config: SimulationConfig) -> tuple:
     Returns:
         A tuple of mode indices.
     """
-    if config.equation_of_state != ISOTHERMAL:
+    if not is_barotropic(config):
         return ()
     if config.mhd:
         return (1, 4)

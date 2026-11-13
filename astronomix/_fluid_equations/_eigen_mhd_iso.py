@@ -1,12 +1,17 @@
 """
-Computations of the eigenvalues and eigenvectors for the isothermal MHD equations.
+Computations of the eigenvalues and eigenvectors for the MHD equations of a
+barotropic gas: isothermal, or polytropic.
 
 The eigenstructure was extracted from the HOW-MHD Fortran code (isothermal variant),
 with altered variable names for clarity and altered numerical safeguards.
 
-Isothermal MHD has 6 waves (no entropy wave) and 6 conserved variables
+Barotropic MHD has 6 waves (no entropy wave) and 6 conserved variables
 (density, 3 momenta, 2 tangential magnetic field components; Bx is constant).
-The sound speed cs is a fixed parameter rather than being derived from pressure.
+The sound speed cs is the isothermal constant, or for a polytropic gas the
+local a with a^2 = dp / drho, at the cell (eigenvalues) or at the averaged
+interface state (eigenvectors). The functions take the law as
+``barotropic_law`` (``_equation_of_state.py``): the isothermal sound speed or
+the ``PolytropicLaw``.
 """
 
 # general
@@ -24,6 +29,7 @@ from astronomix.variable_registry.registered_variables import RegisteredVariable
 
 # astronomix functions
 from astronomix._fluid_equations._eigen_mhd import _wave_speeds
+from astronomix._fluid_equations._equation_of_state import law_sound_speed
 from astronomix._stencil_operations._stencil_operations import _shift
 
 
@@ -61,7 +67,7 @@ def zero_safe_sqrt(x):
 @partial(jax.jit, static_argnames=["registered_variables"])
 def _eigenvalue_building_blocks(
     conserved_state,
-    sound_speed,
+    barotropic_law,
     rhomin,
     registered_variables: RegisteredVariables,
 ):
@@ -79,7 +85,7 @@ def _eigenvalue_building_blocks(
     magnetic_field_squared = (
         magnetic_x * magnetic_x + magnetic_y * magnetic_y + magnetic_z * magnetic_z
     )
-    cs2 = sound_speed ** 2
+    _, cs2 = law_sound_speed(barotropic_law, rho)
 
     # compute derived quantities
     b_sq_over_rho = magnetic_field_squared / rho
@@ -109,7 +115,7 @@ def _eigenvalue_building_blocks(
 
 class EigenvectorBlocksIso(NamedTuple):
     """
-    The interface quantities the isothermal MHD eigenvectors are assembled
+    The interface quantities the barotropic MHD eigenvectors are assembled
     from: the interface density and its square root, velocity and magnetic
     field components, normalised tangential field and sign factors, the sound
     speed with its square and inverse square, the fast, Alfven and slow speeds
@@ -230,8 +236,8 @@ def _eigenvector_blocks_iso(
         magnetic_x_interface: The interface field along the sweep direction.
         magnetic_y_interface: The first transverse component of the interface field.
         magnetic_z_interface: The second transverse component of the interface field.
-        sound_speed: The isothermal sound speed.
-        cs2: The squared isothermal sound speed.
+        sound_speed: The sound speed at the interface.
+        cs2: The squared sound speed at the interface.
         fast_magnetosonic_velocity_interface: The fast speed.
         alfven_velocity_interface: The Alfven speed.
         slow_magnetosonic_velocity_interface: The slow speed.
@@ -331,13 +337,13 @@ def _eigenvector_blocks_iso(
 @partial(jax.jit, static_argnames=["registered_variables"])
 def _eigenvector_building_blocks(
     conserved_state,
-    sound_speed,
+    barotropic_law,
     rhomin,
     registered_variables: RegisteredVariables,
 ):
     """
-    Interface quantities entering the isothermal MHD eigenvectors, see the
-    steps (i) to (iii) above.
+    Interface quantities entering the barotropic MHD eigenvectors, see the
+    steps (i) to (iii) above; the sound speed is that of the interface density.
     """
     interface_state = _interface_state_iso(
         conserved_state, rhomin, registered_variables
@@ -352,7 +358,7 @@ def _eigenvector_building_blocks(
         magnetic_z_interface,
     ) = interface_state
 
-    cs2 = sound_speed ** 2
+    sound_speed, cs2 = law_sound_speed(barotropic_law, rho_interface)
 
     (
         fast_magnetosonic_velocity_interface,
@@ -389,7 +395,7 @@ def _right_eigenvector_columns_iso(
 ):
     """
     Step (iv) of the eigenvectors: the right eigenvectors (columns of R) of the
-    isothermal MHD flux Jacobian at the interfaces, one function per
+    barotropic MHD flux Jacobian at the interfaces, one function per
     characteristic mode.
 
     Args:
@@ -588,18 +594,18 @@ def _right_eigenvector_columns_iso(
 def _eigen_R_col_iso(
     conserved_state,
     rhomin: Union[float, jnp.ndarray],
-    sound_speed: Union[float, jnp.ndarray],
+    barotropic_law,
     registered_variables: RegisteredVariables,
     col: int,
 ):
     """
-    One right eigenvector (column ``col`` of R) of the isothermal MHD flux
+    One right eigenvector (column ``col`` of R) of the barotropic MHD flux
     Jacobian at the interfaces; the modes are ordered by wave speed (fast -,
     Alfven -, slow -, slow +, Alfven +, fast +).
     """
     blocks = _eigenvector_building_blocks(
         conserved_state,
-        sound_speed,
+        barotropic_law,
         rhomin,
         registered_variables,
     )
@@ -619,7 +625,7 @@ def _left_eigenvector_rows_iso(
 ):
     """
     Step (iv) of the eigenvectors: the left eigenvectors (rows of L) of the
-    isothermal MHD flux Jacobian at the interfaces, one function per
+    barotropic MHD flux Jacobian at the interfaces, one function per
     characteristic mode.
 
     Args:
@@ -858,18 +864,18 @@ def _left_eigenvector_rows_iso(
 def _eigen_L_row_iso(
     conserved_state,
     rhomin: Union[float, jnp.ndarray],
-    sound_speed: Union[float, jnp.ndarray],
+    barotropic_law,
     registered_variables: RegisteredVariables,
     row: int,
 ):
     """
-    One left eigenvector (row ``row`` of L) of the isothermal MHD flux
+    One left eigenvector (row ``row`` of L) of the barotropic MHD flux
     Jacobian at the interfaces; the modes are ordered by wave speed (fast -,
     Alfven -, slow -, slow +, Alfven +, fast +).
     """
     blocks = _eigenvector_building_blocks(
         conserved_state,
-        sound_speed,
+        barotropic_law,
         rhomin,
         registered_variables,
     )
@@ -885,7 +891,7 @@ def _eigen_L_row_iso(
 def _eigen_all_lambdas_iso(
     conserved_state,
     rhomin: Union[float, jnp.ndarray],
-    sound_speed: Union[float, jnp.ndarray],
+    barotropic_law,
     registered_variables: RegisteredVariables,
 ):
     (
@@ -895,7 +901,7 @@ def _eigen_all_lambdas_iso(
         slow_magnetosonic_velocity,
     ) = _eigenvalue_building_blocks(
         conserved_state,
-        sound_speed,
+        barotropic_law,
         rhomin,
         registered_variables,
     )
@@ -916,7 +922,7 @@ def _eigen_all_lambdas_iso(
 def _eigen_lambdas_iso(
     conserved_state,
     rhomin: Union[float, jnp.ndarray],
-    sound_speed: Union[float, jnp.ndarray],
+    barotropic_law,
     registered_variables: RegisteredVariables,
     mode: int,
 ):
@@ -927,7 +933,7 @@ def _eigen_lambdas_iso(
         slow_magnetosonic_velocity,
     ) = _eigenvalue_building_blocks(
         conserved_state,
-        sound_speed,
+        barotropic_law,
         rhomin,
         registered_variables,
     )

@@ -1,9 +1,13 @@
 """
-Computations of the eigenvalues and eigenvectors for the isothermal Euler
-(hydrodynamics) equations.
+Computations of the eigenvalues and eigenvectors for the Euler (hydrodynamics)
+equations of a barotropic gas: isothermal, or polytropic.
 
-Isothermal hydro has no energy equation. The sound speed cs is a fixed parameter.
-The conserved variables are density and momenta only.
+A barotropic gas has no energy equation; the conserved variables are density
+and momenta only. The sound speed cs is the isothermal constant, or for a
+polytropic gas the local a with a^2 = dp / drho, at the cell (eigenvalues) or
+at the averaged interface state (eigenvectors). The functions take the law as
+``barotropic_law`` (``_equation_of_state.py``): the isothermal sound speed or
+the ``PolytropicLaw``.
 
 Waves:
   1D: u-cs, u+cs  (2 waves)
@@ -28,6 +32,7 @@ from astronomix.option_classes.simulation_config import SimulationConfig
 from astronomix.variable_registry.registered_variables import RegisteredVariables
 
 # astronomix functions
+from astronomix._fluid_equations._equation_of_state import law_sound_speed
 from astronomix._stencil_operations._stencil_operations import _shift
 
 
@@ -45,17 +50,17 @@ def diff_safe_sqrt(x):
 @partial(jax.jit, static_argnames=["registered_variables", "config"])
 def _eigenvalue_building_blocks(
     conserved_state,
-    sound_speed,
+    barotropic_law,
     rhomin,
     config: SimulationConfig,
     registered_variables: RegisteredVariables,
 ):
     """
-    Cell-centred velocity and sound speed entering the isothermal eigenvalues.
+    Cell-centred velocity and sound speed entering the barotropic eigenvalues.
 
     Args:
         conserved_state: The conserved state, sweep direction first.
-        sound_speed: The isothermal sound speed.
+        barotropic_law: The isothermal sound speed or the ``PolytropicLaw``.
         rhomin: The density floor.
         config: The simulation configuration.
         registered_variables: The registered variables.
@@ -72,6 +77,7 @@ def _eigenvalue_building_blocks(
 
     rho = jnp.maximum(density, rhomin)
     velocity_x = momentum_x / rho
+    sound_speed, _ = law_sound_speed(barotropic_law, rho)
 
     return (velocity_x, sound_speed)
 
@@ -79,24 +85,24 @@ def _eigenvalue_building_blocks(
 @partial(jax.jit, static_argnames=["registered_variables", "config"])
 def _eigenvector_building_blocks(
     conserved_state,
-    sound_speed,
+    barotropic_law,
     rhomin,
     config: SimulationConfig,
     registered_variables: RegisteredVariables,
 ):
     """
-    Interface quantities entering the isothermal eigenvectors.
+    Interface quantities entering the barotropic eigenvectors.
 
     Args:
         conserved_state: The conserved state, sweep direction first.
-        sound_speed: The isothermal sound speed.
+        barotropic_law: The isothermal sound speed or the ``PolytropicLaw``.
         rhomin: The density floor.
         config: The simulation configuration.
         registered_variables: The registered variables.
 
     Returns:
-        The interface velocity components, the sound speed, its square and
-        the (zero-safe) inverse of the square.
+        The interface velocity components, the sound speed at the interface
+        density, its square and the (zero-safe) inverse of the square.
     """
     rho = conserved_state[registered_variables.density_index]
 
@@ -137,7 +143,7 @@ def _eigenvector_building_blocks(
         velocity_y_interface = avg_x(momentum_y) / rho_interface
         velocity_z_interface = avg_x(momentum_z) / rho_interface
 
-    cs2 = sound_speed ** 2
+    sound_speed, cs2 = law_sound_speed(barotropic_law, rho_interface)
     cs2_inverse = jnp.where(cs2 > 0.0, 1.0 / cs2, 0.0)
 
     return (
@@ -154,18 +160,18 @@ def _eigenvector_building_blocks(
 def _eigen_R_col_hydro_iso(
     conserved_state,
     rhomin: Union[float, jnp.ndarray],
-    sound_speed: Union[float, jnp.ndarray],
+    barotropic_law,
     config: SimulationConfig,
     registered_variables: RegisteredVariables,
     col: int,
 ):
     """
-    One right eigenvector (column of R) of the isothermal flux Jacobian.
+    One right eigenvector (column of R) of the barotropic flux Jacobian.
 
     Args:
         conserved_state: The conserved state, sweep direction first.
         rhomin: The density floor.
-        sound_speed: The isothermal sound speed.
+        barotropic_law: The isothermal sound speed or the ``PolytropicLaw``.
         config: The simulation configuration.
         registered_variables: The registered variables.
         col: The index of the characteristic mode, ordered by wave speed
@@ -183,7 +189,7 @@ def _eigen_R_col_hydro_iso(
         cs2_inverse,
     ) = _eigenvector_building_blocks(
         conserved_state,
-        sound_speed,
+        barotropic_law,
         rhomin,
         config,
         registered_variables,
@@ -262,18 +268,18 @@ def _eigen_R_col_hydro_iso(
 def _eigen_L_row_hydro_iso(
     conserved_state,
     rhomin: Union[float, jnp.ndarray],
-    sound_speed: Union[float, jnp.ndarray],
+    barotropic_law,
     config: SimulationConfig,
     registered_variables: RegisteredVariables,
     row: int,
 ):
     """
-    One left eigenvector (row of L) of the isothermal flux Jacobian.
+    One left eigenvector (row of L) of the barotropic flux Jacobian.
 
     Args:
         conserved_state: The conserved state, sweep direction first.
         rhomin: The density floor.
-        sound_speed: The isothermal sound speed.
+        barotropic_law: The isothermal sound speed or the ``PolytropicLaw``.
         config: The simulation configuration.
         registered_variables: The registered variables.
         row: The index of the characteristic mode, ordered by wave speed
@@ -291,7 +297,7 @@ def _eigen_L_row_hydro_iso(
         cs2_inverse,
     ) = _eigenvector_building_blocks(
         conserved_state,
-        sound_speed,
+        barotropic_law,
         rhomin,
         config,
         registered_variables,
@@ -372,17 +378,17 @@ def _eigen_L_row_hydro_iso(
 def _eigen_all_lambdas_hydro_iso(
     conserved_state,
     rhomin: Union[float, jnp.ndarray],
-    sound_speed: Union[float, jnp.ndarray],
+    barotropic_law,
     config: SimulationConfig,
     registered_variables: RegisteredVariables,
 ):
     """
-    All isothermal eigenvalues per cell, stacked along a leading mode axis.
+    All barotropic eigenvalues per cell, stacked along a leading mode axis.
 
     Args:
         conserved_state: The conserved state, sweep direction first.
         rhomin: The density floor.
-        sound_speed: The isothermal sound speed.
+        barotropic_law: The isothermal sound speed or the ``PolytropicLaw``.
         config: The simulation configuration.
         registered_variables: The registered variables.
 
@@ -391,7 +397,7 @@ def _eigen_all_lambdas_hydro_iso(
     """
     (velocity_x, cs) = _eigenvalue_building_blocks(
         conserved_state,
-        sound_speed,
+        barotropic_law,
         rhomin,
         config,
         registered_variables,
@@ -408,18 +414,18 @@ def _eigen_all_lambdas_hydro_iso(
 def _eigen_lambdas_hydro_iso(
     conserved_state,
     rhomin: Union[float, jnp.ndarray],
-    sound_speed: Union[float, jnp.ndarray],
+    barotropic_law,
     config: SimulationConfig,
     registered_variables: RegisteredVariables,
     mode: int,
 ):
     """
-    One isothermal eigenvalue per cell.
+    One barotropic eigenvalue per cell.
 
     Args:
         conserved_state: The conserved state, sweep direction first.
         rhomin: The density floor.
-        sound_speed: The isothermal sound speed.
+        barotropic_law: The isothermal sound speed or the ``PolytropicLaw``.
         config: The simulation configuration.
         registered_variables: The registered variables.
         mode: The index of the characteristic mode, ordered by wave speed
@@ -430,7 +436,7 @@ def _eigen_lambdas_hydro_iso(
     """
     (velocity_x, cs) = _eigenvalue_building_blocks(
         conserved_state,
-        sound_speed,
+        barotropic_law,
         rhomin,
         config,
         registered_variables,

@@ -27,7 +27,10 @@ The physics is not re-implemented here: the kernel calls the same elementwise
 functions as the native path (the Riemann solvers of ``_riemann/``, the
 interface frame of ``_interface_frame.py``, the component helpers of
 ``_stage.py`` and the extended Dedner source terms of
-``_divergence/_glm.py``), so both backends evaluate the same expressions.
+``_divergence/_glm.py``), so both backends evaluate the same expressions. A
+barotropic gas (isothermal, polytropic) takes the parameters of its law as
+three more scalar inputs, from which the kernel builds the same
+``BarotropicLaw`` as the native stage.
 """
 
 # jax
@@ -58,6 +61,7 @@ from astronomix._finite_volume._flux_correction import (
     _positivity_failure_code,
 )
 from astronomix._finite_volume._interface_frame import (
+    _barotropic_law,
     _interface_flux_from_states,
     _interface_frame_indices,
     _state_components_from_frame,
@@ -125,9 +129,6 @@ def _fv_stage_pallas_supported(state, config: SimulationConfig) -> bool:
     if config.solver_config.divergence_control == CONSTRAINED_TRANSPORT:
         # The kernel has no face field and no edge electromotive forces.
         return False
-    if is_barotropic(config):
-        # The kernel has the energy row of the ideal gas in its registers.
-        return False
     ndim = int(config.dimensionality)
     if state.ndim != ndim + 1:
         return False
@@ -165,6 +166,7 @@ def _fv_stage_pallas_local(
     gamma,
     density_floor,
     pressure_floor,
+    law_parameters=(),
     *,
     reconstruction: int,
     report_failures: bool,
@@ -190,6 +192,9 @@ def _fv_stage_pallas_local(
         gamma: The adiabatic index.
         density_floor: The density floor (used only with floors active).
         pressure_floor: The pressure floor (used only with floors active).
+        law_parameters: A barotropic gas: the isothermal sound speed, the
+            polytropic constant and the polytropic exponent; empty for the
+            ideal gas.
         reconstruction: ``DONOR_CELL`` or ``PIECEWISE_LINEAR``.
         report_failures: Also return the positivity failure code of every
             cell's update (for the first-order flux correction).
@@ -287,6 +292,7 @@ def _fv_stage_pallas_local(
         gamma_ref = refs.pop(0)
         density_floor_ref = refs.pop(0)
         pressure_floor_ref = refs.pop(0)
+        law_parameter_refs = [refs.pop(0) for _ in law_parameters]
         output_ref = refs.pop(0)
         codes_ref = refs.pop(0) if report_failures else None
 
@@ -296,6 +302,16 @@ def _fv_stage_pallas_local(
         gamma_value = gamma_ref[()]
         minimum_density = density_floor_ref[()]
         minimum_pressure = pressure_floor_ref[()]
+        # The law of a barotropic gas from the kernel's values of its parameters (``None`` for the ideal gas).
+        barotropic_law = None
+        if law_parameter_refs:
+            sound_speed, constant, exponent = (ref[()] for ref in law_parameter_refs)
+            barotropic_law = _barotropic_law(
+                SimulationParams(
+                    isothermal_sound_speed=sound_speed, polytropic_constant=constant, polytropic_exponent=exponent
+                ),
+                config,
+            )
 
         # --------------- ↑ Ref unpacking ↑ ----------------
 
@@ -345,6 +361,7 @@ def _fv_stage_pallas_local(
                     cleaning_speed_value,
                     riemann_solver,
                     mhd,
+                    barotropic_law,
                 ),
                 frame_indices,
                 num_vars,
@@ -473,10 +490,11 @@ def _fv_stage_pallas_local(
                         conserved[momentum_index]
                         - stage_time_step_value * magnetic_divergence * field_component
                     )
-                energy_index = registered_variables.energy_index
-                conserved[energy_index] = (
-                    conserved[energy_index] - stage_time_step_value * field_dot_psi_gradient
-                )
+                if not is_barotropic(config):
+                    energy_index = registered_variables.energy_index
+                    conserved[energy_index] = (
+                        conserved[energy_index] - stage_time_step_value * field_dot_psi_gradient
+                    )
             conserved[psi_index] = conserved[psi_index] * damping_factor_value
 
         primitive = _primitive_components_from_conserved(
@@ -529,6 +547,7 @@ def _fv_stage_pallas_local(
             density_floor,
             pressure_floor,
         )
+        + tuple(law_parameters)
     ]
     in_specs += [scalar_spec] * len(scalar_arguments)
 
@@ -659,6 +678,14 @@ def _fv_stage_pallas_once(
             [stage_state] + ([base_state] if has_base else []) + ([mask] if has_mask else [])
         )
 
+        law_parameters = ()
+        if is_barotropic(config):
+            law_parameters = (
+                simulation_params.isothermal_sound_speed,
+                simulation_params.polytropic_constant,
+                simulation_params.polytropic_exponent,
+            )
+
         def local_build(*local_states):
             """The kernel on one halo-padded shard."""
             local_states = list(local_states)
@@ -675,6 +702,7 @@ def _fv_stage_pallas_once(
                 gamma_value,
                 simulation_params.minimum_density,
                 simulation_params.minimum_pressure,
+                law_parameters,
                 reconstruction=reconstruction,
                 report_failures=report_failures,
                 config=config,

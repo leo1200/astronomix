@@ -89,11 +89,6 @@ def _finalized(equation_of_state=ISOTHERMAL, solver_overrides=None, **overrides)
 @pytest.mark.parametrize(
     "overrides, message",
     [
-        # The finite-difference scheme knows the isothermal gas only.
-        (
-            dict(equation_of_state=POLYTROPIC, solver_mode=FINITE_DIFFERENCE, solver_config=FDSolverConfig()),
-            "solver_mode=FINITE_VOLUME, or equation_of_state=ISOTHERMAL",
-        ),
         # The solvers that restore the contact need the energy jump.
         (dict(solver_overrides=dict(riemann_solver=HLLC)), "use riemann_solver=HLL"),
         (dict(equation_of_state=POLYTROPIC, solver_overrides=dict(riemann_solver=HLLC)), "use riemann_solver=HLL"),
@@ -143,7 +138,7 @@ def test_rejected_for_a_barotropic_gas(overrides, message):
 
 
 def test_accepted_for_a_barotropic_gas():
-    """The combinations the framework carries pass, and the finite-difference isothermal run is not touched."""
+    """The combinations the framework carries pass, and both barotropic laws pass the finite-difference schemes."""
     for equation_of_state in (ISOTHERMAL, POLYTROPIC):
         for time_integrator in (RK2_SSP, MUSCL_HANCOCK, VL2):
             # (The VL2 scheme has the Lax-Friedrichs solver with donor cells only.)
@@ -158,7 +153,8 @@ def test_accepted_for_a_barotropic_gas():
                 )
                 assert config.solver_config.riemann_solver == riemann_solver
                 assert config.solver_config.time_integrator == time_integrator
-    _finalized(ISOTHERMAL, solver_mode=FINITE_DIFFERENCE, solver_config=FDSolverConfig(), mhd=True)
+    for equation_of_state in (ISOTHERMAL, POLYTROPIC):
+        _finalized(equation_of_state, solver_mode=FINITE_DIFFERENCE, solver_config=FDSolverConfig(), mhd=True)
 
 
 if __name__ == "__main__":

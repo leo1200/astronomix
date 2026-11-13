@@ -110,7 +110,6 @@ import jax.numpy as jnp
 from astronomix.option_classes.simulation_config import (
     BACKWARDS,
     IDEAL_GAS,
-    ISOTHERMAL,
 )
 
 # astronomix containers
@@ -139,9 +138,13 @@ from astronomix._fluid_equations._eigen_mhd_iso import (
     _eigen_R_col_iso,
     _eigen_lambdas_iso,
 )
+from astronomix._fluid_equations._equation_of_state import (
+    barotropic_law,
+    is_barotropic,
+)
 from astronomix._fluid_equations._fluxes_mhd import (
-    _euler_flux_isothermal_x,
-    _mhd_flux_isothermal_x,
+    _euler_flux_barotropic_x,
+    _mhd_flux_barotropic_x,
     _mhd_flux_x,
 )
 from astronomix._fluid_equations._equations import primitive_state_from_conserved
@@ -229,8 +232,9 @@ def _weno_flux_x_native(
     minimum_pressure = params.minimum_pressure
     gamma = params.gamma
 
-    # The sound speed is only used for an isothermal gas.
-    isothermal_sound_speed = params.isothermal_sound_speed
+    # The law of a barotropic gas: the isothermal sound speed, or the
+    # polytropic K and Gamma (the eigen-systems take the local sound speed).
+    law = barotropic_law(params, config) if is_barotropic(config) else None
 
     # -------------------------------------------------------------
     # ================= ↓ Cell-centred fluxes ↓ ===================
@@ -261,20 +265,20 @@ def _weno_flux_x_native(
                 registered_variables,
                 1,
             )
-    elif config.equation_of_state == ISOTHERMAL:
+    else:
         if config.mhd:
-            F = _mhd_flux_isothermal_x(
+            F = _mhd_flux_barotropic_x(
                 conserved_state,
                 minimum_density,
-                isothermal_sound_speed,
+                law,
                 config,
                 registered_variables,
             )
         else:
-            F = _euler_flux_isothermal_x(
+            F = _euler_flux_barotropic_x(
                 conserved_state,
                 minimum_density,
-                isothermal_sound_speed,
+                law,
                 config,
                 registered_variables,
             )
@@ -298,7 +302,7 @@ def _weno_flux_x_native(
     else:
         num_modes = config.dimensionality + 2
 
-    if config.equation_of_state == ISOTHERMAL:
+    if is_barotropic(config):
         num_modes -= 1
 
     def mode_eigenvalues(mode):
@@ -330,14 +334,14 @@ def _weno_flux_x_native(
             return _eigen_lambdas_iso(
                 conserved_state,
                 minimum_density,
-                isothermal_sound_speed,
+                law,
                 registered_variables,
                 mode,
             )
         return _eigen_lambdas_hydro_iso(
             conserved_state,
             minimum_density,
-            isothermal_sound_speed,
+            law,
             config,
             registered_variables,
             mode,
@@ -373,14 +377,14 @@ def _weno_flux_x_native(
             return _eigen_L_row_iso(
                 conserved_state,
                 minimum_density,
-                isothermal_sound_speed,
+                law,
                 registered_variables,
                 mode,
             )
         return _eigen_L_row_hydro_iso(
             conserved_state,
             minimum_density,
-            isothermal_sound_speed,
+            law,
             config,
             registered_variables,
             mode,
@@ -416,14 +420,14 @@ def _weno_flux_x_native(
             return _eigen_R_col_iso(
                 conserved_state,
                 minimum_density,
-                isothermal_sound_speed,
+                law,
                 registered_variables,
                 mode,
             )
         return _eigen_R_col_hydro_iso(
             conserved_state,
             minimum_density,
-            isothermal_sound_speed,
+            law,
             config,
             registered_variables,
             mode,
@@ -1157,7 +1161,8 @@ def _weno_flux_axis_dispatch(
         )
 
     if _hydro_pallas_axis_supported(conserved_state, axis, config):
-        if use_pallas_adjoint:
+        # (the Pallas adjoint is that of the ideal-gas kernel)
+        if use_pallas_adjoint and not is_barotropic(config):
             return pallas_vjp_call(
                 conserved_state,
                 params,

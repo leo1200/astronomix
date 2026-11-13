@@ -8,12 +8,23 @@ barotropic gas has no energy equation and its state has no pressure slot.
 
 The functions are elementwise on their operands and choose their branch at
 Python time, so they serve whole arrays and face values alike.
+
+The finite-difference fluxes and eigen-systems take a barotropic law as one
+argument of their jitted functions (``barotropic_law``): the isothermal sound
+speed, or the ``PolytropicLaw`` (K, Gamma).
 """
+
+# typing
+from typing import NamedTuple, Union
+
+# jax
+import jax.numpy as jnp
 
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
     IDEAL_GAS,
     ISOTHERMAL,
+    POLYTROPIC,
     STATE_TYPE,
 )
 
@@ -88,3 +99,48 @@ def pressure_of(
     if is_barotropic(config):
         return barotropic_pressure(primitive_state[registered_variables.density_index], params, config)
     return primitive_state[registered_variables.pressure_index]
+
+
+class PolytropicLaw(NamedTuple):
+    """K and Gamma of p = K rho^Gamma, the polytropic form of ``barotropic_law``."""
+
+    polytropic_constant: Union[float, jnp.ndarray]
+    polytropic_exponent: Union[float, jnp.ndarray]
+
+
+def barotropic_law(params: SimulationParams, config: SimulationConfig):
+    """
+    The barotropic law as the finite-difference fluxes and eigen-systems take it.
+
+    Args:
+        params: The simulation parameters.
+        config: The simulation configuration.
+
+    Returns:
+        The isothermal sound speed c_s (``ISOTHERMAL``) or the ``PolytropicLaw`` (``POLYTROPIC``).
+    """
+    if config.equation_of_state == POLYTROPIC:
+        return PolytropicLaw(params.polytropic_constant, params.polytropic_exponent)
+    return params.isothermal_sound_speed
+
+
+def law_pressure(law, density, minimum_density):
+    """
+    The pressure of a ``barotropic_law`` at the density: c_s^2 rho (the density as
+    given), or K max(rho, rho_min)^Gamma (a power of a non-positive density has no value).
+    """
+    if isinstance(law, PolytropicLaw):
+        return law.polytropic_constant * jnp.maximum(density, minimum_density) ** law.polytropic_exponent
+    return law**2 * density
+
+
+def law_sound_speed(law, density):
+    """
+    The sound speed a and a^2 = dp / drho of a ``barotropic_law`` at the density:
+    c_s and c_s^2 (the density is not read), or a^2 = Gamma K rho^(Gamma - 1) and its root.
+    """
+    if isinstance(law, PolytropicLaw):
+        exponent = law.polytropic_exponent
+        squared = exponent * law.polytropic_constant * density ** (exponent - 1.0)
+        return jnp.sqrt(squared), squared
+    return law, law**2

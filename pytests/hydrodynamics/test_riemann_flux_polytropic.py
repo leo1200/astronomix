@@ -298,7 +298,7 @@ def test_time_step_takes_the_local_sound_speed():
 
 @pytest.mark.parametrize("mhd", [False, True], ids=["hydrodynamics", "mhd"])
 def test_polytropic_layout_and_rules(mhd):
-    """No pressure slot; served by RIEMANN_FLUX, rejected by the production scheme."""
+    """No pressure slot; served by RIEMANN_FLUX and by the production scheme."""
     dimensionality = 3 if mhd else 2
     config = _config(dimensionality, 16, mhd=mhd)
     registered_variables = get_registered_variables(config)
@@ -306,5 +306,4 @@ def test_polytropic_layout_and_rules(mhd):
     assert registered_variables.num_vars == (10 if mhd else 3)
     shape = (registered_variables.num_vars,) + (16,) * dimensionality
     assert finalize_config(config, shape).equation_of_state == POLYTROPIC
-    with pytest.raises(ValueError):
-        finalize_config(config._replace(solver_config=FDSolverConfig()), shape)
+    assert finalize_config(config._replace(solver_config=FDSolverConfig()), shape).equation_of_state == POLYTROPIC
