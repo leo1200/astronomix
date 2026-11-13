@@ -49,7 +49,7 @@ from astronomix.variable_registry.registered_variables import RegisteredVariable
 # astronomix functions
 from astronomix._finite_difference._magnetic_update._energy_flux import ct_energy_flux_rhs, edge_emf_curl
 from astronomix._finite_difference._ratio_rules import _floored_ratio, _ratio
-from astronomix._fluid_equations._eigen_mhd_iso import zero_safe_sqrt
+from astronomix._fluid_equations._eigen_mhd_baro import zero_safe_sqrt
 from astronomix._stencil_operations._stencil_operations import _shift
 
 XAXIS = 0

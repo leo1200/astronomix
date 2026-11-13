@@ -16,7 +16,7 @@ outflow boundaries in 1D, 2D and 3D.
 
 ``REGRESSION_CASES`` are small versions of representative cases, whose AthenaPK
 results are stored in ``pytests/mhd/data/athenapk_vl2`` and checked by
-``pytests/mhd/vl2_athenapk_regression.py``. The full comparison (which runs
+``pytests/mhd/test_vl2_athenapk_regression.py``. The full comparison (which runs
 AthenaPK itself) lives in ``examples/scripts/validation/athenapk_vl2``.
 
 ## References
@@ -470,7 +470,7 @@ CASES = [
 CASES_BY_NAME = {case.name: case for case in CASES}
 
 #: Small versions of representative cases for the fast regression test
-#: (``pytests/mhd/vl2_athenapk_regression.py``), whose AthenaPK results are
+#: (``pytests/mhd/test_vl2_athenapk_regression.py``), whose AthenaPK results are
 #: stored in ``pytests/mhd/data/athenapk_vl2`` by
 #: ``examples/scripts/validation/athenapk_vl2/make_regression_data.py``.
 REGRESSION_CASES = [

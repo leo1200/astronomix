@@ -16,20 +16,11 @@ Run on the CPU::
     JAX_PLATFORMS=cpu PYTHONPATH=. python -m pytest pytests/hydrodynamics/test_polytropic.py
 """
 
-# ==== GPU selection ====
-import os
-
-if os.environ.get("CUDA_VISIBLE_DEVICES") is None and os.environ.get("JAX_PLATFORMS") != "cpu":
-    from autocvd import autocvd
-
-    autocvd(num_gpus=1)
-# ruff: noqa: E402
-# =======================
+# testing
+import pytest
 
 # numerics
 import jax
-
-jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 import numpy as np
 
@@ -62,6 +53,8 @@ from astronomix import (
     get_registered_variables,
     time_integration,
 )
+
+pytestmark = pytest.mark.x64
 
 INTEGRATORS = (("VL2", VL2), ("RK2_SSP", RK2_SSP), ("MUSCL_HANCOCK", MUSCL_HANCOCK))
 POLYTROPIC_CONSTANT = 0.9
@@ -220,7 +213,8 @@ def test_soft_polytrope_with_shocks_stays_positive():
 
 
 if __name__ == "__main__":
-    test_polytrope_of_exponent_one_is_the_isothermal_gas()
-    test_polytropic_sound_wave_speed_and_second_order()
-    test_polytrope_follows_the_ideal_gas_in_isentropic_flow()
-    test_soft_polytrope_with_shocks_stays_positive()
+    with jax.enable_x64(True):
+        test_polytrope_of_exponent_one_is_the_isothermal_gas()
+        test_polytropic_sound_wave_speed_and_second_order()
+        test_polytrope_follows_the_ideal_gas_in_isentropic_flow()
+        test_soft_polytrope_with_shocks_stays_positive()

@@ -7,6 +7,7 @@ temporary memory is reported next to it. Input: a real turbulence state.
     WENO_VARIANT=pp python examples/scripts/validation/weno_stability/profile_pp.py --state /export/data/.../negp_M20_c0375_lastpositive.npy
 """
 import argparse
+import functools
 import os
 import sys
 import time
@@ -117,7 +118,7 @@ for variant in args.variants.split(","):
 
     if "step" in components:
         def step(q_, bx, by, bz):
-            return ssprk_module._ssprk4_with_ct(q_, bx, by, bz, GAMMA, config.grid_spacing, dt, params,
+            return ssprk_module._ssprk_with_ct(q_, bx, by, bz, GAMMA, config.grid_spacing, dt, params,
                                                 helper_data, config, rv)
         # the step donates its inputs: hand it fresh copies each call
         results[(variant, "step")] = timed(
@@ -132,7 +133,7 @@ for variant in args.variants.split(","):
             "inflow reference pre-pass", lambda q_: mhd_inflow_reference_dispatch(q_, params, config, rv), q)
     if "sweep" in components:
         for axis in range(3):
-            flux_fn = [weno_module._weno_flux_x, weno_module._weno_flux_y, weno_module._weno_flux_z][axis]
+            flux_fn = functools.partial(weno_module._weno_flux, axis=axis)
             if use_reference:
                 results[(variant, f"sweep{axis}")] = timed(
                     f"WENO sweep axis {axis} (kernel+recombine)",

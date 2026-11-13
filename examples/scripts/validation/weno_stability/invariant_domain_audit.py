@@ -55,7 +55,7 @@ from astronomix._fluid_equations._equations_mhd import conserved_state_from_prim
 from astronomix._finite_difference._interface_fluxes._weno_positivity import mhd_inflow_reference
 from astronomix._finite_difference._magnetic_update._constrained_transport import update_cell_center_fields
 from astronomix._finite_difference._time_integrators import _ssprk as ssprk_module
-from astronomix._finite_difference._timestep_estimation._timestep_estimator import _cfl_time_step_fd
+from astronomix._finite_difference._timestep import _cfl_time_step_fd
 from astronomix.option_classes.simulation_config import IDEAL_GAS
 
 GAMMA = 5.0 / 3.0
@@ -114,7 +114,7 @@ state = primitive
 for step in range(args.step):
     faces = [jnp.array(state[k], copy=True) for k in (-3, -2, -1)]
     qs = conserved_state_from_primitive_mhd(state[:-3], GAMMA, rv)
-    new_q, bx, by, bz = ssprk_module._ssprk4_with_ct(jnp.array(qs, copy=True), *faces, GAMMA, dx, dt, params,
+    new_q, bx, by, bz = ssprk_module._ssprk_with_ct(jnp.array(qs, copy=True), *faces, GAMMA, dx, dt, params,
                                                       helper_data, config, rv)
 new_entropy = np.asarray(pressure(new_q) / new_q[rv.density_index] ** GAMMA)
 undershoot = new_entropy / neighbourhood_min

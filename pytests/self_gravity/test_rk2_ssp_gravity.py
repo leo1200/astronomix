@@ -15,21 +15,11 @@ Run on the CPU::
     JAX_PLATFORMS=cpu PYTHONPATH=. python -m pytest pytests/self_gravity/test_rk2_ssp_gravity.py
 """
 
-# ==== GPU selection ====
-import os
-
-if os.environ.get("CUDA_VISIBLE_DEVICES") is None and os.environ.get("JAX_PLATFORMS") != "cpu":
-    from autocvd import autocvd
-
-    autocvd(num_gpus=1)
-# ruff: noqa: E402
-# =======================
+# testing
+import pytest
 
 # jax
 import jax
-
-# The perturbation is linear (eps = 1e-4): double precision keeps round-off below it.
-jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 
 # astronomix constants
@@ -55,6 +45,9 @@ from astronomix import (
     get_registered_variables,
     time_integration,
 )
+
+# The perturbation is linear (eps = 1e-4): double precision keeps round-off below it.
+pytestmark = pytest.mark.x64
 
 GAMMA = 5.0 / 3.0
 EPS = 1e-4
@@ -115,4 +108,5 @@ def test_rk2_ssp_jeans_growth_rate():
 
 
 if __name__ == "__main__":
-    test_rk2_ssp_jeans_growth_rate()
+    with jax.enable_x64(True):
+        test_rk2_ssp_jeans_growth_rate()

@@ -4,19 +4,11 @@ The sharded Pallas adjoint of the hydro WENO flux equals the single-device one.
 On a mesh the adjoint runs per x-slab with a 5-cell halo along the flux axis
 (``_weno_flux_hydro_pallas_vjp``). Checked on 4 fake CPU devices in Pallas
 interpret mode (float64), for every flux axis, with and without dual energy,
-with positivity preservation and the frozen linearisation. Needs the fake
-devices before jax starts, so run this file on its own::
+with positivity preservation and the frozen linearisation. The conftest splits
+the CPU into four devices when JAX runs on the CPU::
 
     JAX_PLATFORMS=cpu python -m pytest pytests/differentiability/test_pallas_weno_adjoint_sharded.py
 """
-
-# ==== device setup ====
-import os
-os.environ.setdefault("JAX_PLATFORMS", "cpu")
-if os.environ["JAX_PLATFORMS"] == "cpu":
-    os.environ["XLA_FLAGS"] = (os.environ.get("XLA_FLAGS", "") + " --xla_force_host_platform_device_count=4").strip()
-# ruff: noqa: E402
-# ======================
 
 # jax
 import jax
@@ -36,16 +28,24 @@ from astronomix._finite_difference._interface_fluxes._weno_pallas import _weno_f
 # the shared setup of the single-device adjoint test (a sibling module)
 import test_pallas_weno_adjoint as single
 
-jax.config.update("jax_enable_x64", True)
+pytestmark = [pytest.mark.x64, pytest.mark.slow]
 
 NUM_CELLS = 24
 
 
-@pytest.mark.skipif(len(jax.devices()) < 4, reason="needs 4 devices (run this file on its own)")
-@pytest.mark.parametrize("dual_energy", [False, True])
-def test_sharded_adjoint_equals_single_device(dual_energy, monkeypatch):
-    monkeypatch.setattr(single, "NUM_CELLS", NUM_CELLS)
+@pytest.fixture
+def without_shardy():
+    """The GSPMD partitioner for the duration of a test; the previous partitioner afterwards."""
+    previous = jax.config.jax_use_shardy_partitioner
     jax.config.update("jax_use_shardy_partitioner", False)
+    yield
+    jax.config.update("jax_use_shardy_partitioner", previous)
+
+
+@pytest.mark.devices(4)
+@pytest.mark.parametrize("dual_energy", [False, True])
+def test_sharded_adjoint_equals_single_device(dual_energy, monkeypatch, without_shardy):
+    monkeypatch.setattr(single, "NUM_CELLS", NUM_CELLS)
     config, registered_variables = single.flux_config(True, dual_energy, True)
     # x-blocks of 2 cells, so the block-rounded halo (6) fits the 6-cell shards
     config = config._replace(

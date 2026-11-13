@@ -37,7 +37,7 @@ from astronomix import (
 )
 from astronomix._fluid_equations._equations_mhd import conserved_state_from_primitive_mhd
 from astronomix._finite_difference._time_integrators import _ssprk as ssprk_module
-from astronomix._finite_difference._timestep_estimation._timestep_estimator import _cfl_time_step_fd
+from astronomix._finite_difference._timestep import _cfl_time_step_fd
 from astronomix.option_classes.simulation_config import IDEAL_GAS
 
 GAMMA = 1.4
@@ -82,7 +82,7 @@ bx, by, bz = padded[-3], padded[-2], padded[-1]
 inner = (slice(4, -4), slice(4, -4))
 for courant in (0.125, 0.25, 0.5, 0.75, 1.0):
     dt = courant * dt_cfl
-    new_q, *_ = ssprk_module._ssprk4_with_ct(jnp.array(q, copy=True), jnp.array(bx, copy=True), jnp.array(by, copy=True), jnp.array(bz, copy=True), GAMMA, config.grid_spacing, dt, params,
+    new_q, *_ = ssprk_module._ssprk_with_ct(jnp.array(q, copy=True), jnp.array(bx, copy=True), jnp.array(by, copy=True), jnp.array(bz, copy=True), GAMMA, config.grid_spacing, dt, params,
                                              helper_data, config, rv)
     kinetic = 0.5 * sum(new_q[k] ** 2 for k in rv.momentum_index) / new_q[rv.density_index]
     magnetic = 0.5 * sum(new_q[k] ** 2 for k in rv.magnetic_index)

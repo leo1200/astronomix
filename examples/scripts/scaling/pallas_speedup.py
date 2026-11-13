@@ -101,10 +101,10 @@ from astronomix.option_classes.simulation_params import SimulationParams  # noqa
 from astronomix import get_registered_variables, time_integration  # noqa: E402
 from astronomix.test_setups.hydrodynamics.sound_wave3D import setup_sound_wave  # noqa: E402
 from astronomix.test_setups.mhd.alfven_wave3D import setup_cp_alfven_wave  # noqa: E402
-from astronomix._finite_volume._timestep_estimation._timestep_estimator import (  # noqa: E402
+from astronomix._finite_volume._timestep import (  # noqa: E402
     _cfl_time_step,
 )
-from astronomix._finite_difference._timestep_estimation._timestep_estimator import (  # noqa: E402
+from astronomix._finite_difference._timestep import (  # noqa: E402
     _cfl_time_step_fd,
     _cfl_time_step_fd_hydro,
 )

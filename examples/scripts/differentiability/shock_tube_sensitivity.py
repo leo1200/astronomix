@@ -203,8 +203,8 @@ def make_config_and_params(scheme):
     jump from a derivative. A fixed dt isolates the limiter / Riemann-solver
     switches, the only non-smoothness this test is meant to probe.
 
-    The Pallas block (4, 1, 1) divides both the padded finite-difference grid
-    (200 + 2 x 4 ghost cells) and the VL2 interior (200); the default block
+    The Pallas block (2, 1, 1) divides both the padded finite-difference grid
+    (200 + 2 x 3 ghost cells) and the VL2 interior (200); the default block
     of 128 cells would not, and the run would fall back to the native kernels.
 
     Args:
@@ -225,7 +225,7 @@ def make_config_and_params(scheme):
         differentiation_mode=BACKWARDS,
         backend_config=BackendConfig(
             backend=scheme.backend,
-            pallas_block_shape=(4, 1, 1),
+            pallas_block_shape=(2, 1, 1),
         ),
         mhd=False,
         dimensionality=1,

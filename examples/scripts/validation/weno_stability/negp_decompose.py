@@ -50,7 +50,7 @@ from astronomix._fluid_equations._equations_mhd import conserved_state_from_prim
 from astronomix._finite_difference._interface_fluxes import _weno as weno_module
 from astronomix._finite_difference._interface_fluxes import _weno_positivity as pp
 from astronomix._finite_difference._magnetic_update._constrained_transport import update_cell_center_fields
-from astronomix._finite_difference._timestep_estimation._timestep_estimator import _cfl_time_step_fd
+from astronomix._finite_difference._timestep import _cfl_time_step_fd
 from astronomix.option_classes.simulation_config import IDEAL_GAS
 
 GAMMA = 5.0 / 3.0

@@ -17,7 +17,7 @@ between neighbouring cells is a spurious oscillation; for every configuration
 the script prints the largest such rise and their sum.
 
 The same problem runs as a fast correctness check in
-``pytests/hydrodynamics/shock_tube1D.py``; this script is the figure generator.
+``pytests/hydrodynamics/test_shock_tube_1d.py``; this script is the figure generator.
 
     PYTHONPATH=$(git rev-parse --show-toplevel) python examples/scripts/forward/hydro/shock_tube1D.py
 """

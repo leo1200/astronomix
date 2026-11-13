@@ -23,14 +23,6 @@ Run on the CPU::
     JAX_PLATFORMS=cpu python -m pytest pytests/differentiability/test_pallas_weno_adjoint.py
 """
 
-# ==== GPU selection ====
-import os
-if os.environ.get("JAX_PLATFORMS") != "cpu" and os.environ.get("CUDA_VISIBLE_DEVICES") is None:
-    from autocvd import autocvd
-    autocvd(num_gpus=1)
-# ruff: noqa: E402
-# =======================
-
 # jax
 import jax
 import jax.numpy as jnp
@@ -68,7 +60,7 @@ from astronomix._finite_difference._interface_fluxes._weno_pallas import (
     _weno_flux_hydro_pallas_vjp_local,
 )
 
-jax.config.update("jax_enable_x64", True)
+pytestmark = [pytest.mark.x64, pytest.mark.slow]
 
 NUM_CELLS = 8
 PARAMS = SimulationParams(minimum_density=1e-6, minimum_pressure=1e-8)

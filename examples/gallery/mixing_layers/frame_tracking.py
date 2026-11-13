@@ -68,13 +68,16 @@ def frame_tracking_update(cell_centers_z):
 
         # Select the cells within a narrow temperature band (a factor f_w either
         # side) around the peak-cooling temperature, and average the z-velocity and
-        # z-position over them to locate and track the cooling layer.
+        # z-position over them to locate and track the cooling layer. Only the
+        # interior cells count: the ghost cells repeat cells of the domain.
+        ghosts = config.num_ghost_cells
+        interior = slice(ghosts, -ghosts) if ghosts > 0 else slice(None)
         f_w = 10.0**0.1
-        T_ratio = T / T_pk
+        T_ratio = T[interior, interior, interior] / T_pk
         pk_mask = (T_ratio > 1.0 / f_w) & (T_ratio < f_w)
         n_pk_safe = jnp.maximum(jnp.sum(pk_mask), 1)
-        v_z_pk = jnp.sum(jnp.where(pk_mask, v_z, 0.0)) / n_pk_safe
-        z_layer = jnp.sum(jnp.where(pk_mask, Z, 0.0)) / n_pk_safe
+        v_z_pk = jnp.sum(jnp.where(pk_mask, v_z[interior, interior, interior], 0.0)) / n_pk_safe
+        z_layer = jnp.sum(jnp.where(pk_mask, Z[interior], 0.0)) / n_pk_safe
 
         # -------------------------------------------------------------
         # ====== ↓ PD control: velocity damping + restoring ↓ ========

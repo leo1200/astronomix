@@ -73,12 +73,14 @@ def _local_mhd_flux(state, gm1):
 
 
 def _grid_and_indices(spatial_shape, config: SimulationConfig):
+    """The kernel grid and the block shape (bx, by, bz) of a spatial shape."""
     nx, ny, nz = spatial_shape
     bx, by, bz = _as_3tuple_block_shape(config.backend_config.pallas_block_shape, 3, spatial_shape=spatial_shape)
     return (nx // bx, ny // by, nz // bz), (bx, by, bz)
 
 
 def _block_indices(block, spatial_shape):
+    """The periodic x, y, z cell indices of the current kernel block."""
     bx, by, bz = block
     nx, ny, nz = spatial_shape
     ii = (pl.program_id(0) * bx + jnp.arange(bx)[:, None, None]) % nx
@@ -88,6 +90,7 @@ def _block_indices(block, spatial_shape):
 
 
 def _reader(ref, ii, jj, kk, spatial_shape):
+    """A reader at(var, axis, offset) of the cell offset along axis from the block cells (periodic)."""
     nx, ny, nz = spatial_shape
 
     def at(var, axis, offset):

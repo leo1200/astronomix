@@ -22,9 +22,7 @@ from astronomix.option_classes.simulation_config import (
 
 # astronomix functions
 from astronomix._finite_difference._interface_fluxes._weno import (
-    _weno_flux_x,
-    _weno_flux_y,
-    _weno_flux_z,
+    _weno_flux,
 )
 from astronomix._fluid_equations._equations import primitive_state_from_conserved
 from astronomix._geometry.boundaries import _boundary_handler
@@ -75,13 +73,13 @@ def _exposed_rhs(conserved_state, params, config, registered_variables):
 
     if config.solver_mode == FINITE_DIFFERENCE:
         if not config.mhd:
-            dF_x = _weno_flux_x(conserved_state, params, config, registered_variables)
+            dF_x = _weno_flux(conserved_state, params, config, registered_variables, axis=0)
 
             if config.dimensionality >= 2:
-                dF_y = _weno_flux_y(conserved_state, params, config, registered_variables)
+                dF_y = _weno_flux(conserved_state, params, config, registered_variables, axis=1)
 
             if config.dimensionality == 3:
-                dF_z = _weno_flux_z(conserved_state, params, config, registered_variables)
+                dF_z = _weno_flux(conserved_state, params, config, registered_variables, axis=2)
 
             # The spatial RHS is the negative divergence of the interface
             # fluxes: in each direction the flux at the right face minus the

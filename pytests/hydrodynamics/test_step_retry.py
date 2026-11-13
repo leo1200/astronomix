@@ -14,14 +14,6 @@ weak-field Mach-10 turbulence that accelerates within a single step) needs a
     JAX_PLATFORMS=cpu python -m pytest pytests/hydrodynamics/test_step_retry.py
 """
 
-# ==== GPU selection ====
-import os
-if os.environ.get("CUDA_VISIBLE_DEVICES") is None and os.environ.get("JAX_PLATFORMS") != "cpu":
-    from autocvd import autocvd
-    autocvd(num_gpus=1)
-# ruff: noqa: E402
-# =======================
-
 # testing
 import pytest
 
@@ -55,7 +47,7 @@ from astronomix import (
     time_integration,
 )
 
-jax.config.update("jax_enable_x64", True)
+pytestmark = pytest.mark.x64
 
 
 def _run_double_rarefaction(C_cfl, step_retry, solver_config=FDSolverConfig(weno_positivity_preserving=True),
@@ -141,6 +133,7 @@ def test_retry_rejected_for_fixed_steps():
 
 
 if __name__ == "__main__":
-    test_retry_rescues_oversized_steps()
-    test_retry_inactive_at_admissible_steps()
-    test_retry_rejected_for_fixed_steps()
+    with jax.enable_x64(True):
+        test_retry_rescues_oversized_steps()
+        test_retry_inactive_at_admissible_steps()
+        test_retry_rejected_for_fixed_steps()

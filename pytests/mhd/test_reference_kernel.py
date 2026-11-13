@@ -13,23 +13,11 @@ All comparisons but the last run the kernels through the interpreted path, in do
     JAX_PLATFORMS=cpu PYTHONPATH=. python -m pytest pytests/mhd/test_reference_kernel.py
 """
 
-# ==== GPU selection ====
-import os
-
-if os.environ.get("CUDA_VISIBLE_DEVICES") is None and os.environ.get("JAX_PLATFORMS") != "cpu":
-    from autocvd import autocvd
-
-    autocvd(num_gpus=1)
-# ruff: noqa: E402
-# =======================
-
 # general
 from types import SimpleNamespace
 
 # numerics
 import jax
-
-jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -73,7 +61,7 @@ from astronomix._finite_volume._reference_pallas import (
     _reference_sweep_pallas,
 )
 from astronomix._finite_volume._stage import _sweep_stage
-from astronomix._finite_volume._timestep_estimation._timestep_estimator import (
+from astronomix._finite_volume._timestep import (
     _cfl_time_step,
     _maximum_hll5r_speed,
     _maximum_signal_speed_vl2,
@@ -82,6 +70,8 @@ from astronomix.option_classes.simulation_config import finalize_config
 from astronomix.time_stepping._utils import _unpad
 from astronomix.time_stepping.time_integration import _prepare_padded_state, time_integration
 from astronomix.variable_registry.registered_variables import get_registered_variables
+
+pytestmark = pytest.mark.x64
 
 GAMMA = 5.0 / 3.0
 ROUNDING_DOUBLE = 1e-12
@@ -206,6 +196,7 @@ def test_a_run_with_the_kernels_is_the_run_of_the_array_form(periodic_layout):
     assert np.abs(kernel - array).max() <= 10.0 * ROUNDING_DOUBLE * np.abs(array).max()
 
 
+@pytest.mark.slow
 def test_the_derivative_with_the_kernels_is_the_derivative_of_the_array_form():
     kernel_config, array_config, state, registered_variables = _setup((8, 8, 8), ISOTHERMAL, True)
     time_step = _cfl_time_step(state, array_config, PARAMS, registered_variables)
@@ -268,7 +259,7 @@ def test_what_the_predicate_refuses_runs_in_array_form():
     assert np.array_equal(np.asarray(fallback), np.asarray(array))
 
 
-@pytest.mark.skipif(jax.default_backend() != "gpu", reason="the compiled kernels need a GPU")
+@pytest.mark.gpu
 @pytest.mark.parametrize("equation_of_state, periodic_layout", [(ISOTHERMAL, True), (IDEAL_GAS, False)])
 def test_the_compiled_kernels_are_the_array_form_in_single_precision(equation_of_state, periodic_layout):
     shape = (32, 32, 32)

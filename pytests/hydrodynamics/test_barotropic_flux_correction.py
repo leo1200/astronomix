@@ -19,20 +19,11 @@ Run on the CPU::
     JAX_PLATFORMS=cpu PYTHONPATH=. python -m pytest pytests/hydrodynamics/test_barotropic_flux_correction.py
 """
 
-# ==== GPU selection ====
-import os
-
-if os.environ.get("CUDA_VISIBLE_DEVICES") is None and os.environ.get("JAX_PLATFORMS") != "cpu":
-    from autocvd import autocvd
-
-    autocvd(num_gpus=1)
-# ruff: noqa: E402
-# =======================
+# testing
+import pytest
 
 # numerics
 import jax
-
-jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 import numpy as np
 
@@ -57,6 +48,8 @@ from astronomix import (
     get_registered_variables,
     time_integration,
 )
+
+pytestmark = pytest.mark.x64
 
 SOUND_SPEED = 0.1
 STREAM_SPEED = 20.0
@@ -165,7 +158,8 @@ def test_flux_correction_leaves_smooth_flow_unchanged():
 
 
 if __name__ == "__main__":
-    test_receding_streams_stay_positive_at_a_courant_number_below_one_half()
-    test_flux_correction_keeps_the_density_positive()
-    test_flux_correction_acts_on_a_failing_stage_of_rk2_ssp()
-    test_flux_correction_leaves_smooth_flow_unchanged()
+    with jax.enable_x64(True):
+        test_receding_streams_stay_positive_at_a_courant_number_below_one_half()
+        test_flux_correction_keeps_the_density_positive()
+        test_flux_correction_acts_on_a_failing_stage_of_rk2_ssp()
+        test_flux_correction_leaves_smooth_flow_unchanged()

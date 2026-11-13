@@ -17,16 +17,6 @@ comparison is to rounding, not bitwise. What the predicate refuses runs in the a
 # general
 import functools
 
-# ==== GPU selection ====
-import os
-
-if os.environ.get("CUDA_VISIBLE_DEVICES") is None and os.environ.get("JAX_PLATFORMS") != "cpu":
-    from autocvd import autocvd
-
-    autocvd(num_gpus=1)
-# ruff: noqa: E402
-# =======================
-
 # numerics
 import numpy as np
 
@@ -67,13 +57,12 @@ from astronomix.time_stepping.time_integration import time_integration
 from astronomix.variable_registry.registered_variables import get_registered_variables
 
 NUM_CELLS = 16
-HAS_GPU = jax.default_backend() == "gpu"
 THREE_GASES = pytest.mark.parametrize(
     "equation_of_state", [IDEAL_GAS, ISOTHERMAL, POLYTROPIC], ids=["ideal_gas", "isothermal", "polytropic"]
 )
 BOTH_PATHS = pytest.mark.parametrize(
     "interpret",
-    [True, pytest.param(False, marks=pytest.mark.skipif(not HAS_GPU, reason="the compiled kernels need a GPU"))],
+    [True, pytest.param(False, marks=pytest.mark.gpu)],
     ids=["interpreted", "compiled"],
 )
 
@@ -158,6 +147,7 @@ def _run(equation_of_state, backend, interpret, boundary, dimensionality=3):
     return np.asarray(state), np.asarray(final)
 
 
+@pytest.mark.slow
 @BOTH_PATHS
 @THREE_GASES
 def test_step_of_the_kernels_equals_the_array_form(equation_of_state, interpret):
@@ -190,6 +180,7 @@ def test_lower_dimensional_steps_of_the_kernels_equal_the_array_form(dimensional
     assert difference < STEP_TOLERANCE
 
 
+@pytest.mark.slow
 @BOTH_PATHS
 def test_open_boundaries_with_the_kernels(interpret):
     """Open boundaries, ideal gas, smooth state: the kernels on the padded grid against the array form."""

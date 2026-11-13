@@ -90,7 +90,7 @@ from astronomix.option_classes.simulation_config import SimulationConfig
 from astronomix.data_classes.simulation_helper_data import HelperData
 
 # astronomix functions
-from astronomix._finite_volume._state_evolution.evolve_state import _evolve_state_fv
+from astronomix._finite_volume._evolve_state import _evolve_state_fv
 ```
 
 **Classification rule of thumb** for an imported astronomix name: `ALL_CAPS` or a

@@ -20,22 +20,15 @@ What is checked:
   velocity dispersion (the wiring into the time loop is checked in
   ``test_driving_in_the_time_loop.py``).
 
-The four devices need ``JAX_PLATFORMS=cpu`` and jax not started by another
-test file before this one::
+The four devices: the conftest splits the CPU into four when JAX runs on the
+CPU::
 
     JAX_PLATFORMS=cpu python -m pytest pytests/turbulence_driving
 """
 
-# ==== device setup ====
-import os
-if os.environ.get("JAX_PLATFORMS") == "cpu":
-    # first, so that a malformed entry of an existing XLA_FLAGS cannot hide it
-    os.environ["XLA_FLAGS"] = ("--xla_force_host_platform_device_count=4 " + os.environ.get("XLA_FLAGS", "")).strip()
-# ruff: noqa: E402
-# ======================
-
 # general
 import json
+import os
 from types import SimpleNamespace
 
 # jax
@@ -75,7 +68,7 @@ from astronomix._modules._turbulence_driving._turbulence_driving import (
     solenoidal_weight_normalisation,
 )
 
-jax.config.update("jax_enable_x64", True)
+pytestmark = pytest.mark.x64
 
 REFERENCE = np.load(os.path.join(os.path.dirname(__file__), "data", "turbgen_reference.npz"))
 CASES = sorted({key.split("/")[0] for key in REFERENCE.files})
@@ -383,7 +376,7 @@ def test_slabs_with_offsets_equal_the_whole_grid():
     np.testing.assert_allclose(padded, expected, rtol=0, atol=ROUND_OFF * float(jnp.max(whole)))
 
 
-@pytest.mark.skipif(len(jax.devices()) < 4, reason="needs 4 devices (JAX_PLATFORMS=cpu, this file on its own)")
+@pytest.mark.devices(4)
 def test_sharded_evaluation_equals_single_device():
     params = TurbulenceDrivingParams(solenoidal_weight=0.7)
     state = stationary_state(NON_CUBIC)

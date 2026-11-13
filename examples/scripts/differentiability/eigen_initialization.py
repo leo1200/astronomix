@@ -283,7 +283,8 @@ def setup_khi_unperturbed_base(setup: KHISetup, return_snapshots=False):
         The tuple ``(base_state, config, params, registered_variables,
         helper_data)``.
     """
-    # The padded grid is 300 + 2 x 4 = 308 cells per axis; a Pallas block has
+    # The padded grid is 300 + 2 x 4 = 308 cells per axis (300 + 2 x 8 = 316
+    # with viscosity, whose stencil needs more ghost cells); a Pallas block has
     # to divide it and be a power of two, so it is (4, 4).
     config = SimulationConfig(
         backend_config=BackendConfig(backend=PALLAS, pallas_block_shape=(4, 4, 1)),

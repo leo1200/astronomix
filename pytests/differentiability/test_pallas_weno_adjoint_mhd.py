@@ -24,14 +24,6 @@ Run on a GPU (or, slowly, on the CPU with ``JAX_PLATFORMS=cpu``)::
     python -m pytest pytests/differentiability/test_pallas_weno_adjoint_mhd.py
 """
 
-# ==== GPU selection ====
-import os
-if os.environ.get("JAX_PLATFORMS") != "cpu" and os.environ.get("CUDA_VISIBLE_DEVICES") is None:
-    from autocvd import autocvd
-    autocvd(num_gpus=1)
-# ruff: noqa: E402
-# =======================
-
 # jax
 import jax
 import jax.numpy as jnp
@@ -72,7 +64,7 @@ from astronomix._finite_difference._interface_fluxes._weno_pallas import (
 )
 from astronomix._finite_difference._interface_fluxes._weno_positivity import mhd_inflow_reference
 
-jax.config.update("jax_enable_x64", True)
+pytestmark = [pytest.mark.x64, pytest.mark.slow]
 
 NUM_CELLS = 8
 # The Triton kernels on a GPU, their interpreted form on the CPU.

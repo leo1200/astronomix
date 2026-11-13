@@ -62,12 +62,12 @@ from astronomix.data_classes.simulation_snapshot_data import SnapshotData
 
 # astronomix functions
 from astronomix._finite_volume._evolve_state import _evolve_state_fv
-from astronomix._finite_difference._state_evolution._evolve_state import _evolve_state_fd
-from astronomix._finite_volume._timestep_estimation._timestep_estimator import (
+from astronomix._finite_difference._evolve_state import _evolve_state_fd
+from astronomix._finite_volume._timestep import (
     _cfl_time_step,
     _source_term_aware_time_step,
 )
-from astronomix._finite_difference._timestep_estimation._timestep_estimator import (
+from astronomix._finite_difference._timestep import (
     _cfl_time_step_fd,
     _cfl_time_step_fd_hydro,
 )

@@ -11,8 +11,7 @@ from functools import partial
 
 # typing
 from typing import Union
-from jaxtyping import Array, Float, jaxtyped
-from beartype import beartype as typechecker
+from jaxtyping import Array, Float
 
 # jax
 import jax
@@ -39,9 +38,9 @@ from astronomix._fluid_equations._equations import (
 )
 
 
-# @jaxtyped(typechecker=typechecker)
 @partial(jax.jit, static_argnames=["config", "registered_variables"])
 def calculate_internal_energy(state, helper_data, gamma, config, registered_variables):
+    """The total internal energy of the domain: p / (gamma - 1) of the ideal gas, over the cell volumes."""
     p = state[registered_variables.pressure_index]
 
     internal_energy = p / (gamma - 1)
@@ -52,9 +51,9 @@ def calculate_internal_energy(state, helper_data, gamma, config, registered_vari
         return jnp.sum(internal_energy * config.grid_spacing**config.dimensionality)
 
 
-# @jaxtyped(typechecker=typechecker)
 @partial(jax.jit, static_argnames=["config", "registered_variables"])
 def calculate_radial_momentum(state, helper_data, config, registered_variables):
+    """The total radial momentum of the domain: rho v . r_hat, r measured from the box centre, over the cells."""
     rho = state[registered_variables.density_index]
     box_center = jnp.zeros(config.dimensionality) + config.box_size / 2
     geometric_centers = helper_data.geometric_centers
@@ -80,9 +79,9 @@ def calculate_radial_momentum(state, helper_data, config, registered_variables):
         return jnp.sum(radial_momentum * config.grid_spacing**config.dimensionality)
 
 
-# @jaxtyped(typechecker=typechecker)
 @partial(jax.jit, static_argnames=["config", "registered_variables"])
 def calculate_kinetic_energy(state, helper_data, config, registered_variables):
+    """The total kinetic energy of the domain, 0.5 rho v^2 integrated over the cell volumes."""
     rho = state[registered_variables.density_index]
     u = get_absolute_velocity(state, config, registered_variables)
 
@@ -94,11 +93,11 @@ def calculate_kinetic_energy(state, helper_data, config, registered_variables):
         return jnp.sum(kinetic_energy * config.grid_spacing**config.dimensionality)
 
 
-# @jaxtyped(typechecker=typechecker)
 @partial(jax.jit, static_argnames=["config", "registered_variables"])
 def calculate_gravitational_energy(
     state, helper_data, gravitational_constant, params, config, registered_variables
 ):
+    """The total gravitational energy: 0.5 rho phi of self-gravity plus rho phi of an external potential."""
     rho = state[registered_variables.density_index]
 
     gravitational_energy = jnp.zeros_like(rho)
@@ -126,7 +125,6 @@ def calculate_gravitational_energy(
         )
 
 
-# @jaxtyped(typechecker=typechecker)
 @partial(jax.jit, static_argnames=["config", "registered_variables"])
 def calculate_total_energy(
     primitive_state: STATE_TYPE,
@@ -183,7 +181,6 @@ def calculate_total_energy(
         return jnp.sum(energy * config.grid_spacing**config.dimensionality)
 
 
-# @jaxtyped(typechecker=typechecker)
 @partial(jax.jit, static_argnames=["config"])
 def calculate_total_mass(
     primitive_state: STATE_TYPE,

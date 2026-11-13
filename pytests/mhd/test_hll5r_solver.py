@@ -20,8 +20,6 @@ Run on the CPU::
 
 # numerics
 import jax
-
-jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 import numpy as np
 
@@ -35,6 +33,8 @@ from astronomix._finite_volume._riemann._hll5r import (
     hll5r_flux,
     hll5r_lagrangian_speeds,
 )
+
+pytestmark = pytest.mark.x64
 
 GAMMA = 5.0 / 3.0
 ISOTHERMAL_SOUND_SPEED_SQUARED = 0.7

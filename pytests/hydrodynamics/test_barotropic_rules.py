@@ -10,23 +10,11 @@ Run on the CPU::
     JAX_PLATFORMS=cpu PYTHONPATH=. python -m pytest pytests/hydrodynamics/test_barotropic_rules.py
 """
 
-# ==== GPU selection ====
-import os
-
-if os.environ.get("CUDA_VISIBLE_DEVICES") is None and os.environ.get("JAX_PLATFORMS") != "cpu":
-    from autocvd import autocvd
-
-    autocvd(num_gpus=1)
-# ruff: noqa: E402
-# =======================
-
 # testing
 import pytest
 
 # numerics
 import jax
-
-jax.config.update("jax_enable_x64", True)
 
 # astronomix constants
 from astronomix import FINITE_DIFFERENCE, FINITE_VOLUME, PERIODIC_BOUNDARY
@@ -61,6 +49,8 @@ from astronomix._modules._stellar_wind.stellar_wind_options import WindConfig
 
 # astronomix functions
 from astronomix import finalize_config
+
+pytestmark = pytest.mark.x64
 
 CELLS = 16
 PERIODIC = BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY)

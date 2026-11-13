@@ -4,6 +4,8 @@ The faithful figure generators live under ``examples/scripts/`` (the same
 scripts a user runs to reproduce a figure by hand). This module drives them:
 each entry in :data:`PAPER_FIGURES` names one paper figure, the ordered
 generator invocation(s) that build it, and the output file(s) it must produce.
+The figures are outputs, not tracked files: a case passes when its steps
+write every listed file.
 
 Run the whole set (slow, needs a GPU)::
 
@@ -54,6 +56,7 @@ figures ARE included above.
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 # typing
@@ -244,7 +247,8 @@ def test_reproduce_paper_figure(figure, request):
 
     Skipped unless ``--reproduce-paper`` is passed, so a normal ``pytest`` run
     stays fast. Each step is executed with the repository root on PYTHONPATH and
-    its own directory as cwd; afterwards every declared output file must exist.
+    its own directory as cwd; afterwards every declared output file must have
+    been written by the steps (the figures are outputs, not tracked files).
 
     Args:
         figure: The :class:`PaperFigure` describing one paper figure.
@@ -254,6 +258,7 @@ def test_reproduce_paper_figure(figure, request):
         pytest.skip("pass --reproduce-paper to regenerate the paper figures")
 
     env = {**os.environ, "PYTHONPATH": str(REPO_ROOT)}
+    started = time.time()
     for step in figure.steps:
         script = EXAMPLES / step.script
         assert script.exists(), f"generator missing: {script}"
@@ -269,3 +274,4 @@ def test_reproduce_paper_figure(figure, request):
     for rel in figure.outputs:
         produced = out_dir / rel
         assert produced.exists(), f"{figure.name}: expected output missing: {produced}"
+        assert produced.stat().st_mtime >= started, f"{figure.name}: output not written by this run: {produced}"

@@ -11,20 +11,11 @@ Run on the CPU::
     JAX_PLATFORMS=cpu PYTHONPATH=. python -m pytest pytests/hydrodynamics/test_barotropic_spherical_1d.py
 """
 
-# ==== GPU selection ====
-import os
-
-if os.environ.get("CUDA_VISIBLE_DEVICES") is None and os.environ.get("JAX_PLATFORMS") != "cpu":
-    from autocvd import autocvd
-
-    autocvd(num_gpus=1)
-# ruff: noqa: E402
-# =======================
+# testing
+import pytest
 
 # numerics
 import jax
-
-jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 import numpy as np
 
@@ -49,6 +40,8 @@ from astronomix import (
     get_registered_variables,
     time_integration,
 )
+
+pytestmark = pytest.mark.x64
 
 CELLS = 64
 STEPS = 200
@@ -119,5 +112,6 @@ def test_barotropic_pulse_conserves_the_mass():
 
 
 if __name__ == "__main__":
-    test_uniform_barotropic_gas_stays_at_rest()
-    test_barotropic_pulse_conserves_the_mass()
+    with jax.enable_x64(True):
+        test_uniform_barotropic_gas_stays_at_rest()
+        test_barotropic_pulse_conserves_the_mass()

@@ -15,3 +15,4 @@ Submodules
 
    astronomix.plotting_helpers.power_law_indicators
    astronomix.plotting_helpers.inset_box
+   astronomix.plotting_helpers.paper_style

@@ -21,16 +21,6 @@ minutes on a CPU and is therefore not part of this file.
 # general
 import functools
 
-# ==== GPU selection ====
-import os
-
-if os.environ.get("CUDA_VISIBLE_DEVICES") is None and os.environ.get("JAX_PLATFORMS") != "cpu":
-    from autocvd import autocvd
-
-    autocvd(num_gpus=1)
-# ruff: noqa: E402
-# =======================
-
 # numerics
 import numpy as np
 
@@ -79,7 +69,7 @@ HAS_GPU = jax.default_backend() == "gpu"
 BOTH_GASES = pytest.mark.parametrize("equation_of_state", [ISOTHERMAL, IDEAL_GAS], ids=["isothermal", "ideal_gas"])
 BOTH_PATHS = pytest.mark.parametrize(
     "interpret",
-    [True, pytest.param(False, marks=pytest.mark.skipif(not HAS_GPU, reason="the compiled kernels need a GPU"))],
+    [True, pytest.param(False, marks=pytest.mark.gpu)],
     ids=["interpreted", "compiled"],
 )
 
@@ -242,6 +232,7 @@ def _rough_step(equation_of_state, backend, interpret):
     return np.asarray(state), np.asarray(final)
 
 
+@pytest.mark.slow
 @BOTH_PATHS
 @BOTH_GASES
 def test_step_of_the_kernels_equals_the_array_form(equation_of_state, interpret):
@@ -277,6 +268,7 @@ def _open_boundary_run(equation_of_state, backend, interpret, ghost_cells):
     return np.asarray(final)
 
 
+@pytest.mark.slow
 @BOTH_PATHS
 def test_open_boundaries_with_the_kernels(interpret):
     """

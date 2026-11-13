@@ -28,6 +28,12 @@ through ``**kwargs``, a mode or an integrator chosen at run time, a combination 
 ``--kwargs 'EXPRESSION=fd'`` tells the tool that the dictionary behind ``**EXPRESSION`` holds only keywords of
 the finite-difference container (``fv``: of the finite-volume container, ``none``: no moved keyword).
 
+Removed after the configuration move, without a mechanical translation (the TurbGen port replaced the old
+forcing, a different model): ``turbulent_forcing_config`` and ``TurbulentForcingConfig``, ``random_seed`` of
+``SimulationConfig`` (now ``TurbulenceDrivingConfig.random_seed``), ``turbulent_forcing_params`` and
+``TurbulentForcingParams``, ``solver_mode_to_string``. ``rewrite`` reports each use as ``UNRESOLVED`` with its
+replacement; ``check`` lists them.
+
 ``check`` lists every remaining old keyword or removed constant in a tree (code, comments, strings, markdown)
 and exits with status 1 if there is one. ``docs/source/apidocs``, ``ROADMAP.md`` and this file are skipped.
 
@@ -87,6 +93,16 @@ DIFFUSION_KEYWORDS = {
 }
 #: old keywords that became module constants (keyword -> the default, the only value that can be dropped)
 REMOVED_KEYWORDS = {"weno_epsilon": 1e-7, "dual_energy_eta": 1e-3}
+#: names removed after the configuration move, with what replaces them (no mechanical translation)
+REMOVED_LATER = {
+    "turbulent_forcing_config": "turbulence_driving_config=TurbulenceDrivingConfig(...) (TurbGen driving)",
+    "TurbulentForcingConfig": "TurbulenceDrivingConfig (TurbGen driving)",
+    "turbulent_forcing_params": "SimulationParams(turbulence_driving_params=TurbulenceDrivingParams(...))",
+    "TurbulentForcingParams": "TurbulenceDrivingParams (TurbGen driving)",
+    "solver_mode_to_string": "config_to_string or the constant itself",
+}
+#: a keyword of SimulationConfig removed after the configuration move, with what replaces it
+REMOVED_LATER_KEYWORDS = {"random_seed": "TurbulenceDrivingConfig(random_seed=...)"}
 #: old keywords that decide integrator, reconstruction and divergence control together
 INTEGRATOR_KEYWORDS = ("time_integrator", "split", "first_order_fallback", "vl2_constrained_transport")
 OLD_KEYWORDS = (
@@ -481,7 +497,11 @@ class Rewriter:
         last = receiver.strip().split(".")[-1]
         if last in CONTAINER_FIELDS or "param" in last.lower() or last.endswith(")"):
             return False
-        return not re.search(r"registered|helper|solver|scheme|preset|ATHENAPK_VL2|FD_PAPER", last)
+        return not re.search(
+            r"registered|helper|solver|scheme|preset|ATHENAPK_VL2|FD_PAPER|FD_RIEMANN_|BEATTIE_REFERENCE"
+            r"|fd_config|fv_config",
+            last,
+        )
 
     # -- one source ---------------------------------------------------------------------------------------
 
@@ -512,7 +532,32 @@ class Rewriter:
                 text = text[:parenthesis] + replacement + text[end:]
         text = self.rename_constants(text)
         text = self.fix_imports(text, original)
+        self.report_removed_later(ast.parse(text))
         return text
+
+    def report_removed_later(self, tree):
+        """Report the names removed after the configuration move: they have no mechanical translation."""
+        for node in ast.walk(tree):
+            names = []
+            if isinstance(node, ast.Name):
+                names = [node.id]
+            elif isinstance(node, ast.Attribute):
+                names = [node.attr]
+            elif isinstance(node, (ast.ImportFrom, ast.Import)):
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.keyword):
+                names = [node.arg]
+            elif isinstance(node, ast.Call) and getattr(node.func, "id", getattr(node.func, "attr", None)) in (
+                "SimulationConfig",
+                "_replace",
+            ):
+                for keyword in node.keywords:
+                    if keyword.arg in REMOVED_LATER_KEYWORDS:
+                        replacement = REMOVED_LATER_KEYWORDS[keyword.arg]
+                        self.say("UNRESOLVED", node.lineno, f"removed keyword {keyword.arg}: use {replacement}")
+            for name in names:
+                if name in REMOVED_LATER:
+                    self.say("UNRESOLVED", node.lineno, f"removed name {name}: use {REMOVED_LATER[name]}")
 
     # -- layout -------------------------------------------------------------------------------------------
 
@@ -1009,6 +1054,7 @@ TEXT_PATTERNS = [
         "old field config.{}",
     ),
     (re.compile(r"\bhalo_exchange\s*=\s*([\"'](?:ppermute|pair_all_to_all)[\"'])"), "halo_exchange as a string {}"),
+    (re.compile(r"\b(" + "|".join(REMOVED_LATER) + r")\b"), "removed name {}"),
 ]
 CALL_IN_TEXT = re.compile(r"\bSimulationConfig\(")
 KEYWORD_IN_TEXT = re.compile(r"(?<![\w.])(" + "|".join(sorted(OLD_KEYWORDS)) + r")\s*=(?!=)")
@@ -1092,6 +1138,19 @@ def check_code(label, text, findings):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
     }
     for node in ast.walk(tree):
+        if isinstance(node, (ast.Name, ast.Attribute, ast.keyword)):
+            name = node.id if isinstance(node, ast.Name) else node.attr if isinstance(node, ast.Attribute) else node.arg
+            if name in REMOVED_LATER:
+                found(node if not isinstance(node, ast.keyword) else node.value, f"removed name {name}")
+        elif isinstance(node, ast.ImportFrom) and (node.module or "").startswith("astronomix"):
+            for alias in node.names:
+                if alias.name in REMOVED_LATER:
+                    found(node, f"import of the removed name {alias.name}")
+        called = getattr(node.func, "id", getattr(node.func, "attr", None)) if isinstance(node, ast.Call) else None
+        if called == "SimulationConfig":
+            for keyword in node.keywords:
+                if keyword.arg in REMOVED_LATER_KEYWORDS:
+                    found(node, f"removed keyword {keyword.arg} in SimulationConfig(...)")
         if isinstance(node, ast.Name) and node.id in REMOVED_CONSTANTS:
             found(node, f"removed constant {node.id}")
         elif isinstance(node, ast.Attribute):
@@ -1102,7 +1161,7 @@ def check_code(label, text, findings):
             elif node.attr in OLD_ONLY_KEYWORDS - {"split", "diffusion", "num_passive_scalars"}:
                 found(node, f"old field {receiver}.{node.attr}")
             elif node.attr in OLD_KEYWORDS - {"split"} and re.fullmatch(r"(\w*_)?(config|cfg)", last):
-                if last not in CONTAINER_FIELDS and not re.search(r"solver|diffusion|scalar", last):
+                if last not in CONTAINER_FIELDS and not re.search(r"solver|diffusion|scalar|fd_config|fv_config", last):
                     found(node, f"old field {receiver}.{node.attr}")
         elif isinstance(node, ast.ImportFrom) and (node.module or "").startswith("astronomix"):
             for alias in node.names:

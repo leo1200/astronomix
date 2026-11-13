@@ -10,16 +10,6 @@ where a GPU is present.
     JAX_PLATFORMS=cpu python -m pytest pytests/hydrodynamics/test_barotropic_stage_kernel.py
 """
 
-# ==== GPU selection ====
-import os
-
-if os.environ.get("CUDA_VISIBLE_DEVICES") is None and os.environ.get("JAX_PLATFORMS") != "cpu":
-    from autocvd import autocvd
-
-    autocvd(num_gpus=1)
-# ruff: noqa: E402
-# =======================
-
 # numerics
 import numpy as np
 
@@ -28,8 +18,6 @@ import pytest
 
 # jax
 import jax
-
-jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 
 # astronomix constants
@@ -66,8 +54,9 @@ from astronomix.option_classes.simulation_config import finalize_config
 from astronomix.time_stepping.time_integration import time_integration
 from astronomix.variable_registry.registered_variables import get_registered_variables
 
+pytestmark = pytest.mark.x64
+
 NUM_CELLS = 8
-HAS_GPU = jax.default_backend() == "gpu"
 #: (time integrator, dimensionality, mhd, equation of state, polytropic exponent): every gas in 1D and 2D, one in
 #: 3D and in GLM MHD for both laws (the cases differ in the axes and rows the kernel loops over, not in the law).
 CASES = pytest.mark.parametrize(
@@ -92,7 +81,7 @@ CASES = pytest.mark.parametrize(
 )
 BOTH_PATHS = pytest.mark.parametrize(
     "interpret",
-    [True, pytest.param(False, marks=pytest.mark.skipif(not HAS_GPU, reason="the compiled kernels need a GPU"))],
+    [True, pytest.param(False, marks=pytest.mark.gpu)],
     ids=["interpreted", "compiled"],
 )
 
@@ -159,6 +148,7 @@ def _compare(label, kernel_run, array_run):
     assert difference < STEP_TOLERANCE
 
 
+@pytest.mark.slow
 @BOTH_PATHS
 @CASES
 def test_fv_stage_kernel_equals_the_array_form(time_integrator, dimensionality, mhd, equation_of_state, exponent,

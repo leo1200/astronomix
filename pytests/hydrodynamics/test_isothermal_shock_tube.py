@@ -13,20 +13,11 @@ Run on the CPU::
     JAX_PLATFORMS=cpu PYTHONPATH=. python -m pytest pytests/hydrodynamics/test_isothermal_shock_tube.py
 """
 
-# ==== GPU selection ====
-import os
-
-if os.environ.get("CUDA_VISIBLE_DEVICES") is None and os.environ.get("JAX_PLATFORMS") != "cpu":
-    from autocvd import autocvd
-
-    autocvd(num_gpus=1)
-# ruff: noqa: E402
-# =======================
+# testing
+import pytest
 
 # numerics
 import jax
-
-jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 import numpy as np
 
@@ -59,6 +50,8 @@ from astronomix import (
     get_registered_variables,
     time_integration,
 )
+
+pytestmark = pytest.mark.x64
 
 SOUND_SPEED = 0.8
 T_END = 0.15
@@ -207,6 +200,7 @@ def test_lax_friedrichs_runs_the_isothermal_shock_tubes():
 
 
 if __name__ == "__main__":
-    test_exact_solution_of_the_two_shock_case()
-    test_isothermal_shock_tubes_converge_to_the_exact_solution()
-    test_lax_friedrichs_runs_the_isothermal_shock_tubes()
+    with jax.enable_x64(True):
+        test_exact_solution_of_the_two_shock_case()
+        test_isothermal_shock_tubes_converge_to_the_exact_solution()
+        test_lax_friedrichs_runs_the_isothermal_shock_tubes()

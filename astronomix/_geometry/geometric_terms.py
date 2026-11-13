@@ -8,11 +8,6 @@ cross-section in spherical geometry (Crittenden & Balachandar, 2018).
 # general
 from functools import partial
 
-# typing
-from typing import Union
-from beartype import beartype as typechecker
-from jaxtyping import Array, Float, jaxtyped
-
 # jax
 import jax
 import jax.numpy as jnp
@@ -26,7 +21,6 @@ from astronomix.data_classes.simulation_helper_data import HelperData
 from astronomix.variable_registry.registered_variables import RegisteredVariables
 
 
-# @jaxtyped(typechecker=typechecker)
 @partial(jax.jit, static_argnames=["config", "registered_variables"])
 def _pressure_nozzling_source(
     pressure,

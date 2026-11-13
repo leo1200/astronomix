@@ -80,7 +80,7 @@ from astronomix import BackendConfig, FVSolverConfig, SimulationConfig, Simulati
 # astronomix functions
 from astronomix import get_registered_variables
 from astronomix.test_setups.mhd.alfven_wave3D import setup_cp_alfven_wave
-from astronomix._finite_volume._timestep_estimation._timestep_estimator import _cfl_time_step
+from astronomix._finite_volume._timestep import _cfl_time_step
 from astronomix._finite_volume._evolve_state import _evolve_state_fv
 
 # validation helpers

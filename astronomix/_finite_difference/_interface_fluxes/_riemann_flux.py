@@ -86,7 +86,7 @@ from astronomix._fluid_equations._eigen_mhd import (
     _right_eigenvector_columns,
     _wave_speeds,
 )
-from astronomix._fluid_equations._eigen_mhd_iso import (
+from astronomix._fluid_equations._eigen_mhd_baro import (
     _eigenvector_blocks_iso,
     _left_eigenvector_rows_iso,
     _right_eigenvector_columns_iso,

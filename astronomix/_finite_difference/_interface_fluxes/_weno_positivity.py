@@ -136,7 +136,10 @@ def _floored_ratio(numerator, denominator):
     Return ``numerator / max(denominator, DIVISION_FLOOR)``.
 
     The forward value is exactly the guarded division it replaces; only the
-    derivative differs (see ``_floored_ratio_jvp``).
+    derivative differs (see ``_floored_ratio_jvp``). ``_ratio_rules._floored_ratio``
+    of the scheme with a Riemann flux has the same values but another derivative
+    (the true slope down to the floor), so one definition for both would change
+    the derivatives of one of the two schemes.
     """
     return numerator / jnp.maximum(denominator, DIVISION_FLOOR)
 
@@ -719,11 +722,7 @@ def positivity_preserving_interface_flux(
 #: is the last slot.
 DENSITY_SLOT = 0
 
-#: Slots of the ideal-MHD local tuple (rho, m_n, m_t1, m_t2, B_n, B_t1, B_t2, E).
-MOMENTUM_SLOTS = (1, 2, 3)
 MAGNETIC_SLOTS = (4, 5, 6)
-ENERGY_SLOT = 7
-NUM_MHD_SLOTS = 8
 
 
 def _local_gas_pressure(state, gamma_minus_one, magnetic_slots=()):

@@ -27,6 +27,18 @@ orbax-checkpoint = ">=0.11.0,<0.11.11"
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
+[tool.pytest.ini_options]
+# `pytest` from the repository root runs the test suite in one process without the slow tests (CPU: about
+# 11 minutes); `pytest -m ""` runs every test. The markers are handled in pytests/conftest.py.
+testpaths = ["pytests"]
+addopts = "-m 'not slow'"
+markers = [
+    "x64: the tests of the module run with 64-bit floats (jax.enable_x64 around the module)",
+    "slow: 20 s or more on the CPU; deselected by default, `pytest -m \"\"` runs it",
+    "gpu: needs a GPU (the compiled Pallas kernels); skipped without one",
+    "devices(n): needs n devices; skipped with fewer",
+]
+
 [tool.ruff]
 extend-select = ["E", "F", "I", "C", "B", "D", "Q"]
 # Globally ignore "module level import not at top of file"

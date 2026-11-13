@@ -19,20 +19,8 @@ Run on the CPU::
     JAX_PLATFORMS=cpu PYTHONPATH=. python -m pytest pytests/mhd/test_reference_sweep.py
 """
 
-# ==== GPU selection ====
-import os
-
-if os.environ.get("CUDA_VISIBLE_DEVICES") is None and os.environ.get("JAX_PLATFORMS") != "cpu":
-    from autocvd import autocvd
-
-    autocvd(num_gpus=1)
-# ruff: noqa: E402
-# =======================
-
 # numerics
 import jax
-
-jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -73,6 +61,8 @@ from astronomix._finite_volume._stage import _hancock_terms
 from astronomix.option_classes.simulation_config import finalize_config
 from astronomix.time_stepping.time_integration import time_integration
 from astronomix.variable_registry.registered_variables import get_registered_variables
+
+pytestmark = pytest.mark.x64
 
 GAMMA = 5.0 / 3.0
 SOUND_SPEED = 0.9

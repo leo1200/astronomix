@@ -11,16 +11,6 @@ rules of ``finalize_config``.
     JAX_PLATFORMS=cpu python -m pytest pytests/hydrodynamics/test_riemann_flux_polytropic.py
 """
 
-# ==== GPU selection ====
-import os
-
-if os.environ.get("CUDA_VISIBLE_DEVICES") is None and os.environ.get("JAX_PLATFORMS") != "cpu":
-    from autocvd import autocvd
-
-    autocvd(num_gpus=1)
-# ruff: noqa: E402
-# =======================
-
 # numerics
 import numpy as np
 
@@ -29,8 +19,6 @@ import pytest
 
 # jax
 import jax
-
-jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 
 # astronomix constants
@@ -55,13 +43,15 @@ from astronomix.option_classes.simulation_config import (
 from astronomix.option_classes.simulation_params import SimulationParams
 
 # astronomix functions
-from astronomix._finite_difference._timestep_estimation._timestep_estimator import _cfl_time_step_fd_hydro
+from astronomix._finite_difference._timestep import _cfl_time_step_fd_hydro
 from astronomix._spatial_operators._differencing import finite_difference_int6
 from astronomix._spatial_operators._interpolate import interp_face_to_center
 from astronomix.initial_condition_generation.construct_primitive_state import construct_primitive_state
 from astronomix.option_classes.simulation_config import finalize_config
 from astronomix.time_stepping.time_integration import time_integration
 from astronomix.variable_registry.registered_variables import get_registered_variables
+
+pytestmark = pytest.mark.x64
 
 SOUND_SPEED = 0.7
 
@@ -124,6 +114,7 @@ def _rough_fields(dimensionality, num_cells, mhd):
 @pytest.mark.parametrize(
     "dimensionality, num_cells, mhd", [(1, 64, False), (2, 32, False), (3, 12, True)], ids=["1d", "2d", "mhd_3d"]
 )
+@pytest.mark.slow
 def test_exponent_one_is_the_isothermal_gas(dimensionality, num_cells, mhd):
     """Gamma = 1, K = c_s^2 against the isothermal gas: relative 1e-13 (measured 0, 9e-16, 5e-15)."""
     params = SimulationParams(C_cfl=1.0, t_end=0.05, isothermal_sound_speed=SOUND_SPEED,
@@ -205,6 +196,7 @@ def _exact_barotropic(rho_L, u_L, rho_R, u_R, constant, exponent, x, t):
     return rho, u
 
 
+@pytest.mark.slow
 def test_exact_solution_conserves_mass_and_momentum():
     """The sampled solution changes the mass and the momentum by the fluxes of the two outer states."""
     x = np.linspace(0.0, 1.0, 200001)

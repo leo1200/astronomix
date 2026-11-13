@@ -30,7 +30,7 @@ from astronomix.variable_registry.registered_variables import RegisteredVariable
 
 # astronomix functions
 from astronomix._fluid_equations._equation_of_state import is_barotropic
-from astronomix._finite_volume._timestep_estimation._timestep_estimator import (
+from astronomix._finite_volume._timestep import (
     _maximum_signal_speed_vl2,
 )
 

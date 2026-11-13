@@ -13,7 +13,7 @@ single- and multi-GPU (`_pallas_call_sharded`).
 holds the AthenaPK runner, the 19-case comparison (round-off agreement, the scale
 being AthenaPK's own GPU-vs-CPU difference), the CP Alfvén convergence study and
 the A100 benchmark (Pallas 9.25 ms per step at 2 x 128³ in double precision
-against AthenaPK's 25.4 ms). `pytests/mhd/vl2_athenapk_regression.py` guards it.
+against AthenaPK's 25.4 ms). `pytests/mhd/test_vl2_athenapk_regression.py` guards it.
 
 **Done since** (paper revision, branch `paper-revision`): AthenaPK builds for the
 JUPITER GH200 nodes in double and single precision

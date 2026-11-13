@@ -7,8 +7,6 @@ the module, and checks all of them against the same tolerance.
 
 # numerics
 import jax
-
-jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp  # noqa: E402
 import numpy as np  # noqa: E402
 

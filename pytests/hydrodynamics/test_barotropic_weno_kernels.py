@@ -11,16 +11,6 @@ where a GPU is present.
     JAX_PLATFORMS=cpu python -m pytest pytests/hydrodynamics/test_barotropic_weno_kernels.py
 """
 
-# ==== GPU selection ====
-import os
-
-if os.environ.get("CUDA_VISIBLE_DEVICES") is None and os.environ.get("JAX_PLATFORMS") != "cpu":
-    from autocvd import autocvd
-
-    autocvd(num_gpus=1)
-# ruff: noqa: E402
-# =======================
-
 # numerics
 import numpy as np
 
@@ -29,8 +19,6 @@ import pytest
 
 # jax
 import jax
-
-jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 
 # astronomix constants
@@ -63,8 +51,9 @@ from astronomix.option_classes.simulation_config import finalize_config
 from astronomix.time_stepping.time_integration import time_integration
 from astronomix.variable_registry.registered_variables import get_registered_variables
 
+pytestmark = pytest.mark.x64
+
 NUM_CELLS = 8
-HAS_GPU = jax.default_backend() == "gpu"
 GASES = pytest.mark.parametrize(
     "equation_of_state, exponent",
     [(ISOTHERMAL, 1.0), (POLYTROPIC, 0.7), (POLYTROPIC, 5.0 / 3.0)],
@@ -72,7 +61,7 @@ GASES = pytest.mark.parametrize(
 )
 BOTH_PATHS = pytest.mark.parametrize(
     "interpret",
-    [True, pytest.param(False, marks=pytest.mark.skipif(not HAS_GPU, reason="the compiled kernels need a GPU"))],
+    [True, pytest.param(False, marks=pytest.mark.gpu)],
     ids=["interpreted", "compiled"],
 )
 
@@ -147,6 +136,7 @@ def test_weno_hydro_kernel_equals_the_array_form(dimensionality, equation_of_sta
     _compare(f"WENO hydro {dimensionality}D eos {equation_of_state} Gamma {exponent:.3f}", kernel_run, array_run)
 
 
+@pytest.mark.slow
 @BOTH_PATHS
 @pytest.mark.parametrize("exponent", [0.7, 5.0 / 3.0], ids=["polytropic_0.7", "polytropic_5/3"])
 def test_weno_mhd_kernel_equals_the_array_form(exponent, interpret):

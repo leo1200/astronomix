@@ -113,6 +113,13 @@ API
 
       .. autodoc2-docstring:: astronomix.option_classes.simulation_params.SimulationParams.viscosity
 
+   .. py:attribute:: resistivity
+      :canonical: astronomix.option_classes.simulation_params.SimulationParams.resistivity
+      :type: float
+      :value: 0.0
+
+      .. autodoc2-docstring:: astronomix.option_classes.simulation_params.SimulationParams.resistivity
+
    .. py:attribute:: thermal_conductivity
       :canonical: astronomix.option_classes.simulation_params.SimulationParams.thermal_conductivity
       :type: float
@@ -126,6 +133,20 @@ API
       :value: 1.0
 
       .. autodoc2-docstring:: astronomix.option_classes.simulation_params.SimulationParams.isothermal_sound_speed
+
+   .. py:attribute:: polytropic_constant
+      :canonical: astronomix.option_classes.simulation_params.SimulationParams.polytropic_constant
+      :type: float
+      :value: 1.0
+
+      .. autodoc2-docstring:: astronomix.option_classes.simulation_params.SimulationParams.polytropic_constant
+
+   .. py:attribute:: polytropic_exponent
+      :canonical: astronomix.option_classes.simulation_params.SimulationParams.polytropic_exponent
+      :type: float
+      :value: 1.0
+
+      .. autodoc2-docstring:: astronomix.option_classes.simulation_params.SimulationParams.polytropic_exponent
 
    .. py:attribute:: gamma
       :canonical: astronomix.option_classes.simulation_params.SimulationParams.gamma
@@ -147,6 +168,20 @@ API
       :value: 1e-14
 
       .. autodoc2-docstring:: astronomix.option_classes.simulation_params.SimulationParams.minimum_pressure
+
+   .. py:attribute:: maximum_alfven_speed
+      :canonical: astronomix.option_classes.simulation_params.SimulationParams.maximum_alfven_speed
+      :type: float
+      :value: 'float(...)'
+
+      .. autodoc2-docstring:: astronomix.option_classes.simulation_params.SimulationParams.maximum_alfven_speed
+
+   .. py:attribute:: glm_alpha
+      :canonical: astronomix.option_classes.simulation_params.SimulationParams.glm_alpha
+      :type: float
+      :value: 0.1
+
+      .. autodoc2-docstring:: astronomix.option_classes.simulation_params.SimulationParams.glm_alpha
 
    .. py:attribute:: dt_max
       :canonical: astronomix.option_classes.simulation_params.SimulationParams.dt_max
@@ -183,12 +218,12 @@ API
 
       .. autodoc2-docstring:: astronomix.option_classes.simulation_params.SimulationParams.fixed_boundary_state
 
-   .. py:attribute:: turbulent_forcing_params
-      :canonical: astronomix.option_classes.simulation_params.SimulationParams.turbulent_forcing_params
-      :type: astronomix._modules._turbulent_forcing._turbulent_forcing_options.TurbulentForcingParams
-      :value: 'TurbulentForcingParams(...)'
+   .. py:attribute:: turbulence_driving_params
+      :canonical: astronomix.option_classes.simulation_params.SimulationParams.turbulence_driving_params
+      :type: astronomix._modules._turbulence_driving._turbulence_driving_options.TurbulenceDrivingParams
+      :value: 'TurbulenceDrivingParams(...)'
 
-      .. autodoc2-docstring:: astronomix.option_classes.simulation_params.SimulationParams.turbulent_forcing_params
+      .. autodoc2-docstring:: astronomix.option_classes.simulation_params.SimulationParams.turbulence_driving_params
 
    .. py:attribute:: wind_params
       :canonical: astronomix.option_classes.simulation_params.SimulationParams.wind_params
@@ -204,16 +239,9 @@ API
 
       .. autodoc2-docstring:: astronomix.option_classes.simulation_params.SimulationParams.cooling_params
 
-   .. py:attribute:: neural_net_force_params
-      :canonical: astronomix.option_classes.simulation_params.SimulationParams.neural_net_force_params
-      :type: astronomix._modules._neural_net_force._neural_net_force_options.NeuralNetForceParams
-      :value: 'NeuralNetForceParams(...)'
+   .. py:attribute:: per_step_update_params
+      :canonical: astronomix.option_classes.simulation_params.SimulationParams.per_step_update_params
+      :type: typing.Any
+      :value: None
 
-      .. autodoc2-docstring:: astronomix.option_classes.simulation_params.SimulationParams.neural_net_force_params
-
-   .. py:attribute:: cnn_mhd_corrector_params
-      :canonical: astronomix.option_classes.simulation_params.SimulationParams.cnn_mhd_corrector_params
-      :type: astronomix._modules._cnn_mhd_corrector._cnn_mhd_corrector_options.CNNMHDconfig
-      :value: 'CNNMHDconfig(...)'
-
-      .. autodoc2-docstring:: astronomix.option_classes.simulation_params.SimulationParams.cnn_mhd_corrector_params
+      .. autodoc2-docstring:: astronomix.option_classes.simulation_params.SimulationParams.per_step_update_params

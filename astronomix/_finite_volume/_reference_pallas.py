@@ -65,7 +65,7 @@ from astronomix._finite_volume._stage import (
     _sweep_stage,
 )
 from astronomix._finite_volume._stage_pallas import _fv_stage_block_shape, _interior_spatial_shape
-from astronomix._finite_volume._timestep_estimation._timestep_estimator import _maximum_hll5r_speed
+from astronomix._finite_volume._timestep import _maximum_hll5r_speed
 from astronomix._pallas_helpers import (
     _backend_is_pallas,
     _current_pallas_mesh,

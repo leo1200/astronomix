@@ -50,9 +50,7 @@ from astronomix._finite_difference._interface_fluxes._riemann_flux import (
 )
 from astronomix._finite_difference._interface_fluxes._riemann_flux_pallas import _riemann_flux_pallas_supported
 from astronomix._finite_difference._interface_fluxes._weno import (
-    _weno_flux_x,
-    _weno_flux_y,
-    _weno_flux_z,
+    _weno_flux,
 )
 from astronomix._finite_difference._interface_fluxes._weno_pallas import (
     _hydro_pallas_flux_supported,
@@ -188,7 +186,7 @@ def _riemann_flux_increment(
     static_argnames=["registered_variables", "config"],
     donate_argnames=["conserved_state", "bx_interface", "by_interface", "bz_interface"],
 )
-def _ssprk4_with_ct(
+def _ssprk_with_ct(
     conserved_state,
     bx_interface,
     by_interface,
@@ -204,8 +202,9 @@ def _ssprk4_with_ct(
 ):
     """
     Integrates the MHD equations for one time step using a 5-stage, 4th-order
-    Strong Stability Preserving Runge-Kutta (SSPRK) method
-    with Constrained Transport (CT).
+    Strong Stability Preserving Runge-Kutta (SSPRK) method, or SSPRK(3,3) with
+    ``time_integrator=SSPRK33`` (``scheme = RIEMANN_FLUX``), with Constrained
+    Transport (CT).
 
     Args:
         conserved_state: The conserved state (cell-centred fields included).
@@ -290,11 +289,12 @@ def _ssprk4_with_ct(
             )
         else:
             # --------------- ↓ x-axis ↓ ----------------
-            dF_x = _weno_flux_x(
+            dF_x = _weno_flux(
                 current_q,
                 params,
                 config,
                 registered_variables,
+                axis=0,
                 internal_energy_density=internal_energy_density,
                 inflow_reference=inflow_reference,
             )
@@ -310,11 +310,12 @@ def _ssprk4_with_ct(
 
             # --------------- ↓ y-axis ↓ ----------------
             if config.dimensionality >= 2:
-                dF_y = _weno_flux_y(
+                dF_y = _weno_flux(
                     current_q,
                     params,
                     config,
                     registered_variables,
+                    axis=1,
                     internal_energy_density=internal_energy_density,
                     inflow_reference=inflow_reference,
                 )
@@ -335,11 +336,12 @@ def _ssprk4_with_ct(
 
             # --------------- ↓ z-axis ↓ ----------------
             if config.dimensionality == 3:
-                dF_z = _weno_flux_z(
+                dF_z = _weno_flux(
                     current_q,
                     params,
                     config,
                     registered_variables,
+                    axis=2,
                     internal_energy_density=internal_energy_density,
                     inflow_reference=inflow_reference,
                 )
@@ -601,22 +603,24 @@ def _hydro_step_rhs(
         # relative to the original Pallas path while ensuring all three
         # ``dF`` temporaries never coexist and the rhs lives in a single
         # physical buffer across axes.
-        dF_x = _weno_flux_x(
+        dF_x = _weno_flux(
             current_q,
             params,
             config,
             registered_variables,
+            axis=0,
             internal_energy_density=internal_energy_density,
         )
         rhs_q = _hydro_flux_div_axis_pallas(dF_x, dtdx, config, axis=0)
         del dF_x
 
         if config.dimensionality >= 2:
-            dF_y = _weno_flux_y(
+            dF_y = _weno_flux(
                 current_q,
                 params,
                 config,
                 registered_variables,
+                axis=1,
                 internal_energy_density=internal_energy_density,
             )
             rhs_q = _hydro_flux_div_axis_pallas(
@@ -625,11 +629,12 @@ def _hydro_step_rhs(
             del dF_y
 
         if config.dimensionality == 3:
-            dF_z = _weno_flux_z(
+            dF_z = _weno_flux(
                 current_q,
                 params,
                 config,
                 registered_variables,
+                axis=2,
                 internal_energy_density=internal_energy_density,
             )
             rhs_q = _hydro_flux_div_axis_pallas(
@@ -642,11 +647,12 @@ def _hydro_step_rhs(
         # Per-axis flux + divergence path.  Accumulate axis-by-axis rather
         # than holding all three flux arrays live simultaneously, so XLA
         # can reuse buffers between axes.
-        dF_x = _weno_flux_x(
+        dF_x = _weno_flux(
             current_q,
             params,
             config,
             registered_variables,
+            axis=0,
             internal_energy_density=internal_energy_density,
         )
         rhs_q = -dtdx * (dF_x - _shift(dF_x, 1, axis=1))
@@ -657,11 +663,12 @@ def _hydro_step_rhs(
         del dF_x
 
         if config.dimensionality >= 2:
-            dF_y = _weno_flux_y(
+            dF_y = _weno_flux(
                 current_q,
                 params,
                 config,
                 registered_variables,
+                axis=1,
                 internal_energy_density=internal_energy_density,
             )
             rhs_q = rhs_q - dtdy * (dF_y - _shift(dF_y, 1, axis=2))
@@ -670,11 +677,12 @@ def _hydro_step_rhs(
             del dF_y
 
         if config.dimensionality == 3:
-            dF_z = _weno_flux_z(
+            dF_z = _weno_flux(
                 current_q,
                 params,
                 config,
                 registered_variables,
+                axis=2,
                 internal_energy_density=internal_energy_density,
             )
             rhs_q = rhs_q - dtdz * (dF_z - _shift(dF_z, 1, axis=3))
@@ -708,7 +716,7 @@ def _hydro_step_rhs(
     static_argnames=["registered_variables", "config"],
     donate_argnames=["conserved_state"],
 )
-def _ssprk4_hydro(
+def _ssprk_hydro(
     conserved_state,
     gamma: Union[float, jnp.ndarray],
     grid_spacing: Union[float, jnp.ndarray],
@@ -858,11 +866,12 @@ def _lsrk4_hydro(
         )
 
         if use_fused_pallas:
-            dF_x = _weno_flux_x(
+            dF_x = _weno_flux(
                 q,
                 params,
                 config,
                 registered_variables,
+                axis=0,
                 internal_energy_density=internal_energy_density,
             )
             dq = _hydro_flux_div_axis_pallas(
@@ -876,11 +885,12 @@ def _lsrk4_hydro(
             del dF_x
 
             if config.dimensionality >= 2:
-                dF_y = _weno_flux_y(
+                dF_y = _weno_flux(
                     q,
                     params,
                     config,
                     registered_variables,
+                    axis=1,
                     internal_energy_density=internal_energy_density,
                 )
                 dq = _hydro_flux_div_axis_pallas(
@@ -894,11 +904,12 @@ def _lsrk4_hydro(
                 del dF_y
 
             if config.dimensionality == 3:
-                dF_z = _weno_flux_z(
+                dF_z = _weno_flux(
                     q,
                     params,
                     config,
                     registered_variables,
+                    axis=2,
                     internal_energy_density=internal_energy_density,
                 )
                 dq = _hydro_flux_div_axis_pallas(
@@ -977,7 +988,7 @@ def _lsrk4_with_ct(
     Carpenter-Kennedy 2N-storage 5-stage 4th-order LSRK4 for MHD-CT.
 
     Mirrors ``_lsrk4_hydro`` but carries the four MHD register pairs that
-    ``_ssprk4_with_ct``'s Spiteri-Ruuth scheme used as three-register triples:
+    ``_ssprk_with_ct``'s Spiteri-Ruuth scheme used as three-register triples:
 
       * ``(q, dq)`` for the conserved state (8 vars),
       * ``(bx, dbx)``, ``(by, dby)``, ``(bz, dbz)`` for the three interface
@@ -1135,11 +1146,12 @@ def _lsrk4_with_ct(
                 registered_variables,
             )
         else:
-            dF_x = _weno_flux_x(
+            dF_x = _weno_flux(
                 current_q,
                 params,
                 config,
                 registered_variables,
+                axis=0,
                 internal_energy_density=internal_energy_density,
                 inflow_reference=inflow_reference,
             )
@@ -1203,11 +1215,12 @@ def _lsrk4_with_ct(
         # -------------------------------------------------------------
 
         if config.dimensionality >= 2:
-            dF_y = _weno_flux_y(
+            dF_y = _weno_flux(
                 current_q,
                 params,
                 config,
                 registered_variables,
+                axis=1,
                 internal_energy_density=internal_energy_density,
                 inflow_reference=inflow_reference,
             )
@@ -1253,11 +1266,12 @@ def _lsrk4_with_ct(
         # -------------------------------------------------------------
 
         if config.dimensionality == 3:
-            dF_z = _weno_flux_z(
+            dF_z = _weno_flux(
                 current_q,
                 params,
                 config,
                 registered_variables,
+                axis=2,
                 internal_energy_density=internal_energy_density,
                 inflow_reference=inflow_reference,
             )

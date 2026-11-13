@@ -13,6 +13,6 @@ Submodules
    :titlesonly:
    :maxdepth: 1
 
-   astronomix.initial_condition_generation.magnetic_field_from_vector_potential
    astronomix.initial_condition_generation.turbulent_ic_generator
    astronomix.initial_condition_generation.construct_primitive_state
+   astronomix.initial_condition_generation.magnetic_field_from_vector_potential

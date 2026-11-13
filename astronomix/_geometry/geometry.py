@@ -10,8 +10,7 @@ from functools import partial
 
 # typing
 from typing import Union
-from jaxtyping import Array, Float, jaxtyped
-from beartype import beartype as typechecker
+from jaxtyping import Array, Float
 
 # jax
 import jax
@@ -20,7 +19,6 @@ import jax
 from astronomix.option_classes.simulation_config import SPHERICAL
 
 
-# @jaxtyped(typechecker=typechecker)
 @partial(jax.jit, static_argnames=["geometry"])
 def _r_hat_alpha(
     r: Float[Array, "num_cells"], dr: Union[float, Float[Array, ""]], geometry: int
@@ -42,7 +40,6 @@ def _r_hat_alpha(
         raise ValueError("Unknown geometry / not for cartesian coordinates")
 
 
-# @jaxtyped(typechecker=typechecker)
 @partial(jax.jit, static_argnames=["geometry"])
 def _center_of_volume(
     r: Float[Array, "num_cells"], dr: Union[float, Float[Array, ""]], geometry: int

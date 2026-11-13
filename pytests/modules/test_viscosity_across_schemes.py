@@ -11,16 +11,6 @@ Run on the CPU::
     JAX_PLATFORMS=cpu PYTHONPATH=. python -m pytest pytests/modules/test_viscosity_across_schemes.py
 """
 
-# ==== GPU selection ====
-import os
-
-if os.environ.get("CUDA_VISIBLE_DEVICES") is None and os.environ.get("JAX_PLATFORMS") != "cpu":
-    from autocvd import autocvd
-
-    autocvd(num_gpus=1)
-# ruff: noqa: E402
-# =======================
-
 # numerics
 import numpy as np
 import pytest
@@ -36,6 +26,8 @@ from astronomix import get_registered_variables
 
 # the scheme families of the module tests
 from _schemes import HYDRO_SCHEMES, cell_centres, make_config, mode_amplitude, run
+
+pytestmark = pytest.mark.x64
 
 VISCOSITY = 0.01
 AMPLITUDE = 1e-3

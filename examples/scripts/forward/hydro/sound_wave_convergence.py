@@ -16,7 +16,7 @@ and writes
     figures/sound_wave3D_runtime.svg        (error/runtime diagnostics)
 
 The fast correctness version (single low resolution) lives in
-``pytests/hydrodynamics/sound_wave3D.py``; this script is the full sweep that
+``pytests/hydrodynamics/test_sound_wave_3d.py``; this script is the full sweep that
 produces the paper figure. It reuses the shared benchmark harness in
 ``pytests/_benchmark_utils.py``.
 

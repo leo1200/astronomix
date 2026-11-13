@@ -22,16 +22,6 @@ first run with the test before them through a cache; run alone they compute both
 # general
 import functools
 
-# ==== GPU selection ====
-import os
-
-if os.environ.get("CUDA_VISIBLE_DEVICES") is None and os.environ.get("JAX_PLATFORMS") != "cpu":
-    from autocvd import autocvd
-
-    autocvd(num_gpus=1)
-# ruff: noqa: E402
-# =======================
-
 # numerics
 import numpy as np
 
@@ -40,9 +30,6 @@ import pytest
 
 # jax
 import jax
-
-# The divergence, identity and derivative checks compare to rounding.
-jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 
 # astronomix constants
@@ -99,6 +86,9 @@ from astronomix.test_setups.mhd.alfven_wave3D import (
 )
 from astronomix.time_stepping.time_integration import time_integration
 from astronomix.variable_registry.registered_variables import get_registered_variables
+
+# The divergence, identity and derivative checks compare to rounding.
+pytestmark = pytest.mark.x64
 
 NUM_CELLS = 16
 SOUND_SPEED = 0.1
@@ -253,6 +243,7 @@ def _alfven_wave_error(equation_of_state, cells):
     return float(jnp.mean(jnp.abs(final[rows] - exact[rows])))
 
 
+@pytest.mark.slow
 @BOTH_GASES
 def test_alfven_wave_error_at_eight_cells(equation_of_state):
     """The circularly polarised Alfven wave, oblique to the grid, at 8 cells per transverse wavelength."""
@@ -261,6 +252,7 @@ def test_alfven_wave_error_at_eight_cells(equation_of_state):
     assert error < ALFVEN_WAVE_ERROR[equation_of_state, 8]
 
 
+@pytest.mark.slow
 @BOTH_GASES
 def test_alfven_wave_convergence_order(equation_of_state):
     """From 8 to 16 cells the error of the wave falls with the order of the scheme."""
@@ -275,6 +267,7 @@ def test_alfven_wave_convergence_order(equation_of_state):
 # ======================= divergence, positivity =======================
 
 
+@pytest.mark.slow
 @BOTH_GASES
 def test_steps_keep_divergence_at_rounding(equation_of_state):
     """About ten steps on a rough state leave the interface divergence at rounding."""
@@ -291,6 +284,7 @@ def test_steps_keep_divergence_at_rounding(equation_of_state):
     assert float(jnp.max(jnp.abs(divergence))) * spacing / largest_field < 1e-12
 
 
+@pytest.mark.slow
 def test_strong_blast_stays_positive():
     """
     The early blast of Seo and Ryu (pressure ratio 100, plasma beta 0.02 outside) at 24 cells, ideal gas: the
@@ -318,6 +312,7 @@ def test_strong_blast_stays_positive():
     assert float(density.max()) > 1.2
 
 
+@pytest.mark.slow
 def test_mach_ten_collision_stays_positive():
     """Two isothermal streams of Mach 10 collide at x = 0.5 and part at x = 0 (periodic box)."""
     X, Y, Z = _cell_coordinates()
@@ -359,6 +354,7 @@ def _open_boundary_run(equation_of_state, extra_ghost_cells):
     return np.asarray(state), np.asarray(final)
 
 
+@pytest.mark.slow
 @BOTH_GASES
 def test_open_boundaries_with_the_derived_ghost_cells(equation_of_state):
     """A few steps with open boundaries and the ghost layers of ``finalize_config``."""
@@ -367,6 +363,7 @@ def test_open_boundaries_with_the_derived_ghost_cells(equation_of_state):
     assert np.max(np.abs(final - state)) > 1e-3
 
 
+@pytest.mark.slow
 @BOTH_GASES
 def test_more_ghost_cells_give_the_same_result(equation_of_state):
     """
@@ -412,6 +409,7 @@ IDENTITY_BOUND = 1e-12
 CENTRAL_DIFFERENCE_BOUND = 1e-8
 
 
+@pytest.mark.slow
 @BOTH_GASES
 def test_derivative_of_the_field_update(equation_of_state):
     """

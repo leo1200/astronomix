@@ -11,16 +11,6 @@ solution of the barotropic Riemann problem, the time step of the local sound spe
     JAX_PLATFORMS=cpu python -m pytest pytests/hydrodynamics/test_weno_polytropic.py
 """
 
-# ==== GPU selection ====
-import os
-
-if os.environ.get("CUDA_VISIBLE_DEVICES") is None and os.environ.get("JAX_PLATFORMS") != "cpu":
-    from autocvd import autocvd
-
-    autocvd(num_gpus=1)
-# ruff: noqa: E402
-# =======================
-
 # numerics
 import numpy as np
 
@@ -29,8 +19,6 @@ import pytest
 
 # jax
 import jax
-
-jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 
 # astronomix constants
@@ -54,7 +42,7 @@ from astronomix.option_classes.simulation_config import (
 from astronomix.option_classes.simulation_params import SimulationParams
 
 # astronomix functions
-from astronomix._finite_difference._timestep_estimation._timestep_estimator import (
+from astronomix._finite_difference._timestep import (
     _cfl_time_step_fd,
     _cfl_time_step_fd_hydro,
 )
@@ -65,6 +53,8 @@ from astronomix.variable_registry.registered_variables import get_registered_var
 
 # the exact solution of the barotropic Riemann problem and the rough initial fields of the scheme with a Riemann flux
 from test_riemann_flux_polytropic import _exact_barotropic, _rough_fields
+
+pytestmark = pytest.mark.x64
 
 SOUND_SPEED = 0.7
 

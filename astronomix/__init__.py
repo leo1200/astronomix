@@ -18,7 +18,13 @@ from astronomix.option_classes.simulation_config import (
     MUSCL_HANCOCK,
     VL2,
     SSPRK54,
+    SSPRK33,
     LSRK4,
+    WENO_FLUX_SPLITTING,
+    RIEMANN_FLUX,
+    IDEAL_GAS,
+    ISOTHERMAL,
+    POLYTROPIC,
     DONOR_CELL,
     PIECEWISE_LINEAR,
     MINMOD,
@@ -29,8 +35,13 @@ from astronomix.option_classes.simulation_config import (
     HLLC,
     LAX_FRIEDRICHS,
     HLLD,
+    HLL5R,
+    RIEMANN_BY_EOS,
+    HLLEM_T,
+    HLLD_BOUNDED,
     GLM,
     CONSTRAINED_TRANSPORT,
+    INDUCTION_SOURCE,
     FORWARDS,
     BACKWARDS,
     OPEN_BOUNDARY,
@@ -56,7 +67,13 @@ from astronomix.option_classes.simulation_config import (
     GravityConfig,
     BackendConfig,
 )
-from astronomix.option_classes.presets import ATHENAPK_VL2, FD_PAPER
+from astronomix.option_classes.presets import (
+    ATHENAPK_VL2,
+    BEATTIE_REFERENCE,
+    FD_PAPER,
+    FD_RIEMANN_IDEAL_GAS,
+    FD_RIEMANN_ISOTHERMAL,
+)
 from astronomix.option_classes.simulation_params import SimulationParams
 from astronomix._modules._stellar_wind.stellar_wind_options import WindParams
 from astronomix._modules._turbulence_driving import TurbulenceDrivingConfig, TurbulenceDrivingParams

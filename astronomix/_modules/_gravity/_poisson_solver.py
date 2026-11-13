@@ -15,8 +15,7 @@ from functools import partial
 
 # typing
 from typing import Union
-from jaxtyping import Array, Float, jaxtyped
-from beartype import beartype as typechecker
+from jaxtyping import Array, Float
 
 # jax
 import jax
@@ -177,7 +176,6 @@ def _periodic_poisson_3d_sharded(
     )(gas_density)
 
 
-# @jaxtyped(typechecker=typechecker)
 @partial(jax.jit, static_argnames=["grid_spacing", "config"])
 def _compute_gravitational_potential(
     gas_density: FIELD_TYPE,

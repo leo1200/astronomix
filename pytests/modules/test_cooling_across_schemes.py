@@ -13,16 +13,6 @@ Run on the CPU::
     JAX_PLATFORMS=cpu PYTHONPATH=. python -m pytest pytests/modules/test_cooling_across_schemes.py
 """
 
-# ==== GPU selection ====
-import os
-
-if os.environ.get("CUDA_VISIBLE_DEVICES") is None and os.environ.get("JAX_PLATFORMS") != "cpu":
-    from autocvd import autocvd
-
-    autocvd(num_gpus=1)
-# ruff: noqa: E402
-# =======================
-
 # numerics
 import jax.numpy as jnp
 import numpy as np
@@ -50,6 +40,8 @@ from astronomix._modules._cooling._cooling import dtemperature_dt, get_temperatu
 
 # the scheme families of the module tests
 from _schemes import HYDRO_SCHEMES, make_config, run
+
+pytestmark = pytest.mark.x64
 
 GAMMA = 5.0 / 3.0
 HYDROGEN_MASS_FRACTION = 0.70

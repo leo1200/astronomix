@@ -70,7 +70,7 @@ The per-face physics (reconstruction, Riemann solvers, conversions) is written a
 elementwise functions that the Pallas kernels in ``_stage_pallas.py`` call as
 well, so both backends evaluate the same expressions. The scheme reproduces
 AthenaPK to round-off on its standard test problems
-(``pytests/mhd/vl2_athenapk_regression.py``; the full comparison is documented in
+(``pytests/mhd/test_vl2_athenapk_regression.py``; the full comparison is documented in
 ``examples/scripts/validation/athenapk_vl2/README.md``).
 """
 
@@ -117,7 +117,7 @@ from astronomix._finite_volume._stage import (
     _update_ghost_cells,
     fv_stage,
 )
-from astronomix._finite_volume._timestep_estimation._timestep_estimator import _maximum_signal_speed_vl2
+from astronomix._finite_volume._timestep import _maximum_signal_speed_vl2
 from astronomix._modules._explicit_sources import (
     explicit_sources,
     has_explicit_sources,

@@ -25,9 +25,8 @@ here). Full setup, controls and caveats: [`README.md`](README.md).
 
 ## The two dynamos, side by side
 
-![side-by-side dynamo animation](figures/dynamo_side_by_side.gif)
-
-Mid-plane magnetic energy at `256^3` (top row), on a shared logarithmic colour
+The animation `figures/dynamo_side_by_side.gif` is written by `make_dynamo_movie.py` (see the end of this note; it
+is not tracked). Mid-plane magnetic energy at `256^3` (top row), on a shared logarithmic colour
 scale spanning three decades below the constrained-transport run's frame
 maximum, plus both magnetic spectra (solid) with the kinetic spectra behind them
 (dotted, bottom left) and `E_B/E_K` against time for both runs (bottom right).

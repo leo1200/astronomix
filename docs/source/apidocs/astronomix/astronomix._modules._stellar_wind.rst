@@ -15,6 +15,6 @@ Submodules
    :titlesonly:
    :maxdepth: 1
 
-   astronomix._modules._stellar_wind.weaver
    astronomix._modules._stellar_wind.stellar_wind_options
    astronomix._modules._stellar_wind.stellar_wind
+   astronomix._modules._stellar_wind.weaver

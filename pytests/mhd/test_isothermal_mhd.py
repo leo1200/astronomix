@@ -14,20 +14,11 @@ Run on the CPU::
     JAX_PLATFORMS=cpu PYTHONPATH=. python -m pytest pytests/mhd/test_isothermal_mhd.py
 """
 
-# ==== GPU selection ====
-import os
-
-if os.environ.get("CUDA_VISIBLE_DEVICES") is None and os.environ.get("JAX_PLATFORMS") != "cpu":
-    from autocvd import autocvd
-
-    autocvd(num_gpus=1)
-# ruff: noqa: E402
-# =======================
+# testing
+import pytest
 
 # numerics
 import jax
-
-jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 import numpy as np
 
@@ -63,6 +54,8 @@ from astronomix.option_classes.simulation_params import SimulationParams
 from astronomix.option_classes.simulation_config import finalize_config
 from astronomix.time_stepping.time_integration import time_integration
 from astronomix.variable_registry.registered_variables import get_registered_variables
+
+pytestmark = pytest.mark.x64
 
 CELLS = 32
 DX = 1.0 / CELLS
@@ -185,6 +178,7 @@ def test_isothermal_orszag_tang_with_divergence_cleaning():
 
 
 if __name__ == "__main__":
-    test_isothermal_orszag_tang_with_constrained_transport()
-    test_polytrope_of_exponent_one_is_the_isothermal_gas()
-    test_isothermal_orszag_tang_with_divergence_cleaning()
+    with jax.enable_x64(True):
+        test_isothermal_orszag_tang_with_constrained_transport()
+        test_polytrope_of_exponent_one_is_the_isothermal_gas()
+        test_isothermal_orszag_tang_with_divergence_cleaning()

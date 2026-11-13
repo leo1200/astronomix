@@ -12,20 +12,11 @@ Run on the CPU::
     JAX_PLATFORMS=cpu PYTHONPATH=. python -m pytest pytests/self_gravity/test_barotropic_external_potential.py
 """
 
-# ==== GPU selection ====
-import os
-
-if os.environ.get("CUDA_VISIBLE_DEVICES") is None and os.environ.get("JAX_PLATFORMS") != "cpu":
-    from autocvd import autocvd
-
-    autocvd(num_gpus=1)
-# ruff: noqa: E402
-# =======================
+# testing
+import pytest
 
 # numerics
 import jax
-
-jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 import numpy as np
 
@@ -61,6 +52,8 @@ from astronomix import (
     get_registered_variables,
     time_integration,
 )
+
+pytestmark = pytest.mark.x64
 
 SOUND_SPEED = 1.0
 # Depth of the potential well in units of c_s^2: the density varies by a factor exp(2 * 0.3) = 1.8.
@@ -137,4 +130,5 @@ def test_isothermal_atmosphere_stays_at_rest():
 
 
 if __name__ == "__main__":
-    test_isothermal_atmosphere_stays_at_rest()
+    with jax.enable_x64(True):
+        test_isothermal_atmosphere_stays_at_rest()

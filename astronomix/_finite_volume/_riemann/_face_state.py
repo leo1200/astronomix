@@ -10,7 +10,7 @@ GLM-MHD solvers first solve the decoupled ``(B_normal, psi)`` subsystem exactly
 field in the MHD solver. The expressions follow AthenaPK's formulation,
 including its special cases (the HLLD degeneracy check, the wave-speed clamps),
 and the scheme agrees with AthenaPK to round-off
-(``pytests/mhd/vl2_athenapk_regression.py``). All finite-volume integrators
+(``pytests/mhd/test_vl2_athenapk_regression.py``). All finite-volume integrators
 use these solvers.
 
 Every function is purely elementwise on its operands — it never indexes,

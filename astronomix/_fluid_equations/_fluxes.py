@@ -10,29 +10,26 @@ from functools import partial
 
 # typing
 from typing import Union
-from jaxtyping import Array, Float, jaxtyped
-from beartype import beartype as typechecker
+from jaxtyping import Array, Float
 
 # jax
 import jax
 import jax.numpy as jnp
 
 # astronomix constants
-from astronomix.option_classes.simulation_config import STATE_TYPE, FOURTH_ORDER_CONSERVATIVE
+from astronomix.option_classes.simulation_config import STATE_TYPE
 
 # astronomix containers
 from astronomix.option_classes.simulation_config import SimulationConfig
-from astronomix.variable_registry.registered_variables import AxisInfo, RegisteredVariables
+from astronomix.variable_registry.registered_variables import RegisteredVariables
 
 # astronomix functions
 from astronomix._fluid_equations._equations import (
     get_absolute_velocity,
     total_energy_from_primitives,
 )
-from astronomix._modules._gravity._poisson_solver import _compute_gravitational_potential
 
 
-# @jaxtyped(typechecker=typechecker)
 @partial(
     jax.jit, static_argnames=["config", "registered_variables", "flux_direction_index"]
 )

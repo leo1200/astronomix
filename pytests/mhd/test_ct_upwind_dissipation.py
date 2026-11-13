@@ -16,14 +16,6 @@ Nyquist wavenumber) needs N >= 256 and several Alfven times; it is measured in
     JAX_PLATFORMS=cpu python -m pytest pytests/mhd/test_ct_upwind_dissipation.py
 """
 
-# ==== GPU selection ====
-import os
-if os.environ.get("CUDA_VISIBLE_DEVICES") is None and os.environ.get("JAX_PLATFORMS") != "cpu":
-    from autocvd import autocvd
-    autocvd(num_gpus=1)
-# ruff: noqa: E402
-# =======================
-
 # numerics
 import numpy as np
 
@@ -32,9 +24,6 @@ import pytest
 
 # jax
 import jax
-
-# The divergence and energy checks compare sums to round-off.
-jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 
 # astronomix constants
@@ -75,6 +64,9 @@ from astronomix.initial_condition_generation.construct_primitive_state import (
 from astronomix.option_classes.simulation_config import finalize_config
 from astronomix.time_stepping.time_integration import time_integration
 from astronomix.variable_registry.registered_variables import get_registered_variables
+
+# The divergence and energy checks compare sums to round-off.
+pytestmark = pytest.mark.x64
 
 NUM_CELLS = 16
 SOUND_SPEED = 0.1

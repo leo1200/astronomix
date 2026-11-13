@@ -15,13 +15,8 @@ cell and the mirror its neighbour keeps.
     JAX_PLATFORMS=cpu python -m pytest pytests/hydrodynamics/test_positivity_shear_shift.py
 """
 
-# ==== GPU selection ====
-import os
-if os.environ.get("CUDA_VISIBLE_DEVICES") is None and os.environ.get("JAX_PLATFORMS") != "cpu":
-    from autocvd import autocvd
-    autocvd(num_gpus=1)
-# ruff: noqa: E402
-# =======================
+# testing
+import pytest
 
 # jax
 import jax
@@ -44,7 +39,7 @@ from astronomix._finite_difference._interface_fluxes._weno_positivity import (
     positivity_preserving_interface_flux,
 )
 
-jax.config.update("jax_enable_x64", True)
+pytestmark = pytest.mark.x64
 
 GAMMA = 5.0 / 3.0
 

@@ -12,16 +12,6 @@ Run on the CPU::
     JAX_PLATFORMS=cpu PYTHONPATH=. python -m pytest pytests/modules/test_passive_scalars_across_schemes.py
 """
 
-# ==== GPU selection ====
-import os
-
-if os.environ.get("CUDA_VISIBLE_DEVICES") is None and os.environ.get("JAX_PLATFORMS") != "cpu":
-    from autocvd import autocvd
-
-    autocvd(num_gpus=1)
-# ruff: noqa: E402
-# =======================
-
 # numerics
 import jax.numpy as jnp
 import numpy as np
@@ -35,6 +25,8 @@ from astronomix import construct_primitive_state, get_registered_variables
 
 # the scheme families of the module tests
 from _schemes import HYDRO_SCHEMES, MHD_SCHEMES, cell_centres, make_config, run
+
+pytestmark = pytest.mark.x64
 
 CELLS = 64
 L1_TOLERANCE = 0.06

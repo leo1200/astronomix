@@ -69,7 +69,7 @@ from astronomix._fluid_equations._equations_mhd import (
 )
 from astronomix._finite_difference._magnetic_update._constrained_transport import update_cell_center_fields
 from astronomix._finite_difference._time_integrators import _ssprk as ssprk_module
-from astronomix._finite_difference._timestep_estimation._timestep_estimator import _cfl_time_step_fd
+from astronomix._finite_difference._timestep import _cfl_time_step_fd
 from astronomix.option_classes.simulation_config import IDEAL_GAS
 
 GAMMA = 5.0 / 3.0
@@ -102,7 +102,7 @@ def gas_pressure(q, rv):
 def one_step(primitive, dt, config, params, rv, helper_data):
     q = conserved_state_from_primitive_mhd(primitive[:-3], GAMMA, rv)
     faces = [jnp.array(primitive[k], copy=True) for k in (-3, -2, -1)]
-    new_q, bx, by, bz = ssprk_module._ssprk4_with_ct(
+    new_q, bx, by, bz = ssprk_module._ssprk_with_ct(
         jnp.array(q, copy=True), *faces, GAMMA, config.grid_spacing, dt, params, helper_data, config, rv)
     new_primitive = jnp.concatenate([
         primitive_state_from_conserved_mhd(new_q, 1e-30, 1e-30, GAMMA, config, rv),

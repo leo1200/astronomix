@@ -16,20 +16,11 @@ Run on the CPU::
     JAX_PLATFORMS=cpu PYTHONPATH=. python -m pytest pytests/self_gravity/test_barotropic_jeans_wave.py
 """
 
-# ==== GPU selection ====
-import os
-
-if os.environ.get("CUDA_VISIBLE_DEVICES") is None and os.environ.get("JAX_PLATFORMS") != "cpu":
-    from autocvd import autocvd
-
-    autocvd(num_gpus=1)
-# ruff: noqa: E402
-# =======================
+# testing
+import pytest
 
 # numerics
 import jax
-
-jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 import numpy as np
 
@@ -66,6 +57,8 @@ from astronomix import (
     get_registered_variables,
     time_integration,
 )
+
+pytestmark = pytest.mark.x64
 
 EPS = 1e-4
 SOUND_SPEED = 1.0
@@ -168,4 +161,5 @@ def test_isothermal_jeans_wave_frequency():
 
 
 if __name__ == "__main__":
-    test_isothermal_jeans_wave_frequency()
+    with jax.enable_x64(True):
+        test_isothermal_jeans_wave_frequency()

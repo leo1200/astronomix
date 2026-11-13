@@ -18,16 +18,6 @@ Run on the CPU::
     JAX_PLATFORMS=cpu PYTHONPATH=. python -m pytest pytests/modules/test_resistivity_across_schemes.py
 """
 
-# ==== GPU selection ====
-import os
-
-if os.environ.get("CUDA_VISIBLE_DEVICES") is None and os.environ.get("JAX_PLATFORMS") != "cpu":
-    from autocvd import autocvd
-
-    autocvd(num_gpus=1)
-# ruff: noqa: E402
-# =======================
-
 # numerics
 import jax.numpy as jnp
 import numpy as np
@@ -44,6 +34,8 @@ from astronomix import construct_primitive_state, get_registered_variables
 
 # the scheme families of the module tests
 from _schemes import MHD_SCHEMES, cell_centres, make_config, mode_amplitude, run
+
+pytestmark = pytest.mark.x64
 
 GAMMA = 5.0 / 3.0
 RESISTIVITY = 0.01
@@ -65,6 +57,7 @@ def _final_state(config, registered_variables, initial_state, resistivity):
     return final_state
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("name, equation_of_state", CASES, ids=[f"{name}, eos {eos}" for name, eos in CASES])
 def test_force_free_decay(name, equation_of_state):
     solver_mode, solver_config, dimensionality = MHD_SCHEMES[name]

@@ -19,7 +19,7 @@ The headline numbers achieved on the 128³ Sedov benchmark
 State size is 40 MB (5 vars · 128³ · float32), so the best run sits at
 **3.4× state**, well below the 10× ceiling we started from.
 
-The MHD WENO numbers on `pytests/mhd/alfven_wave3D.py` (3D CP Alfvén,
+The MHD WENO numbers on `pytests/mhd/test_alfven_wave_3d.py` (3D CP Alfvén,
 2N×N×N, ideal gas, x32):
 
 | N | NATIVE L1 | PALLAS L1 | NATIVE time | PALLAS time | speedup |
@@ -476,7 +476,7 @@ Each new path just needs an in-kernel eigenstructure.
 
 **Status:** the full Pallas WENO MHD kernel is in place
 (`_weno_flux_mhd_pallas` in `_weno.py`).  Validated against the NATIVE
-backend on `pytests/mhd/alfven_wave3D.py` at N=8/16/32 (x32):
+backend on `pytests/mhd/test_alfven_wave_3d.py` at N=8/16/32 (x32):
 
 | N | NATIVE L1 | PALLAS L1 | NATIVE temp | PALLAS temp | NATIVE time | PALLAS time |
 |---|---|---|---|---|---|---|
@@ -502,12 +502,12 @@ N=32); 5th-order convergence is preserved; PALLAS gives
 - `_mhd_pallas_flux_supported` — predicate (PALLAS backend, 3D, MHD,
   IDEAL_GAS, block divides spatial dim).  Works in both x32 and x64
   modes (see x64 fix in §5).
-- `_ssprk4_with_ct::compute_rhs` uses `_hydro_flux_div_axis_pallas` for
+- `_ssprk_with_ct::compute_rhs` uses `_hydro_flux_div_axis_pallas` for
   the divergence step under PALLAS, sharing a single physical RHS
   buffer across axes via `input_output_aliases`.  CT magnetic field
   updates (`constrained_transport_rhs`, `update_cell_center_fields`,
   `interp_center_to_face`) stay native.
-- `_weno_flux_x/y/z` dispatch routes MHD through `_weno_flux_mhd_pallas`
+- `_weno_flux` (axis) dispatch routes MHD through `_weno_flux_mhd_pallas`
   whenever the predicate accepts.
 
 **Known limitations:**
@@ -530,7 +530,7 @@ energy), 6 characteristic waves (no entropy mode), sound speed is the
 fixed `params.isothermal_sound_speed` (so face quantities skip the
 enthalpy-based recomputation), and the flux drops the
 `(E+p_total)*vn − v·B*Bn` energy term.  Wired through
-`_weno_flux_x/y/z` after `_mhd_pallas_flux_supported`.
+`_weno_flux` after `_mhd_pallas_flux_supported`.
 
 Validation: small 32³ iso-MHD periodic setup (uniform Bx + 1% density
 perturbation), `max|PALLAS − NATIVE| = 1.0e-17` (machine epsilon),
@@ -543,7 +543,7 @@ x64 limitation fixed by the same typed-constant trick as 4.1 (see §5).
 Same as 4.1 but one fewer characteristic wave (no entropy mode).
 Reuse the MHD kernel; gate on `config.equation_of_state == ISOTHERMAL`
 and switch to the isothermal projection formulas (port
-`_eigen_mhd_iso.py`).
+`_eigen_mhd_baro.py`).
 
 For ISOTHERMAL hydro (no MHD), the same kernel skeleton applies with
 `num_modes = ndim + 1` (one fewer than ideal gas — no entropy wave) and
@@ -654,7 +654,7 @@ Recommended order:
 3. Port the remaining Riemann solvers one at a time, picking one
    regression test per solver.
 4. Add the same `input_output_aliases` accumulator pattern as in
-   `_ssprk4_hydro`/`_lsrk4_hydro` so the multi-axis FV stage update
+   `_ssprk_hydro`/`_lsrk4_hydro` so the multi-axis FV stage update
    never holds more than one physical flux/RHS buffer.
 
 Expected payoff: a fused FV recon+Riemann+state-update Pallas kernel
@@ -663,7 +663,7 @@ as the FD MHD WENO port did, because the per-face Riemann math is
 significantly heavier than what XLA can fuse across opaque jit
 boundaries today.
 
-The acceptance gate is `pytests/mhd/alfven_wave3D.py` (which exercises
+The acceptance gate is `pytests/mhd/test_alfven_wave_3d.py` (which exercises
 both the FV and FD code paths), `tests/pallas/sedov3D.py` (hydro
 regression), plus any shock-tube test under `tests/hydro_tests/`.
 
@@ -717,7 +717,7 @@ in `SimulationConfig`) replaces the four native CT stages with three
 bounded-halo Pallas kernels (`_constrained_transport_pallas.py`). The
 toggle defaults to **False** because compile cost dominates at
 production-scale resolutions — measured on the
-`pytests/mhd/alfven_wave3D.py` N=32 setup (245 timesteps, x64):
+`pytests/mhd/test_alfven_wave_3d.py` N=32 setup (245 timesteps, x64):
 
 | Config | Temp | Warm runtime | Compile | µs/iter | L1 vs native |
 |---|---|---|---|---|---|
@@ -881,7 +881,7 @@ Once these f32 constants flowed into the divisions further down
    kernel's working dtype rather than defaulting to f32.
 
 **Result.**  Production x64 MHD-WENO test on
-`pytests/mhd/alfven_wave3D.py` (no monkey-patches, fresh
+`pytests/mhd/test_alfven_wave_3d.py` (no monkey-patches, fresh
 `pip install .`):
 
 | N | NATIVE L1 (x64) | PALLAS L1 (x64) | diff |
@@ -942,14 +942,14 @@ happens.  The ``pallasify`` skill must enforce this — see its
 |---|---|
 | `astronomix/_finite_difference/_interface_fluxes/_weno.py` | Hydro WENO kernels (Pallas + native), block-shape helpers, supported-predicate, eigenstructure-projection inlined in Pallas form. |
 | `astronomix/_finite_difference/_time_integrators/_ssprk.py` | SSPRK4 (native), LSRK4 (Pallas-friendly 2N-storage), per-axis Pallas divergence kernel with `scale_in` + `input_output_aliases`, shared `_hydro_step_rhs`. |
-| `astronomix/_finite_difference/_state_evolution/_evolve_state.py` | Top-level FD dispatch; picks SSPRK4 vs LSRK4 based on `config.solver_config.time_integrator`. |
-| `astronomix/_finite_difference/_timestep_estimation/_timestep_estimator.py` | Backend-aware CFL estimator; Pallas mode skips the full-state characteristic eigenvalue arrays. Hydro path reads primitive `|v| + c`; MHD path uses `_cfl_time_step_fd_mhd_fast` for the per-cell fast-magnetosonic speed. |
+| `astronomix/_finite_difference/_evolve_state.py` | Top-level FD dispatch; picks SSPRK4 vs LSRK4 based on `config.solver_config.time_integrator`. |
+| `astronomix/_finite_difference/_timestep.py` | Backend-aware CFL estimator; Pallas mode skips the full-state characteristic eigenvalue arrays. Hydro path reads primitive `|v| + c`; MHD path uses `_cfl_time_step_fd_mhd_fast` for the per-cell fast-magnetosonic speed. |
 | `astronomix/_finite_difference/_interface_fluxes/_weno_positivity_pallas.py` | Positivity-preserving WENO (`weno_positivity_preserving`) Pallas kernels. (The pointwise `_enforce_positivity_pallas.py` floor kernel was removed; see §4.5.) |
 | `astronomix/_finite_difference/_magnetic_update/_constrained_transport_pallas.py` | Optional Pallas CT (3 bounded-halo kernels). Gated by `config.pallas_ct` (default False — see §4.5 for the compile/runtime tradeoff). |
 | `astronomix/option_classes/simulation_config.py` | `backend`, `pallas_block_shape`, `pallas_use_triton`, `pallas_interpret`, `pallas_num_warps`, `pallas_ct`, `donate_state`, `time_integrator` knobs. |
 | `tests/pallas/sedov3D.py` | The canonical hydro Pallas benchmark — produces the figure + memory/runtime printout. |
 | `astronomix/_finite_volume/_stage_pallas.py` | FV VL2 stage kernels (AthenaPK's scheme; §4.7). Native counterpart: `_stage.py`; dispatch: `_integrators.py`. |
-| `pytests/mhd/alfven_wave3D.py` | MHD convergence test (3D CP Alfvén wave, N=8..128, both FV and FD).  Acceptance gate for MHD Pallas changes — L1 error must match the NATIVE backend to machine precision. |
+| `pytests/mhd/test_alfven_wave_3d.py` | MHD convergence test (3D CP Alfvén wave, N=8..128, both FV and FD).  Acceptance gate for MHD Pallas changes — L1 error must match the NATIVE backend to machine precision. |
 
 ---
 

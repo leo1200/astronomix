@@ -92,12 +92,14 @@ class SoundWave3DSettings(NamedTuple):
 
 
 def _c_s(settings: SoundWave3DSettings) -> float:
+    """The adiabatic sound speed of the background state."""
     # Plain Python math (not jnp) so the result stays a concrete float even
     # when called from inside a jit trace (the sharded state builder).
     return float(settings.gamma * settings.p_0 / settings.rho_0) ** 0.5
 
 
 def _omega(settings: SoundWave3DSettings) -> float:
+    """The angular frequency of the wave, c_s k."""
     return _c_s(settings) * settings.k_wave
 
 
@@ -136,6 +138,7 @@ def _generate_state(
     t: float,
     settings: SoundWave3DSettings,
 ) -> STATE_TYPE:
+    """The primitive state of the sound wave at time t."""
     cell_centers = helper_data.geometric_centers
     Xc, Yc, Zc = cell_centers[..., 0], cell_centers[..., 1], cell_centers[..., 2]
 

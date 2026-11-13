@@ -371,36 +371,3 @@ def conserved_state_from_primitive_isothermal(
     return primitive_state
 
 
-@partial(jax.jit, static_argnames=["registered_variables"])
-def total_pressure_from_conserved_mhd(
-    conserved_state: STATE_TYPE,
-    gamma: Union[float, Float[Array, ""]],
-    registered_variables: RegisteredVariables,
-) -> FIELD_TYPE:
-    """Calculate the total pressure (thermal + magnetic) from a conserved state.
-
-    Currently only the 3D case is supported.
-
-    Args:
-        conserved_state: The conserved MHD state.
-        gamma: The adiabatic index of the fluid.
-        registered_variables: The registered variables.
-
-    Returns:
-        The total pressure, i.e. thermal pressure plus magnetic pressure.
-    """
-
-    rho = conserved_state[registered_variables.density_index]
-    E = conserved_state[registered_variables.pressure_index]
-
-    ux = conserved_state[registered_variables.velocity_index.x] / rho
-    uy = conserved_state[registered_variables.velocity_index.y] / rho
-    uz = conserved_state[registered_variables.velocity_index.z] / rho
-
-    u_squared = ux**2 + uy**2 + uz**2
-
-    b_squared = _b_squared3D(conserved_state, registered_variables)
-
-    p_thermal = thermal_pressure_from_energy_mhd(E, rho, u_squared, b_squared, gamma)
-
-    return p_thermal + 0.5 * b_squared

@@ -15,7 +15,6 @@ Submodules
    :titlesonly:
    :maxdepth: 1
 
-   astronomix._geometry.geometry
-   astronomix._geometry.boundaries
-   astronomix._geometry.boundaries_legacy
    astronomix._geometry.geometric_terms
+   astronomix._geometry.boundaries
+   astronomix._geometry.geometry

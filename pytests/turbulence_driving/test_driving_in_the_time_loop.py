@@ -22,26 +22,14 @@ What is checked:
 * four interpreted CPU devices give the result of one device;
 * on a GPU, the Pallas kernels give the result of the array form.
 
-The four devices need ``JAX_PLATFORMS=cpu`` and jax not started by another
-test file before this one::
+The four devices: the conftest splits the CPU into four when JAX runs on the
+CPU::
 
     JAX_PLATFORMS=cpu python -m pytest pytests/turbulence_driving/test_driving_in_the_time_loop.py
 """
 
-# ==== device setup ====
-import os
-if os.environ.get("JAX_PLATFORMS") == "cpu":
-    os.environ["XLA_FLAGS"] = ("--xla_force_host_platform_device_count=4 " + os.environ.get("XLA_FLAGS", "")).strip()
-elif os.environ.get("CUDA_VISIBLE_DEVICES") is None:
-    from autocvd import autocvd
-    autocvd(num_gpus=1)
-# ruff: noqa: E402
-# ======================
-
 # jax
 import jax
-
-jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 from jax.sharding import AxisType, NamedSharding, PartitionSpec
 
@@ -111,6 +99,8 @@ from astronomix._snapshotting._orbax_storage import load_loop_checkpoint
 from astronomix.setup_helpers import restart_from_latest_checkpoint
 from astronomix.time_stepping.time_integration import time_integration
 from astronomix.variable_registry.registered_variables import get_registered_variables
+
+pytestmark = pytest.mark.x64
 
 DRIVING = TurbulenceDrivingConfig(turbulence_driving=True)
 TIME_STEP = 0.01
@@ -217,6 +207,7 @@ def one_step(name, backend=NATIVE_JAX, **settings):
 # -------------------------------------------------------------
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("name", list(SCHEMES))
 def test_every_scheme_kicks_with_the_driving_field(name):
     initial_state, final_state, config, params, registered_variables = one_step(name)
@@ -410,7 +401,8 @@ def driven_turbulent_run(name, backend, sharding=None, cells=16, num_timesteps=4
     return np.asarray(time_integration(initial_state, config, params, registered_variables, sharding=sharding))
 
 
-@pytest.mark.skipif(len(jax.devices()) < 4, reason="needs 4 devices (JAX_PLATFORMS=cpu, this file on its own)")
+@pytest.mark.slow
+@pytest.mark.devices(4)
 @pytest.mark.parametrize("name", ["fd_riemann_isothermal", "beattie_reference_isothermal", "fv_vl2_glm_mhd_ideal_gas"])
 def test_four_devices_equal_one_device(name):
     single = driven_turbulent_run(name, NATIVE_JAX)
@@ -420,7 +412,7 @@ def test_four_devices_equal_one_device(name):
     np.testing.assert_allclose(sharded, single, rtol=0, atol=ROUND_OFF * np.max(np.abs(single)))
 
 
-@pytest.mark.skipif(jax.default_backend() != "gpu", reason="the compiled kernels need a GPU")
+@pytest.mark.gpu
 @pytest.mark.parametrize("name", ["fd_riemann_isothermal", "beattie_reference_isothermal", "fd_paper_mhd_ideal_gas"])
 def test_pallas_kernels_equal_the_array_form(name):
     """

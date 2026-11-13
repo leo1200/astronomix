@@ -134,6 +134,7 @@ def _clip_keep_derivative(x, lo, hi):
 
 @_clip_keep_derivative.defjvp
 def _clip_keep_derivative_jvp(primals, tangents):
+    """Tangent of the clip: dx inside the bounds, the tangent of the bound outside (derivative 1 on the bounds)."""
     x, lo, hi = primals
     dx, dlo, dhi = tangents
     out = jnp.clip(x, lo, hi)

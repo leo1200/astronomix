@@ -23,25 +23,10 @@ What is checked:
 * ``finalize_config`` refuses a passive-scalar sub-step cap below 1, and
   ``OPTIMAL_BACKEND`` resolves to NATIVE_JAX when JAX runs on the CPU.
 
-Run on the CPU (the preamble then selects fast-compiling XLA flags)::
+Run on the CPU (the conftest then selects fast-compiling XLA flags)::
 
     JAX_PLATFORMS=cpu python -m pytest pytests/differentiability/test_fd_reverse_mode.py
 """
-
-# ==== GPU selection ====
-import os
-if os.environ.get("JAX_PLATFORMS") == "cpu":
-    # XLA:CPU compiles the unrolled step in seconds at optimisation level 0
-    # (minutes and tens of GB otherwise); the numerics differ at round-off only.
-    os.environ.setdefault(
-        "XLA_FLAGS",
-        "--xla_backend_optimization_level=0 --xla_llvm_disable_expensive_passes=true",
-    )
-elif os.environ.get("CUDA_VISIBLE_DEVICES") is None:
-    from autocvd import autocvd
-    autocvd(num_gpus=1)
-# ruff: noqa: E402
-# =======================
 
 # jax
 import jax
@@ -90,7 +75,7 @@ from _blast_setup import (
     setup_blast,
 )
 
-jax.config.update("jax_enable_x64", True)
+pytestmark = [pytest.mark.x64, pytest.mark.slow]
 
 
 # -----------------------------------------------------------------------------

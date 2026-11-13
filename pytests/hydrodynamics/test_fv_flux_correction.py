@@ -12,20 +12,11 @@ Run on the CPU::
     JAX_PLATFORMS=cpu PYTHONPATH=. python -m pytest pytests/hydrodynamics/test_fv_flux_correction.py
 """
 
-# ==== GPU selection ====
-import os
-
-if os.environ.get("CUDA_VISIBLE_DEVICES") is None and os.environ.get("JAX_PLATFORMS") != "cpu":
-    from autocvd import autocvd
-
-    autocvd(num_gpus=1)
-# ruff: noqa: E402
-# =======================
+# testing
+import pytest
 
 # numerics
 import jax
-
-jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 import numpy as np
 
@@ -49,6 +40,8 @@ from astronomix import (
     get_registered_variables,
     time_integration,
 )
+
+pytestmark = pytest.mark.x64
 
 CELLS = 100
 # name, time integrator, speed of the receding streams at which the scheme fails without the correction
@@ -138,5 +131,6 @@ def test_flux_correction_leaves_smooth_flow_unchanged():
 
 
 if __name__ == "__main__":
-    test_flux_correction_keeps_receding_streams_positive()
-    test_flux_correction_leaves_smooth_flow_unchanged()
+    with jax.enable_x64(True):
+        test_flux_correction_keeps_receding_streams_positive()
+        test_flux_correction_leaves_smooth_flow_unchanged()

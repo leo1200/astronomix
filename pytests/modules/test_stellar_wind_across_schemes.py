@@ -14,16 +14,6 @@ Run on the CPU::
     JAX_PLATFORMS=cpu PYTHONPATH=. python -m pytest pytests/modules/test_stellar_wind_across_schemes.py
 """
 
-# ==== GPU selection ====
-import os
-
-if os.environ.get("CUDA_VISIBLE_DEVICES") is None and os.environ.get("JAX_PLATFORMS") != "cpu":
-    from autocvd import autocvd
-
-    autocvd(num_gpus=1)
-# ruff: noqa: E402
-# =======================
-
 # numerics
 import numpy as np
 import pytest
@@ -38,6 +28,8 @@ from astronomix._modules._stellar_wind.weaver import Weaver
 
 # the scheme families of the module tests
 from _schemes import HYDRO_SCHEMES, cell_centres, make_config, run
+
+pytestmark = pytest.mark.x64
 
 GAMMA = 5.0 / 3.0
 AMBIENT_DENSITY = 1.0
@@ -67,6 +59,7 @@ def _shock_radius(density, cells):
     return centres[last] + fraction * (centres[last + 1] - centres[last])
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("name", list(HYDRO_SCHEMES))
 def test_wind_bubble(name):
     cells = CELLS.get(name, DEFAULT_CELLS)

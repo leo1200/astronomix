@@ -15,20 +15,8 @@ Run on the CPU::
     JAX_PLATFORMS=cpu PYTHONPATH=. python -m pytest pytests/mhd/test_reference_preset.py
 """
 
-# ==== GPU selection ====
-import os
-
-if os.environ.get("CUDA_VISIBLE_DEVICES") is None and os.environ.get("JAX_PLATFORMS") != "cpu":
-    from autocvd import autocvd
-
-    autocvd(num_gpus=1)
-# ruff: noqa: E402
-# =======================
-
 # numerics
 import jax
-
-jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -76,11 +64,13 @@ from astronomix.option_classes.simulation_params import SimulationParams
 # astronomix functions
 from astronomix._finite_volume._interface_frame import _barotropic_law, _interface_frame_indices, _mhd_face_state
 from astronomix._finite_volume._riemann._hll5r import hll5r_signal_speed
-from astronomix._finite_volume._timestep_estimation._timestep_estimator import _cfl_time_step
+from astronomix._finite_volume._timestep import _cfl_time_step
 from astronomix.initial_condition_generation.construct_primitive_state import construct_primitive_state
 from astronomix.option_classes.simulation_config import finalize_config
 from astronomix.time_stepping.time_integration import _prepare_padded_state, time_integration
 from astronomix.variable_registry.registered_variables import get_registered_variables
+
+pytestmark = pytest.mark.x64
 
 COURANT_NUMBER = 0.8
 NO_CLEANING = BEATTIE_REFERENCE._replace(parabolic_cleaning=False)

@@ -116,7 +116,7 @@ itself is non-deterministic, do the results differ.
 
 ### Regression test
 
-`pytests/mhd/vl2_athenapk_regression.py` compares astronomix with stored AthenaPK
+`pytests/mhd/test_vl2_athenapk_regression.py` compares astronomix with stored AthenaPK
 results of eight small cases (`pytests/mhd/data/athenapk_vl2`, written by
 `make_regression_data.py`; the two cases with an active flux correction use
 AthenaPK's GPU build as the reference, see above): same cycle count and relative

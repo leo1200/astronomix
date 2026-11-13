@@ -738,7 +738,7 @@ All scripts take `WENO_VARIANT=baseline|face|pp`. GPU jobs go through
     PYTHONPATH=. JAX_PLATFORMS=cpu WENO_VARIANT=pp python examples/scripts/validation/weno_stability/evrard.py --n 32
     PYTHONPATH=. JAX_PLATFORMS=cpu python examples/scripts/validation/weno_stability/pallas_equivalence_mhd.py
     WENO_VARIANT=pp pq sub -t a100 -n 1 --name t128 -- examples/scripts/validation/weno_stability/run.sh examples/scripts/validation/weno_stability/turb.py --N 128 --backend pallas --tag pp128
-    python -m pytest pytests/hydrodynamics/positivity_preserving_weno.py pytests/mhd/positivity_preserving_mhd.py
+    python -m pytest pytests/hydrodynamics/test_positivity_preserving_weno.py pytests/mhd/test_positivity_preserving_mhd.py
     PYTHONPATH=. JAX_PLATFORMS=cpu WENO_VARIANT=pp python examples/scripts/validation/weno_stability/alfven_pp.py --p0 0.01
     PYTHONPATH=. JAX_PLATFORMS=cpu WENO_VARIANT=pp python examples/scripts/validation/weno_stability/mhd_blast.py --n 100
     python examples/scripts/validation/weno_stability/wu_pair_check.py

@@ -15,20 +15,14 @@ Run on the CPU::
     JAX_PLATFORMS=cpu PYTHONPATH=. python -m pytest pytests/hydrodynamics/test_spherical_1d.py
 """
 
-# ==== GPU selection ====
+# general
 import os
 
-if os.environ.get("CUDA_VISIBLE_DEVICES") is None and os.environ.get("JAX_PLATFORMS") != "cpu":
-    from autocvd import autocvd
-
-    autocvd(num_gpus=1)
-# ruff: noqa: E402
-# =======================
+# testing
+import pytest
 
 # numerics
 import jax
-
-jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 import numpy as np
 
@@ -54,6 +48,8 @@ from astronomix import (
     get_registered_variables,
     time_integration,
 )
+
+pytestmark = pytest.mark.x64
 
 GAMMA = 5.0 / 3.0
 STEPS = 200
@@ -186,6 +182,7 @@ def test_wind_bubble_matches_the_record():
 
 
 if __name__ == "__main__":
-    test_uniform_gas_stays_at_rest()
-    test_mass_and_energy_are_conserved()
-    test_wind_bubble_matches_the_record()
+    with jax.enable_x64(True):
+        test_uniform_gas_stays_at_rest()
+        test_mass_and_energy_are_conserved()
+        test_wind_bubble_matches_the_record()

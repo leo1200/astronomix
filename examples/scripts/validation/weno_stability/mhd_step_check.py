@@ -33,7 +33,7 @@ from astronomix import (
 from astronomix._fluid_equations._equations_mhd import conserved_state_from_primitive_mhd, primitive_state_from_conserved_mhd
 from astronomix._finite_difference._time_integrators import _ssprk as ssprk_module
 from astronomix._integrators import _explicit_rk
-from astronomix._finite_difference._timestep_estimation._timestep_estimator import _cfl_time_step_fd
+from astronomix._finite_difference._timestep import _cfl_time_step_fd
 from astronomix.option_classes.simulation_config import IDEAL_GAS
 
 GAMMA = 1.4
@@ -87,7 +87,7 @@ for step in range(steps):
     dt = float(_cfl_time_step_fd(primitive, config.grid_spacing, jnp.inf, GAMMA, config, params, rv, courant))
     q = conserved_state_from_primitive_mhd(primitive[:-3], GAMMA, rv)
     stage_log.clear()
-    new_q, bx, by, bz = ssprk_module._ssprk4_with_ct(
+    new_q, bx, by, bz = ssprk_module._ssprk_with_ct(
         jnp.array(q, copy=True), *(jnp.array(primitive[k], copy=True) for k in (-3, -2, -1)),
         GAMMA, config.grid_spacing, dt, params, helper_data, config, rv)
     jax.effects_barrier()

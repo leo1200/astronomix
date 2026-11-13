@@ -186,69 +186,6 @@ def _as_tile(value, like):
 # kernel at trace time.
 
 
-class _FlooredHydroCell(NamedTuple):
-    """Primitive and wave-speed data of one cell after the density and
-    pressure floors (hydrodynamics, local component order)."""
-
-    density: object
-    normal_momentum: object
-    transverse_momentum_1: object
-    transverse_momentum_2: object
-    energy: object
-    normal_velocity: object
-    transverse_velocity_1: object
-    transverse_velocity_2: object
-    velocity_squared: object
-    pressure: object
-    specific_enthalpy: object
-    sound_speed: object
-
-
-class _FlooredMhdCell(NamedTuple):
-    """Primitive and wave-speed data of one cell after the density and
-    pressure floors (ideal MHD, local component order)."""
-
-    density: object
-    normal_momentum: object
-    transverse_momentum_1: object
-    transverse_momentum_2: object
-    normal_magnetic_field: object
-    transverse_magnetic_field_1: object
-    transverse_magnetic_field_2: object
-    energy: object
-    normal_velocity: object
-    transverse_velocity_1: object
-    transverse_velocity_2: object
-    velocity_squared: object
-    magnetic_field_squared: object
-    pressure: object
-    specific_enthalpy: object
-    sound_speed: object
-    sound_speed_squared: object
-    fast_speed: object
-    alfven_speed: object
-    slow_speed: object
-
-
-class _FlooredIsothermalMhdCell(NamedTuple):
-    """Primitive and wave-speed data of one cell after the density floor
-    (isothermal MHD, local component order)."""
-
-    density: object
-    normal_momentum: object
-    transverse_momentum_1: object
-    transverse_momentum_2: object
-    normal_magnetic_field: object
-    transverse_magnetic_field_1: object
-    transverse_magnetic_field_2: object
-    normal_velocity: object
-    transverse_velocity_1: object
-    transverse_velocity_2: object
-    fast_speed: object
-    alfven_speed: object
-    slow_speed: object
-
-
 class _SplitFaceFluxes(NamedTuple):
     """
     The two upwind-split face fluxes of the positivity-preserving WENO flux,
@@ -463,13 +400,9 @@ def _native_weno_flux(axis: int):
     points when their support predicate rejects the configuration).
     """
     # Imported lazily: ``_weno.py`` imports this module at load time.
-    from astronomix._finite_difference._interface_fluxes._weno import (
-        _weno_flux_x_native,
-        _weno_flux_y_native,
-        _weno_flux_z_native,
-    )
+    from astronomix._finite_difference._interface_fluxes._weno import _weno_flux_native_for_axis
 
-    return (_weno_flux_x_native, _weno_flux_y_native, _weno_flux_z_native)[axis]
+    return _weno_flux_native_for_axis(axis)
 
 
 # -------------------------------------------------------------
@@ -1038,7 +971,7 @@ def _weno_barotropic_hydro_flux_from_window(
     """
     The hydro WENO interface flux of a barotropic gas (isothermal or polytropic)
     at i + 1/2 from its six-cell window: ``_weno_flux_x_native`` with the flux
-    ``_euler_flux_barotropic_x`` and the eigen-system of ``_eigen_hydro_iso.py``
+    ``_euler_flux_barotropic_x`` and the eigen-system of ``_eigen_hydro_baro.py``
     for one interface. ``ncomp`` components (rho, m_n, [m_t1, [m_t2]]) and as
     many fields (u - a, the shear waves, u + a); a is the sound speed of the law
     in the cell (splitting speeds) and at the averaged interface density
@@ -1080,7 +1013,7 @@ def _weno_barotropic_hydro_flux_from_window(
     speed_stencil = tuple(cell_speeds(q) for q in q_stencil)
 
     # The interface state of the eigenvectors (``_eigenvector_building_blocks``
-    # of ``_eigen_hydro_iso.py``).
+    # of ``_eigen_hydro_baro.py``).
     rho_face = jnp.maximum(
         0.5 * (jnp.maximum(q_stencil[2][0], rhomin) + jnp.maximum(q_stencil[3][0], rhomin)), rhomin
     )
@@ -1770,9 +1703,9 @@ def _mhd_indices_for_axis(config: SimulationConfig, registered_variables: Regist
     if axis == 0:
         return (density_index, mx, my, mz, bx, by, bz, energy_index)
     if axis == 1:
-        # Matches native ``_weno_flux_y_native``: swap mom_x↔mom_y, B_x↔B_y.
+        # Matches native ``_weno_flux_transverse_native``: swap mom_x↔mom_y, B_x↔B_y.
         return (density_index, my, mx, mz, by, bx, bz, energy_index)
-    # axis == 2 — matches native ``_weno_flux_z_native`` transpose
+    # axis == 2 — matches native ``_weno_flux_transverse_native`` transpose
     # (0, 3, 2, 1) followed by mom_x↔mom_z and B_x↔B_z swap.
     return (density_index, mz, my, mx, bz, by, bx, energy_index)
 
@@ -1799,10 +1732,8 @@ def _weno_flux_mhd_pallas(
     """
     if not _mhd_pallas_flux_supported(conserved_state, config):
         # Lazy import to break the circular dependency with _weno.py.
-        from astronomix._finite_difference._interface_fluxes._weno import (
-            _weno_flux_x_native, _weno_flux_y_native, _weno_flux_z_native,
-        )
-        native = [_weno_flux_x_native, _weno_flux_y_native, _weno_flux_z_native][axis]
+        from astronomix._finite_difference._interface_fluxes._weno import _weno_flux_native_for_axis
+        native = _weno_flux_native_for_axis(axis)
         return native(conserved_state, params, config, registered_variables,
                       internal_energy_density=internal_energy_density,
                       inflow_reference=inflow_reference)
@@ -3882,7 +3813,6 @@ def _weno_flux_mhd_pallas_vjp(
     return state_bar
 
 
-
 # -----------------------------------------------------------------------------
 # Pallas WENO for the isothermal MHD equations.
 # -----------------------------------------------------------------------------
@@ -3948,14 +3878,8 @@ def _weno_flux_mhd_iso_pallas(
     """
     if not _mhd_iso_pallas_flux_supported(conserved_state, config):
         # Lazy import to break the circular dependency with _weno.py.
-        from astronomix._finite_difference._interface_fluxes._weno import (
-            _weno_flux_x_native, _weno_flux_y_native, _weno_flux_z_native,
-        )
-        if axis == 0:
-            return _weno_flux_x_native(conserved_state, params, config, registered_variables)
-        if axis == 1:
-            return _weno_flux_y_native(conserved_state, params, config, registered_variables)
-        return _weno_flux_z_native(conserved_state, params, config, registered_variables)
+        from astronomix._finite_difference._interface_fluxes._weno import _weno_flux_native_for_axis
+        return _weno_flux_native_for_axis(axis)(conserved_state, params, config, registered_variables)
 
     def _local(state_local):
         return _weno_flux_mhd_iso_pallas_local(
@@ -3980,7 +3904,7 @@ def _weno_flux_mhd_iso_pallas_local(
     law at the floored cell density (wave speeds) and at the interface
     density (eigenvectors).  All face eigenstructure,
     ``L_row``, ``R_col``, and ``λ`` are inlined as kernel-local closures
-    mirroring ``_eigen_mhd_iso`` line-for-line."""
+    mirroring ``_eigen_mhd_baro`` line-for-line."""
     polytropic = config.equation_of_state == POLYTROPIC
     ndim = 3
     nvars = int(conserved_state.shape[0])

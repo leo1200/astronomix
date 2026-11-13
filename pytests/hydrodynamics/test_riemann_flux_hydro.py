@@ -13,16 +13,6 @@ the rules of ``finalize_config``.
     JAX_PLATFORMS=cpu python -m pytest pytests/hydrodynamics/test_riemann_flux_hydro.py
 """
 
-# ==== GPU selection ====
-import os
-
-if os.environ.get("CUDA_VISIBLE_DEVICES") is None and os.environ.get("JAX_PLATFORMS") != "cpu":
-    from autocvd import autocvd
-
-    autocvd(num_gpus=1)
-# ruff: noqa: E402
-# =======================
-
 # numerics
 import numpy as np
 
@@ -31,8 +21,6 @@ import pytest
 
 # jax
 import jax
-
-jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 
 # astronomix constants
@@ -69,6 +57,8 @@ from astronomix.option_classes.simulation_config import finalize_config
 from astronomix.test_setups.reference_solutions.riemann_solver import _exact_riemann_ideal_gas
 from astronomix.time_stepping.time_integration import time_integration
 from astronomix.variable_registry.registered_variables import get_registered_variables
+
+pytestmark = pytest.mark.x64
 
 BOTH_GASES = pytest.mark.parametrize("equation_of_state", [ISOTHERMAL, IDEAL_GAS], ids=["isothermal", "ideal_gas"])
 BOTH_PRECISIONS = pytest.mark.parametrize("double", [True, False], ids=["float64", "float32"])
@@ -144,6 +134,7 @@ def _slab_run(mhd, equation_of_state):
     return final[rows]
 
 
+@pytest.mark.slow
 @BOTH_GASES
 def test_hydrodynamic_form_is_the_mhd_form_without_a_field(equation_of_state):
     """The fluid rows of the two forms agree to rounding (relative 1e-13) when the field is zero."""

@@ -207,15 +207,18 @@ cython_debug/
 
 .venv
 /poetry.toml
-# generated example/test outputs: simulation caches + figures
-# (directories are kept in git via their .gitkeep placeholders)
+# Outputs of the example scripts and of the tests: simulation data, figures, animations and frames. They are not
+# tracked; rerunning a script writes them again. The directories are kept through their .gitkeep placeholders. The
+# notebooks in examples/notebooks keep their embedded results and the animations next to them.
 examples/scripts/**/data/
 examples/gallery/**/data/
-# examples/scripts/**/figures/*
+examples/**/*.npz
+examples/**/*.npy
+examples/scripts/**/figures/*
 !examples/scripts/**/figures/.gitkeep
-# examples/gallery/**/figures/*
+examples/gallery/**/figures/*
 !examples/gallery/**/figures/.gitkeep
-# pytests/**/figures/*
+pytests/**/figures/*
 !pytests/**/figures/.gitkeep
 
 examples/notebooks/differentiability/frames

@@ -10,10 +10,6 @@ is returned to the user (``_unpad``).
 # general
 from functools import partial
 
-# typing
-from beartype import beartype as typechecker
-from jaxtyping import jaxtyped
-
 # jax
 import jax
 import jax.numpy as jnp
@@ -28,7 +24,6 @@ from astronomix.option_classes.simulation_config import (
 from astronomix.option_classes.simulation_config import SimulationConfig
 
 
-# @jaxtyped(typechecker=typechecker)
 @partial(jax.jit, static_argnames=["config"])
 def _unpad(state: STATE_TYPE, config: SimulationConfig) -> STATE_TYPE_ALTERED:
     """
@@ -89,7 +84,6 @@ def _unpad(state: STATE_TYPE, config: SimulationConfig) -> STATE_TYPE_ALTERED:
     return state
 
 
-# @jaxtyped(typechecker=typechecker)
 @partial(jax.jit, static_argnames=["config"])
 def _pad(state: STATE_TYPE, config: SimulationConfig) -> STATE_TYPE_ALTERED:
     """

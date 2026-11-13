@@ -327,10 +327,10 @@ def initial_time_step(primitive_state, config, params, registered_variables) -> 
         The time step.
     """
     from astronomix.option_classes.simulation_config import FINITE_VOLUME
-    from astronomix._finite_volume._timestep_estimation._timestep_estimator import (
+    from astronomix._finite_volume._timestep import (
         _cfl_time_step,
     )
-    from astronomix._finite_difference._timestep_estimation._timestep_estimator import (
+    from astronomix._finite_difference._timestep import (
         _cfl_time_step_fd,
         _cfl_time_step_fd_hydro,
     )
