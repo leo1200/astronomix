@@ -520,7 +520,7 @@ def test_floored_ratio_rule_forms_no_infinite_value_in_float32(denominator):
 # ======================= validity rules =======================
 
 _REJECTED = {
-    "hydrodynamics": dict(mhd=False),
+    "MHD in two dimensions": dict(dimensionality=2, num_cells=StaticIntVector(NUM_CELLS, NUM_CELLS)),
     "reflective boundaries": dict(
         boundary_settings=BoundarySettings(*(BoundarySettings1D(REFLECTIVE_BOUNDARY, REFLECTIVE_BOUNDARY),) * 3)
     ),

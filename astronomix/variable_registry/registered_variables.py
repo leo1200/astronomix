@@ -29,7 +29,6 @@ from astronomix.option_classes.simulation_config import (
     FINITE_VOLUME,
     IDEAL_GAS,
     INDUCTION_SOURCE,
-    ISOTHERMAL,
     VL2,
 )
 
@@ -319,7 +318,8 @@ def get_registered_variables(config: SimulationConfig) -> RegisteredVariables:
                     interface_magnetic_field_index=StaticIntVector(8, 9, 10),
                     num_vars=11,
                 )
-            elif config.equation_of_state == ISOTHERMAL:
+            else:
+                # a barotropic gas (ISOTHERMAL, POLYTROPIC): no pressure slot
                 registered_variables = RegisteredVariables(
                     density_index=0,
                     velocity_index=StaticIntVector(1, 2, 3),
@@ -353,7 +353,7 @@ def get_registered_variables(config: SimulationConfig) -> RegisteredVariables:
                     num_vars=5,
                 )
 
-            if config.equation_of_state == ISOTHERMAL:
+            if config.equation_of_state != IDEAL_GAS:
                 registered_variables = registered_variables._replace(
                     pressure_index=-1
                 )

@@ -29,6 +29,7 @@ from astronomix.option_classes.simulation_config import (
     IDEAL_GAS,
     ISOTHERMAL,
     KINEMATIC_VISCOSITY,
+    POLYTROPIC,
     STATE_TYPE,
 )
 from astronomix._modules._cooling.cooling_options import EXPLICIT_COOLING
@@ -39,6 +40,7 @@ from astronomix.option_classes.simulation_params import SimulationParams
 from astronomix.variable_registry.registered_variables import RegisteredVariables
 
 # astronomix functions
+from astronomix._finite_difference._interface_fluxes._riemann_flux import maximum_signal_speed
 from astronomix._fluid_equations._eigen_hydro import _eigen_all_lambdas_hydro
 from astronomix._fluid_equations._eigen_hydro_iso import _eigen_all_lambdas_hydro_iso
 from astronomix._fluid_equations._eigen_mhd import _eigen_all_lambdas
@@ -209,6 +211,41 @@ def _apply_parabolic_and_source_limits(
 # -------------------------------------------------------------
 # ========= ↑ Parabolic and source-term time-step limits ↑ ====
 # -------------------------------------------------------------
+
+
+def _cfl_time_step_fd_polytropic(
+    primitive_state: STATE_TYPE,
+    grid_spacing: Union[float, Float[Array, ""]],
+    dt_max: Union[float, Float[Array, ""]],
+    config: SimulationConfig,
+    params: SimulationParams,
+    registered_variables: RegisteredVariables,
+    C_CFL: Union[float, Float[Array, ""]],
+) -> Float[Array, ""]:
+    """
+    The CFL time step of a polytropic gas (``scheme = RIEMANN_FLUX``, MHD or
+    hydrodynamics), ``C_CFL dx / sum_d lambda_d`` with the signal speed
+    lambda_d = max(|v_d| + c_f,d) of the scheme, whose fast speed takes the
+    local sound speed of the law, a^2 = Gamma K rho^(Gamma - 1).
+
+    Args:
+        primitive_state: The primitive state array (MHD: with the interface fields behind the cell rows).
+        grid_spacing: The grid spacing.
+        dt_max: The maximum allowed time step.
+        config: The simulation configuration.
+        params: The simulation parameters.
+        registered_variables: The registered variables.
+        C_CFL: The CFL safety factor.
+
+    Returns:
+        The CFL-limited time step.
+    """
+    conserved_state = conserved_state_from_primitive_isothermal(primitive_state, config, registered_variables)
+    signal_speeds = [
+        maximum_signal_speed(conserved_state, params, config, registered_variables, axis)
+        for axis in range(config.dimensionality)
+    ]
+    return jnp.minimum(C_CFL * grid_spacing / sum(signal_speeds), dt_max)
 
 
 # -------------------------------------------------------------
@@ -386,6 +423,10 @@ def _cfl_time_step_fd(
     Returns:
         The CFL-limited time step.
     """
+    if config.equation_of_state == POLYTROPIC:
+        return _cfl_time_step_fd_polytropic(
+            primitive_state, grid_spacing, dt_max, config, params, registered_variables, C_CFL
+        )
     if _mhd_fast_cfl_supported(config, registered_variables):
         return _cfl_time_step_fd_mhd_fast(
             primitive_state,
@@ -733,6 +774,10 @@ def _cfl_time_step_fd_hydro(
     Returns:
         The CFL-limited time step.
     """
+    if config.equation_of_state == POLYTROPIC:
+        return _cfl_time_step_fd_polytropic(
+            primitive_state, grid_spacing, dt_max, config, params, registered_variables, C_CFL
+        )
     if _hydro_fast_cfl_supported(config, registered_variables):
         return _cfl_time_step_fd_hydro_fast(
             primitive_state,

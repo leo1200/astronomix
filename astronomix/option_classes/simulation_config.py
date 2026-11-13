@@ -108,15 +108,16 @@ WENO_FLUX_SPLITTING = 0
 #: WENO face states of the characteristic variables, a Riemann flux with a
 #: high-order correction and a guard towards the first-order Lax-Friedrichs
 #: flux, flux-form constrained transport (``_riemann_flux.py``). MHD in three
-#: Cartesian dimensions.
+#: Cartesian dimensions, hydrodynamics in one to three.
 RIEMANN_FLUX = 1
 
 # Riemann solvers of ``scheme = RIEMANN_FLUX`` (``FDSolverConfig.riemann_solver``)
-# next to ``HLL``; their numbers continue the group of Riemann solvers below.
-#: HLLEM_T for the isothermal gas, HLLD_BOUNDED for the ideal gas.
+# next to ``HLL`` and ``HLLC``; their numbers continue the group of Riemann solvers below.
+#: HLLEM_T for a barotropic gas, HLLD_BOUNDED for ideal-gas MHD, HLLC for
+#: ideal-gas hydrodynamics.
 RIEMANN_BY_EOS = -1
 #: HLL with the anti-diffusion of the Alfven and slow waves limited by the
-#: tangential field (isothermal gas).
+#: tangential field (barotropic gas); without a field, of the shear waves.
 HLLEM_T = 5
 #: HLLD with bounded outer speeds (ideal gas).
 HLLD_BOUNDED = 6
@@ -689,8 +690,8 @@ class FDSolverConfig(NamedTuple):
     dual_energy: bool = False
 
     #: Riemann solver of ``scheme = RIEMANN_FLUX``: ``RIEMANN_BY_EOS``
-    #: (``HLLEM_T`` for the isothermal, ``HLLD_BOUNDED`` for the ideal gas),
-    #: ``HLLEM_T``, ``HLLD_BOUNDED`` or ``HLL``.
+    #: (``HLLEM_T`` for a barotropic gas; for the ideal gas ``HLLD_BOUNDED``
+    #: in MHD, ``HLLC`` in hydrodynamics), one of these or ``HLL``.
     riemann_solver: int = RIEMANN_BY_EOS
 
 
@@ -1130,12 +1131,12 @@ def _required_ghost_cells(config: SimulationConfig) -> int:
 
     solver = config.solver_config
     if solver.scheme == RIEMANN_FLUX:
-        # Both gases, both integrators (each fills the boundary before every right-hand side). One right-hand
-        # side reads seven layers: the guarded flux at a face reads the cells from three below to four above it,
-        # the update of a cell therefore four cells to either side, and each of those cells holds a field
-        # rebuilt from the faces three below to two above it. The constrained transport and the energy flux
-        # read six layers. The scheme is 3D only, so the count is 7 rounded up for the kernels: 8.
-        return _rounded_for_kernels(7, config)
+        # Every gas, both integrators (each fills the boundary before every right-hand side). One right-hand
+        # side reads four layers: the guarded flux at a face reads the cells from three below to four above it,
+        # the update of a cell therefore four cells to either side. In MHD each of those cells holds a field
+        # rebuilt from the faces three below to two above it (seven layers); the constrained transport and the
+        # energy flux read six. MHD is 3D only, so its count is 7 rounded up for the kernels: 8.
+        return _rounded_for_kernels(7 if config.mhd else 4, config)
 
     # WENO_FLUX_SPLITTING. Both integrators fill the boundary before every right-hand side, so the count is
     # the reach of one right-hand side. Cells of the state it reads to either side of the cell it updates:
@@ -1588,12 +1589,17 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
         )
 
     # A barotropic gas (ISOTHERMAL, POLYTROPIC) has no energy equation. The finite-volume framework carries it
-    # with the two solvers that need no energy jump and with gravity; the finite-difference scheme knows
-    # ISOTHERMAL only.
-    if finite_difference and config.equation_of_state == POLYTROPIC:
+    # with the two solvers that need no energy jump and with gravity; of the finite-difference schemes the
+    # production scheme knows ISOTHERMAL only.
+    if (
+        finite_difference
+        and config.equation_of_state == POLYTROPIC
+        and config.solver_config.scheme != RIEMANN_FLUX
+    ):
         raise ValueError(
-            "The POLYTROPIC equation of state is implemented for the finite-volume solver only: use "
-            "solver_mode=FINITE_VOLUME, or equation_of_state=ISOTHERMAL (a polytrope of exponent one)."
+            "The POLYTROPIC equation of state is implemented for the finite-volume solver and the finite-difference "
+            "scheme=RIEMANN_FLUX only: use scheme=RIEMANN_FLUX, solver_mode=FINITE_VOLUME, or "
+            "equation_of_state=ISOTHERMAL (a polytrope of exponent one)."
         )
     if finite_volume and config.equation_of_state != IDEAL_GAS:
         if config.solver_config.riemann_solver not in (HLL, LAX_FRIEDRICHS, HLL5R):
@@ -1714,17 +1720,19 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
                 raise ValueError("FDSolverConfig.riemann_solver is read with scheme=RIEMANN_FLUX only.")
         elif fd_config.scheme == RIEMANN_FLUX:
             # What the scheme serves.
-            if not (config.mhd and config.dimensionality == 3 and config.geometry == CARTESIAN):
-                raise ValueError("scheme=RIEMANN_FLUX serves MHD in three Cartesian dimensions.")
+            if config.geometry != CARTESIAN or (config.mhd and config.dimensionality != 3):
+                raise ValueError(
+                    "scheme=RIEMANN_FLUX serves MHD in three and hydrodynamics in one to three Cartesian dimensions."
+                )
             if fd_config.time_integrator == LSRK4:
                 raise ValueError("time_integrator=LSRK4 requires scheme=WENO_FLUX_SPLITTING.")
-            solver_of_other_gas = HLLD_BOUNDED if config.equation_of_state == ISOTHERMAL else HLLEM_T
-            if fd_config.riemann_solver not in (RIEMANN_BY_EOS, HLL, HLLEM_T, HLLD_BOUNDED) or (
-                fd_config.riemann_solver == solver_of_other_gas
-            ):
+            solver_of_the_gas = HLLEM_T
+            if config.equation_of_state == IDEAL_GAS:
+                solver_of_the_gas = HLLD_BOUNDED if config.mhd else HLLC
+            if fd_config.riemann_solver not in (RIEMANN_BY_EOS, HLL, solver_of_the_gas):
                 raise ValueError(
                     "scheme=RIEMANN_FLUX: riemann_solver must be RIEMANN_BY_EOS, HLL, HLLEM_T "
-                    "(isothermal gas) or HLLD_BOUNDED (ideal gas)."
+                    "(barotropic gas), HLLD_BOUNDED (ideal-gas MHD) or HLLC (ideal-gas hydrodynamics)."
                 )
             # The options of the other scheme are not read: they keep their defaults.
             for name in (
@@ -1751,11 +1759,18 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
                 or config.positivity_config.per_step_mode != POSITIVITY_NONE,
             }
             if config.boundary_settings is not None:
-                boundary_types = {side for axis in config.boundary_settings for side in axis}
-                not_checked["boundaries other than periodic and open"] = not boundary_types <= {
+                axes = config.boundary_settings
+                if config.dimensionality == 1:
+                    axes = (axes,)
+                boundary_types = {side for axis in axes[: config.dimensionality] for side in axis}
+                served = {PERIODIC_BOUNDARY, OPEN_BOUNDARY} if config.mhd else {
                     PERIODIC_BOUNDARY,
                     OPEN_BOUNDARY,
+                    REFLECTIVE_BOUNDARY,
                 }
+                not_checked["boundaries other than periodic and open (and reflective without a field)"] = not (
+                    boundary_types <= served
+                )
             for name, requested in not_checked.items():
                 if requested:
                     raise ValueError(f"scheme=RIEMANN_FLUX does not serve {name} yet.")

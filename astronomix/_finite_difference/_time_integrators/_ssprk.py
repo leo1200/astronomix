@@ -133,13 +133,13 @@ def _riemann_flux_increment(
     """
     The fluid increment of a stage under ``scheme = RIEMANN_FLUX``:
     -dt/h sum_d delta_d(F_d) with the interface flux of ``_riemann_flux.py``.
-    For the ideal gas the energy row carries the fluid half of the
+    For ideal-gas MHD the energy row carries the fluid half of the
     Poynting-consistent energy flux (``_energy_flux.py``); the CT half is added
     with the constrained transport.
 
     Args:
-        conserved_state: The conserved state with the cell-centred field rebuilt.
-        face_fields: The interface fields (bx, by, bz).
+        conserved_state: The conserved state (MHD: with the cell-centred field rebuilt).
+        face_fields: The interface fields (bx, by, bz); None in the hydrodynamic form.
         dt_over_dx: The (stage) time step over the cell size.
         params: The simulation parameters.
         config: The simulation configuration.
@@ -149,7 +149,7 @@ def _riemann_flux_increment(
         The increment of the conserved state and the density fluxes of the axes.
     """
     energy_flux_channels = None
-    if config.equation_of_state == IDEAL_GAS:
+    if config.mhd and config.equation_of_state == IDEAL_GAS:
         magnetic_index = registered_variables.magnetic_index
         energy_flux_channels = (
             registered_variables.energy_index,
@@ -164,8 +164,8 @@ def _riemann_flux_increment(
             1.0, maximum_signal_speed(conserved_state, params, config, registered_variables, axis)
         )
         flux = riemann_interface_flux(
-            conserved_state, face_fields[axis], reference_step, compression[axis],
-            params, config, registered_variables, axis,
+            conserved_state, None if face_fields is None else face_fields[axis], reference_step,
+            compression[axis], params, config, registered_variables, axis,
         )
         density_fluxes.append(flux[registered_variables.density_index])
         if use_kernels:
@@ -536,8 +536,10 @@ def _hydro_step_rhs(
     internal_energy_density=None,
 ):
     """
-    RHS for one hydro WENO time-step stage (excluding RK coefficient logic),
-    ``rhs_q = -dt_tilde * div(F(current_q)) + dt_tilde * S(current_q)``.
+    RHS for one hydro time-step stage (excluding RK coefficient logic),
+    ``rhs_q = -dt_tilde * div(F(current_q)) + dt_tilde * S(current_q)``,
+    with the WENO flux splitting or (``scheme = RIEMANN_FLUX``) the flux of
+    ``_riemann_flux.py``.
 
     Shared by the SSPRK4 and LSRK4 (low-storage) integrators below; the only
     integrator-specific code is the way ``dt_tilde`` is built and how each
@@ -564,6 +566,22 @@ def _hydro_step_rhs(
     dtdx = dt_tilde / grid_spacing
     dtdy = dt_tilde / grid_spacing
     dtdz = dt_tilde / grid_spacing
+
+    if config.solver_config.scheme == RIEMANN_FLUX:
+        rhs_q, density_fluxes = _riemann_flux_increment(
+            current_q, None, dtdx, params, config, registered_variables
+        )
+        return rhs_q + _time_integrator_sources(
+            current_q,
+            density_fluxes,
+            rhs_q[registered_variables.density_index],
+            dt_tilde,
+            gamma,
+            config,
+            params,
+            helper_data,
+            registered_variables,
+        )
 
     # Fused WENO + axis-flux-divergence: each axis is built and consumed one
     # at a time, so the full-state-sized ``dF_x/y/z`` temporaries never
@@ -703,7 +721,8 @@ def _ssprk4_hydro(
 ):
     """
     Integrates the Euler (hydrodynamics) equations for one time step using a
-    5-stage, 4th-order Strong Stability Preserving Runge-Kutta (SSPRK) method.
+    5-stage, 4th-order Strong Stability Preserving Runge-Kutta (SSPRK) method,
+    or SSPRK(3,3) with ``time_integrator=SSPRK33`` (``scheme = RIEMANN_FLUX``).
 
     Three-register Spiteri-Ruuth scheme: needs ``q0``, ``q_curr`` and
     ``q_final`` simultaneously.  For storage-constrained runs, the
@@ -756,7 +775,8 @@ def _ssprk4_hydro(
 
     rhs = _stage_remat(rhs, config)
 
-    return ssprk4(
+    runge_kutta = ssprk33 if config.solver_config.time_integrator == SSPRK33 else ssprk4
+    return runge_kutta(
         conserved_state,
         dt,
         rhs=rhs,

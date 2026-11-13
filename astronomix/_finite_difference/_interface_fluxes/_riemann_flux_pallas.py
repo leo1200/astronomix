@@ -1254,16 +1254,18 @@ def _guard_pallas_local(
 def _riemann_flux_pallas_supported(conserved_state, config: SimulationConfig) -> bool:
     """
     Whether the kernels can run in place of ``_interface_flux_x``: the Pallas
-    backend, single precision on a GPU (or the interpreter, which takes any
-    precision and device), three dimensions and a block shape that divides
-    the grid. What is refused runs in the array form. The scheme itself needs
-    no test here: ``_riemann_flux._scheme_setup`` has accepted the
-    configuration before this is asked, and the kernels hold every branch it
-    accepts. The stage (``_ssprk._riemann_flux_increment``) and the
+    backend, the MHD form with the ideal or the isothermal gas, single
+    precision on a GPU (or the interpreter, which takes any precision and
+    device), three dimensions and a block shape that divides the grid. What is
+    refused runs in the array form. The kernels hold every branch of the MHD
+    form with these two gases that ``_riemann_flux._scheme_setup`` accepts.
+    The stage (``_ssprk._riemann_flux_increment``) and the
     constrained transport (``_flux_form_ct_pallas_supported``) ask the same
     question, so one stage never mixes kernels with a refused condition.
     """
     if pl is None or not _backend_is_pallas(config):
+        return False
+    if not config.mhd or config.equation_of_state not in (IDEAL_GAS, ISOTHERMAL):
         return False
     compiled = not config.backend_config.pallas_interpret
     if compiled and (jax.config.jax_enable_x64 or jax.default_backend() == "cpu"):

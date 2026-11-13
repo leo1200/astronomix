@@ -33,7 +33,6 @@ from astronomix.option_classes.simulation_config import (
     BACKWARDS,
     GHOST_CELLS,
     IDEAL_GAS,
-    ISOTHERMAL,
     LSRK4,
     STATE_TYPE,
 )
@@ -223,7 +222,8 @@ def _evolve_state_fd(
             conserved_state = conserved_state_from_primitive_mhd(
                 primitive_state[:interface_field_start], gamma, registered_variables
             )
-        elif config.equation_of_state == ISOTHERMAL:
+        else:
+            # a barotropic gas: density and momentum only
             conserved_state = conserved_state_from_primitive_isothermal(
                 primitive_state[:interface_field_start], config, registered_variables
             )
@@ -270,7 +270,7 @@ def _evolve_state_fd(
                 internal_energy_density=internal_energy_density,
                 clamp=False,
             )
-        elif config.equation_of_state == ISOTHERMAL:
+        else:
             primitive_state = primitive_state_from_conserved_isothermal(
                 conserved_state,
                 params.minimum_density,

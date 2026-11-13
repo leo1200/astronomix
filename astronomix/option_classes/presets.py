@@ -70,13 +70,17 @@ FD_PAPER = FDSolverConfig(
     ct_upwind_strength=0.03,
 )
 
-#: The finite-difference scheme with a Riemann flux for isothermal MHD: HLLEM_T
-#: flux, flux-form constrained transport, SSPRK(3,3). Use with ``mhd=True``,
-#: ``equation_of_state=ISOTHERMAL`` and a CFL number of 1.0.
+#: The finite-difference scheme with a Riemann flux for a barotropic gas:
+#: HLLEM_T flux, SSPRK(3,3); in MHD (``mhd=True``, 3D) with flux-form
+#: constrained transport, in hydrodynamics (``mhd=False``, 1D to 3D) with the
+#: zero-field form of HLLEM_T (the anti-diffusion of the shear waves). Use with
+#: ``equation_of_state=ISOTHERMAL`` or ``POLYTROPIC`` and a CFL number of 1.0.
 FD_RIEMANN_ISOTHERMAL = FDSolverConfig(scheme=RIEMANN_FLUX, time_integrator=SSPRK33)
 
-#: The finite-difference scheme with a Riemann flux for ideal-gas MHD:
-#: HLLD_BOUNDED flux, flux-form constrained transport with the energy held in
-#: the field rebuild, SSPRK(5,4). Use with ``mhd=True``,
-#: ``equation_of_state=IDEAL_GAS`` and a CFL number of 1.0.
+#: The finite-difference scheme with a Riemann flux for the ideal gas,
+#: SSPRK(5,4): in MHD (``mhd=True``, 3D) the HLLD_BOUNDED flux and flux-form
+#: constrained transport with the energy held in the field rebuild, in
+#: hydrodynamics (``mhd=False``, 1D to 3D) the HLLC flux with the same bounded
+#: outer speeds. Use with ``equation_of_state=IDEAL_GAS`` and a CFL number of
+#: 1.0.
 FD_RIEMANN_IDEAL_GAS = FDSolverConfig(scheme=RIEMANN_FLUX, time_integrator=SSPRK54)
