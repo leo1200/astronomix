@@ -45,6 +45,7 @@ from astronomix.option_classes.simulation_config import (
     PERIODIC_ROLL,
     POSITIVITY_HARD_FLOOR,
     LSRK4,
+    RIEMANN_FLUX,
     STATE_TYPE,
     TO_DISK,
 )
@@ -128,6 +129,20 @@ class LoopState(NamedTuple):
     """
     primitive_state: Any
     driving_state: Any = None
+
+
+def _compiler_options(config: SimulationConfig, dtype) -> Union[dict, NoneType]:
+    """
+    The XLA options of the compiled time integration: the multi-output fusion
+    pass off for the finite-difference scheme with a Riemann flux in float64 on
+    a GPU. With the pass, XLA (jaxlib 0.9.2) builds a four-output loop kernel of
+    the flux sweep that reads out of bounds (CUDA_ERROR_ILLEGAL_ADDRESS, seen
+    with open boundaries on (N, 1, 1) cells, N >= 416).
+    """
+    riemann_flux = config.solver_mode == FINITE_DIFFERENCE and config.solver_config.scheme == RIEMANN_FLUX
+    if riemann_flux and dtype == jnp.float64 and jax.default_backend() == "gpu":
+        return {"xla_disable_hlo_passes": "multi_output_fusion"}
+    return None
 
 
 def _raise_with_time_integration_hint(error: Exception, config: SimulationConfig):
@@ -343,6 +358,7 @@ def time_integration(
             # Turn an opaque out-of-memory / NaN failure into an actionable one.
             _raise_with_time_integration_hint(error, config)
 
+    compiler_options = _compiler_options(config, primitive_state.dtype)
     if config.donate_state:
         time_integration_jit = jax.jit(
             _time_integration,
@@ -352,6 +368,7 @@ def time_integration(
                 "snapshot_callable"
             ],
             donate_argnames=["state"],
+            compiler_options=compiler_options,
         )
     else:
         time_integration_jit = jax.jit(
@@ -361,6 +378,7 @@ def time_integration(
                 "registered_variables",
                 "snapshot_callable"
             ],
+            compiler_options=compiler_options,
         )
 
     if config.runtime_debugging:
@@ -1255,6 +1273,7 @@ def _time_integration_to_disk(
     run_segment_jit = jax.jit(
         _run_segment,
         static_argnames=["config", "registered_variables"],
+        compiler_options=_compiler_options(config, state.dtype),
     )
 
     mesh_ctx = sharding.mesh if sharding is not None else nullcontext()
