@@ -9,16 +9,6 @@ isothermal MHD shock tube (Mignone 2007, test 2) at N = 512 run and stay finite.
     python -m pytest pytests/mhd/test_open_boundary_gpu_step.py
 """
 
-# ==== GPU selection ====
-import os
-
-if os.environ.get("CUDA_VISIBLE_DEVICES") is None and os.environ.get("JAX_PLATFORMS") != "cpu":
-    from autocvd import autocvd
-
-    autocvd(num_gpus=1)
-# ruff: noqa: E402
-# =======================
-
 # numerics
 import numpy as np
 
@@ -47,10 +37,10 @@ from astronomix.variable_registry.registered_variables import get_registered_var
 from astronomix.time_stepping.time_integration import time_integration
 
 # jax
-import jax
-
-jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
+
+# The fault is in the float64 GPU program (the conftest runs the module in float64 and skips it without a GPU).
+pytestmark = [pytest.mark.x64, pytest.mark.gpu]
 
 NUM_CELLS = 512
 FIELD_SCALE = 1.0 / np.sqrt(4.0 * np.pi)
@@ -58,7 +48,6 @@ LEFT_STATE = dict(density=1.08, velocity=(1.2, 0.01, 0.5), field=(2.0, 3.6, 2.0)
 RIGHT_STATE = dict(density=1.0, velocity=(0.0, 0.0, 0.0), field=(2.0, 4.0, 2.0))
 
 
-@pytest.mark.skipif(jax.default_backend() != "gpu", reason="the fault is in GPU code")
 def test_open_boundary_shock_tube_steps_on_the_gpu():
     open_sides = BoundarySettings1D(OPEN_BOUNDARY, OPEN_BOUNDARY)
     periodic_sides = BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY)
