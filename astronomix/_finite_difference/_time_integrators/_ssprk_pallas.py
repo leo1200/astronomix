@@ -16,7 +16,10 @@ Poynting-consistent energy flux of the MHD integrator
 
 The module also holds the native-JAX twin of the kernel, used as its tangent
 for automatic differentiation, and the divergence of an x flux that already
-carries its x halo (the multi-GPU fast path of ``_lsrk4_with_ct``).
+carries its x halo (the multi-GPU fast path of ``_lsrk4_with_ct``). The stage
+of the Riemann-flux scheme on a device mesh calls the ``*_local`` build on a
+padded shard, where the state may carry a wider halo than the flux
+(``_padded_stage.py``).
 """
 
 # typing
@@ -542,6 +545,19 @@ def _hydro_flux_div_axis_pallas_local(
             kk = _shifted_index(bk * bz + jnp.arange(bz)[None, None, :], first_z) % nz
 
         dt_over_dx_value = dt_over_dx_ref[()]
+        # On a padded shard the state may carry a wider halo than the flux (both around the same cells).
+        state_indices = None
+        if corrected and ndim == 3 and tuple(magnetic_state.shape[1:]) != spatial_shape:
+            state_indices = [
+                _shifted_index(program * block + jnp.arange(block).reshape(shape), first) % extent
+                for program, block, shape, first, extent in zip(
+                    (bi, bj, bk),
+                    (bx, by, bz),
+                    ((bx, 1, 1), (1, by, 1), (1, 1, bz)),
+                    _shard_cells(magnetic_state.shape[1:])[0],
+                    magnetic_state.shape[1:],
+                )
+            ]
 
         def read(ref, var, offset):
             """``ref[var]`` at the cell ``offset`` along ``axis``."""
@@ -560,12 +576,20 @@ def _hydro_flux_div_axis_pallas_local(
             index = kk if offset == 0 else (kk + offset) % nz
             return ref[var, ii, jj, index]
 
+        def read_state(var, offset):
+            """The state's ``var`` at the cell ``offset`` along ``axis``."""
+            if state_indices is None:
+                return read(state_ref, var, offset)
+            index = list(state_indices)
+            index[axis] = _shifted_index(index[axis], offset) % magnetic_state.shape[1 + axis]
+            return state_ref[(var, *index)]
+
         def corrected_energy_flux(offset):
             """F_E - sum_c B_f[c] F_{B_c} at the face ``offset`` (0: i + 1/2)."""
             energy_channel, magnetic_channels = energy_flux_channels
             magnetic_flux = 0.0
             for channel in magnetic_channels:
-                face_field = 0.5 * (read(state_ref, channel, offset) + read(state_ref, channel, offset + 1))
+                face_field = 0.5 * (read_state(channel, offset) + read_state(channel, offset + 1))
                 magnetic_flux = magnetic_flux + face_field * read(flux_ref, channel, offset)
             return read(flux_ref, energy_channel, offset) - magnetic_flux
 
@@ -591,7 +615,11 @@ def _hydro_flux_div_axis_pallas_local(
         kwargs["compiler_params"] = compiler_params
 
     # The state is passed whole, like the flux, for the field's neighbours.
-    state_specs = [flux_spec] if corrected else []
+    state_specs = []
+    if corrected:
+        state_specs = [flux_spec]
+        if magnetic_state.shape != interface_flux.shape:
+            state_specs = [pl.BlockSpec(magnetic_state.shape, lambda bi, bj, bk: (0,) * magnetic_state.ndim)]
     state_args = (magnetic_state,) if corrected else ()
     if accumulate:
         in_specs = [out_spec, flux_spec] + state_specs + [scalar_spec, scalar_spec]

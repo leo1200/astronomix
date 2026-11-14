@@ -67,6 +67,7 @@ from astronomix._fluid_equations._equation_of_state import (
     barotropic_law,
     law_sound_speed,
 )
+from astronomix._pallas_helpers import diffable_pallas_call_n
 from astronomix._spatial_operators._differencing import finite_difference_int6
 from astronomix._spatial_operators._interpolate import (
     interp_center_to_face,
@@ -350,7 +351,8 @@ def update_cell_center_fields(
 
     The Pallas implementation in ``_constrained_transport_pallas`` is
     used transparently when the Pallas backend is active and the
-    predicate applies (3D ideal-gas MHD), with either energy update.
+    predicate applies (3D MHD with the ideal gas, with either energy update,
+    or with the isothermal gas under ``scheme = RIEMANN_FLUX``).
 
     Args:
         conserved_state: The conserved MHD state.
@@ -365,16 +367,44 @@ def update_cell_center_fields(
         The conserved state with updated cell-centered fields (and energy).
     """
     if _ct_update_cell_center_fields_pallas_supported(conserved_state, config):
-        return _ct_update_cell_center_fields_pallas(
-            conserved_state,
-            bx_interface,
-            by_interface,
-            bz_interface,
-            config,
-            registered_variables,
-            params,
-        )
+        if config.equation_of_state == IDEAL_GAS:
+            return _ct_update_cell_center_fields_pallas(
+                conserved_state,
+                bx_interface,
+                by_interface,
+                bz_interface,
+                config,
+                registered_variables,
+                params,
+            )
 
+        # the isothermal gas: the kernel computes the values, a derivative takes the array form
+        def kernel(state, bx, by, bz):
+            return _ct_update_cell_center_fields_pallas(state, bx, by, bz, config, registered_variables, params)
+
+        def array_form(state, bx, by, bz):
+            return _cell_center_fields_array_form(state, bx, by, bz, config, registered_variables, params)
+
+        return diffable_pallas_call_n(
+            (conserved_state, bx_interface, by_interface, bz_interface),
+            pallas_branch=kernel,
+            native_branch=array_form,
+        )
+    return _cell_center_fields_array_form(
+        conserved_state, bx_interface, by_interface, bz_interface, config, registered_variables, params
+    )
+
+
+def _cell_center_fields_array_form(
+    conserved_state,
+    bx_interface,
+    by_interface,
+    bz_interface,
+    config: SimulationConfig,
+    registered_variables: RegisteredVariables,
+    params: SimulationParams = None,
+):
+    """``update_cell_center_fields`` in the array form (the arguments and the result of that function)."""
     BX = registered_variables.magnetic_index.x
     BY = registered_variables.magnetic_index.y
     BZ = registered_variables.magnetic_index.z

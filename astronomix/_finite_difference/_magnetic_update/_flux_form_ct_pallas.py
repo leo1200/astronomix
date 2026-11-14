@@ -33,7 +33,9 @@ only; the derivative rules stay in ``_ratio_rules.py``.
 
 Every kernel goes through ``_pallas_call_sharded`` (one halo exchange per
 kernel on a device mesh); the ``*_local`` builds derive every shape from
-their own arguments.
+their own arguments, and each input may carry its own halo around the cells
+written (``_shard_cells``). The stage on a device mesh calls the ``*_local``
+builds on a padded shard instead (``_time_integrators/_padded_stage.py``).
 """
 
 # jax
@@ -400,6 +402,7 @@ def _edge_emfs_pallas_local(
     """
     spatial_shape, block_shape, grid = _ct_block_and_grid(interface_fields.shape[1:], config)
     extents = tuple(spatial_shape)
+    auxiliary_extents = tuple(int(extent) for extent in auxiliary.shape[1:])
 
     field_spec = pl.BlockSpec(interface_fields.shape, lambda bi, bj, bk: (0, 0, 0, 0))
     auxiliary_spec = pl.BlockSpec(auxiliary.shape, lambda bi, bj, bk: (0, 0, 0, 0))
@@ -408,9 +411,14 @@ def _edge_emfs_pallas_local(
 
     def kernel(field_ref, auxiliary_ref, relative_epsilon_ref, epsilon_floor_ref, out_ref):
         cell = _block_cell_indices(block_shape, spatial_shape)
+        # On a padded shard the two inputs may carry different halos (each around the same cells).
+        auxiliary_cell = cell
+        if auxiliary_extents != extents:
+            auxiliary_cell = _block_cell_indices(block_shape, auxiliary_extents)
 
         def read(ref, channel, offset):
-            index = tuple(_wrapped_index(cell[axis], offset[axis], extents[axis]) for axis in range(3))
+            cells, cell_extents = (cell, extents) if ref is field_ref else (auxiliary_cell, auxiliary_extents)
+            index = tuple(_wrapped_index(cells[axis], offset[axis], cell_extents[axis]) for axis in range(3))
             return ref[(channel,) + index]
 
         def transport_flux(component, along):

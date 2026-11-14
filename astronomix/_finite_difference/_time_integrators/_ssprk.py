@@ -61,6 +61,10 @@ from astronomix._finite_difference._interface_fluxes._weno_pallas import (
 from astronomix._finite_difference._interface_fluxes._weno_positivity_pallas import (
     mhd_inflow_reference_dispatch,
 )
+from astronomix._finite_difference._time_integrators._padded_stage import (
+    padded_stage_supported,
+    riemann_flux_stage_on_padded_shards,
+)
 from astronomix._finite_difference._time_integrators._ssprk_pallas import (
     _div_axis_pallas_shape_ok,
     _hydro_flux_div_axis_native,
@@ -179,6 +183,80 @@ def _riemann_flux_increment(
         divergence = -dt_over_dx * (flux - _shift(flux, 1, axis=axis + 1))
         increment = divergence if increment is None else increment + divergence
     return increment, tuple(density_fluxes)
+
+
+def _riemann_flux_rhs_on_padded_shards(
+    u,
+    dt_tilde,
+    gamma,
+    grid_spacing,
+    params: SimulationParams,
+    helper_data: HelperData,
+    config: SimulationConfig,
+    registered_variables: RegisteredVariables,
+):
+    """
+    The right-hand side of a stage under ``scheme = RIEMANN_FLUX`` on a device
+    mesh, with one halo exchange per split axis (``_padded_stage.py``): the
+    increments of the stage functions of ``_ssprk_with_ct`` (``u`` the tuple
+    of the conserved state and the interface fields) and of ``_hydro_step_rhs``
+    (``u`` the conserved state). A derivative takes the array form, the steps
+    of those stage functions.
+    """
+    face_fields = tuple(u[1:]) if config.mhd else None
+    conserved_state = u[0] if config.mhd else u
+
+    def array_form(state, fields, time_step, spacing, parameters):
+        if fields is not None:
+            state = update_cell_center_fields(state, *fields, config, registered_variables, parameters)
+        increment, density_fluxes = _riemann_flux_increment(
+            state, fields, time_step / spacing, parameters, config, registered_variables
+        )
+        if fields is None:
+            return state, increment, None, density_fluxes
+        if config.equation_of_state == IDEAL_GAS:
+            *field_increments, energy = flux_form_ct_rhs_with_energy(
+                state, *fields, time_step, spacing, parameters, config, registered_variables
+            )
+            increment = increment.at[registered_variables.energy_index].add(energy)
+        else:
+            field_increments = flux_form_ct_rhs(
+                state, *fields, time_step, spacing, parameters, config, registered_variables
+            )
+        return state, increment, tuple(field_increments), density_fluxes
+
+    def on_padded_shards(state, fields, time_step, spacing, parameters):
+        return riemann_flux_stage_on_padded_shards(
+            state, fields, time_step, spacing, parameters, config, registered_variables
+        )
+
+    state, increment, field_increments, density_fluxes = diffable_pallas_call_n(
+        (conserved_state, face_fields, dt_tilde, grid_spacing, params),
+        pallas_branch=on_padded_shards,
+        native_branch=array_form,
+    )
+    increment += explicit_sources(
+        state,
+        dt_tilde,
+        gamma,
+        config,
+        params,
+        helper_data,
+        registered_variables,
+        density_fluxes=density_fluxes,
+        density_increment=increment[registered_variables.density_index],
+    )
+    if face_fields is None:
+        return increment
+    if config.diffusion_config.resistivity:
+        resistive_increments = resistive_face_increment(
+            *face_fields, params.resistivity, dt_tilde, grid_spacing, config.dimensionality
+        )
+        field_increments = tuple(
+            field_increment + resistive_increment
+            for field_increment, resistive_increment in zip(field_increments, resistive_increments)
+        )
+    return (increment, *field_increments)
 
 
 @partial(
@@ -446,6 +524,12 @@ def _ssprk_with_ct(
 
         return rhs_q, rhs_bx, rhs_by, rhs_bz
 
+    # On a device mesh: the stage on padded shards, one halo exchange per split axis.
+    if padded_stage_supported(conserved_state, config):
+        rhs = partial(
+            _riemann_flux_rhs_on_padded_shards, gamma=gamma, grid_spacing=grid_spacing, params=params,
+            helper_data=helper_data, config=config, registered_variables=registered_variables,
+        )
     rhs = _stage_remat(rhs, config)
 
     def pre_stage(u):
@@ -781,6 +865,12 @@ def _ssprk_hydro(
             internal_energy_density=internal_energy_density,
         )
 
+    # On a device mesh: the stage on padded shards, one halo exchange per split axis.
+    if padded_stage_supported(conserved_state, config):
+        rhs = partial(
+            _riemann_flux_rhs_on_padded_shards, gamma=gamma, grid_spacing=grid_spacing, params=params,
+            helper_data=helper_data, config=config, registered_variables=registered_variables,
+        )
     rhs = _stage_remat(rhs, config)
 
     runge_kutta = ssprk33 if config.solver_config.time_integrator == SSPRK33 else ssprk4

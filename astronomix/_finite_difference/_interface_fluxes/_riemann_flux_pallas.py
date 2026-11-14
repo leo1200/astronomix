@@ -39,6 +39,12 @@ Two kernels per axis, both with the stencil halo of 3 cells:
 The guard at a face needs F_H of three faces, so a single kernel would compute
 steps 1 to 6 three times per face.
 
+On one device and in the derivative-free calls the two kernels run through
+``_interface_flux_pallas`` (on a device mesh with one halo exchange per
+input); the stage on a device mesh calls the ``*_local`` builds on a padded
+shard instead (``_time_integrators/_padded_stage.py``), each input with its
+own halo around the faces written (``_tile_reader``).
+
 The kernels are never differentiated: ``_riemann_flux.interface_flux`` calls
 them through ``diffable_pallas_call_n``, which takes the tangent and the
 cotangent from the array form. The quotients written out below therefore
@@ -1494,6 +1500,24 @@ def _riemann_flux_pallas_supported(conserved_state, config: SimulationConfig) ->
     return all(int(extent) % int(block) == 0 for extent, block in zip(spatial_shape, block_shape, strict=True))
 
 
+def _kernel_scalars(params: SimulationParams, config: SimulationConfig, dtype) -> Tuple:
+    """The four scalar inputs of the flux and the guard kernel (``_kernel_setup``), typed ``dtype``."""
+    # the floor of ``_eigen_mhd._wave_speeds`` and of the eigenvector blocks
+    eigen_floor = 1e-30 if jax.config.jax_enable_x64 else 1e-20
+    if config.equation_of_state == IDEAL_GAS:
+        scalars = (params.gamma, params.minimum_density, params.minimum_pressure, eigen_floor)
+    elif config.equation_of_state == POLYTROPIC:
+        scalars = (params.polytropic_constant, params.polytropic_exponent, params.minimum_density, eigen_floor)
+    else:
+        scalars = (
+            params.isothermal_sound_speed,
+            params.isothermal_sound_speed**2,
+            params.minimum_density,
+            eigen_floor,
+        )
+    return tuple(jnp.asarray(value, dtype=dtype) for value in scalars)
+
+
 def _interface_flux_pallas(
     conserved_state,
     face_field,
@@ -1519,21 +1543,7 @@ def _interface_flux_pallas(
     )
     halo = tuple(_HALO if d == int(axis) else 0 for d in range(3))
     flux_halo = tuple(_GUARD_FLUX_HALO if d == int(axis) else 0 for d in range(3))
-
-    # the floor of ``_eigen_mhd._wave_speeds`` and of the eigenvector blocks
-    eigen_floor = 1e-30 if jax.config.jax_enable_x64 else 1e-20
-    if config.equation_of_state == IDEAL_GAS:
-        scalars = (params.gamma, params.minimum_density, params.minimum_pressure, eigen_floor)
-    elif config.equation_of_state == POLYTROPIC:
-        scalars = (params.polytropic_constant, params.polytropic_exponent, params.minimum_density, eigen_floor)
-    else:
-        scalars = (
-            params.isothermal_sound_speed,
-            params.isothermal_sound_speed**2,
-            params.minimum_density,
-            eigen_floor,
-        )
-    scalars = tuple(jnp.asarray(value, dtype=dtype) for value in scalars)
+    scalars = _kernel_scalars(params, config, dtype)
 
     def build_flux(state_local, *others):
         return _interface_flux_pallas_local(

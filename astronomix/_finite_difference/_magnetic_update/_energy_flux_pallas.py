@@ -19,7 +19,9 @@ runs inside the flux-divergence kernel (``_ssprk_pallas.py``).
 The kernel runs where the constrained-transport kernels of
 ``_flux_form_ct_pallas.py`` run (one predicate, asked in ``_flux_form_ct.py``,
 which also puts the call behind ``diffable_pallas_call_n``: the derivative is
-the array form's). The call goes through ``_pallas_call_sharded``; the
+the array form's). The call goes through ``_pallas_call_sharded`` (the stage
+on a device mesh calls the ``*_local`` build on a padded shard,
+``_time_integrators/_padded_stage.py``); the
 ``*_local`` build derives every shape from its own arguments. Following the
 Pallas convention of this codebase
 (``agent_guides/pallas_backend_implementation_guide.md``), the kernel is a

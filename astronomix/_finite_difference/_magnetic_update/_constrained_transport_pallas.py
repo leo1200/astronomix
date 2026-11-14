@@ -58,7 +58,7 @@ import jax
 import jax.numpy as jnp
 
 # astronomix constants
-from astronomix.option_classes.simulation_config import IDEAL_GAS, POLYTROPIC, RIEMANN_FLUX
+from astronomix.option_classes.simulation_config import IDEAL_GAS, ISOTHERMAL, POLYTROPIC, RIEMANN_FLUX
 
 # astronomix containers
 from astronomix.option_classes.simulation_config import SimulationConfig
@@ -305,9 +305,11 @@ def _ct_update_cell_center_fields_pallas_supported(state, config: SimulationConf
     """
     Whether the Pallas cell-centre reconstruction can run.
 
-    3D ideal-gas MHD only; the isothermal and lower-dimensional paths use the
-    short native version. Gated on ``config.backend_config.pallas_ct``, and
-    under ``scheme = RIEMANN_FLUX`` on the condition of that scheme's kernels.
+    3D MHD with the ideal gas, and with the isothermal gas under
+    ``scheme = RIEMANN_FLUX`` (no energy row); the other gases and the
+    lower-dimensional paths use the short native version. Gated on
+    ``config.backend_config.pallas_ct``, and under ``scheme = RIEMANN_FLUX``
+    on the condition of that scheme's kernels.
 
     Args:
         state: The conserved state.
@@ -324,7 +326,8 @@ def _ct_update_cell_center_fields_pallas_supported(state, config: SimulationConf
         return False
     if not config.mhd:
         return False
-    if config.equation_of_state != IDEAL_GAS:
+    riemann_flux = config.solver_config.scheme == RIEMANN_FLUX
+    if config.equation_of_state != IDEAL_GAS and not (riemann_flux and config.equation_of_state == ISOTHERMAL):
         return False
     if int(config.dimensionality) != 3:
         return False
@@ -373,7 +376,7 @@ def _ct_update_cell_center_fields_pallas(
     stacked_interface_fields = jnp.stack([bx_interface, by_interface, bz_interface])
     interface_field_halo = (3, 3, 3)[:ndim]
     zero_halo = (0,) * ndim
-    hold_energy = config.solver_config.scheme == RIEMANN_FLUX
+    hold_energy = config.solver_config.scheme == RIEMANN_FLUX and config.equation_of_state == IDEAL_GAS
     scalars = (params.gamma, params.minimum_density, params.minimum_pressure) if hold_energy else ()
 
     def build_local(state_local, interface_fields_local, *scalars_local):
@@ -410,11 +413,11 @@ def _ct_update_cell_center_fields_pallas_local(
 ):
     """
     Single-shard build of ``_ct_update_cell_center_fields_pallas``: three
-    independent face-to-centre stencils, the cell-centred field and the energy
-    update, and a pass-through of every other variable. All shapes come from
-    this call's arguments, so the build works on the shard of a device mesh,
-    whose cells the padded interface fields hold after their halo
-    (``_shard_cells``).
+    independent face-to-centre stencils, the cell-centred field and (ideal
+    gas) the energy update, and a pass-through of every other variable. All
+    shapes come from this call's arguments, so the build works on the shard of
+    a device mesh or on a region of a padded shard, whose cells the padded
+    inputs hold after their halos (``_shard_cells``).
 
     Args:
         conserved_state: The conserved state.
@@ -439,6 +442,8 @@ def _ct_update_cell_center_fields_pallas_local(
     magnetic_y_index = int(registered_variables.magnetic_index.y)
     magnetic_z_index = int(registered_variables.magnetic_index.z)
     energy_index = int(registered_variables.energy_index)
+    ideal_gas = config.equation_of_state == IDEAL_GAS
+    field_rows = (magnetic_x_index, magnetic_y_index, magnetic_z_index)
 
     state_out_spec = pl.BlockSpec(
         (num_vars,) + block_shape,
@@ -463,6 +468,15 @@ def _ct_update_cell_center_fields_pallas_local(
         bz_center = _face_to_center(
             lambda offset: interface_ref[2, fi, fj, _wrapped_index(fk, offset, nz)]
         )
+
+        if not ideal_gas:
+            # a barotropic gas: the field rows are replaced, the others passed through
+            for var in range(num_vars):
+                if var in field_rows:
+                    out_ref[var, ...] = (bx_center, by_center, bz_center)[field_rows.index(var)]
+                else:
+                    out_ref[var, ...] = state_ref[var, ii, jj, kk]
+            return
 
         bx_old = state_ref[magnetic_x_index, ii, jj, kk]
         by_old = state_ref[magnetic_y_index, ii, jj, kk]
