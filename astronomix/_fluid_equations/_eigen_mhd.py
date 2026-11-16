@@ -438,6 +438,73 @@ def _wave_speeds(
     )
 
 
+def _mode_weightings(
+    sound_speed_sq_interface,
+    fast_magnetosonic_velocity_sq_interface,
+    slow_magnetosonic_velocity_sq_interface,
+):
+    """
+    The fast and slow mode weightings of the eigenvectors of an interface state,
+
+        alpha_f = sqrt((a^2 - c_s^2) / (c_f^2 - c_s^2)),    alpha_s = sqrt((c_f^2 - a^2) / (c_f^2 - c_s^2)),
+
+    divided by sqrt(alpha_f^2 + alpha_s^2). The rows and the columns of the eigenvectors are inverse to
+    each other only if alpha_f^2 + alpha_s^2 = 1, and near c_f = c_s the rounded squared speeds do not
+    enclose a^2: one numerator is cut off at zero and the sum of the squares leaves 1 without the division.
+    Where the squared speeds are equal (B_t = 0 and v_A = a) both weightings are 1 / sqrt(2). The isothermal
+    module uses this function with its constant squared sound speed.
+
+    Args:
+        sound_speed_sq_interface: The squared interface sound speed.
+        fast_magnetosonic_velocity_sq_interface: The squared fast speed.
+        slow_magnetosonic_velocity_sq_interface: The squared slow speed.
+
+    Returns:
+        The fast and the slow mode weighting.
+    """
+    if jax.config.jax_enable_x64:
+        eps = 1e-30
+    else:
+        eps = 1e-20
+
+    denom = (
+        fast_magnetosonic_velocity_sq_interface
+        - slow_magnetosonic_velocity_sq_interface
+    )
+    root_denom = diff_safe_sqrt(jnp.maximum(denom, eps))
+    fast_mode_weighting = (
+        diff_safe_sqrt(
+            jnp.maximum(
+                0.0,
+                sound_speed_sq_interface - slow_magnetosonic_velocity_sq_interface,
+            )
+        )
+        / root_denom
+    )
+    slow_mode_weighting = (
+        diff_safe_sqrt(
+            jnp.maximum(
+                0.0,
+                fast_magnetosonic_velocity_sq_interface - sound_speed_sq_interface,
+            )
+        )
+        / root_denom
+    )
+    # The floored roots keep the norm above zero where the speeds are equal as well (there it is at
+    # least sqrt(2)), so neither branch of the selection divides by zero.
+    norm = jnp.sqrt(
+        fast_mode_weighting * fast_mode_weighting
+        + slow_mode_weighting * slow_mode_weighting
+    )
+    fast_mode_weighting = jnp.where(
+        denom >= eps, fast_mode_weighting / norm, 1.0 / jnp.sqrt(2.0)
+    )
+    slow_mode_weighting = jnp.where(
+        denom >= eps, slow_mode_weighting / norm, 1.0 / jnp.sqrt(2.0)
+    )
+    return fast_mode_weighting, slow_mode_weighting
+
+
 def _eigenvector_blocks(
     rho_interface,
     velocity_x_interface,
@@ -514,35 +581,11 @@ def _eigenvector_blocks(
         1.0 / jnp.sqrt(2.0),
     )
 
-    # fast_mode_weighting = sqrt( c_s^2 − λ_slow^2 ) / sqrt( λ_fast^2 − λ_slow^2 )
-    # slow_mode_weighting = sqrt( λ_fast^2 − c_s^2 ) / sqrt( λ_fast^2 − λ_slow^2 )
-    # These are designed such that fast_mode_weighting^2 + slow_mode_weighting^2 = 1.
-    denom = (
-        fast_magnetosonic_velocity_sq_interface
-        - slow_magnetosonic_velocity_sq_interface
-    )
-    denom_safe = jnp.maximum(denom, eps)
-    fast_mode_weighting = jnp.where(
-        denom >= eps,
-        diff_safe_sqrt(
-            jnp.maximum(
-                0.0,
-                sound_speed_sq_interface - slow_magnetosonic_velocity_sq_interface,
-            )
-        )
-        / diff_safe_sqrt(denom_safe),
-        1.0,
-    )
-    slow_mode_weighting = jnp.where(
-        denom >= eps,
-        diff_safe_sqrt(
-            jnp.maximum(
-                0.0,
-                fast_magnetosonic_velocity_sq_interface - sound_speed_sq_interface,
-            )
-        )
-        / diff_safe_sqrt(denom_safe),
-        1.0,
+    # mode weightings: af^2 + as^2 = 1
+    fast_mode_weighting, slow_mode_weighting = _mode_weightings(
+        sound_speed_sq_interface,
+        fast_magnetosonic_velocity_sq_interface,
+        slow_magnetosonic_velocity_sq_interface,
     )
 
     sqrt_rho = diff_safe_sqrt(rho_interface)

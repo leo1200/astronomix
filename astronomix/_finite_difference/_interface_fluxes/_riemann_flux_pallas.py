@@ -454,10 +454,14 @@ def _characteristic_basis(bar: InterfaceState, setup: KernelSetup) -> Basis:
     bt_y = jnp.where(bt2 >= eps, B_y / jnp.sqrt(bt2_safe), setup.inv_sqrt_two)
     bt_z = jnp.where(bt2 >= eps, B_z / jnp.sqrt(bt2_safe), setup.inv_sqrt_two)
 
+    # the statements of ``_eigen_mhd._mode_weightings``
     denom = c_f2 - c_s2
     root_denom = _safe_sqrt(jnp.maximum(denom, eps), setup)
-    a_f = jnp.where(denom >= eps, _safe_sqrt(jnp.maximum(zero, a2 - c_s2), setup) / root_denom, one)
-    a_s = jnp.where(denom >= eps, _safe_sqrt(jnp.maximum(zero, c_f2 - a2), setup) / root_denom, one)
+    a_f = _safe_sqrt(jnp.maximum(zero, a2 - c_s2), setup) / root_denom
+    a_s = _safe_sqrt(jnp.maximum(zero, c_f2 - a2), setup) / root_denom
+    norm = jnp.sqrt(a_f * a_f + a_s * a_s)
+    a_f = jnp.where(denom >= eps, a_f / norm, setup.inv_sqrt_two)
+    a_s = jnp.where(denom >= eps, a_s / norm, setup.inv_sqrt_two)
 
     sqrt_rho = _safe_sqrt(rho, setup)
     a2_inv = jnp.where(a2 > 0.0, 1.0 / a2, zero)

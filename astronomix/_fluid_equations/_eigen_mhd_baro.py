@@ -28,7 +28,7 @@ import jax.numpy as jnp
 from astronomix.variable_registry.registered_variables import RegisteredVariables
 
 # astronomix functions
-from astronomix._fluid_equations._eigen_mhd import _wave_speeds
+from astronomix._fluid_equations._eigen_mhd import _mode_weightings, _wave_speeds
 from astronomix._fluid_equations._equation_of_state import law_sound_speed
 from astronomix._stencil_operations._stencil_operations import _shift
 
@@ -276,26 +276,10 @@ def _eigenvector_blocks_iso(
     )
 
     # mode weightings: af^2 + as^2 = 1
-    denom = (
-        fast_magnetosonic_velocity_sq_interface
-        - slow_magnetosonic_velocity_sq_interface
-    )
-    denom_safe = jnp.maximum(denom, eps)
-    fast_mode_weighting = jnp.where(
-        denom >= eps,
-        diff_safe_sqrt(
-            jnp.maximum(0.0, cs2 - slow_magnetosonic_velocity_sq_interface)
-        )
-        / diff_safe_sqrt(denom_safe),
-        1.0,
-    )
-    slow_mode_weighting = jnp.where(
-        denom >= eps,
-        diff_safe_sqrt(
-            jnp.maximum(0.0, fast_magnetosonic_velocity_sq_interface - cs2)
-        )
-        / diff_safe_sqrt(denom_safe),
-        1.0,
+    fast_mode_weighting, slow_mode_weighting = _mode_weightings(
+        cs2,
+        fast_magnetosonic_velocity_sq_interface,
+        slow_magnetosonic_velocity_sq_interface,
     )
 
     sqrt_rho = diff_safe_sqrt(rho_interface)

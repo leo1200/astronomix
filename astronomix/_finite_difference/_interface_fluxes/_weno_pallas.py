@@ -2215,19 +2215,16 @@ def _mhd_window_shared(
         jnp.where(Bt2_face >= 0.0, one_typed, neg_one_typed),
     )
 
-    # Fast / slow mode weighting; same algebra as the native helper.
+    # Fast / slow mode weighting; same algebra as the native helper
+    # (``_eigen_mhd._mode_weightings``). The floored roots keep the norm above
+    # zero in both branches of the selection.
     denom = lambda_fast * lambda_fast - lambda_slow * lambda_slow
     denom_safe = jnp.maximum(denom, b_eps)
-    am_fast = jnp.where(
-        denom >= b_eps,
-        ssqrt(c_sq_face - lambda_slow * lambda_slow) / jnp.sqrt(denom_safe),
-        1.0,
-    )
-    am_slow = jnp.where(
-        denom >= b_eps,
-        ssqrt(lambda_fast * lambda_fast - c_sq_face) / jnp.sqrt(denom_safe),
-        1.0,
-    )
+    am_fast = ssqrt(c_sq_face - lambda_slow * lambda_slow) / jnp.sqrt(denom_safe)
+    am_slow = ssqrt(lambda_fast * lambda_fast - c_sq_face) / jnp.sqrt(denom_safe)
+    norm = jnp.sqrt(am_fast * am_fast + am_slow * am_slow)
+    am_fast = jnp.where(denom >= b_eps, am_fast / norm, inv_sqrt_two_typed)
+    am_slow = jnp.where(denom >= b_eps, am_slow / norm, inv_sqrt_two_typed)
 
     sqrt_rho_face = jnp.sqrt(jnp.maximum(rho_face, rhomin))
     face = _MhdFace(
@@ -4070,18 +4067,15 @@ def _weno_flux_mhd_iso_pallas_local(
             jnp.where(Bt2_face >= 0.0, one_typed, neg_one_typed),
         )
 
+        # the mode weightings of ``_eigen_mhd._mode_weightings``; the roots are not floored here and both
+        # vanish where the speeds are equal, so the squared norm of that branch is replaced before its root
         denom = lambda_fast * lambda_fast - lambda_slow * lambda_slow
         denom_safe = jnp.maximum(denom, b_eps)
-        am_fast = jnp.where(
-            denom >= b_eps,
-            jnp.sqrt(jnp.maximum(0.0, cs2 - lambda_slow * lambda_slow)) / jnp.sqrt(denom_safe),
-            1.0,
-        )
-        am_slow = jnp.where(
-            denom >= b_eps,
-            jnp.sqrt(jnp.maximum(0.0, lambda_fast * lambda_fast - cs2)) / jnp.sqrt(denom_safe),
-            1.0,
-        )
+        am_fast = jnp.sqrt(jnp.maximum(0.0, cs2 - lambda_slow * lambda_slow)) / jnp.sqrt(denom_safe)
+        am_slow = jnp.sqrt(jnp.maximum(0.0, lambda_fast * lambda_fast - cs2)) / jnp.sqrt(denom_safe)
+        norm = jnp.sqrt(jnp.where(denom >= b_eps, am_fast * am_fast + am_slow * am_slow, one_typed))
+        am_fast = jnp.where(denom >= b_eps, am_fast / norm, inv_sqrt_two_typed)
+        am_slow = jnp.where(denom >= b_eps, am_slow / norm, inv_sqrt_two_typed)
 
         sqrt_rho_face = jnp.sqrt(jnp.maximum(rho_face, rhomin))
         cs_geq_alfven = cs >= lambda_alfven

@@ -2,8 +2,8 @@
 The finite-difference scheme with a Riemann flux (``FDSolverConfig.scheme = RIEMANN_FLUX``),
 in the two configurations of the presets ``FD_RIEMANN_ISOTHERMAL`` and ``FD_RIEMANN_IDEAL_GAS``.
 
-Checks the convergence order on the circularly polarised Alfven wave, that steps on a rough
-state keep div B at rounding, that a strong blast (ideal gas) and a Mach-10 collision
+Checks the error and, on a GPU, the convergence order on the circularly polarised Alfven wave,
+that steps on a rough state keep div B at rounding, that a strong blast (ideal gas) and a Mach-10 collision
 (isothermal gas) stay positive, that more ghost cells than the rule of ``finalize_config``
 give the same result with open boundaries, that the derivative of the magnetic half of a
 stage (constrained transport, its energy flux, rebuild of the cell-centred field) agrees with
@@ -220,19 +220,37 @@ def _smooth_fields(equation_of_state):
 # ======================= convergence =======================
 
 
-#: Lower bounds of the measured order and upper bounds of the errors (float64, CFL 0.5, half a period).
-#: Measured on the CPU: isothermal 1.489e-03 at 8 cells and 1.589e-05 at 16 (order 6.55), ideal gas
-#: 1.602e-03 and 1.282e-05 (order 6.97). The error bounds are about 1.5 times the measured values.
-ALFVEN_WAVE_ORDER = {ISOTHERMAL: 6.0, IDEAL_GAS: 6.5}
+#: Upper bounds of the error after half a period at a CFL number of 0.5 in float64, about 1.5 times the measured
+#: values (CPU and GPU: isothermal 1.489e-3 at 8 cells and 1.589e-5 at 16, ideal gas 1.602e-3 and 1.282e-5). From
+#: 8 to 16 cells the error falls faster than with the order of the scheme (orders 6.55 and 6.97): at 8 cells the
+#: smoothness switch of the cell-flux correction takes the wave for a rough flow. The bounds guard against a
+#: regression; they measure no order.
 ALFVEN_WAVE_ERROR = {(ISOTHERMAL, 8): 2.3e-3, (ISOTHERMAL, 16): 2.4e-5, (IDEAL_GAS, 8): 2.4e-3, (IDEAL_GAS, 16): 2.0e-5}
+#: The order of the reconstruction is five. The order of the time integration is three for the isothermal
+#: preset (SSPRK(3,3)) and four for the ideal-gas preset (SSPRK(5,4)), so the time step of the order test
+#: falls as dx^(5/3) and dx^(5/4): the CFL number of N cells is ``ALFVEN_WAVE_CFL * (8 / N)^exponent``.
+#: Measured on a GPU from 16 to 32 cells in float64, the precision of this module (an error of 3e-7 is at the
+#: rounding of float32): isothermal 1.277e-5 and 3.422e-7 (CFL numbers 0.315 and 0.198), order 5.22; ideal gas
+#: 1.281e-5 and 3.396e-7 (0.420 and 0.354), order 5.24. With half the time step the orders are 5.25 and 5.23:
+#: the error is the one of the reconstruction.
+ALFVEN_WAVE_CFL = 0.5
+ALFVEN_WAVE_CFL_EXPONENT = {ISOTHERMAL: 2.0 / 3.0, IDEAL_GAS: 1.0 / 4.0}
+ALFVEN_WAVE_ORDER = 4.8
+
+
+def _order_test_cfl(equation_of_state, cells):
+    """The CFL number of the order test at ``cells`` cells per transverse wavelength."""
+    return ALFVEN_WAVE_CFL * (8.0 / cells) ** ALFVEN_WAVE_CFL_EXPONENT[equation_of_state]
 
 
 @functools.lru_cache(maxsize=None)
-def _alfven_wave_error(equation_of_state, cells):
+def _alfven_wave_error(equation_of_state, cells, cfl=ALFVEN_WAVE_CFL):
     """The mean absolute error of velocity and field after half a period of the wave at (2 cells, cells, cells)."""
     settings = CPAlfvenWave3DSettings(t_end=0.5)
     config = _config(equation_of_state, num_cells=StaticIntVector(2 * cells, cells, cells))
-    params = _params(equation_of_state, settings.t_end)._replace(isothermal_sound_speed=np.sqrt(settings.p_0))
+    params = _params(equation_of_state, settings.t_end)._replace(
+        C_cfl=cfl, isothermal_sound_speed=np.sqrt(settings.p_0)
+    )
     state, config, params = setup_cp_alfven_wave(config, params, settings)
     registered_variables = get_registered_variables(config)
     final = time_integration(state, config, params, registered_variables)
@@ -244,24 +262,25 @@ def _alfven_wave_error(equation_of_state, cells):
 
 
 @pytest.mark.slow
+@pytest.mark.parametrize("cells", [8, 16])
 @BOTH_GASES
-def test_alfven_wave_error_at_eight_cells(equation_of_state):
-    """The circularly polarised Alfven wave, oblique to the grid, at 8 cells per transverse wavelength."""
-    error = _alfven_wave_error(equation_of_state, 8)
-    print(f"alfven wave eos {equation_of_state}: error at 8 cells {error:.3e}")
-    assert error < ALFVEN_WAVE_ERROR[equation_of_state, 8]
+def test_alfven_wave_error(equation_of_state, cells):
+    """The circularly polarised Alfven wave, oblique to the grid, at 8 and 16 cells per transverse wavelength."""
+    error = _alfven_wave_error(equation_of_state, cells)
+    print(f"alfven wave eos {equation_of_state}: error at {cells} cells {error:.3e}")
+    assert error < ALFVEN_WAVE_ERROR[equation_of_state, cells]
 
 
 @pytest.mark.slow
+@pytest.mark.gpu
 @BOTH_GASES
 def test_alfven_wave_convergence_order(equation_of_state):
-    """From 8 to 16 cells the error of the wave falls with the order of the scheme."""
-    coarse = _alfven_wave_error(equation_of_state, 8)
-    fine = _alfven_wave_error(equation_of_state, 16)
+    """From 16 to 32 cells the error of the wave falls with the order of the reconstruction."""
+    coarse = _alfven_wave_error(equation_of_state, 16, _order_test_cfl(equation_of_state, 16))
+    fine = _alfven_wave_error(equation_of_state, 32, _order_test_cfl(equation_of_state, 32))
     order = np.log2(coarse / fine)
     print(f"alfven wave eos {equation_of_state}: errors {coarse:.3e} {fine:.3e}, order {order:.2f}")
-    assert fine < ALFVEN_WAVE_ERROR[equation_of_state, 16]
-    assert order > ALFVEN_WAVE_ORDER[equation_of_state]
+    assert order > ALFVEN_WAVE_ORDER
 
 
 # ======================= divergence, positivity =======================
