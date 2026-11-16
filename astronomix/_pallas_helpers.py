@@ -400,9 +400,15 @@ def sharded_roll(x, shift: int, axis: int):
 
     # --------------- ↓ Locate the split axis ↓ ----------------
     spec_axis_names = list(spec)
-    split_positions = [
-        position for position, axis_name in enumerate(spec_axis_names) if axis_name is not None
-    ]
+    # Naming a size-one mesh axis does not distribute that array dimension.
+    # Canonical state specs name all four axes, even for a pure x slab.
+    split_positions = []
+    for position, axis_name in enumerate(spec_axis_names):
+        if axis_name is None:
+            continue
+        axis_names = axis_name if isinstance(axis_name, tuple) else (axis_name,)
+        if any(mesh.shape[name] > 1 for name in axis_names):
+            split_positions.append(position)
     if len(split_positions) != 1:
         return None
     split_axis = split_positions[0]
@@ -446,6 +452,11 @@ def sharded_roll(x, shift: int, axis: int):
     array_spec = [None] * num_dims
     array_spec[split_axis] = mesh_axis_name
     array_spec = PartitionSpec(*array_spec)
+    # Reverse-mode shard_map inserts psum over unmentioned mesh axes. Integer
+    # names would be interpreted as positional array axes in that collective.
+    # Alias the same devices under string names without moving any data.
+    mesh, array_spec = _with_string_axis_names(mesh, array_spec)
+    mesh_axis_name = _string_axis_name(mesh_axis_name)
     send_to_right = [(device, (device + 1) % num_devices) for device in range(num_devices)]
     send_to_left = [(device, (device - 1) % num_devices) for device in range(num_devices)]
 
