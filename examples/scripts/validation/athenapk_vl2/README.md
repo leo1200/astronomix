@@ -17,16 +17,19 @@ scheme, with a native-JAX and a Pallas (Triton) backend:
   floors.
 
 ```python
-from astronomix import SimulationConfig, SimulationParams, VL2, HLLD, FINITE_VOLUME
+from astronomix import SimulationConfig, SimulationParams, FVSolverConfig, VL2, HLLD, FINITE_VOLUME
 
 config = SimulationConfig(
     solver_mode=FINITE_VOLUME,
-    time_integrator=VL2,       # selects the AthenaPK-equivalent scheme
-    riemann_solver=HLLD,       # HLLD / HLL (= HLLE) / LAX_FRIEDRICHS for MHD,
-    mhd=True,                  # HLLC / HLL / LAX_FRIEDRICHS for hydro
-    # first_order_fallback=True       -> AthenaPK "dc" reconstruction
-    # first_order_flux_correction=True -> AthenaPK first_order_flux_correct
-    # glm_extended_source=True         -> AthenaPK dedner_extended
+    solver_config=FVSolverConfig(
+        time_integrator=VL2,   # selects the AthenaPK-equivalent scheme
+        riemann_solver=HLLD,   # HLLD / HLL (= HLLE) / LAX_FRIEDRICHS for MHD,
+                               # HLLC / HLL / LAX_FRIEDRICHS for hydro
+        # reconstruction=DONOR_CELL        -> AthenaPK "dc" reconstruction
+        # first_order_flux_correction=True -> AthenaPK first_order_flux_correct
+        # glm_extended_source=True         -> AthenaPK dedner_extended
+    ),
+    mhd=True,
     # positivity_config=PositivityConfig(per_step_mode=POSITIVITY_HARD_FLOOR)
     #                                  -> AthenaPK dfloor / pfloor
     #                                     (params.minimum_density / minimum_pressure)
@@ -37,9 +40,9 @@ params = SimulationParams(C_cfl=0.3, glm_alpha=0.1)  # AthenaPK cfl, glmmhd_alph
 The MHD state is `(rho, vx, vy, vz, p, Bx, By, Bz, psi)` in every dimensionality
 (`registered_variables.magnetic_psi_index`). Periodic boxes use the
 periodic-roll layout, other boundaries two ghost cells. The code is in
-`astronomix/_finite_volume/_state_evolution/_van_leer_integrator.py` (driver),
-`_van_leer_pallas.py` (Pallas kernels), `_riemann_solver/_athena_riemann_solvers.py`
-and `_magnetic_update/_glm_divergence_cleaning.py`; the per-face physics is
+`astronomix/_finite_volume/`: `_integrators.py` (the VL2 step), `_stage.py` (the stage),
+`_stage_pallas.py` (Pallas kernels), `_riemann/` (Riemann solvers)
+and `_divergence/_glm.py`; the per-face physics is
 written once as elementwise functions that both backends evaluate.
 
 ## Agreement with AthenaPK
@@ -113,7 +116,7 @@ itself is non-deterministic, do the results differ.
 
 ### Regression test
 
-`pytests/mhd/vl2_athenapk_regression.py` compares astronomix with stored AthenaPK
+`pytests/mhd/test_vl2_athenapk_regression.py` compares astronomix with stored AthenaPK
 results of eight small cases (`pytests/mhd/data/athenapk_vl2`, written by
 `make_regression_data.py`; the two cases with an active flux correction use
 AthenaPK's GPU build as the reference, see above): same cycle count and relative
@@ -130,19 +133,14 @@ mode agree, and both match central finite differences to 2e-9.
 
 ### Turbulent driving
 
-The stochastic forcing (`TurbulentForcingConfig`) is applied between steps, so
-VL2 runs drive turbulence exactly like the finite-difference scheme: the same
-PRNG key gives the same field, and every kick injects exactly `Edot * dt`.
-Before this work, finite-volume runs with ghost cells (non-periodic-roll
-layouts, e.g. the classic RK2 scheme) generated the field on the padded grid:
-wrong wavenumbers, a jump at the box seam and the halo counted in the
-normalisation (one kick injected 72 % of `Edot * dt`, and a driven 32³ run
-reached a kinetic energy of 0.127 instead of ~0.19 at `Edot t = 0.2`). The field
-now lives on the physical grid and is continued periodically into the halo
-(`pytests/hydrodynamics/test_turbulent_forcing_layouts.py`). Driven MHD
-turbulence with VL2 (64³, Edot = 1, 288 steps to t = 0.5, A100) gives identical
-final states on the Pallas and native backends in double precision (0.33 s
-against 1.40 s) and agrees to 1.4e-5 in single precision.
+The turbulence driving (`TurbulenceDrivingConfig`, the TurbGen port) adds its
+kick at the end of the step of every scheme, VL2 included, on the physical
+cells only, with the acceleration of the pattern that holds at the end of the
+step; a uniform gas at rest therefore carries `v = dt a` after one VL2 step
+exactly as after one finite-difference step
+(`pytests/turbulence_driving/test_driving_in_the_time_loop.py`). The forcing
+module this section described before (its energy normalisation, the 64³
+timing) is in the tag `pre-streamline`.
 
 ## Performance
 

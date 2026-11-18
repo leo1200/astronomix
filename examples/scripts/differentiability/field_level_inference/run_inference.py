@@ -33,8 +33,8 @@ ap.add_argument("--budget", type=float, default=14400.0,
 ap.add_argument("--diag-every", type=int, default=1,
                 help="evaluate the fine-grid diagnostic loss every N steps during coarse stage.")
 ap.add_argument("--num-checkpoints", type=int, default=16)
-ap.add_argument("--ad-remat", type=str, default="stage",
-                help="reverse-mode rematerialisation of the Runge-Kutta stages (none/stage/axis).")
+ap.add_argument("--rematerialize-stages", action=argparse.BooleanOptionalAction, default=True,
+                help="reverse-mode rematerialisation of the Runge-Kutta stages.")
 ap.add_argument("--lr", type=float, default=3e-3)
 ap.add_argument("--save-every", type=int, default=2, help="save npz every N logged points.")
 ap.add_argument("--out", type=str, default="data/bench_money128.npz")
@@ -130,11 +130,9 @@ from astronomix import (
     CodeUnits,
     BoundarySettings,
     BoundarySettings1D,
+    FDSolverConfig,
 )
-from astronomix._modules._turbulent_forcing._turbulent_forcing_options import (
-    TurbulentForcingConfig,
-    TurbulentForcingParams,
-)
+from astronomix import TurbulenceDrivingConfig, TurbulenceDrivingParams
 
 # astronomix functions
 from astronomix import (
@@ -152,22 +150,25 @@ CU = CodeUnits(3 * u.parsec, 100 * u.M_sun, 100 * u.km / u.s)
 RHO0 = (2 * c.m_p / u.cm**3).to(CU.code_density).value
 P0 = (3e4 * u.K / u.cm**3 * c.k_B).to(CU.code_pressure).value
 B0 = (13.5 * u.microgauss / c.mu0**0.5).to(CU.code_magnetic_field).value
-DEDT = (4.3e34 * u.erg / u.s).to(CU.code_energy / CU.code_time).value
+# target velocity dispersion of the TurbGen driving of the background (v_rms ~ 0.42 v_0)
+TURBULENT_VELOCITY_DISPERSION = 0.42
 NF, NC = args.fine_N, args.coarse_N
 
 
-def make_cfg(N, forcing, backward):
+def make_cfg(N, driving, backward):
     return SimulationConfig(
-        weno_z=True,
-        weno_positivity_preserving=True,
+        solver_config=FDSolverConfig(weno_z=True, weno_positivity_preserving=True),
         backend_config=BackendConfig(backend=PALLAS),
-        mhd=True, progress_bar=False,
-        donate_state=False, dimensionality=3,
-        box_size=1.0, num_cells=N,
+        mhd=True,
+        progress_bar=False,
+        donate_state=False,
+        dimensionality=3,
+        box_size=1.0,
+        num_cells=N,
         differentiation_mode=BACKWARDS if backward else FORWARDS,
         num_checkpoints=args.num_checkpoints,
-        ad_remat=args.ad_remat,
-        turbulent_forcing_config=TurbulentForcingConfig(turbulent_forcing=forcing),
+        rematerialize_stages=args.rematerialize_stages,
+        turbulence_driving_config=TurbulenceDrivingConfig(turbulence_driving=driving),
         boundary_settings=BoundarySettings(
             *[BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY) for _ in range(3)]),
     )
@@ -207,7 +208,8 @@ def main():
     # C_cfl = 0.75: the positivity-preserving WENO's bound with SSPRK4.
     params = SimulationParams(C_cfl=0.75, dt_max=0.1, gamma=5 / 3,
                               minimum_density=1e-2 * RHO0, minimum_pressure=1e-2 * P0,
-                              turbulent_forcing_params=TurbulentForcingParams(energy_injection_rate=DEDT))
+                              turbulence_driving_params=TurbulenceDrivingParams(
+                                  velocity=TURBULENT_VELOCITY_DISPERSION))
     sh = (NF,) * 3; z = jnp.zeros(sh)
     s0 = build(finalize_config(cfgg, (11,) + sh), rv, jnp.ones(sh) * RHO0, (z, z, z),
                jnp.ones(sh) * P0, (jnp.ones(sh) * B0, z, z))

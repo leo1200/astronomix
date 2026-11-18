@@ -11,11 +11,12 @@ methods-paper configurations against the analytic linear sound-wave solution:
 
 and writes
 
-    figures/sound_wave3D_convergence.svg   (average L1 error vs N, paper figure)
+    figures/sound_wave3D_convergence.svg   (average L1 error vs N, paper figure,
+                                            in the common style of the paper)
     figures/sound_wave3D_runtime.svg        (error/runtime diagnostics)
 
 The fast correctness version (single low resolution) lives in
-``pytests/hydrodynamics/sound_wave3D.py``; this script is the full sweep that
+``pytests/hydrodynamics/test_sound_wave_3d.py``; this script is the full sweep that
 produces the paper figure. It reuses the shared benchmark harness in
 ``pytests/_benchmark_utils.py``.
 
@@ -43,6 +44,10 @@ import jax
 # numerics
 import numpy as np
 
+# plotting
+import matplotlib.pyplot as plt
+from matplotlib import ticker
+
 # The tiny perturbation amplitudes of a linear sound wave need double precision
 # to stay above float rounding noise.
 jax.config.update("jax_enable_x64", True)
@@ -55,16 +60,29 @@ from astronomix import (
     PALLAS,
     VL2,
 )
+from astronomix.plotting_helpers.paper_style import (
+    FD_COLOR,
+    FV_COLOR,
+    GUIDE_COLOR,
+    SINGLE_PANEL_WIDTH,
+    TWO_COLUMN,
+    layout_path,
+)
 
 # astronomix containers
 from astronomix import (
     SimulationConfig,
     SnapshotSettings,
     BackendConfig,
+    FVSolverConfig,
+    FDSolverConfig,
 )
 from astronomix.option_classes.simulation_config import StaticFloatVector
 
 # astronomix functions
+from astronomix.plotting_helpers.paper_style import (
+    use_paper_style,
+)
 from astronomix.test_setups.hydrodynamics.sound_wave3D import (
     setup_sound_wave,
     sound_wave_solution,
@@ -110,8 +128,7 @@ _common_kwargs = dict(
 # Riemann solver; C_cfl = 0.3 is the value AthenaPK uses in 3D.
 _finite_volume_kwargs = dict(
     solver_mode=FINITE_VOLUME,
-    time_integrator=VL2,
-    riemann_solver=HLLC,
+    solver_config=FVSolverConfig(time_integrator=VL2, riemann_solver=HLLC),
     **_common_kwargs,
 )
 
@@ -119,7 +136,7 @@ _finite_volume_kwargs = dict(
 # positivity preservation; it runs at C_cfl = 1.5, well inside the linear
 # stability limit of SSPRK4.
 _finite_difference_kwargs = dict(
-    weno_z=True,
+    solver_config=FDSolverConfig(weno_z=True),
     **_common_kwargs,
 )
 
@@ -194,6 +211,61 @@ def print_convergence_orders(results, N_values):
         )
 
 
+def plot_paper_figure(results):
+    """
+    Draw the paper figure: the average L1 error of the Pallas runs of both
+    schemes against N, with second- and fifth-order guide lines. The native-JAX
+    runs compute the same solution (the paper states the agreement of the
+    backends once) and are not drawn.
+
+    Args:
+        results: The sweep results keyed by benchmark label.
+    """
+    use_paper_style()
+    figure, axis = plt.subplots(figsize=(SINGLE_PANEL_WIDTH, 2.9), layout="constrained")
+
+    curve_styles = {
+        "FD (Pallas)": dict(color=FD_COLOR, marker="o", label="FD (WENO-Z)"),
+        "FV (Pallas)": dict(color=FV_COLOR, marker="s", label="FV (VL2)"),
+    }
+    for label, style in curve_styles.items():
+        axis.loglog(N_VALUES, results[label]["l1"], **style)
+
+    # The guide lines start at the coarsest-grid error of the scheme whose
+    # order they show.
+    resolutions = np.array(N_VALUES, dtype=float)
+    second_order_start = results["FV (Pallas)"]["l1"][0]
+    fifth_order_start = results["FD (Pallas)"]["l1"][0]
+    axis.loglog(
+        resolutions,
+        second_order_start * (resolutions / resolutions[0]) ** -2.0,
+        color=GUIDE_COLOR,
+        linestyle="--",
+        linewidth=1.0,
+        label=r"$\propto N^{-2}$",
+    )
+    axis.loglog(
+        resolutions,
+        fifth_order_start * (resolutions / resolutions[0]) ** -5.0,
+        color=GUIDE_COLOR,
+        linestyle=":",
+        linewidth=1.0,
+        label=r"$\propto N^{-5}$",
+    )
+
+    axis.set_xscale("log")
+    axis.xaxis.set_major_locator(ticker.FixedLocator(N_VALUES))
+    axis.xaxis.set_major_formatter(ticker.FixedFormatter([str(resolution) for resolution in N_VALUES]))
+    axis.xaxis.set_minor_locator(ticker.NullLocator())
+    axis.set_xlabel(r"$N$ (grid $2N \times N \times N$)")
+    axis.set_ylabel(r"average $L_1$ error")
+    axis.legend(loc="lower left", ncols=2)
+
+    Path(FIG_DIR).mkdir(parents=True, exist_ok=True)
+    figure.savefig(layout_path(Path(FIG_DIR) / "sound_wave3D_convergence.svg"))
+    plt.close(figure)
+
+
 def load_results():
     """Return the cached sweep results of every benchmark, keyed by label."""
     results = {}
@@ -210,13 +282,17 @@ def load_results():
 
 if __name__ == "__main__" and "--plot-only" in sys.argv:
     results = load_results()
-    plot_convergence_and_runtime(
-        results,
-        N_VALUES,
-        name="sound_wave3D",
-        title="3D linear sound wave",
-        figure_dir=FIG_DIR,
-    )
+    # The overview figure is single-column only (it writes to the same file
+    # name as the paper figure of the single-column layout, which follows).
+    if not TWO_COLUMN:
+        plot_convergence_and_runtime(
+            results,
+            N_VALUES,
+            name="sound_wave3D",
+            title="3D linear sound wave",
+            figure_dir=FIG_DIR,
+        )
+    plot_paper_figure(results)
     print_convergence_orders(results, N_VALUES)
 elif __name__ == "__main__":
     results = run_convergence_and_runtime(
@@ -230,4 +306,5 @@ elif __name__ == "__main__":
         data_dir=DATA_DIR,
         figure_dir=FIG_DIR,
     )
+    plot_paper_figure(results)
     print_convergence_orders(results, N_VALUES)

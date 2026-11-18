@@ -21,6 +21,7 @@ from astronomix import (
     BackendConfig,
     BoundarySettings,
     BoundarySettings1D,
+    FDSolverConfig,
     NATIVE_JAX,
     PERIODIC_BOUNDARY,
     SimulationConfig,
@@ -53,7 +54,7 @@ for variant, kwargs in [
         mhd=True,
         backend_config=BackendConfig(backend=NATIVE_JAX),
         boundary_settings=BoundarySettings(periodic, periodic, periodic),
-        **kwargs,
+        solver_config=FDSolverConfig(**kwargs),
     )
     config = finalize_config(config, state.shape)
     registered_variables = get_registered_variables(config)

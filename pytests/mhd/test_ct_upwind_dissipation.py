@@ -1,6 +1,6 @@
 """
 The upwind dissipation of the constrained-transport edge EMFs
-(``SimulationConfig.ct_upwind_dissipation``).
+(``FDSolverConfig.ct_upwind_dissipation``).
 
 Checks that the term vanishes on a uniform field oblique to the grid, that on
 a random divergence-free field it is dissipative (it lowers the interface-field
@@ -16,14 +16,6 @@ Nyquist wavenumber) needs N >= 256 and several Alfven times; it is measured in
     JAX_PLATFORMS=cpu python -m pytest pytests/mhd/test_ct_upwind_dissipation.py
 """
 
-# ==== GPU selection ====
-import os
-if os.environ.get("CUDA_VISIBLE_DEVICES") is None and os.environ.get("JAX_PLATFORMS") != "cpu":
-    from autocvd import autocvd
-    autocvd(num_gpus=1)
-# ruff: noqa: E402
-# =======================
-
 # numerics
 import numpy as np
 
@@ -32,14 +24,10 @@ import pytest
 
 # jax
 import jax
-
-# The divergence and energy checks compare sums to round-off.
-jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
-    DOUBLE_PRECISION,
     FINITE_DIFFERENCE,
     FINITE_VOLUME,
     IDEAL_GAS,
@@ -47,7 +35,6 @@ from astronomix.option_classes.simulation_config import (
     NATIVE_JAX,
     PALLAS,
     PERIODIC_BOUNDARY,
-    VL2,
 )
 
 # astronomix containers
@@ -55,6 +42,7 @@ from astronomix.option_classes.simulation_config import (
     BackendConfig,
     BoundarySettings,
     BoundarySettings1D,
+    FDSolverConfig,
     PositivityConfig,
     SimulationConfig,
     StaticFloatVector,
@@ -77,6 +65,9 @@ from astronomix.option_classes.simulation_config import finalize_config
 from astronomix.time_stepping.time_integration import time_integration
 from astronomix.variable_registry.registered_variables import get_registered_variables
 
+# The divergence and energy checks compare sums to round-off.
+pytestmark = pytest.mark.x64
+
 NUM_CELLS = 16
 SOUND_SPEED = 0.1
 
@@ -98,12 +89,13 @@ def _config(ct_upwind_strength=1.0, backend=NATIVE_JAX):
             backend=backend,
             pallas_interpret=jax.default_backend() == "cpu",
         ),
-        numerical_precision=DOUBLE_PRECISION,
-        weno_z=True,
-        weno_positivity_preserving=True,
+        solver_config=FDSolverConfig(
+            weno_z=True,
+            weno_positivity_preserving=True,
+            ct_upwind_dissipation=True,
+            ct_upwind_strength=ct_upwind_strength,
+        ),
         positivity_config=PositivityConfig(),
-        ct_upwind_dissipation=True,
-        ct_upwind_strength=ct_upwind_strength,
         progress_bar=False,
     )
 
@@ -257,9 +249,9 @@ def test_pallas_matches_native():
 
 def test_default_strength():
     """The switch is off by default; switched on, its strength is 0.03."""
-    config = SimulationConfig()
-    assert not config.ct_upwind_dissipation
-    assert config.ct_upwind_strength == 0.03
+    solver_config = FDSolverConfig()
+    assert not solver_config.ct_upwind_dissipation
+    assert solver_config.ct_upwind_strength == 0.03
 
 
 def test_two_dimensional_term_matches_z_invariant_three_dimensional_term():
@@ -323,11 +315,14 @@ def test_switch_requires_finite_difference_mhd(variant):
     """The switch is rejected for the finite-volume solver and without MHD."""
     config = _config()
     if variant == "finite_volume":
-        # The finite-volume MHD scheme (VL2) runs an ideal gas.
-        config = config._replace(solver_mode=FINITE_VOLUME, time_integrator=VL2, equation_of_state=IDEAL_GAS)
+        # The switch is a field of the finite-difference container, which the
+        # finite-volume solver does not take.
+        config = config._replace(solver_mode=FINITE_VOLUME, equation_of_state=IDEAL_GAS)
         shape = (8, NUM_CELLS, NUM_CELLS, NUM_CELLS)
+        message = "needs an FVSolverConfig"
     else:
         config = config._replace(mhd=False)
         shape = (4, NUM_CELLS, NUM_CELLS, NUM_CELLS)
-    with pytest.raises(ValueError, match="ct_upwind_dissipation"):
+        message = "ct_upwind_dissipation"
+    with pytest.raises(ValueError, match=message):
         finalize_config(config, shape)

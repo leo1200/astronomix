@@ -11,8 +11,7 @@ from functools import partial
 
 # typing
 from typing import Union
-from jaxtyping import Array, Float, jaxtyped
-from beartype import beartype as typechecker
+from jaxtyping import Array, Float
 
 # jax
 import jax
@@ -28,9 +27,7 @@ from astronomix.data_classes.simulation_helper_data import HelperData
 from astronomix.option_classes.simulation_params import SimulationParams
 
 # astronomix functions
-from astronomix._modules._cosmic_rays.cr_fluid_equations import (
-    total_energy_from_primitives_with_crs,
-)
+from astronomix._fluid_equations._equation_of_state import is_barotropic
 from astronomix._modules._gravity._poisson_solver import (
     _compute_gravitational_potential,
 )
@@ -41,14 +38,10 @@ from astronomix._fluid_equations._equations import (
 )
 
 
-# @jaxtyped(typechecker=typechecker)
 @partial(jax.jit, static_argnames=["config", "registered_variables"])
 def calculate_internal_energy(state, helper_data, gamma, config, registered_variables):
+    """The total internal energy of the domain: p / (gamma - 1) of the ideal gas, over the cell volumes."""
     p = state[registered_variables.pressure_index]
-
-    if config.cosmic_ray_config.cosmic_rays:
-        gamma_cr = 4 / 3
-        p = p - state[registered_variables.cosmic_ray_n_index] ** gamma_cr
 
     internal_energy = p / (gamma - 1)
 
@@ -58,9 +51,9 @@ def calculate_internal_energy(state, helper_data, gamma, config, registered_vari
         return jnp.sum(internal_energy * config.grid_spacing**config.dimensionality)
 
 
-# @jaxtyped(typechecker=typechecker)
 @partial(jax.jit, static_argnames=["config", "registered_variables"])
 def calculate_radial_momentum(state, helper_data, config, registered_variables):
+    """The total radial momentum of the domain: rho v . r_hat, r measured from the box centre, over the cells."""
     rho = state[registered_variables.density_index]
     box_center = jnp.zeros(config.dimensionality) + config.box_size / 2
     geometric_centers = helper_data.geometric_centers
@@ -86,9 +79,9 @@ def calculate_radial_momentum(state, helper_data, config, registered_variables):
         return jnp.sum(radial_momentum * config.grid_spacing**config.dimensionality)
 
 
-# @jaxtyped(typechecker=typechecker)
 @partial(jax.jit, static_argnames=["config", "registered_variables"])
 def calculate_kinetic_energy(state, helper_data, config, registered_variables):
+    """The total kinetic energy of the domain, 0.5 rho v^2 integrated over the cell volumes."""
     rho = state[registered_variables.density_index]
     u = get_absolute_velocity(state, config, registered_variables)
 
@@ -100,11 +93,11 @@ def calculate_kinetic_energy(state, helper_data, config, registered_variables):
         return jnp.sum(kinetic_energy * config.grid_spacing**config.dimensionality)
 
 
-# @jaxtyped(typechecker=typechecker)
 @partial(jax.jit, static_argnames=["config", "registered_variables"])
 def calculate_gravitational_energy(
     state, helper_data, gravitational_constant, params, config, registered_variables
 ):
+    """The total gravitational energy: 0.5 rho phi of self-gravity plus rho phi of an external potential."""
     rho = state[registered_variables.density_index]
 
     gravitational_energy = jnp.zeros_like(rho)
@@ -132,7 +125,6 @@ def calculate_gravitational_energy(
         )
 
 
-# @jaxtyped(typechecker=typechecker)
 @partial(jax.jit, static_argnames=["config", "registered_variables"])
 def calculate_total_energy(
     primitive_state: STATE_TYPE,
@@ -144,7 +136,8 @@ def calculate_total_energy(
     registered_variables: RegisteredVariables,
 ) -> Float[Array, ""]:
     """
-    Calculate the total energy in the domain.
+    Calculate the total energy in the domain (for a barotropic gas, which has
+    no energy equation, the kinetic and the potential energy).
 
     Args:
         primitive_state: The primitive state array.
@@ -161,13 +154,11 @@ def calculate_total_energy(
 
     rho = primitive_state[registered_variables.density_index]
     u = get_absolute_velocity(primitive_state, config, registered_variables)
-    p = primitive_state[registered_variables.pressure_index]
-
-    if config.cosmic_ray_config.cosmic_rays:
-        energy = total_energy_from_primitives_with_crs(
-            primitive_state, registered_variables
-        )
+    if is_barotropic(config):
+        # No energy equation: the kinetic energy (and the potential energy below).
+        energy = 0.5 * rho * u**2
     else:
+        p = primitive_state[registered_variables.pressure_index]
         energy = total_energy_from_primitives(rho, u, p, gamma)
 
     # self-gravity carries the factor 1/2 (mutual interaction); a fixed
@@ -190,7 +181,6 @@ def calculate_total_energy(
         return jnp.sum(energy * config.grid_spacing**config.dimensionality)
 
 
-# @jaxtyped(typechecker=typechecker)
 @partial(jax.jit, static_argnames=["config"])
 def calculate_total_mass(
     primitive_state: STATE_TYPE,

@@ -130,7 +130,7 @@ def main():
             continue
 
         ckpt = load_loop_checkpoint(
-            args.ckpt, step, sharding=sharding, replicated_keys=("forcing",)
+            args.ckpt, step, sharding=sharding
         )
         magnetic_energy = _magnetic_energy(ckpt.primitive_state)
 

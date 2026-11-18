@@ -20,12 +20,10 @@ half a cell per step (Federrath et al. 2010, ApJ 713, 269, Eq. 22).
 
 The TSC cells follow the gas boundaries: they wrap around periodic axes and end
 at the edge of the box on non-periodic ones. Where the Poisson solve treats the
-box differently, a sink within reach of the edge (2 cells, 4 on the
-finite-difference path) feels a force from itself, and the forces between
-masses are not exactly equal and opposite. This happens with periodic gas and
-``poisson_manual_open_boundaries``, with mixed boundaries (solved as fully
-open), and with classic finite volume on a periodic box, whose ghost cells lie
-inside the periodic Poisson domain.
+box differently, a sink within reach of the edge (4 cells, 2 with VL2) feels
+a force from itself, and the forces between masses are not exactly equal and
+opposite. This happens with periodic gas and ``poisson_manual_open_boundaries``
+and with mixed boundaries (solved as fully open).
 """
 
 # general
@@ -41,8 +39,9 @@ import numpy as np
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
     FIELD_TYPE,
-    FINITE_DIFFERENCE,
+    FINITE_VOLUME,
     STATE_TYPE,
+    VL2,
 )
 
 # astronomix containers
@@ -227,13 +226,13 @@ def _acceleration_field(
     momentum.
 
     With the same difference on both sides, the force of a sink on the gas and
-    the force of the gas on the sink are equal and opposite. All three
-    finite-difference couplings use the 6th-order difference
-    (``_gravitational_acceleration``); classic finite volume and VL2 use the
-    2nd-order one (``_second_order_gravitational_acceleration``),
-    −(Φᵢ₊₁ − Φᵢ₋₁) / (2Δx), which is also the average ½(g₋½ + g₊½) of the
-    face accelerations of VL2. Any centred difference is antisymmetric, so a
-    sink feels no force from itself.
+    the force of the gas on the sink are equal and opposite. Every scheme
+    that takes gravity from the explicit sources (finite difference,
+    ``MUSCL_HANCOCK`` and ``RK2_SSP``) uses the 6th-order difference
+    (``_gravitational_acceleration``); VL2 uses the 2nd-order one
+    (``_second_order_gravitational_acceleration``), −(Φᵢ₊₁ − Φᵢ₋₁) / (2Δx),
+    which is the average ½(g₋½ + g₊½) of its face accelerations. Any centred
+    difference is antisymmetric, so a sink feels no force from itself.
 
     Args:
         gravitational_potential: The total potential at the cell centres.
@@ -242,10 +241,11 @@ def _acceleration_field(
     Returns:
         The acceleration, shape (3, nx, ny, nz).
     """
-    if config.solver_mode == FINITE_DIFFERENCE:
-        acceleration_along_axis = _gravitational_acceleration
-    else:
+    uses_vl2 = config.solver_mode == FINITE_VOLUME and config.solver_config.time_integrator == VL2
+    if uses_vl2:
         acceleration_along_axis = _second_order_gravitational_acceleration
+    else:
+        acceleration_along_axis = _gravitational_acceleration
     return jnp.stack(
         [
             acceleration_along_axis(

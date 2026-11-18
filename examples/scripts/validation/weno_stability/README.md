@@ -5,7 +5,7 @@ Branch `weno-stability`, worktree `/export/home/lstorcks/jf1uids-weno-stability`
 **Goal:** replace the post-hoc stabilisers that the high-Mach turbulence and
 self-gravity runs need by a principled change inside the WENO scheme. The
 stabilisers in question: vacuum `prot`, per-stage/per-step hard floors,
-`vacuum_rest`, deep-void / cold-crush LLF blending, the Zalesak flux limiter,
+`vacuum_rest`, deep-void LLF blending, the Zalesak flux limiter,
 and a 0.02 density floor.
 
 All measurements below use **no** positivity machinery
@@ -161,11 +161,16 @@ weight set by admissibility instead of smoothness. In smooth flow `theta = 1`.
 **Which splitting speeds.** Fields that carry mass use the common `alpha`.
 That makes the splitting in the frozen basis monotone for *every* cell on the
 stencil, however badly the face basis represents it (a void with a large fast
-speed next to dense gas). Fields that carry no mass keep their own speed:
-hydrodynamic shear waves and isothermal-MHD Alfven waves. Their correction
-leaves the density alone and changes the pressure by
-`(gamma-1) kappa rho dv^2 [1 - kappa rho/(2 rho_w)] >= 0`, so vortical modes
-keep the default dissipation.
+speed next to dense gas). For an isothermal gas, whose admissibility is a
+density condition only, the fields that carry no mass keep their own speed
+(shear waves, MHD Alfven waves), so vortical modes keep the default
+dissipation. For an ideal gas every field uses `alpha` (since 2026-10-27).
+The ideal-gas shear waves could keep their own speed too: in a cell's update
+the shifts of the two cells at a face combine into the shift jump
+`z_nb - z_own`, which raises the pressure of the first-order inflow state by
+`2(gamma-1) kappa (1 - kappa/s) rho_i^2 rho_nb/(rho_i + rho_nb)^2 |dv_t|^2 >= 0`,
+and the face check has to include that jump (it does,
+`test_positivity_shear_shift.py`).
 
 *Explored and rejected* (commits 25e1312, 96a191f): moving every field's speed
 toward `alpha` only as far as needed to keep the split states admissible.
@@ -557,7 +562,7 @@ SSPRK4 + CT, OU forcing, PP on, `clamp_in_estimates = False`, rho_min = p_min = 
 
 * `clamp_in_estimates`, rho_min / p_min floors;
 * `prot`, hard floors, `vacuum_rest`;
-* deep-void / cold-crush blends, the Zalesak `preserving_flux`;
+* the deep-void blend, the Zalesak `preserving_flux`;
 * dual energy.
 
 **Caveat on the defaults:** `clamp_in_estimates = True` is the default. It is
@@ -586,8 +591,7 @@ documented as read-only but is not:
 * `vacuum_rest`, `nan_safe`, `cons_*`, `default_positivity_protection`,
   `positivity_max_velocity`;
 * the forcing `prot` (`vacuum_protection` + params);
-* the deep-void blend, the Zalesak `preserving_flux`, the HLLC fallback and
-  `ad_tangent_llf_cold_factor`;
+* the deep-void blend, the Zalesak `preserving_flux` and the HLLC fallback;
 * the gravity work backstop.
 
 **Kept**, none of them a positivity patch:
@@ -595,8 +599,6 @@ documented as read-only but is not:
   temperature floor of cooled runs;
 * the read-only `clamp_in_estimates` (fixed: it no longer writes into the
   carried MHD state);
-* the cold-crush blend: radiative crushes at >= 512³ with cooling;
-  unvalidated without it;
 * dual energy (accuracy);
 * the conservative `work_flux_correction`.
 
@@ -711,10 +713,6 @@ Things that are not hiding:
   cells, as in 2D/3D. Measured orders are now 4.93 / 5.00 / 5.00.
 * Isothermal hydro crashed in 1D (`momentum_index.x` on an int). It now runs
   and matches the exact isothermal Riemann solutions.
-* `_lsrk4_with_ct` never applied the flux blending, so for MHD under
-  `RK4_LSRK` every blend option was silently off. It now blends exactly like
-  the SSPRK path: the deep-void blend changes rho by 0.142 under both
-  integrators.
 
 ## Open
 
@@ -740,7 +738,7 @@ All scripts take `WENO_VARIANT=baseline|face|pp`. GPU jobs go through
     PYTHONPATH=. JAX_PLATFORMS=cpu WENO_VARIANT=pp python examples/scripts/validation/weno_stability/evrard.py --n 32
     PYTHONPATH=. JAX_PLATFORMS=cpu python examples/scripts/validation/weno_stability/pallas_equivalence_mhd.py
     WENO_VARIANT=pp pq sub -t a100 -n 1 --name t128 -- examples/scripts/validation/weno_stability/run.sh examples/scripts/validation/weno_stability/turb.py --N 128 --backend pallas --tag pp128
-    python -m pytest pytests/hydrodynamics/positivity_preserving_weno.py pytests/mhd/positivity_preserving_mhd.py
+    python -m pytest pytests/hydrodynamics/test_positivity_preserving_weno.py pytests/mhd/test_positivity_preserving_mhd.py
     PYTHONPATH=. JAX_PLATFORMS=cpu WENO_VARIANT=pp python examples/scripts/validation/weno_stability/alfven_pp.py --p0 0.01
     PYTHONPATH=. JAX_PLATFORMS=cpu WENO_VARIANT=pp python examples/scripts/validation/weno_stability/mhd_blast.py --n 100
     python examples/scripts/validation/weno_stability/wu_pair_check.py

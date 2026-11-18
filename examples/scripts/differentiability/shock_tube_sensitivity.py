@@ -38,13 +38,15 @@ Schemes: the finite-difference WENO-Z solver and the finite-volume VL2 scheme (A
 each on the native-JAX and the Pallas backend (Pallas primal, native tangent).
 Figures: ``figures/shock_tube_sensitivity_step_sweep.svg`` (paper) and
 ``figures/shock_tube_sensitivity.svg``; numbers in
-``data/shock_tube_sensitivity.npz``.
+``data/shock_tube_sensitivity.npz``, from which ``--plot-only`` redraws the
+figures.
 """
 
 # ==== GPU selection ====
-from autocvd import autocvd
-
-autocvd(num_gpus=1)
+import sys as _sys
+if "--plot-only" not in _sys.argv:
+    from autocvd import autocvd
+    autocvd(num_gpus=1)
 # ruff: noqa: E402
 # =======================
 
@@ -81,10 +83,21 @@ from astronomix import (
     VL2,
 )
 
+from astronomix.plotting_helpers.paper_style import (
+    FD_COLOR,
+    FV_COLOR,
+    GUIDE_COLOR,
+    SINGLE_PANEL_WIDTH,
+    TEXT_WIDTH,
+    layout_path,
+)
+
 # astronomix containers
 from astronomix import (
     BackendConfig,
     BoundarySettings1D,
+    FDSolverConfig,
+    FVSolverConfig,
     SimulationConfig,
     SimulationParams,
 )
@@ -96,6 +109,10 @@ from astronomix import (
     get_helper_data,
     get_registered_variables,
     time_integration,
+)
+from astronomix.plotting_helpers.paper_style import (
+    use_paper_style,
+    variant_style,
 )
 
 
@@ -138,34 +155,34 @@ class Scheme(NamedTuple):
     style: dict
 
 
-# Backend colours shared with the other paper figures: FD (JAX) light blue,
-# FD (Pallas) violet, FV (JAX) orange, FV (Pallas) brown; the JAX variants
-# thick solid, the Pallas variants thinner dashed on top, so both stay
-# visible where they coincide.
+# The colours of the schemes in all figures of the paper; the Pallas runs are
+# drawn as filled markers on solid lines on top of the native-JAX runs, which
+# are the dashed, hollow variant, so that both stay visible where they
+# coincide.
 SCHEMES = (
     Scheme(
         "FD WENO-Z (JAX)",
         FINITE_DIFFERENCE,
         NATIVE_JAX,
-        dict(color="cornflowerblue", linestyle="-", linewidth=3.0, marker="^", markersize=7, zorder=2),
+        dict(marker="o", markersize=7, zorder=2, **variant_style(FD_COLOR)),
     ),
     Scheme(
         "FD WENO-Z (Pallas)",
         FINITE_DIFFERENCE,
         PALLAS,
-        dict(color="darkviolet", linestyle="--", linewidth=1.8, marker="x", markersize=8, zorder=3),
+        dict(color=FD_COLOR, linestyle="-", marker="o", zorder=3),
     ),
     Scheme(
         "FV VL2 (JAX)",
         FINITE_VOLUME,
         NATIVE_JAX,
-        dict(color="tab:orange", linestyle="-", linewidth=3.0, marker="^", markersize=7, zorder=2),
+        dict(marker="s", markersize=7, zorder=2, **variant_style(FV_COLOR)),
     ),
     Scheme(
         "FV VL2 (Pallas)",
         FINITE_VOLUME,
         PALLAS,
-        dict(color="saddlebrown", linestyle="--", linewidth=1.8, marker="x", markersize=8, zorder=3),
+        dict(color=FV_COLOR, linestyle="-", marker="s", zorder=3),
     ),
 )
 
@@ -186,8 +203,8 @@ def make_config_and_params(scheme):
     jump from a derivative. A fixed dt isolates the limiter / Riemann-solver
     switches, the only non-smoothness this test is meant to probe.
 
-    The Pallas block (4, 1, 1) divides both the padded finite-difference grid
-    (200 + 2 x 4 ghost cells) and the VL2 interior (200); the default block
+    The Pallas block (2, 1, 1) divides both the padded finite-difference grid
+    (200 + 2 x 3 ghost cells) and the VL2 interior (200); the default block
     of 128 cells would not, and the run would fall back to the native kernels.
 
     Args:
@@ -197,9 +214,9 @@ def make_config_and_params(scheme):
         The tuple ``(config, params)``.
     """
     if scheme.solver_mode == FINITE_VOLUME:
-        scheme_options = dict(time_integrator=VL2, riemann_solver=HLLC)
+        solver_config = FVSolverConfig(time_integrator=VL2, riemann_solver=HLLC)
     else:
-        scheme_options = dict(weno_z=True)
+        solver_config = FDSolverConfig(weno_z=True)
 
     config = SimulationConfig(
         solver_mode=scheme.solver_mode,
@@ -208,7 +225,7 @@ def make_config_and_params(scheme):
         differentiation_mode=BACKWARDS,
         backend_config=BackendConfig(
             backend=scheme.backend,
-            pallas_block_shape=(4, 1, 1),
+            pallas_block_shape=(2, 1, 1),
         ),
         mhd=False,
         dimensionality=1,
@@ -221,7 +238,7 @@ def make_config_and_params(scheme):
         return_snapshots=False,
         fixed_timestep=True,
         num_timesteps=NUM_TIMESTEPS,
-        **scheme_options,
+        solver_config=solver_config,
     )
     params = SimulationParams(
         C_cfl=0.4,
@@ -511,13 +528,14 @@ def plot_step_sweep(results):
     Args:
         results: The per-scheme dicts of :func:`evaluate_scheme`.
     """
-    figure, axis = plt.subplots(1, 1, figsize=(8, 6))
+    use_paper_style()
+    figure, axis = plt.subplots(1, 1, figsize=(SINGLE_PANEL_WIDTH, 3.1), layout="constrained")
     step_size_array = np.array(STEP_SIZES)
     for scheme in SCHEMES:
         axis.loglog(
             step_size_array,
             results[scheme.label]["min_one_sided_residual"],
-            label=f"{scheme.label}: min one-sided FD",
+            label=scheme.label,
             **scheme.style,
         )
 
@@ -528,21 +546,36 @@ def plot_step_sweep(results):
     axis.loglog(
         step_size_array,
         smallest_residual * step_size_array / step_size_array[-1],
-        linestyle="--",
-        color="gray",
-        linewidth=1.5,
-        label=r"$\propto h$ (one-sided FD truncation)",
+        linestyle=":",
+        color=GUIDE_COLOR,
+        linewidth=1.0,
+        label=r"$\propto h$",
     )
-    axis.set_xlabel("FD step size $h$")
+    axis.set_xlabel("finite difference step size $h$")
     axis.set_ylabel(r"$\| \min_{F,B} | g_{\mathrm{AD}} - g_{\mathrm{FD}} | \|_2 \, / \, \| g_{\mathrm{AD}} \|_2$")
-    axis.set_title("AD vs min-one-sided FD on the 1D Sod shock tube")
-    axis.grid(True, which="both", alpha=0.4)
-    axis.legend(fontsize=9)
-    figure.tight_layout()
-    figure_path = FIGURES_DIRECTORY / "shock_tube_sensitivity_step_sweep.svg"
-    figure.savefig(figure_path, bbox_inches="tight")
+    axis.legend(loc="upper left")
+    figure_path = layout_path(FIGURES_DIRECTORY / "shock_tube_sensitivity_step_sweep.svg")
+    figure.savefig(figure_path)
     plt.close(figure)
     print(f"saved {figure_path}")
+
+
+def load_results():
+    """
+    The per-scheme results of :func:`evaluate_scheme` as stored in
+    ``data/shock_tube_sensitivity.npz``.
+
+    Returns:
+        The per-scheme dicts, keyed by scheme label.
+    """
+    cached = np.load(DATA_DIRECTORY / "shock_tube_sensitivity.npz")
+    results = {scheme.label: {} for scheme in SCHEMES}
+    for key in cached.files:
+        for scheme in SCHEMES:
+            prefix = f"{scheme.label}_"
+            if key.startswith(prefix):
+                results[scheme.label][key[len(prefix):]] = cached[key]
+    return results
 
 
 # -------------------------------------------------------------
@@ -595,5 +628,7 @@ def run_shock_tube_sensitivity_test():
     plot_step_sweep(results)
 
 
-if __name__ == "__main__":
+if __name__ == "__main__" and "--plot-only" in _sys.argv:
+    plot_step_sweep(load_results())
+elif __name__ == "__main__":
     run_shock_tube_sensitivity_test()

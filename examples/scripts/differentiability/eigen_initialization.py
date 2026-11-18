@@ -32,8 +32,9 @@ The script
    k_x Fourier amplitude of v_y, ``figures/eigenmode_transient_test.png``, and the
    final states, ``figures/eigenmode_final_states.png``.
 
-The spectra, the selected eigenvalue and the amplitude curves are written to
-``data/eigen_initialization.npz``.
+The spectra, the selected eigenvalue, the amplitude curves and the final
+states are written to ``data/eigen_initialization.npz``, from which
+``--plot-only`` redraws the three figures.
 
 The slab geometry (a dense stream of half-width R_s, two interfaces, Mandelker
 et al. 2016) and a pressure perturbation are available through
@@ -42,9 +43,10 @@ single interface.
 """
 
 # ==== GPU selection ====
-from autocvd import autocvd
-
-autocvd(num_gpus=1)
+import sys as _sys
+if "--plot-only" not in _sys.argv:
+    from autocvd import autocvd
+    autocvd(num_gpus=1)
 # ruff: noqa: E402
 # =======================
 
@@ -64,7 +66,6 @@ import numpy as np
 # plotting
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
-from mpl_toolkits.axes_grid1.axes_divider import make_axes_locatable
 
 # astronomix constants
 from astronomix import (
@@ -74,12 +75,23 @@ from astronomix import (
     PERIODIC_BOUNDARY,
 )
 from astronomix.option_classes.simulation_config import DYNAMIC_VISCOSITY
+from astronomix.plotting_helpers.paper_style import (
+    DIVERGING_COLORMAP,
+    FD_COLOR,
+    REFERENCE_COLOR,
+    SEQUENTIAL_COLORMAP,
+    SINGLE_PANEL_WIDTH,
+    TEXT_WIDTH,
+    layout_path,
+)
 
 # astronomix containers
 from astronomix import (
     BackendConfig,
     BoundarySettings,
     BoundarySettings1D,
+    DiffusionConfig,
+    FDSolverConfig,
     SimulationConfig,
     SimulationParams,
     SnapshotSettings,
@@ -99,6 +111,13 @@ from astronomix._fluid_equations._equations import (
 )
 from astronomix.analysis_helpers.jacobians import single_xmode_rhs_jacobian2D
 from astronomix.plotting_helpers.inset_box import add_inset_box
+from astronomix.plotting_helpers.paper_style import (
+    attach_colorbar,
+    figure_legend,
+    reserve_colorbar_space,
+    use_paper_style,
+    variant_style,
+)
 
 
 SCRIPT_DIRECTORY = Path(__file__).resolve().parent
@@ -264,17 +283,20 @@ def setup_khi_unperturbed_base(setup: KHISetup, return_snapshots=False):
         The tuple ``(base_state, config, params, registered_variables,
         helper_data)``.
     """
-    # The padded grid is 300 + 2 x 4 = 308 cells per axis; a Pallas block has
+    # The padded grid is 300 + 2 x 4 = 308 cells per axis (300 + 2 x 8 = 316
+    # with viscosity, whose stencil needs more ghost cells); a Pallas block has
     # to divide it and be a power of two, so it is (4, 4).
     config = SimulationConfig(
         backend_config=BackendConfig(backend=PALLAS, pallas_block_shape=(4, 4, 1)),
-        weno_z=True,
+        solver_config=FDSolverConfig(weno_z=True),
         progress_bar=True,
         dimensionality=2,
         box_size=box_size,
         num_cells=setup.num_cells,
-        diffusion=setup.diffusion,
-        viscosity_type=DYNAMIC_VISCOSITY,
+        diffusion_config=DiffusionConfig(
+            viscosity=setup.diffusion,
+            viscosity_type=DYNAMIC_VISCOSITY,
+        ),
         boundary_settings=BoundarySettings(
             x=BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY),
             y=BoundarySettings1D(OPEN_BOUNDARY, OPEN_BOUNDARY),
@@ -703,18 +725,14 @@ def eigenvalue_plot(setup: KHISetup):
     lower_state = jnp.repeat(sharp_state[:, :, :1], num_transverse_cells, axis=2)
     transverse_spacing = float(helper_data.geometric_centers[0, 1, 1] - helper_data.geometric_centers[0, 0, 1])
 
-    figure, axes = plt.subplots(2, 2, figsize=(12, 10))
-    imaginary_range = (-650, 650)
-    real_range = (-450, 50)
     spectra = {}
-    last_scatter = None
     states = (
         ("upper state", upper_state),
         ("lower state", lower_state),
         ("khi unperturbed", sharp_state),
         ("khi unperturbed smoothed", smoothed_state),
     )
-    for panel_index, (label, state) in enumerate(states):
+    for label, state in states:
         jacobian = single_xmode_rhs_jacobian2D(
             state,
             config,
@@ -733,26 +751,7 @@ def eigenvalue_plot(setup: KHISetup):
             f"max |Im(lambda)| = {float(jnp.max(jnp.abs(jnp.imag(eigenvalues)))):.4e}"
         )
 
-        axis = axes[panel_index // 2, panel_index % 2]
-        last_scatter = axis.scatter(
-            jnp.real(eigenvalues),
-            jnp.imag(eigenvalues),
-            c=wavenumber_ratio,
-            s=10,
-            cmap="plasma",
-            vmin=0.0,
-            vmax=1.0,
-            alpha=0.8,
-            linewidths=0,
-        )
-        axis.set_title(label)
-        axis.set_xlim(real_range)
-        axis.set_ylim(imaginary_range)
-        axis.set_xlabel(r"$\operatorname{Re}(\lambda)$")
-        axis.set_ylabel(r"$\operatorname{Im}(\lambda)$")
-        axis.grid(True)
-
-    # Select the KH eigenmode of the smoothed interface, mark it and zoom in.
+    # Select the KH eigenmode of the smoothed interface.
     eigenmode_state, eigenvalue = find_numerical_eigenmode(
         smoothed_state,
         config,
@@ -761,28 +760,79 @@ def eigenvalue_plot(setup: KHISetup):
         helper_data,
         setup,
     )
+    plot_eigenvalue_spectrum(spectra, np.asarray(eigenvalue))
+    return eigenmode_state, eigenvalue, spectra
+
+
+#: Panel titles of the eigenvalue spectra (the spectrum labels are also the cache keys).
+SPECTRUM_TITLES = {
+    "upper state": "upper state",
+    "lower state": "lower state",
+    "khi unperturbed": "sharp interface",
+    "khi unperturbed smoothed": "smoothed interface",
+}
+
+
+def plot_eigenvalue_spectrum(spectra, eigenvalue):
+    """
+    Draw ``figures/eigenvalue_spectrum.png``: the four eigenspectra coloured by
+    the effective transverse wavenumber, with the selected KH eigenmode marked
+    and magnified in the spectrum of the smoothed interface.
+
+    Args:
+        spectra: Per panel label, the eigenvalues and their k_y^eff / k_Nyq.
+        eigenvalue: The selected eigenvalue.
+    """
+    use_paper_style()
+    figure, axes = plt.subplots(2, 2, figsize=(TEXT_WIDTH, 5.8), sharex=True, sharey=True)
+    imaginary_range = (-650, 650)
+    real_range = (-450, 50)
+    last_scatter = None
+    for panel_index, (label, (eigenvalues, wavenumber_ratio)) in enumerate(spectra.items()):
+        axis = axes[panel_index // 2, panel_index % 2]
+        last_scatter = axis.scatter(
+            np.real(eigenvalues),
+            np.imag(eigenvalues),
+            c=wavenumber_ratio,
+            s=4,
+            cmap=SEQUENTIAL_COLORMAP,
+            vmin=0.0,
+            vmax=1.0,
+            linewidths=0,
+            rasterized=True,
+        )
+        axis.set_title(SPECTRUM_TITLES.get(label, label))
+        axis.set_xlim(real_range)
+        axis.set_ylim(imaginary_range)
+    for axis in axes[1, :]:
+        axis.set_xlabel(r"$\operatorname{Re}(\lambda)$")
+    for axis in axes[:, 0]:
+        axis.set_ylabel(r"$\operatorname{Im}(\lambda)$")
+
     axis = axes[1, 1]
     axis.scatter(
-        jnp.real(eigenvalue),
-        jnp.imag(eigenvalue),
+        np.real(eigenvalue),
+        np.imag(eigenvalue),
         marker="*",
-        s=100,
+        s=80,
         facecolors="none",
-        edgecolors="black",
-        linewidths=1.5,
-        label=f"selected KH eigenmode, λ = {float(jnp.real(eigenvalue)):.2f} + {float(jnp.imag(eigenvalue)):.2f}i",
+        edgecolors=REFERENCE_COLOR,
+        linewidths=1.0,
+        label=f"selected KH eigenmode, $\\lambda = {float(np.real(eigenvalue)):.2f} + {float(np.imag(eigenvalue)):.2f}i$",
         zorder=10,
     )
-    axis.legend(loc="upper left")
     add_inset_box(axis, x1=-2.0, x2=2.0, y1=0.0, y2=3.0, loc="lower left", connect_loc1=2, connect_loc2=4)
 
-    colorbar = figure.colorbar(last_scatter, ax=axes.ravel().tolist(), fraction=0.046, pad=0.04)
-    colorbar.set_label(r"$k_y^\mathrm{eff}/k_{y,\mathrm{Nyq}}$")
-    figure_path = FIGURES_DIRECTORY / "eigenvalue_spectrum.png"
-    figure.savefig(figure_path, dpi=600, bbox_inches="tight")
+    # One colorbar per row, of the height of the panels (all panels share the
+    # range); the left panels keep the same size.
+    for row in range(2):
+        reserve_colorbar_space(axes[row, 0])
+        attach_colorbar(figure, last_scatter, axes[row, 1], label=r"$k_y^\mathrm{eff}/k_{y,\mathrm{Nyq}}$")
+    figure_legend(figure, ncols=1)
+    figure_path = layout_path(FIGURES_DIRECTORY / "eigenvalue_spectrum.png")
+    figure.savefig(figure_path)
     plt.close(figure)
     print(f"saved {figure_path}")
-    return eigenmode_state, eigenvalue, spectra
 
 
 def mode_amplitude(states, velocity_y_index, wavenumber, X):
@@ -858,104 +908,143 @@ def eigenmode_growth_test(setup: KHISetup, kh_time, eigenmode_state, eigenvalue,
         f"{log_growth_velocity[-1]:.3f}, eigenmode {log_growth_eigenmode[-1]:.3f}"
     )
 
+    # The final density, transverse velocity and pressure of both runs, for
+    # the final-state figure.
+    final_fields = {}
+    for run_name, result in (("velocity", result_velocity), ("eigenmode", result_eigenmode)):
+        final_state = result.states[-1]
+        final_fields[f"final_density_{run_name}"] = np.asarray(final_state[registered_variables.density_index])
+        final_fields[f"final_velocity_y_{run_name}"] = np.asarray(final_state[registered_variables.velocity_index.y])
+        final_fields[f"final_pressure_{run_name}"] = np.asarray(final_state[registered_variables.pressure_index])
+
     DATA_DIRECTORY.mkdir(exist_ok=True)
     np.savez(
         DATA_DIRECTORY / "eigen_initialization.npz",
         eigenvalue=np.asarray(eigenvalue),
         kh_time=kh_time,
+        simulation_time=setup.simulation_time,
         time_velocity=time_velocity,
         amplitude_velocity=amplitude_velocity,
         time_eigenmode=time_eigenmode,
         amplitude_eigenmode=amplitude_eigenmode,
+        **final_fields,
         **{f"spectrum_{label.replace(' ', '_')}": values[0] for label, values in spectra.items()},
         **{f"wavenumber_ratio_{label.replace(' ', '_')}": values[1] for label, values in spectra.items()},
     )
-
-    # -------------------------------------------------------------
-    # ==================== ↓ Growth transient ↓ ===================
-    # -------------------------------------------------------------
-
-    figure, axis = plt.subplots(figsize=(8, 6))
-    axis.plot(
+    plot_growth_transient(
         time_velocity / kh_time,
         log_growth_velocity,
-        label="ad-hoc velocity perturbation",
-        linestyle="--",
-        color="red",
-        linewidth=2,
-    )
-    axis.plot(
         time_eigenmode / kh_time,
         log_growth_eigenmode,
-        label="selected eigenmode",
-        linestyle="-",
-        color="blue",
-        linewidth=2,
+        growth_rate * kh_time,
+        setup.simulation_time / kh_time,
     )
-    reference_time = np.linspace(0, setup.simulation_time, 100)
+    plot_final_states(final_fields)
+
+
+def plot_growth_transient(
+    time_velocity,
+    log_growth_velocity,
+    time_eigenmode,
+    log_growth_eigenmode,
+    growth_rate_per_kh_time,
+    end_time,
+):
+    """
+    Draw ``figures/eigenmode_transient_test.png``: the growth of the mode
+    amplitude of the ad-hoc velocity perturbation and of the eigenmode, with
+    the growth expected from the eigenvalue.
+
+    Args:
+        time_velocity: The snapshot times of the velocity-perturbation run (tau_KH).
+        log_growth_velocity: Its ln(A / A_0).
+        time_eigenmode: The snapshot times of the eigenmode run (tau_KH).
+        log_growth_eigenmode: Its ln(A / A_0).
+        growth_rate_per_kh_time: Re(lambda) tau_KH.
+        end_time: The end time of the runs (tau_KH).
+    """
+    use_paper_style()
+    figure, axis = plt.subplots(figsize=(SINGLE_PANEL_WIDTH, 2.9), layout="constrained")
     axis.plot(
-        reference_time / kh_time,
-        growth_rate * reference_time,
-        label=f"expected growth, Re[λ] = {growth_rate:.2e}",
+        time_velocity,
+        log_growth_velocity,
+        label="transverse-velocity perturbation",
+        **variant_style(FD_COLOR),
+    )
+    axis.plot(
+        time_eigenmode,
+        log_growth_eigenmode,
+        label="selected eigenmode",
+        color=FD_COLOR,
+    )
+    reference_time = np.linspace(0, end_time, 100)
+    axis.plot(
+        reference_time,
+        growth_rate_per_kh_time * reference_time,
+        label=r"$\operatorname{Re}[\lambda]\, t$ (expected growth)",
         linestyle=":",
-        color="black",
-        linewidth=1.5,
+        color=REFERENCE_COLOR,
+        linewidth=1.0,
     )
     axis.set_ylim(top=2.0)
-    axis.set_xlabel(r"Time ($t / \tau_{KH}$)", fontsize=14)
-    axis.set_ylabel(r"$\ln(A(t) / A_0)$", fontsize=14)
-    axis.set_title("KHI growth: elimination of initialization transients", fontsize=14, fontweight="bold")
-    axis.legend(fontsize=12)
-    axis.grid(True, alpha=0.3)
-    figure.tight_layout()
-    figure_path = FIGURES_DIRECTORY / "eigenmode_transient_test.png"
-    figure.savefig(figure_path, dpi=150)
+    axis.set_xlabel(r"$t / \tau_\mathrm{KH}$")
+    axis.set_ylabel(r"$\ln(A(t) / A_0)$")
+    axis.legend(loc="lower right")
+    figure_path = layout_path(FIGURES_DIRECTORY / "eigenmode_transient_test.png")
+    figure.savefig(figure_path)
     plt.close(figure)
     print(f"saved {figure_path}")
 
-    # -------------------------------------------------------------
-    # ==================== ↑ Growth transient ↑ ===================
-    # -------------------------------------------------------------
 
-    # -------------------------------------------------------------
-    # ====================== ↓ Final states ↓ =====================
-    # -------------------------------------------------------------
+def plot_final_states(final_fields):
+    """
+    Draw ``figures/eigenmode_final_states.png``: density (logarithmic),
+    transverse velocity and pressure at the final time of the velocity
+    perturbation (top) and the eigenmode run (bottom).
 
-    figure, axes = plt.subplots(2, 3, figsize=(15, 9))
+    Args:
+        final_fields: The final fields as stored in the ``.npz``.
+    """
+    use_paper_style()
+    figure, axes = plt.subplots(2, 3, figsize=(TEXT_WIDTH, 3.8))
     extent = [0, box_size, 0, box_size]
     panels = (
-        (registered_variables.density_index, "viridis", LogNorm()),
-        (registered_variables.velocity_index.y, "RdBu_r", None),
-        (registered_variables.pressure_index, "magma", None),
+        ("final_density", SEQUENTIAL_COLORMAP, LogNorm, "density"),
+        ("final_velocity_y", DIVERGING_COLORMAP, None, "$v_y$"),
+        ("final_pressure", SEQUENTIAL_COLORMAP, None, "pressure"),
     )
-    for row, result in enumerate((result_velocity, result_eigenmode)):
-        final_state = result.states[-1]
-        for column, (variable_index, colormap, norm) in enumerate(panels):
-            image = axes[row, column].imshow(
-                final_state[variable_index].T,
-                cmap=colormap,
-                origin="lower",
-                extent=extent,
-                norm=norm,
-            )
-            axes[row, column].set_xticks([])
-            axes[row, column].set_yticks([])
-            colorbar_axis = make_axes_locatable(axes[row, column]).append_axes("right", size="5%", pad=0.1)
-            figure.colorbar(image, cax=colorbar_axis)
-    axes[0, 0].set_ylabel("ad-hoc velocity", fontsize=12, fontweight="bold")
-    axes[1, 0].set_ylabel("eigenmode", fontsize=12, fontweight="bold")
-    for column, title in enumerate(["Density (log)", r"Transverse Velocity ($v_y$)", "Pressure"]):
-        axes[0, column].set_title(title, fontsize=13)
-    figure.suptitle(f"Final State Comparison at $t = {setup.simulation_time:.2f}$", fontsize=16, fontweight="bold")
+    run_names = ("velocity", "eigenmode")
+    for row, run_name in enumerate(run_names):
+        for column, (field, colormap, norm_class, title) in enumerate(panels):
+            values = final_fields[f"{field}_{run_name}"]
+            # One colour scale per column, shared by both runs.
+            both_runs = [np.asarray(final_fields[f"{field}_{name}"]) for name in run_names]
+            smallest = float(min(np.min(run) for run in both_runs))
+            largest = float(max(np.max(run) for run in both_runs))
+            if norm_class is not None:
+                image_options = dict(norm=norm_class(vmin=smallest, vmax=largest))
+            elif colormap == DIVERGING_COLORMAP:
+                # A diverging map centred on zero.
+                largest = float(max(np.max(np.abs(run)) for run in both_runs))
+                image_options = dict(vmin=-largest, vmax=largest)
+            else:
+                image_options = dict(vmin=smallest, vmax=largest)
+            image_options.update(cmap=colormap, origin="lower", extent=extent)
+            axis = axes[row, column]
+            image = axis.imshow(values.T, **image_options)
+            axis.set_xticks([])
+            axis.set_yticks([])
+            axis.grid(False)
+            attach_colorbar(figure, image, axis)
+            if row == 0:
+                axis.set_title(title)
+    axes[0, 0].set_ylabel("velocity perturbation")
+    axes[1, 0].set_ylabel("eigenmode")
     figure.tight_layout()
-    figure_path = FIGURES_DIRECTORY / "eigenmode_final_states.png"
-    figure.savefig(figure_path, dpi=150)
+    figure_path = layout_path(FIGURES_DIRECTORY / "eigenmode_final_states.png")
+    figure.savefig(figure_path)
     plt.close(figure)
     print(f"saved {figure_path}")
-
-    # -------------------------------------------------------------
-    # ====================== ↑ Final states ↑ =====================
-    # -------------------------------------------------------------
 
 
 # -------------------------------------------------------------
@@ -963,7 +1052,33 @@ def eigenmode_growth_test(setup: KHISetup, kh_time, eigenmode_state, eigenvalue,
 # -------------------------------------------------------------
 
 
-if __name__ == "__main__":
+def plot_from_cache():
+    """Redraw the three figures from ``data/eigen_initialization.npz``."""
+    cached = dict(np.load(DATA_DIRECTORY / "eigen_initialization.npz"))
+    labels = ("upper state", "lower state", "khi unperturbed", "khi unperturbed smoothed")
+    spectra = {
+        label: (
+            cached[f"spectrum_{label.replace(' ', '_')}"],
+            cached[f"wavenumber_ratio_{label.replace(' ', '_')}"],
+        )
+        for label in labels
+    }
+    plot_eigenvalue_spectrum(spectra, cached["eigenvalue"])
+    kh_time = float(cached["kh_time"])
+    plot_growth_transient(
+        cached["time_velocity"] / kh_time,
+        np.log(cached["amplitude_velocity"] / cached["amplitude_velocity"][0]),
+        cached["time_eigenmode"] / kh_time,
+        np.log(cached["amplitude_eigenmode"] / cached["amplitude_eigenmode"][0]),
+        float(np.real(cached["eigenvalue"])) * kh_time,
+        float(cached["simulation_time"]) / kh_time,
+    )
+    plot_final_states(cached)
+
+
+if __name__ == "__main__" and "--plot-only" in _sys.argv:
+    plot_from_cache()
+elif __name__ == "__main__":
     FIGURES_DIRECTORY.mkdir(exist_ok=True)
     paper_khi_setup, paper_kh_time = paper_setup()
 

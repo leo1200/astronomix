@@ -75,9 +75,8 @@ def run_problem(problem, num_cells, precision, variant, cfl):
     )
     from astronomix.option_classes.simulation_config import (
         BoundarySettings1D,
+        FDSolverConfig,
         OPEN_BOUNDARY,
-        DOUBLE_PRECISION,
-        SINGLE_PRECISION,
     )
     from astronomix.test_setups.reference_solutions.riemann_solver import (
         _exact_riemann_ideal_gas,
@@ -87,12 +86,11 @@ def run_problem(problem, num_cells, precision, variant, cfl):
         dimensionality=1,
         num_cells=num_cells,
         box_size=problem.box_size,
-        numerical_precision=DOUBLE_PRECISION if precision == 64 else SINGLE_PRECISION,
         boundary_settings=BoundarySettings1D(
             left_boundary=OPEN_BOUNDARY, right_boundary=OPEN_BOUNDARY
         ),
+        solver_config=FDSolverConfig(**weno_variant_kwargs()),
         **variant_config_kwargs(variant),
-        **weno_variant_kwargs(),
     )
     params = SimulationParams(
         t_end=problem.t_end,

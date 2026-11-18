@@ -30,6 +30,11 @@ and the time-averaged kinetic-energy spectra are compared.
 
 ## How the two codes are matched
 
+The match below is that of the forcing module before the streamline branch
+(tag `pre-streamline`), with which the results of this study were made;
+`driven_turbulence.py` runs the TurbGen driving of the code now (flat band,
+solenoidal, amplitude adjusted to the target Mach number).
+
 astronomix's Ornstein-Uhlenbeck forcing was written to mirror AthenaK's
 `turb_driver`, and this study uses that path (`ou_forcing`,
 `ou_exact_injection`, `banded_spectrum`). Term by term:

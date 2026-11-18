@@ -90,7 +90,6 @@ import numpy as np
 
 # plotting
 import matplotlib.pyplot as plt
-from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 # jax
 import jax
@@ -104,12 +103,19 @@ from astronomix import (
     PERIODIC_BOUNDARY,
 )
 from astronomix.option_classes.simulation_config import (
-    RK4_LSRK,
-    RK4_SSP,
+    LSRK4,
+    SSPRK54,
     VARAXIS,
     XAXIS,
     YAXIS,
     ZAXIS,
+)
+from astronomix.plotting_helpers.paper_style import (
+    SEQUENTIAL_COLORMAP,
+    COLUMN_WIDTH,
+    TEXT_WIDTH,
+    TWO_COLUMN,
+    layout_path,
 )
 
 # astronomix containers
@@ -120,6 +126,7 @@ from astronomix import (
     BoundarySettings,
     BoundarySettings1D,
     BackendConfig,
+    FDSolverConfig,
 )
 
 # astronomix functions
@@ -129,6 +136,10 @@ from astronomix import (
     time_integration,
     finalize_config,
     setup_magnetic_fields_from_vector_potential,
+)
+from astronomix.plotting_helpers.paper_style import (
+    attach_colorbar,
+    use_paper_style,
 )
 
 
@@ -180,9 +191,12 @@ def make_config(num_cells, boundary_type=PERIODIC_BOUNDARY):
     axis_boundaries = BoundarySettings1D(boundary_type, boundary_type)
     return SimulationConfig(
         mhd=True,
-        weno_z=True,
-        weno_positivity_preserving=True,
-        ct_upwind_dissipation=CT_UPWIND,
+        solver_config=FDSolverConfig(
+            time_integrator=LSRK4 if USE_LSRK4 else SSPRK54,
+            weno_z=True,
+            weno_positivity_preserving=True,
+            ct_upwind_dissipation=CT_UPWIND,
+        ),
         progress_bar=True,
         dimensionality=3,
         box_size=BOX_SIZE,
@@ -197,7 +211,6 @@ def make_config(num_cells, boundary_type=PERIODIC_BOUNDARY):
         # and saves one state-sized buffer; it is used for the multi-GPU
         # (high-resolution) runs, where memory is tight.
         donate_state=(NUM_GPUS > 1),
-        time_integrator=(RK4_LSRK if USE_LSRK4 else RK4_SSP),
         # Optional smaller Pallas block shape (``--block bx,by,bz``): a
         # numerics-preserving lever to shave peak device memory (smaller halo
         # padding + tile temporaries). ``None`` keeps the astronomix default.
@@ -406,30 +419,29 @@ def plot(num_cells, rerun):
             f"max |difference| {np.max(np.abs(density_slice - plain_slice)):.3e})"
         )
 
-    fig, ax = plt.subplots(1, 1, figsize=(7, 7))
+    use_paper_style()
+    width = COLUMN_WIDTH if TWO_COLUMN else 0.7 * TEXT_WIDTH
+    fig, ax = plt.subplots(1, 1, figsize=(width, 0.886 * width))
     image = ax.imshow(
         density_slice,
         origin="lower",
         extent=(0, BOX_SIZE, 0, BOX_SIZE),
-        cmap="YlOrRd",
+        cmap=SEQUENTIAL_COLORMAP,
     )
     ax.set_aspect("equal", adjustable="box")
     # Bare density panel: no axis labels or tick numbers.
     ax.set_xticks([])
     ax.set_yticks([])
-    cax = make_axes_locatable(ax).append_axes("right", size="5%", pad=0.05)
-    fig.colorbar(image, cax=cax, label="density")
+    ax.grid(False)
+    attach_colorbar(fig, image, ax, label="density")
+    fig.tight_layout()
 
-    plt.tight_layout()
-    # High raster resolution so the density panel stays crisp — including the
-    # imshow embedded (rasterized) inside the PDF/SVG vector outputs, which
-    # otherwise defaults to the figure's ~100 dpi.
+    # High raster resolution so the density panel stays crisp, including the
+    # image embedded (rasterized) inside the PDF/SVG vector outputs.
     dpi = 600
-    out = FIG_DIR / f"mhd_jet_fd_{num_cells}{RUN_SUFFIX}.png"
-    fig.savefig(out, dpi=dpi)
-    # Vector outputs cropped tight to the drawn content (panel + colorbar).
-    for suffix in (".pdf", ".svg"):
-        fig.savefig(out.with_suffix(suffix), dpi=dpi, bbox_inches="tight", pad_inches=0)
+    out = layout_path(FIG_DIR / f"mhd_jet_fd_{num_cells}{RUN_SUFFIX}.png")
+    for suffix in (".png", ".pdf", ".svg"):
+        fig.savefig(out.with_suffix(suffix), dpi=dpi)
     plt.close(fig)
     print(f"saved {out}")
 

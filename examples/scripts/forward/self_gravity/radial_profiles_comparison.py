@@ -63,8 +63,11 @@ from _collapse import (
 )
 from _common import (
     COLLAPSE_COMPARISON_SCHEMES,
+    FIGURE_COLLAPSE_SCHEMES,
     DATA_DIR,
+    TEXT_WIDTH,
     apply_paper_style,
+    figure_legend,
     save_figure,
 )
 
@@ -144,13 +147,11 @@ def plot():
     r = data["r"]
 
     apply_paper_style()
-    fig, (ax_rho, ax_v, ax_s) = plt.subplots(1, 3, figsize=(15, 4.5))
-    for ax in (ax_rho, ax_v, ax_s):
-        ax.grid(False)
+    fig, (ax_rho, ax_v, ax_s) = plt.subplots(1, 3, figsize=(TEXT_WIDTH, 3.1), layout="constrained")
 
     # The point clouds hold ~2M points per scheme; rasterize them so the SVG
     # stays small while axes, ticks and labels remain vector.
-    for scheme in COLLAPSE_COMPARISON_SCHEMES:
+    for scheme in FIGURE_COLLAPSE_SCHEMES:
         ax_rho.scatter(
             r,
             data[f"density_{scheme.key}"],
@@ -180,19 +181,19 @@ def plot():
     ax_rho.set_yscale("log")
     ax_rho.set_xlim(1e-2, 6e-1)
     ax_rho.set_ylim(1e-2, 1e3)
-    ax_rho.set_xlabel("r")
+    ax_rho.set_xlabel("$r$")
     ax_rho.set_ylabel("density")
 
     ax_v.set_xscale("log")
     ax_v.set_xlim(1e-2, 6e-1)
-    ax_v.set_xlabel("r")
+    ax_v.set_xlabel("$r$")
     ax_v.set_ylabel("radial velocity")
 
     ax_s.set_xscale("log")
     ax_s.set_xlim(1e-2, 6e-1)
     ax_s.set_ylim(0, 0.2)
-    ax_s.set_xlabel("r")
-    ax_s.set_ylabel(r"P / $\rho^\gamma$")
+    ax_s.set_xlabel("$r$")
+    ax_s.set_ylabel(r"$P / \rho^\gamma$")
 
     # The radial range spans less than two decades, where matplotlib would
     # label the minor ticks too and the labels collide.
@@ -204,15 +205,10 @@ def plot():
         plt.Line2D(
             [], [], marker="o", linestyle="", color=scheme.color, label=scheme.label
         )
-        for scheme in COLLAPSE_COMPARISON_SCHEMES
+        for scheme in FIGURE_COLLAPSE_SCHEMES
     ]
-    ax_rho.legend(handles=handles, loc="lower left", fontsize=9)
+    figure_legend(fig, handles, ncols=2)
 
-    fig.suptitle(
-        f"Evrard collapse radial profiles, $t = {T_END}$ "
-        f"($N = {resolution}^3$, {PRECISION_LABEL})"
-    )
-    fig.tight_layout()
     # The dpi sets the resolution of the rasterized scatter layers.
     print(f"Saved -> {save_figure(fig, FIGURE_STEM, dpi=300)}")
 

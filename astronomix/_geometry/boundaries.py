@@ -21,7 +21,6 @@ from astronomix.option_classes.simulation_config import (
     CONSERVATIVE_GAS_STATE,
     FIXED_BOUNDARY,
     FIXED_BOUNDARY_OPEN_MOMENTUM,
-    ISOTHERMAL,
     PRIMITIVE_GAS_STATE,
     MAGNETIC_FIELD_ONLY,
     MHD_JET_BOUNDARY,
@@ -40,6 +39,7 @@ from astronomix.option_classes.simulation_params import SimulationParams
 from astronomix.variable_registry.registered_variables import RegisteredVariables
 
 # astronomix functions
+from astronomix._fluid_equations._equation_of_state import is_barotropic
 from astronomix._fluid_equations._equations import conserved_state_from_primitive
 
  
@@ -264,8 +264,10 @@ def _apply_axis_bcs(
         # representation as the rest of the array.
         if type_handled == CONSERVATIVE_GAS_STATE:
 
-            if config.mhd or config.equation_of_state == ISOTHERMAL:
-                raise NotImplementedError("FIXED_BOUNDARY with conservative state is not implemented for MHD or isothermal EOS yet")
+            if config.mhd or is_barotropic(config):
+                raise NotImplementedError(
+                    "FIXED_BOUNDARY with conservative state is not implemented for MHD or a barotropic EOS yet"
+                )
 
             # convert the fixed primitive state to conservative form
             left_state = conserved_state_from_primitive(left_state, params.gamma, config, registered_variables)
@@ -294,8 +296,10 @@ def _apply_axis_bcs(
         # the boundary handler is applied on the conservative state we need to convert it first
         if type_handled == CONSERVATIVE_GAS_STATE:
             
-            if config.mhd or config.equation_of_state == ISOTHERMAL:
-                raise NotImplementedError("FIXED_BOUNDARY with conservative state is not implemented for MHD or isothermal EOS yet")
+            if config.mhd or is_barotropic(config):
+                raise NotImplementedError(
+                    "FIXED_BOUNDARY with conservative state is not implemented for MHD or a barotropic EOS yet"
+                )
             
             # convert the fixed primitive state to conservative form
             right_state = conserved_state_from_primitive(right_state, params.gamma, config, registered_variables)

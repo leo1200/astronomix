@@ -8,7 +8,7 @@ self-gravity, so astronomix couples self-gravity to VL2 as Athena++ does
 ```python
 config = SimulationConfig(
     solver_mode=FINITE_VOLUME,
-    time_integrator=VL2,
+    solver_config=FVSolverConfig(time_integrator=VL2),
     gravity_config=GravityConfig(
         self_gravity=True,
         self_gravity_version=ATHENA_SECOND_ORDER,
@@ -82,7 +82,7 @@ over the variables:
 The codes agree to round-off (the 1e-9 of the 1e-6 wave is 1e-15 absolute),
 on the GPU and on the CPU alike. With the spectral Green's function instead of
 Athena++'s the results move by 0.1-5 % of the truncation error. The
-regression test `pytests/self_gravity/vl2_athenapp_regression.py` keeps two
+regression test `pytests/self_gravity/test_vl2_athenapp_regression.py` keeps two
 small Athena++ runs and checks the conservation properties.
 
 ## In the paper's self-gravity tests

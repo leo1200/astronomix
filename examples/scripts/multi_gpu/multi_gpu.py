@@ -40,7 +40,7 @@ Two further memory savers used below:
     intermediate density / velocity / magnetic-field arrays are local and freed
     once the state is built (only the final state survives the ``jit``);
   * ``donate_state=True`` lets the integrator reuse the input state buffer, and
-    the low-storage ``RK4_LSRK`` integrator keeps one fewer full-state buffer
+    the low-storage ``LSRK4`` integrator keeps one fewer full-state buffer
     than the default SSPRK4 (trading a little CFL margin for memory).
 """
 
@@ -67,7 +67,7 @@ import matplotlib.pyplot as plt
 from astronomix import PERIODIC_BOUNDARY
 from astronomix.option_classes.simulation_config import (
     ISOTHERMAL,
-    RK4_LSRK,
+    LSRK4,
     VARAXIS,
     XAXIS,
     YAXIS,
@@ -80,11 +80,9 @@ from astronomix import (
     SimulationParams,
     BoundarySettings,
     BoundarySettings1D,
+    FDSolverConfig,
 )
-from astronomix._modules._turbulent_forcing._turbulent_forcing_options import (
-    TurbulentForcingConfig,
-    TurbulentForcingParams,
-)
+from astronomix import TurbulenceDrivingConfig, TurbulenceDrivingParams
 
 # astronomix functions
 from astronomix import (
@@ -119,11 +117,11 @@ config = SimulationConfig(
         BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY),
         BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY),
     ),
-    turbulent_forcing_config = TurbulentForcingConfig(turbulent_forcing = True),
+    turbulence_driving_config = TurbulenceDrivingConfig(turbulence_driving = True),
     # let the integrator reuse the state buffer and use the 2N-storage LSRK4
     # integrator — both cut the peak memory of the run
     donate_state = True,
-    time_integrator = RK4_LSRK,
+    solver_config=FDSolverConfig(time_integrator=LSRK4),
 )
 
 registered_variables = get_registered_variables(config)
@@ -133,7 +131,8 @@ params = SimulationParams(
     isothermal_sound_speed = sound_speed,
     t_end = 2.0 * 0.5,
     minimum_density = 0.02,
-    turbulent_forcing_params = TurbulentForcingParams(energy_injection_rate = 1.65),
+    # target velocity dispersion 1, rms Mach number about 2
+    turbulence_driving_params = TurbulenceDrivingParams(velocity = 1.0),
 )
 
 # domain-decompose along the x axis across the GPUs; the mesh axes must be

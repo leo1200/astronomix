@@ -24,14 +24,6 @@ Run on a GPU (or, slowly, on the CPU with ``JAX_PLATFORMS=cpu``)::
     python -m pytest pytests/differentiability/test_pallas_weno_adjoint_mhd.py
 """
 
-# ==== GPU selection ====
-import os
-if os.environ.get("JAX_PLATFORMS") != "cpu" and os.environ.get("CUDA_VISIBLE_DEVICES") is None:
-    from autocvd import autocvd
-    autocvd(num_gpus=1)
-# ruff: noqa: E402
-# =======================
-
 # jax
 import jax
 import jax.numpy as jnp
@@ -44,13 +36,14 @@ import pytest
 
 # astronomix constants
 from astronomix import BACKWARDS, PALLAS, PERIODIC_BOUNDARY
-from astronomix.option_classes.simulation_config import DOUBLE_PRECISION, FINITE_DIFFERENCE
+from astronomix.option_classes.simulation_config import FINITE_DIFFERENCE
 
 # astronomix containers
 from astronomix import (
     BackendConfig,
     BoundarySettings,
     BoundarySettings1D,
+    FDSolverConfig,
     SimulationConfig,
     SimulationParams,
 )
@@ -71,7 +64,7 @@ from astronomix._finite_difference._interface_fluxes._weno_pallas import (
 )
 from astronomix._finite_difference._interface_fluxes._weno_positivity import mhd_inflow_reference
 
-jax.config.update("jax_enable_x64", True)
+pytestmark = [pytest.mark.x64, pytest.mark.slow]
 
 NUM_CELLS = 8
 # The Triton kernels on a GPU, their interpreted form on the CPU.
@@ -97,10 +90,11 @@ def flux_config(positivity_preserving, frozen):
         num_cells=NUM_CELLS,
         box_size=1.0,
         backend_config=BackendConfig(backend=PALLAS, pallas_interpret=INTERPRET, pallas_block_shape=(4, 4, 4)),
-        weno_z=True,
-        weno_positivity_preserving=positivity_preserving,
-        weno_ad_frozen_weights=frozen,
-        numerical_precision=DOUBLE_PRECISION,
+        solver_config=FDSolverConfig(
+            weno_z=True,
+            weno_positivity_preserving=positivity_preserving,
+            weno_ad_frozen_weights=frozen,
+        ),
     )
     return config, get_registered_variables(config)
 
@@ -226,11 +220,9 @@ def test_time_integration_gradient_matches_the_native_tangent():
                 pallas_adjoint=pallas_adjoint,
             ),
             boundary_settings=BoundarySettings(periodic, periodic, periodic),
-            weno_z=True,
-            weno_positivity_preserving=True,
+            solver_config=FDSolverConfig(weno_z=True, weno_positivity_preserving=True),
             differentiation_mode=BACKWARDS,
             num_checkpoints=2,
-            numerical_precision=DOUBLE_PRECISION,
         )
         registered_variables = get_registered_variables(config)
         state = construct_primitive_state(

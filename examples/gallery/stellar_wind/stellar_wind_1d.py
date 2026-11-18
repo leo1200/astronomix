@@ -24,8 +24,9 @@ from astropy.constants import m_p
 
 # astronomix constants
 from astronomix import (
-    SPHERICAL,
+    FINITE_VOLUME,
     FORWARDS,
+    SPHERICAL,
 )
 from astronomix._modules._stellar_wind.stellar_wind_options import EI
 
@@ -64,6 +65,7 @@ code_units = CodeUnits(20 * u.pc, 1 * u.M_sun, 100 * u.km / u.s)
 
 config = SimulationConfig(
     geometry=SPHERICAL,
+    solver_mode=FINITE_VOLUME,
     progress_bar=True,
     box_size=BOX_SIZE,
     num_cells=NUM_CELLS,

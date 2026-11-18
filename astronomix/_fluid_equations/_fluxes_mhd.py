@@ -3,7 +3,7 @@ Physical fluxes for the magnetohydrodynamic (MHD) equations.
 
 Only the x-direction fluxes are defined here; fluxes in the other directions are
 obtained by permuting the state arrays accordingly. Variants are provided for the
-ideal-gas MHD, isothermal MHD and isothermal hydro equations of state.
+ideal-gas MHD and for barotropic (isothermal or polytropic) MHD and hydrodynamics.
 """
 
 # general
@@ -28,6 +28,7 @@ from astronomix.option_classes.simulation_config import SimulationConfig
 from astronomix.variable_registry.registered_variables import RegisteredVariables
 
 # astronomix functions
+from astronomix._fluid_equations._equation_of_state import law_pressure
 from astronomix._fluid_equations._equations_mhd import (
     primitive_state_from_conserved_isothermal,
     primitive_state_from_conserved_mhd,
@@ -37,7 +38,7 @@ from astronomix._fluid_equations._equations_mhd import (
 
 # We only define the flux in the x-direction here; the other directions are
 # obtained by permuting the arrays accordingly. For the IDEAL_GAS variant see
-# ``_mhd_flux_x`` below, and for the ISOTHERMAL variants see the functions that
+# ``_mhd_flux_x`` below, and for the barotropic variants see the functions that
 # follow it.
 @partial(jax.jit, static_argnames=["registered_variables", "config"])
 def _mhd_flux_x(
@@ -117,27 +118,28 @@ def _mhd_flux_x(
     return flux
 
 
-def _mhd_flux_isothermal_x(
+def _mhd_flux_barotropic_x(
     conserved_state: STATE_TYPE,
     minimum_density: Union[float, Float[Array, ""]],
-    isothermal_sound_speed: Union[float, Float[Array, ""]],
+    barotropic_law,
     config: SimulationConfig,
     registered_variables: RegisteredVariables,
 ) -> STATE_TYPE:
-    """Compute the isothermal MHD x-direction flux for a conserved state.
+    """Compute the barotropic (isothermal or polytropic) MHD x-direction flux for a conserved state.
 
-    There is no energy equation in the isothermal case; the gas pressure follows
-    directly from the fixed isothermal sound speed via ``p = c_s^2 rho``.
+    There is no energy equation for a barotropic gas; the gas pressure follows
+    from the density, ``p = c_s^2 rho`` or ``p = K rho^Gamma``.
 
     Args:
-        conserved_state: The conserved isothermal MHD state.
+        conserved_state: The conserved barotropic MHD state.
         minimum_density: The density floor used when recovering primitives.
-        isothermal_sound_speed: The fixed isothermal sound speed.
+        barotropic_law: The isothermal sound speed or the ``PolytropicLaw``
+            (``barotropic_law`` of ``_equation_of_state.py``).
         config: The simulation configuration.
         registered_variables: The registered variables.
 
     Returns:
-        The isothermal MHD flux vector in the x-direction.
+        The barotropic MHD flux vector in the x-direction.
     """
 
     primitive_state = primitive_state_from_conserved_isothermal(
@@ -153,13 +155,13 @@ def _mhd_flux_isothermal_x(
     B_y = primitive_state[registered_variables.magnetic_index.y]
     B_z = primitive_state[registered_variables.magnetic_index.z]
 
-    # Compute the derived quantities. The isothermal gas pressure is fixed by the
-    # sound speed, and the total pressure adds the magnetic pressure.
+    # Compute the derived quantities. The gas pressure follows from the density,
+    # and the total pressure adds the magnetic pressure.
     b_squared = B_x**2 + B_y**2 + B_z**2
-    p_gas = isothermal_sound_speed**2 * rho
+    p_gas = law_pressure(barotropic_law, rho, minimum_density)
     total_pressure = p_gas + 0.5 * b_squared
 
-    # Assemble the isothermal MHD flux vector.
+    # Assemble the barotropic MHD flux vector.
     flux = jnp.zeros_like(primitive_state)
     flux = flux.at[registered_variables.density_index].set(rho * v_x)
     flux = flux.at[registered_variables.velocity_index.x].set(
@@ -175,15 +177,15 @@ def _mhd_flux_isothermal_x(
 
 
 @partial(jax.jit, static_argnames=["config", "registered_variables"])
-def _euler_flux_isothermal_x(
+def _euler_flux_barotropic_x(
     conserved_state: STATE_TYPE,
     minimum_density: Union[float, Float[Array, ""]],
-    isothermal_sound_speed: Union[float, Float[Array, ""]],
+    barotropic_law,
     config: SimulationConfig,
     registered_variables: RegisteredVariables,
 ) -> STATE_TYPE:
     """
-    Compute the isothermal Euler x-direction flux for a conserved state.
+    Compute the barotropic (isothermal or polytropic) Euler x-direction flux for a conserved state.
 
     F = [
         ρ v_x,                         // density_index
@@ -192,18 +194,19 @@ def _euler_flux_isothermal_x(
         ρ v_x v_z,                     // velocity_index.z
     ]
 
-    with ``p = c_s^2 ρ``; there is no energy equation in the isothermal case.
+    with ``p = c_s^2 ρ`` or ``p = K ρ^Γ``; there is no energy equation for a barotropic gas.
 
     Args:
-        conserved_state: The conserved isothermal hydro state.
+        conserved_state: The conserved barotropic hydro state.
         minimum_density: The density floor (applied when
-            ``clamp_in_estimates`` is set).
-        isothermal_sound_speed: The fixed isothermal sound speed.
+            ``clamp_in_estimates`` is set, and in the power of the polytropic pressure).
+        barotropic_law: The isothermal sound speed or the ``PolytropicLaw``
+            (``barotropic_law`` of ``_equation_of_state.py``).
         config: The simulation configuration.
         registered_variables: The registered variables.
 
     Returns:
-        The isothermal Euler flux vector in the x-direction.
+        The barotropic Euler flux vector in the x-direction.
     """
 
     flux_vector = jnp.zeros_like(conserved_state)
@@ -218,9 +221,9 @@ def _euler_flux_isothermal_x(
     if config.positivity_config.clamp_in_estimates:
         rho = jnp.maximum(rho, minimum_density)
 
-    p = isothermal_sound_speed**2 * rho
+    p = law_pressure(barotropic_law, rho, minimum_density)
 
-    # Assemble the isothermal Euler flux vector.
+    # Assemble the barotropic Euler flux vector.
     flux_vector = flux_vector.at[registered_variables.density_index].set(m_x)
 
     if config.dimensionality == 1:

@@ -18,23 +18,32 @@ scaling of the WENO face value toward its upwind cell. Following Zhang & Shu
 (2012, J. Comput. Phys. 231, 2245), the forward-Euler update of a cell is a
 convex combination of admissible states if all of these hold:
 
-    w + theta d   admissible   (the face value, which flows into the neighbour),
-    w~ - theta d  admissible   (the mirror about the unshifted state),
+    w + theta d - z'  admissible  (the face value, which flows into the neighbour),
+    w~ - theta d      admissible  (the mirror about the unshifted state),
     lambda (alpha_left + alpha_right) <= 1,
 
-with ``d = w_hat - w``. The cell's own flux cancels between the two faces, so
-face-local speeds are allowed. Two scalings in [0, 1] enforce this, both
-inside the reconstruction:
+with ``d = w_hat - w`` and ``z'`` the neighbour's own shift at the same
+interface. The cell's own flux cancels between the two faces, so face-local
+speeds are allowed. The outflow of the neighbour carries ``-z'``, which pairs
+with the inflow ``w + theta d``: the first-order inflow state is
+``w~ + z - z'``, shifted by the dissipation of the jump of the mass-free
+fields. For shear waves this only raises its pressure (with the
+momentum-weighted interface velocity and ``alpha_s >= |v_n|``). Two
+scalings in [0, 1] enforce the conditions, both inside the reconstruction:
 
 * every field that carries mass is split with the common speed ``alpha``,
   the stencil's spectral radius. That makes the frozen-basis splitting
   monotone for every cell of the stencil, however differently the basis
   represents it (a low-density cell with a large fast speed next to dense
   gas). Per-field speeds chosen only to keep the split states admissible
-  are positive but not robust in high-Mach MHD turbulence. Fields that
-  carry no mass (hydrodynamic shear waves, isothermal-MHD Alfven waves) keep
-  their own speed. Their ``z`` leaves the density unchanged and only raises
-  the pressure, so vortical modes keep the default dissipation;
+  are positive but not robust in high-Mach MHD turbulence. For a
+  barotropic gas, where admissibility asks only for a positive density, the
+  fields that carry no mass (shear waves, MHD Alfven waves) keep their own
+  speed, so vortical modes keep the default dissipation; their ``z`` leaves
+  the density unchanged. For an ideal gas every field is split with
+  ``alpha`` (mass_free_modes). The shear waves of an ideal gas could keep
+  their own speed as well, since the shift jump above only raises the
+  pressure, but that is not used;
 * the face value is pulled toward its upwind state, ``w_hat -> w + theta d``,
   by the largest ``theta`` meeting the two conditions above. ``theta < 1``
   mixes the first-order candidate into the WENO combination with a weight set
@@ -58,10 +67,7 @@ import jax.numpy as jnp
 import numpy as np
 
 # astronomix constants
-from astronomix.option_classes.simulation_config import (
-    IDEAL_GAS,
-    ISOTHERMAL,
-)
+from astronomix.option_classes.simulation_config import IDEAL_GAS
 
 # astronomix containers
 from astronomix.option_classes.simulation_config import SimulationConfig
@@ -69,6 +75,7 @@ from astronomix.option_classes.simulation_params import SimulationParams
 from astronomix.variable_registry.registered_variables import RegisteredVariables
 
 # astronomix functions
+from astronomix._fluid_equations._equation_of_state import is_barotropic
 from astronomix._stencil_operations._stencil_operations import _shift
 
 
@@ -80,10 +87,12 @@ DIVISION_FLOOR = 1e-30
 
 def mass_free_modes(config: SimulationConfig) -> tuple:
     """
-    Indices of the characteristic fields that carry no mass and no
-    energy-coupled density, in the mode order of the eigensystem modules: the
-    shear waves of the Euler equations (both equations of state) and the
-    Alfven waves of isothermal MHD. They keep their own splitting speed.
+    Indices of the characteristic fields that keep their own splitting speed,
+    in the mode order of the eigensystem modules: for a barotropic gas the
+    fields that carry no mass, i.e. the shear waves of hydrodynamics and the
+    Alfven waves of MHD (admissibility asks only for a positive density, which
+    their shifts leave unchanged). For an ideal gas every field is split with
+    the common speed.
 
     Args:
         config: The simulation configuration.
@@ -91,11 +100,11 @@ def mass_free_modes(config: SimulationConfig) -> tuple:
     Returns:
         A tuple of mode indices.
     """
+    if not is_barotropic(config):
+        return ()
     if config.mhd:
-        return (1, 4) if config.equation_of_state == ISOTHERMAL else ()
-    if config.equation_of_state == ISOTHERMAL:
-        return tuple(range(1, config.dimensionality))
-    return tuple(range(2, config.dimensionality + 1))
+        return (1, 4)
+    return tuple(range(1, config.dimensionality))
 
 
 def stencil_maximum(cell_field, axis: int = 0):
@@ -127,7 +136,10 @@ def _floored_ratio(numerator, denominator):
     Return ``numerator / max(denominator, DIVISION_FLOOR)``.
 
     The forward value is exactly the guarded division it replaces; only the
-    derivative differs (see ``_floored_ratio_jvp``).
+    derivative differs (see ``_floored_ratio_jvp``). ``_ratio_rules._floored_ratio``
+    of the scheme with a Riemann flux has the same values but another derivative
+    (the true slope down to the floor), so one definition for both would change
+    the derivatives of one of the two schemes.
     """
     return numerator / jnp.maximum(denominator, DIVISION_FLOOR)
 
@@ -640,9 +652,11 @@ def positivity_preserving_interface_flux(
     plus_step = 2.0 * plus_face_flux / alpha - plus_owner
     minus_step = -2.0 * minus_face_flux / alpha - minus_owner
 
-    def face_scaling(owner, unshifted, step):
+    def face_scaling(owner, unshifted, step, neighbour_shift):
+        # The inflow state of the neighbour's update carries the shift jump
+        # z - z' (see the module docstring), the mirror the unshifted state.
         return jnp.minimum(
-            _admissible_fraction(owner, step, params, config, registered_variables),
+            _admissible_fraction(owner - neighbour_shift, step, params, config, registered_variables),
             _admissible_fraction(unshifted, -step, params, config, registered_variables),
         )
 
@@ -672,9 +686,9 @@ def positivity_preserving_interface_flux(
             axis,
         )
     else:
-        plus_theta = face_scaling(plus_owner, plus_unshifted, plus_step)
-        minus_theta = face_scaling(minus_owner, minus_unshifted, minus_step)
-    if config.weno_ad_frozen_weights:
+        plus_theta = face_scaling(plus_owner, plus_unshifted, plus_step, minus_shift)
+        minus_theta = face_scaling(minus_owner, minus_unshifted, minus_step, plus_shift)
+    if config.solver_config.weno_ad_frozen_weights:
         # The scaling theta is a nonlinear limiter weight like the WENO
         # omegas, so it is frozen together with them.
         plus_theta = jax.lax.stop_gradient(plus_theta)
@@ -708,11 +722,7 @@ def positivity_preserving_interface_flux(
 #: is the last slot.
 DENSITY_SLOT = 0
 
-#: Slots of the ideal-MHD local tuple (rho, m_n, m_t1, m_t2, B_n, B_t1, B_t2, E).
-MOMENTUM_SLOTS = (1, 2, 3)
 MAGNETIC_SLOTS = (4, 5, 6)
-ENERGY_SLOT = 7
-NUM_MHD_SLOTS = 8
 
 
 def _local_gas_pressure(state, gamma_minus_one, magnetic_slots=()):
@@ -891,12 +901,13 @@ def positivity_preserving_flux_local(
             magnetic_slots,
         )
 
-    def face_scaling(owner, unshifted, step):
+    def face_scaling(owner, unshifted, step, neighbour_shift):
         mirror_step = tuple(-component for component in step)
-        return jnp.minimum(fraction(owner, step), fraction(unshifted, mirror_step))
+        inflow_base = tuple(o - z for o, z in zip(owner, neighbour_shift))
+        return jnp.minimum(fraction(inflow_base, step), fraction(unshifted, mirror_step))
 
-    plus_theta = face_scaling(plus_owner, plus_unshifted, plus_step)
-    minus_theta = face_scaling(minus_owner, minus_unshifted, minus_step)
+    plus_theta = face_scaling(plus_owner, plus_unshifted, plus_step, minus_shift)
+    minus_theta = face_scaling(minus_owner, minus_unshifted, minus_step, plus_shift)
     if frozen_theta:
         plus_theta = jax.lax.stop_gradient(plus_theta)
         minus_theta = jax.lax.stop_gradient(minus_theta)

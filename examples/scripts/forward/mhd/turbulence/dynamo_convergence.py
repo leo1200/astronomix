@@ -15,18 +15,20 @@ astronomix's two MHD schemes:
                   is emulated with gamma = 1.0001 and p0 = rho0 a^2 / gamma, as
                   AthenaPK does it (``athenapk_turb.py``)
 
-Both run on the same grid, from the same initial state, with the same forcing
-(same seed, so the same initial Ornstein-Uhlenbeck field; the realisation
-drifts apart afterwards because every step draws a fresh increment and the two
-schemes take different steps), and both are reduced in flight through the same
+Both run on the same grid, from the same initial state, with the same driving
+(the TurbGen driving with the same seed: its sequence of patterns follows the
+time, not the steps, so the two schemes are driven by the same acceleration),
+and both are reduced in flight through the same
 estimator as the AthenaPK runs of ``athenapk_turb.py``
 (``_mhd_spectral.snapshot_spectra``), so the numerical viscosity and
 resistivity of the two schemes are measured by one definition.
 
 Physical setup: unit periodic box, ``rho0 = 1``, isothermal sound speed
-``a = 1 / M_turb = 2``, ``B0 = sqrt(2 a^2 rho0 / beta)``, OU forcing with
-``F0 = 3.5``, ``tau = 0.5``, ``k_f = 3 pi``, run for 40 crossing times
-``t_cross = L/2 / v_rms``.
+``a = 1 / M_turb = 2``, ``B0 = sqrt(2 a^2 rho0 / beta)``, solenoidal TurbGen
+driving to the target dispersion ``v_rms = 1`` (amplitude adjusted
+automatically), run for 40 crossing times ``t_cross = L/2 / v_rms``. The
+earlier results of this study were made with the earlier forcing module (tag
+``pre-streamline``); the script runs the TurbGen driving now.
 
 Snapshots are reduced *in flight* (spectra and scalars computed on the GPU, only
 the reduced arrays crossing to the host), so the memory cost is independent of
@@ -83,14 +85,14 @@ from astronomix import (
     BackendConfig,
     BoundarySettings,
     BoundarySettings1D,
+    DiffusionConfig,
+    FDSolverConfig,
+    FVSolverConfig,
     PositivityConfig,
     SimulationConfig,
     SimulationParams,
 )
-from astronomix._modules._turbulent_forcing._turbulent_forcing_options import (
-    TurbulentForcingConfig,
-    TurbulentForcingParams,
-)
+from astronomix._modules._turbulence_driving import TurbulenceDrivingConfig, TurbulenceDrivingParams
 
 # astronomix functions
 from astronomix._spatial_operators._differencing import _interface_field_divergence
@@ -112,7 +114,6 @@ from _mhd_spectral import (
     shell_numbers,
     snapshot_spectra,
 )
-from athenapk_turb import MODES as ATHENAPK_MODES
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
 
@@ -134,16 +135,6 @@ DEFAULT_CFL = {"fd": 1.5, "fd_pp": 0.75, "vl2": 0.3}
 SNAPSHOT_NUMBER_MARGIN = 1e-3
 
 
-def athenapk_modes():
-    """AthenaPK's 30 driving modes as integer triples, parsed from its deck."""
-    modes = {}
-    for line in ATHENAPK_MODES.splitlines():
-        name, value = (token.strip() for token in line.split("="))
-        _, mode_number, component = name.split("_")
-        modes.setdefault(int(mode_number), [0, 0, 0])[int(component)] = int(value)
-    return tuple(tuple(modes[mode_number]) for mode_number in sorted(modes))
-
-
 def scheme_description(args):
     """``(label, scheme, scheme_key)`` of a run, as stored in its result file.
 
@@ -160,7 +151,7 @@ def scheme_description(args):
         return "astronomix FV VL2+GLM", "PLM / VL2 / HLLD / GLM", "vl2"
     weights = "WENO5" if args.weno_js else "WENO-Z"
     weights_key = "weno5" if args.weno_js else "wenoz"
-    # The upwind EMF dissipation (SimulationConfig.ct_upwind_dissipation)
+    # The upwind EMF dissipation (FDSolverConfig.ct_upwind_dissipation)
     # changes the CT, so it gets its own label and key.
     if args.ct_upwind:
         strength = "" if args.ct_upwind == 1.0 else f" x{args.ct_upwind:g}"
@@ -194,15 +185,16 @@ def build_config(args, num_snapshots):
         BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY),
         BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY),
     )
-    forcing_config = TurbulentForcingConfig(
-        turbulent_forcing=True,
-        # Temporally correlated, like AthenaPK.
-        ou_forcing=True,
-        # --forcing athenapk: AthenaPK's own 30-mode set and parabolic envelope,
-        # acceleration rescaled to F0 every step, so the two codes share the
-        # forcing STATISTICS (the realisation still differs).
-        forcing_modes=athenapk_modes() if args.forcing == "athenapk" else (),
-        ou_unit_rms_each_step=args.forcing == "athenapk",
+    # Temporally correlated, like AthenaPK; --forcing athenapk drives the band
+    # 1 <= k <= 3 with the parabola peaked at AthenaPK's kpeak = 2 (all lattice
+    # modes of the band, not AthenaPK's 30).
+    k_band = (1.0, 3.0) if args.forcing == "athenapk" else (args.kdrive - 0.5, args.kdrive + 0.5)
+    driving_config = TurbulenceDrivingConfig(
+        turbulence_driving=True,
+        k_min=k_band[0],
+        k_max=k_band[1],
+        random_seed=args.seed,
+        amplitude_auto_adjust=True,
     )
     backend = PALLAS if args.backend == "pallas" else NATIVE_JAX
     shared = dict(
@@ -212,14 +204,13 @@ def build_config(args, num_snapshots):
         box_size=BOX_SIZE,
         num_cells=args.n,
         boundary_settings=periodic,
-        turbulent_forcing_config=forcing_config,
+        turbulence_driving_config=driving_config,
         backend_config=BackendConfig(backend=backend),
         # In-flight reduction: no snapshot buffer, so the memory cost does not
         # grow with num_snapshots (see module docstring).
         return_snapshots=False,
         activate_snapshot_callback=True,
         num_snapshots=num_snapshots,
-        random_seed=args.seed,
         # Our own per-snapshot progress line replaces the progress bar.
         progress_bar=False,
     )
@@ -227,8 +218,7 @@ def build_config(args, num_snapshots):
     if args.scheme == "vl2":
         return SimulationConfig(
             solver_mode=FINITE_VOLUME,
-            time_integrator=VL2,
-            riemann_solver=HLLD,
+            solver_config=FVSolverConfig(time_integrator=VL2, riemann_solver=HLLD),
             # VL2 has no isothermal EOS; gamma -> 1 emulates it (see params).
             equation_of_state=IDEAL_GAS,
             # Subsonic turbulence never approaches vacuum: no floors, as in
@@ -245,18 +235,22 @@ def build_config(args, num_snapshots):
         # mass-carrying field with the common (fastest) speed, which costs
         # low-Mach accuracy. --pp switches it on to measure that cost.
         positivity_config=PositivityConfig(step_retry=args.step_retry),
-        weno_positivity_preserving=args.pp,
-        ct_upwind_dissipation=args.ct_upwind > 0.0,
-        ct_upwind_strength=args.ct_upwind if args.ct_upwind > 0.0 else 0.03,
-        # WENO-Z weights (Borges et al.) are the baseline; the Jiang-Shu
-        # weights with an absolute epsilon are fully nonlinear on O(1)
-        # turbulent fields and drop the stencil to low order.
-        weno_z=not args.weno_js,
-        # Explicit Laplacian coefficients for the calibration ladder (the same
-        # test athenapk_turb.py --mom-diff/--ohm-diff runs on AthenaPK).
-        diffusion=args.mom_diff > 0.0,
-        viscosity_type=KINEMATIC_VISCOSITY,
-        resistivity=args.ohm_diff > 0.0,
+        solver_config=FDSolverConfig(
+            # WENO-Z weights (Borges et al.) are the baseline; the Jiang-Shu
+            # weights with an absolute epsilon are fully nonlinear on O(1)
+            # turbulent fields and drop the stencil to low order.
+            weno_z=not args.weno_js,
+            weno_positivity_preserving=args.pp,
+            ct_upwind_dissipation=args.ct_upwind > 0.0,
+            ct_upwind_strength=args.ct_upwind if args.ct_upwind > 0.0 else 0.03,
+        ),
+        diffusion_config=DiffusionConfig(
+            # Explicit Laplacian coefficients for the calibration ladder (the same
+            # test athenapk_turb.py --mom-diff/--ohm-diff runs on AthenaPK).
+            viscosity=args.mom_diff > 0.0,
+            viscosity_type=KINEMATIC_VISCOSITY,
+            resistivity=args.ohm_diff > 0.0,
+        ),
         **shared,
     )
 
@@ -281,10 +275,11 @@ def build_params(args, sound_speed, t_end):
         gamma=gamma,
         glm_alpha=args.glm_alpha,
         t_end=t_end,
-        turbulent_forcing_params=TurbulentForcingParams(
-            forcing_amplitude=args.F0,
-            correlation_time=args.tau,
-            forcing_wavenumber=args.kf,
+        turbulence_driving_params=TurbulenceDrivingParams(
+            velocity=VRMS_TARGET,
+            k_driving=args.kdrive,
+            solenoidal_weight=1.0,
+            amplitude_factor=args.amplitude_factor,
         ),
         minimum_density=args.rhomin,
         minimum_pressure=1e-6,
@@ -598,16 +593,16 @@ def parse_arguments():
                              "B_x = sqrt(2) B0 sin(2 pi z / L), zero net flux at the "
                              "same magnetic energy, matching AthenaPK's b_config = 2.")
     parser.add_argument("--tcross", type=float, default=40.0, help="run length in crossing times")
-    parser.add_argument("--F0", type=float, default=3.5, help="OU forcing amplitude")
-    parser.add_argument("--tau", type=float, default=0.5, help="OU correlation time")
-    parser.add_argument("--kf", type=float, default=None,
-                        help="OU peak wavenumber. Default 3 pi (mode number "
-                             "n = k L / 2pi = 1.5) for the smooth spectrum, 4 pi "
-                             "(n = 2, AthenaPK's kpeak) for --forcing athenapk")
+    parser.add_argument("--amplitude-factor", type=float, default=1.0,
+                        help="TurbGen amplitude factor at the start (adjusted "
+                             "automatically towards the target dispersion)")
+    parser.add_argument("--kdrive", type=float, default=None,
+                        help="peak of the driving in units of 2 pi / L. Default 1.5 "
+                             "(the k^6 exp(-8k/kpk) spectrum of the paper, band "
+                             "kdrive -+ 0.5), 2 (AthenaPK's kpeak) for --forcing athenapk")
     parser.add_argument("--forcing", choices=("smooth", "athenapk"), default="smooth",
-                        help="smooth: the k^6 exp(-8k/kpk) spectrum on all modes. "
-                             "athenapk: AthenaPK's 30-mode few-modes driver with its "
-                             "parabolic envelope and per-step rms normalisation")
+                        help="smooth: TurbGen parabola over kdrive -+ 0.5. athenapk: "
+                             "TurbGen parabola over 1 <= k <= 3, peak at 2")
     parser.add_argument("--weno-js", action="store_true",
                         help="FD only: Jiang-Shu nonlinear weights instead of WENO-Z")
     parser.add_argument("--weno-z", action="store_true",
@@ -618,7 +613,7 @@ def parse_arguments():
                              "the default C_cfl becomes 0.75")
     parser.add_argument("--ct-upwind", type=float, nargs="?", const=0.03, default=0.0,
                         help="FD only: upwind dissipation of the CT edge EMFs "
-                             "(SimulationConfig.ct_upwind_dissipation) at strength kappa "
+                             "(FDSolverConfig.ct_upwind_dissipation) at strength kappa "
                              "(ct_upwind_strength; the bare flag is the default 0.03, 0 = off)")
     parser.add_argument("--rhomin", type=float, default=1e-4,
                         help="minimum_density, the target of the positivity-preserving WENO; "
@@ -689,8 +684,8 @@ def parse_arguments():
         parser.error("--weno-js and --weno-z exclude each other")
     if args.cfl is None:
         args.cfl = DEFAULT_CFL["vl2" if args.scheme == "vl2" else ("fd_pp" if args.pp else "fd")]
-    if args.kf is None:
-        args.kf = 4.0 * np.pi if args.forcing == "athenapk" else 3.0 * np.pi
+    if args.kdrive is None:
+        args.kdrive = 2.0 if args.forcing == "athenapk" else 1.5
     return args
 
 
@@ -718,7 +713,7 @@ def main():
           f"x64={args.x64} a={sound_speed} "
           f"{'gamma=' + str(args.gamma) + ' glm_alpha=' + str(args.glm_alpha) + ' ' if args.scheme == 'vl2' else ''}"
           f"beta0={args.beta:g} B0={seed_field_strength:.4g} seed={args.seed_field} "
-          f"forcing={args.forcing} F0={args.F0} tau={args.tau} kf={args.kf:.3f} "
+          f"forcing={args.forcing} kdrive={args.kdrive} amplitude_factor={args.amplitude_factor} "
           f"nu={args.mom_diff:g} eta={args.ohm_diff:g} "
           f"C_cfl={args.cfl} t_end={t_end} ({args.tcross} t_cross)", flush=True)
 
@@ -800,7 +795,7 @@ def main():
         cfl=args.cfl, a=sound_speed, B0=seed_field_strength, beta0=args.beta,
         mturb=args.mturb, rho0=RHO0, gamma=args.gamma if args.scheme == "vl2" else 1.0,
         glm_alpha=args.glm_alpha if args.scheme == "vl2" else np.nan,
-        seed_field=args.seed_field, F0=args.F0, tau=args.tau, kf=args.kf, seed=args.seed,
+        seed_field=args.seed_field, kdrive=args.kdrive, amplitude_factor=args.amplitude_factor, seed=args.seed,
         history_every=args.history_every,
         scalar_names=np.array(SCALAR_NAMES), spectrum_names=np.array(spectrum_names),
         # The dense scalar history, under the names AthenaPK's .hst series is

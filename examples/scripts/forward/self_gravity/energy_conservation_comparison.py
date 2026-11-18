@@ -64,8 +64,13 @@ from _collapse import (
 )
 from _common import (
     COLLAPSE_COMPARISON_SCHEMES,
+    FIGURE_COLLAPSE_SCHEMES,
     DATA_DIR,
+    COLUMN_WIDTH,
+    TEXT_WIDTH,
+    TWO_COLUMN,
     apply_paper_style,
+    figure_legend,
     save_figure,
 )
 
@@ -141,18 +146,24 @@ def plot():
     resolution = int(data["resolution"])
 
     apply_paper_style()
-    fig, (ax_terms, ax_error) = plt.subplots(2, 1, figsize=(12, 9))
+    # Side by side in the single-column layout, stacked in one column (sharing
+    # the time axis) in the two-column layout.
+    if TWO_COLUMN:
+        fig, (ax_terms, ax_error) = plt.subplots(2, 1, figsize=(COLUMN_WIDTH, 6.2), sharex=True, layout="constrained")
+    else:
+        fig, (ax_terms, ax_error) = plt.subplots(1, 2, figsize=(TEXT_WIDTH, 3.4), layout="constrained")
 
-    # Fixed colours per energy component; line style distinguishes scheme.
+    # Fixed colours per energy component, none of them a colour of a
+    # coupling; line style distinguishes the coupling.
     component_colors = {
         "total": "black",
-        "internal": "tab:green",
-        "kinetic": "tab:red",
-        "gravitational": "tab:blue",
+        "internal": "tab:red",
+        "kinetic": "tab:olive",
+        "gravitational": "tab:cyan",
     }
 
     # --------------- ↓ Per-scheme curves ↓ ----------------
-    for scheme in COLLAPSE_COMPARISON_SCHEMES:
+    for scheme in FIGURE_COLLAPSE_SCHEMES:
         time = data[f"time_{scheme.key}"]
         for component, color in component_colors.items():
             ax_terms.plot(
@@ -160,7 +171,7 @@ def plot():
                 data[f"{component}_{scheme.key}"],
                 color=color,
                 linestyle=scheme.linestyle,
-                linewidth=1.5,
+                linewidth=1.0,
             )
 
         total = data[f"total_{scheme.key}"]
@@ -177,53 +188,25 @@ def plot():
     # --------------- ↑ Per-scheme curves ↑ ----------------
 
     ax_terms.set_ylim(-2.5, 2.5)
-    ax_terms.set_xlabel("time")
+    if not TWO_COLUMN:
+        ax_terms.set_xlabel("time")
     ax_terms.set_ylabel("energy")
-    ax_terms.set_title(f"Energy budget ($N = {resolution}^3$)")
+    ax_terms.set_title(f"energy budget ($N = {resolution}^3$)")
 
-    # Two compact legends: colour encodes the energy component, line style the
-    # coupling.
+    # Colour encodes the energy component (legend in the left panel), line
+    # style and colour the coupling (one legend below both panels).
     component_handles = [
-        plt.Line2D([], [], color=color, linewidth=2, label=component.capitalize())
+        plt.Line2D([], [], color=color, label=component)
         for component, color in component_colors.items()
     ]
-    scheme_handles = [
-        plt.Line2D(
-            [], [],
-            color="0.4",
-            linestyle=scheme.linestyle,
-            linewidth=2,
-            label=scheme.label,
-        )
-        for scheme in COLLAPSE_COMPARISON_SCHEMES
-    ]
-    legend_components = ax_terms.legend(
-        handles=component_handles,
-        loc="upper left",
-        fontsize="small",
-        title="component",
-    )
-    ax_terms.add_artist(legend_components)
-    # With six couplings the legends sit beside the axes, where they cover no
-    # curve.
-    ax_terms.legend(
-        handles=scheme_handles,
-        loc="upper left",
-        bbox_to_anchor=(1.01, 1.0),
-        fontsize="small",
-        title="coupling",
-    )
+    ax_terms.legend(handles=component_handles, loc="upper left")
 
     ax_error.set_yscale("log")
     ax_error.set_xlabel("time")
     ax_error.set_ylabel("relative total energy error")
-    ax_error.set_title("Relative total energy error")
-    ax_error.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0), fontsize="small")
+    ax_error.set_title("relative total energy error")
+    figure_legend(fig, ncols=1 if TWO_COLUMN else 2)
 
-    fig.suptitle(
-        f"Evrard's collapse: energy evolution across the self-gravity couplings ({PRECISION_LABEL})"
-    )
-    fig.tight_layout()
     print(f"Saved -> {save_figure(fig, FIGURE_STEM)}")
 
     for scheme in COLLAPSE_COMPARISON_SCHEMES:

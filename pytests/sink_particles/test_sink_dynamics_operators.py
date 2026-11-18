@@ -6,7 +6,7 @@ density of the triangular-shaped-cloud (TSC) mass assignment (total mass, ghost
 cells, empty slots, and weights whose derivative is continuous across a cell
 face), the zero self-force and the equal and opposite forces of the
 particle-mesh gravity, the force of an external potential read back with the
-6th-order (finite difference) and the 2nd-order (classic finite volume, VL2)
+6th-order (finite difference, MUSCL_HANCOCK, RK2_SSP) and the 2nd-order (VL2)
 stencil, the balance between the force of the gas on the sinks and the force
 on the gas that each coupling applies, and the kick and the drift. Two sets of
 three runs of the time loop with different step sizes check that the
@@ -47,12 +47,15 @@ import jax.numpy as jnp
 # astronomix constants
 from astronomix import (
     FINITE_VOLUME,
+    MUSCL_HANCOCK,
     OPEN_BOUNDARY,
     PERIODIC_BOUNDARY,
+    RK2_SSP,
     VL2,
 )
 from astronomix.option_classes.simulation_config import (
     FOURTH_ORDER_CONSERVATIVE,
+    GHOST_CELLS,
     SECOND_ORDER_CONSERVATIVE,
     SIMPLE_SOURCE,
 )
@@ -61,6 +64,7 @@ from astronomix.option_classes.simulation_config import (
 from astronomix import (
     BoundarySettings,
     BoundarySettings1D,
+    FVSolverConfig,
     GravityConfig,
     SimulationConfig,
     SimulationParams,
@@ -75,11 +79,12 @@ from astronomix import (
     get_registered_variables,
     time_integration,
 )
-from astronomix._finite_volume._state_evolution._van_leer_integrator import (
+from astronomix._finite_volume._gravity_coupling import (
+    _add_athena_gravity_source,
     _vl2_gravitational_potential,
 )
 from astronomix._fluid_equations._equations import conserved_state_from_primitive
-from astronomix._modules._gravity._gravity import _add_athena_gravity_source
+from astronomix._modules._explicit_sources import explicit_sources
 from astronomix._modules._sink_particles._sink_particle_dynamics import (
     _drift,
     _kick,
@@ -88,7 +93,6 @@ from astronomix._modules._sink_particles._sink_particle_dynamics import (
     _sink_potential,
     _tsc_weights,
 )
-from astronomix._modules._time_integrator_sources import _time_integrator_sources
 from astronomix._modules._sink_particles._sink_particle_formation import (
     _empty_sink_particles,
 )
@@ -96,6 +100,7 @@ from astronomix.test_setups.self_gravity.sink_particle_formation3D import (
     SinkFormationSettings,
     setup_sink_formation,
 )
+from astronomix.time_stepping._utils import _unpad
 from astronomix.time_stepping.time_integration import _prepare_padded_state
 
 
@@ -488,17 +493,17 @@ def test_force_balance(boundary_settings):
     "solver_options",
     [
         dict(),
-        dict(solver_mode=FINITE_VOLUME),
-        dict(solver_mode=FINITE_VOLUME, time_integrator=VL2),
+        dict(solver_mode=FINITE_VOLUME, solver_config=FVSolverConfig(time_integrator=MUSCL_HANCOCK)),
+        dict(solver_mode=FINITE_VOLUME, solver_config=FVSolverConfig(time_integrator=VL2)),
     ],
-    ids=["finite_difference", "classic_finite_volume", "vl2"],
+    ids=["finite_difference", "fv_muscl_hancock", "vl2"],
 )
 def test_external_potential_on_sink(solver_options):
     """In uniform gas, a sink feels exactly the force of a quadratic external
-    potential, with the 6th-order read-back of the finite-difference path and
-    the 2nd-order one of classic finite volume and VL2: a centred difference of
-    either order is exact for a quadratic, and the TSC reading of a linear
-    field is exact.
+    potential, with the 6th-order read-back of the schemes that take gravity
+    from the explicit sources (finite difference, MUSCL_HANCOCK, RK2_SSP) and
+    the 2nd-order one of VL2: a centred difference of either order is exact for
+    a quadratic, and the TSC reading of a linear field is exact.
 
     Args:
         solver_options: The ``SimulationConfig`` fields that select the solver.
@@ -553,23 +558,22 @@ def test_external_potential_on_sink(solver_options):
                 self_gravity_version=FOURTH_ORDER_CONSERVATIVE,
             )
         ),
-        dict(solver_mode=FINITE_VOLUME, time_integrator=VL2),
+        dict(solver_mode=FINITE_VOLUME, solver_config=FVSolverConfig(time_integrator=RK2_SSP)),
+        dict(solver_mode=FINITE_VOLUME, solver_config=FVSolverConfig(time_integrator=VL2)),
     ],
     ids=[
         "fd_simple_source",
         "fd_second_order_conservative",
         "fd_fourth_order_conservative",
+        "fv_rk2_ssp",
         "vl2",
     ],
 )
 def test_gas_sink_force_balance(solver_options):
     """At one instant, the force of the gas on two sinks and the force that
-    the coupling applies to the gas add up to zero: on a periodic box without
-    ghost cells the gas-gas forces cancel among themselves, and the sinks read
-    the field back with the momentum stencil of the coupling. Classic finite
-    volume is not included: on a periodic box it keeps ghost cells, and the
-    Poisson solve counts the gas in them, which pulls the gas without being
-    pulled back.
+    the coupling applies to the gas add up to zero: on a periodic box the
+    gas-gas forces cancel among themselves, and the sinks read the field back
+    with the momentum stencil of the coupling.
 
     Args:
         solver_options: The ``SimulationConfig`` fields that select the solver
@@ -594,7 +598,8 @@ def test_gas_sink_force_balance(solver_options):
 
     # The momentum the coupling gives the gas over a unit time step, without
     # mass fluxes, is the gravitational force density on the gas.
-    if config.time_integrator == VL2:
+    uses_vl2 = config.solver_mode == FINITE_VOLUME and config.solver_config.time_integrator == VL2
+    if uses_vl2:
         potential = _vl2_gravitational_potential(
             density,
             config,
@@ -614,23 +619,28 @@ def test_gas_sink_force_balance(solver_options):
         )
     else:
         no_flux = jnp.zeros_like(density)
-        state_change = _time_integrator_sources(
+        state_change = explicit_sources(
             conserved_state_from_primitive(
                 primitive_state,
                 params.gamma,
                 config,
                 registered_variables,
             ),
-            (no_flux, no_flux, no_flux),
-            no_flux,
             1.0,
             params.gamma,
             config,
             params,
             get_helper_data(config),
             registered_variables,
+            density_fluxes=(no_flux, no_flux, no_flux),
+            density_increment=no_flux,
+            primitive_state=primitive_state,
             sink_potential=sink_potential,
         )
+    # Only the physical cells: the ghost cells of the finite-volume schemes
+    # repeat them.
+    if config.boundary_handling == GHOST_CELLS:
+        state_change = _unpad(state_change, config)
     gas_force_density = jnp.stack(
         [state_change[index] for index in registered_variables.momentum_index]
     )

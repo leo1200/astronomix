@@ -14,14 +14,6 @@ weak-field Mach-10 turbulence that accelerates within a single step) needs a
     JAX_PLATFORMS=cpu python -m pytest pytests/hydrodynamics/test_step_retry.py
 """
 
-# ==== GPU selection ====
-import os
-if os.environ.get("CUDA_VISIBLE_DEVICES") is None and os.environ.get("JAX_PLATFORMS") != "cpu":
-    from autocvd import autocvd
-    autocvd(num_gpus=1)
-# ruff: noqa: E402
-# =======================
-
 # testing
 import pytest
 
@@ -34,11 +26,13 @@ import numpy as np
 
 # astronomix constants
 from astronomix import OPEN_BOUNDARY
-from astronomix.option_classes.simulation_config import DOUBLE_PRECISION
+from astronomix.option_classes.simulation_config import POSITIVITY_HARD_FLOOR, POSITIVITY_NONE
+from astronomix.option_classes.presets import FD_RIEMANN_IDEAL_GAS
 
 # astronomix containers
 from astronomix import (
     BoundarySettings1D,
+    FDSolverConfig,
     PositivityConfig,
     SimulationConfig,
     SimulationParams,
@@ -53,17 +47,20 @@ from astronomix import (
     time_integration,
 )
 
-jax.config.update("jax_enable_x64", True)
+pytestmark = pytest.mark.x64
 
 
-def _run_double_rarefaction(C_cfl, step_retry):
+def _run_double_rarefaction(C_cfl, step_retry, solver_config=FDSolverConfig(weno_positivity_preserving=True),
+                            per_step_mode=POSITIVITY_NONE):
     """
     Run the double rarefaction u = -+3.7 (vacuum at u = -+3.74, gamma 1.4) to
-    t = 0.1 on 400 cells with the positivity-preserving WENO.
+    t = 0.1 on 400 cells, by default with the positivity-preserving WENO.
 
     Args:
         C_cfl: The CFL number.
         step_retry: Whether steps are retried.
+        solver_config: The finite-difference scheme.
+        per_step_mode: The per-step positivity mode.
 
     Returns:
         The final primitive state and the registered variables.
@@ -71,13 +68,12 @@ def _run_double_rarefaction(C_cfl, step_retry):
     config = SimulationConfig(
         dimensionality=1,
         num_cells=400,
-        numerical_precision=DOUBLE_PRECISION,
         boundary_settings=BoundarySettings1D(
             left_boundary=OPEN_BOUNDARY,
             right_boundary=OPEN_BOUNDARY,
         ),
-        weno_positivity_preserving=True,
-        positivity_config=PositivityConfig(step_retry=step_retry),
+        solver_config=solver_config,
+        positivity_config=PositivityConfig(step_retry=step_retry, per_step_mode=per_step_mode),
     )
     params = SimulationParams(t_end=0.1, gamma=1.4, C_cfl=C_cfl)
     registered_variables = get_registered_variables(config)
@@ -104,6 +100,18 @@ def test_retry_rescues_oversized_steps():
     assert retried[registered_variables.pressure_index].min() > 0.0
 
 
+def test_retry_and_floor_with_the_riemann_flux():
+    """The scheme with a Riemann flux runs with the step retry and the per-step floor (both act in the time loop,
+    outside the scheme): oversized steps are rescued, and the floored run stays positive."""
+    retried, registered_variables = _run_double_rarefaction(2.5, True, FD_RIEMANN_IDEAL_GAS)
+    assert np.all(np.isfinite(retried))
+    assert retried[registered_variables.density_index].min() > 0.0
+    assert retried[registered_variables.pressure_index].min() > 0.0
+    floored, _ = _run_double_rarefaction(0.4, False, FD_RIEMANN_IDEAL_GAS, POSITIVITY_HARD_FLOOR)
+    assert np.all(np.isfinite(floored))
+    assert floored[registered_variables.density_index].min() > 0.0
+
+
 def test_retry_inactive_at_admissible_steps():
     """At C_cfl 0.4 no step is retried: the run is unchanged."""
     plain, _ = _run_double_rarefaction(0.4, step_retry=False)
@@ -125,6 +133,7 @@ def test_retry_rejected_for_fixed_steps():
 
 
 if __name__ == "__main__":
-    test_retry_rescues_oversized_steps()
-    test_retry_inactive_at_admissible_steps()
-    test_retry_rejected_for_fixed_steps()
+    with jax.enable_x64(True):
+        test_retry_rescues_oversized_steps()
+        test_retry_inactive_at_admissible_steps()
+        test_retry_rejected_for_fixed_steps()

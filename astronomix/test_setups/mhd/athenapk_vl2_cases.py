@@ -16,7 +16,7 @@ outflow boundaries in 1D, 2D and 3D.
 
 ``REGRESSION_CASES`` are small versions of representative cases, whose AthenaPK
 results are stored in ``pytests/mhd/data/athenapk_vl2`` and checked by
-``pytests/mhd/vl2_athenapk_regression.py``. The full comparison (which runs
+``pytests/mhd/test_vl2_athenapk_regression.py``. The full comparison (which runs
 AthenaPK itself) lives in ``examples/scripts/validation/athenapk_vl2``.
 
 ## References
@@ -44,6 +44,7 @@ import numpy as np
 
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
+    DONOR_CELL,
     FINITE_VOLUME,
     HLL,
     HLLC,
@@ -51,6 +52,7 @@ from astronomix.option_classes.simulation_config import (
     LAX_FRIEDRICHS,
     OPEN_BOUNDARY,
     PERIODIC_BOUNDARY,
+    PIECEWISE_LINEAR,
     POSITIVITY_HARD_FLOOR,
     VAN_LEER,
     VL2,
@@ -61,6 +63,7 @@ from astronomix.option_classes.simulation_config import (
     BackendConfig,
     BoundarySettings,
     BoundarySettings1D,
+    FVSolverConfig,
     PositivityConfig,
     SimulationConfig,
     StaticFloatVector,
@@ -467,7 +470,7 @@ CASES = [
 CASES_BY_NAME = {case.name: case for case in CASES}
 
 #: Small versions of representative cases for the fast regression test
-#: (``pytests/mhd/vl2_athenapk_regression.py``), whose AthenaPK results are
+#: (``pytests/mhd/test_vl2_athenapk_regression.py``), whose AthenaPK results are
 #: stored in ``pytests/mhd/data/athenapk_vl2`` by
 #: ``examples/scripts/validation/athenapk_vl2/make_regression_data.py``.
 REGRESSION_CASES = [
@@ -559,16 +562,18 @@ def astronomix_setup(case: ValidationCase, state_shape, backend: int, block_shap
 
     config = SimulationConfig(
         solver_mode=FINITE_VOLUME,
-        time_integrator=VL2,
-        riemann_solver=_RIEMANN_SOLVERS[case.riemann_solver],
-        limiter=VAN_LEER,
-        first_order_fallback=case.reconstruction == "dc",
+        solver_config=FVSolverConfig(
+            time_integrator=VL2,
+            reconstruction=DONOR_CELL if case.reconstruction == "dc" else PIECEWISE_LINEAR,
+            limiter=VAN_LEER,
+            riemann_solver=_RIEMANN_SOLVERS[case.riemann_solver],
+            glm_extended_source=case.glm_extended_source,
+            first_order_flux_correction=case.first_order_flux_correction,
+        ),
         mhd=case.mhd,
         dimensionality=case.dimensionality,
         box_size=StaticFloatVector(*(box_size + [1.0] * (3 - case.dimensionality))),
         boundary_settings=boundary_settings,
-        glm_extended_source=case.glm_extended_source,
-        first_order_flux_correction=case.first_order_flux_correction,
         positivity_config=positivity_config,
         backend_config=BackendConfig(backend=backend, pallas_block_shape=block_shape),
     )

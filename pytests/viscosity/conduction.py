@@ -35,6 +35,7 @@ from astronomix.option_classes.simulation_config import IDEAL_GAS
 from astronomix import (
     BoundarySettings,
     BoundarySettings1D,
+    DiffusionConfig,
     SimulationConfig,
     SimulationParams,
 )
@@ -78,7 +79,7 @@ def make_config(conduction, diff_mode=None):
         box_size=1.0,
         mhd=False,
         boundary_settings=PERIODIC2D,
-        thermal_conduction=conduction,
+        diffusion_config=DiffusionConfig(thermal_conduction=conduction),
     )
     if diff_mode is not None:
         config = config._replace(differentiation_mode=diff_mode, num_checkpoints=64)

@@ -18,6 +18,7 @@ from weno_variant import weno_variant_kwargs, weno_variant_name
 import jax.numpy as jnp
 
 from astronomix import (
+    FDSolverConfig,
     SimulationConfig,
     SimulationParams,
     construct_primitive_state,
@@ -27,7 +28,6 @@ from astronomix import (
     time_integration,
 )
 from astronomix.option_classes.simulation_config import (
-    DOUBLE_PRECISION,
     ISOTHERMAL,
     IDEAL_GAS,
     PERIODIC_BOUNDARY,
@@ -45,10 +45,9 @@ for n in [16, 32, 64]:
     config = SimulationConfig(
         dimensionality=2,
         num_cells=n,
-        numerical_precision=DOUBLE_PRECISION,
         equation_of_state=ISOTHERMAL if eos == "iso" else IDEAL_GAS,
         boundary_settings=BoundarySettings(periodic, periodic),
-        **weno_variant_kwargs(),
+        solver_config=FDSolverConfig(**weno_variant_kwargs()),
     )
     params = SimulationParams(t_end=1.0 / speed, gamma=5.0 / 3.0, C_cfl=0.8, isothermal_sound_speed=1.0)
     registered_variables = get_registered_variables(config)

@@ -257,19 +257,22 @@ def _smooth_scaling(fraction):
     return 1.0 - (1.0 - jnp.minimum(fraction, SMOOTH_REACH) / SMOOTH_REACH) ** 5
 
 
-def _library_thetas(owner, unshifted, step, params, config, registered_variables):
+def _library_thetas(owner, unshifted, step, neighbour_shift, params, config, registered_variables):
     """The library's scaling of one split flux: the smaller admissible fraction
-    of the face value and its mirror."""
+    of the face value (with the shift jump of the neighbour's update, see
+    ``_weno_positivity.py``) and its mirror."""
     return jnp.minimum(
-        _admissible_fraction(owner, step, params, config, registered_variables),
+        _admissible_fraction(owner - neighbour_shift, step, params, config, registered_variables),
         _admissible_fraction(unshifted, -step, params, config, registered_variables),
     )
 
 
-def _smooth_thetas(owner, unshifted, step, params, config, registered_variables):
+def _smooth_thetas(owner, unshifted, step, neighbour_shift, params, config, registered_variables):
     """The smooth scaling of one split flux: the product of the smoothed face
     and mirror fractions (a product of scalings in [0, 1] is below either)."""
-    face_fraction = _fraction_up_to(owner, step, SMOOTH_REACH, params, config, registered_variables)
+    face_fraction = _fraction_up_to(
+        owner - neighbour_shift, step, SMOOTH_REACH, params, config, registered_variables
+    )
     mirror_fraction = _fraction_up_to(unshifted, -step, SMOOTH_REACH, params, config, registered_variables)
     return _smooth_scaling(face_fraction) * _smooth_scaling(mirror_fraction)
 
@@ -492,8 +495,12 @@ def install_variant(variant, recorder=None, num_cells=NUM_CELLS):
         )
         if recorder is not None:
             record(
-                _library_thetas(plus_owner, plus_unshifted, plus_step, params, config, registered_variables),
-                _library_thetas(minus_owner, minus_unshifted, minus_step, params, config, registered_variables),
+                _library_thetas(
+                    plus_owner, plus_unshifted, plus_step, minus_shift, params, config, registered_variables
+                ),
+                _library_thetas(
+                    minus_owner, minus_unshifted, minus_step, plus_shift, params, config, registered_variables
+                ),
             )
 
         if variant == "library":
@@ -515,8 +522,12 @@ def install_variant(variant, recorder=None, num_cells=NUM_CELLS):
             plus_theta = jnp.ones_like(common_speed)
             minus_theta = jnp.ones_like(common_speed)
         elif variant == "smooth":
-            plus_theta = _smooth_thetas(plus_owner, plus_unshifted, plus_step, params, config, registered_variables)
-            minus_theta = _smooth_thetas(minus_owner, minus_unshifted, minus_step, params, config, registered_variables)
+            plus_theta = _smooth_thetas(
+                plus_owner, plus_unshifted, plus_step, minus_shift, params, config, registered_variables
+            )
+            minus_theta = _smooth_thetas(
+                minus_owner, minus_unshifted, minus_step, plus_shift, params, config, registered_variables
+            )
         else:
             raise ValueError(f"unknown variant {variant!r}")
         plus_flux = 0.5 * alpha * (plus_owner + plus_theta[None] * plus_step)

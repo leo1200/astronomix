@@ -83,7 +83,7 @@ def parse_arguments():
     parser.add_argument("--num-steps", type=int, default=200, help="total Adam steps of the run")
     parser.add_argument("--learning-rate", type=float, default=3e-3)
     parser.add_argument("--num-checkpoints", type=int, default=16)
-    parser.add_argument("--ad-remat", type=str, default="stage")
+    parser.add_argument("--rematerialize-stages", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument(
         "--backend",
         choices=["pallas", "native"],
@@ -160,7 +160,7 @@ def main():
         resolution,
         backward=True,
         num_checkpoints=args.num_checkpoints,
-        ad_remat=args.ad_remat,
+        rematerialize_stages=args.rematerialize_stages,
         backend=PALLAS if args.backend == "pallas" else NATIVE_JAX,
         pallas_adjoint=args.flux_adjoint == "pallas",
     ))
@@ -278,7 +278,7 @@ def main():
             "courant_number": COURANT_NUMBER,
             "learning_rate": args.learning_rate,
             "num_checkpoints": args.num_checkpoints,
-            "ad_remat": args.ad_remat,
+            "rematerialize_stages": args.rematerialize_stages,
             "backend": args.backend,
             "flux_adjoint": args.flux_adjoint,
             "target_reduction": args.target_reduction,

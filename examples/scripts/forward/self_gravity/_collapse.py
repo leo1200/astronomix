@@ -54,6 +54,8 @@ from astronomix import (
     GravityConfig,
     SnapshotSettings,
     BackendConfig,
+    FVSolverConfig,
+    FDSolverConfig,
 )
 
 # astronomix functions
@@ -145,15 +147,16 @@ def collapse_config(
         solver_options = dict(
             backend_config=BackendConfig(backend=NATIVE_JAX),
             solver_mode=FINITE_VOLUME,
-            time_integrator=VL2,
-            riemann_solver=HLLC,
+            solver_config=FVSolverConfig(time_integrator=VL2, riemann_solver=HLLC),
             positivity_config=PositivityConfig(per_step_mode=POSITIVITY_HARD_FLOOR),
         )
     else:
         solver_options = dict(
             backend_config=BackendConfig(backend=backend),
-            weno_z=scheme.weno_z,
-            weno_positivity_preserving=scheme.positivity_preserving,
+            solver_config=FDSolverConfig(
+                weno_z=scheme.weno_z,
+                weno_positivity_preserving=scheme.positivity_preserving,
+            ),
         )
     config = SimulationConfig(
         **solver_options,

@@ -49,7 +49,7 @@ from astronomix import (
     SimulationParams,
     BackendConfig,
 )
-from astronomix.option_classes.simulation_config import StaticIntVector
+from astronomix.option_classes.simulation_config import StaticIntVector, get_solver_config
 
 # astronomix functions
 from astronomix import (
@@ -837,8 +837,13 @@ def _spec_block_shape(spec: "BenchmarkSpec"):
     return list(bs) if bs is not None else None
 
 
+def _solver_setting(config, name, default=-1):
+    """A field of the solver container of ``config`` (``default`` if the solver has no such field)."""
+    return getattr(get_solver_config(config), name, default)
+
+
 def _spec_time_integrator(spec: "BenchmarkSpec"):
-    return int(getattr(spec.base_config, "time_integrator", -1))
+    return int(_solver_setting(spec.base_config, "time_integrator"))
 
 
 def _write_results(data_dir: str, name: str, arrays: dict, metadata: dict) -> None:
@@ -977,7 +982,7 @@ def run_block_shape_sweep(
         N=N,
         grid=[gx, gy, gz],
         cfl=cfl,
-        time_integrator=int(getattr(base_config, "time_integrator", -1)),
+        time_integrator=int(_solver_setting(base_config, "time_integrator")),
     )
     _write_results(data_dir, name, rec, meta)
     return rec
@@ -1170,11 +1175,11 @@ def run_weak_scaling_point(
             setup=setup_key,
             solver_label=solver_label,
             solver_mode=int(config.solver_mode),
-            weno_z=bool(config.weno_z),
-            riemann_solver=int(config.riemann_solver),
+            weno_z=bool(_solver_setting(config, "weno_z", False)),
+            riemann_solver=int(_solver_setting(config, "riemann_solver")),
             pallas_ct=bool(config.backend_config.pallas_ct),
             pallas_block_shape=list(base_config.backend_config.pallas_block_shape or []),
-            time_integrator=int(getattr(base_config, "time_integrator", -1)),
+            time_integrator=int(_solver_setting(base_config, "time_integrator")),
             num_timesteps=int(num_timesteps),
             box_size=list(box_size),
         )

@@ -1,9 +1,8 @@
 """
 Reverse-mode cost and correctness of the finite-difference WENO step, Pallas vs native.
 
-Evolves a hydro state with the Cas A solver settings (positivity-preserving WENO,
-dual energy, cold-crush blend, ``SSPRK4``, the adaptive checkpointed time loop with
-per-axis rematerialisation of casa_4dvar) over about ``--steps`` CFL steps and
+Evolves a hydro state with positivity-preserving WENO, dual energy, ``SSPRK4``
+and the adaptive checkpointed time loop over about ``--steps`` CFL steps and
 differentiates
 ``sum(rho^2)`` at the end with respect to the initial state. Reports, per
 backend -- ``native`` (``NATIVE_JAX``), ``pallas`` (the Pallas forward with
@@ -51,7 +50,7 @@ from astronomix import (
     BackendConfig,
     BoundarySettings,
     BoundarySettings1D,
-    PositivityConfig,
+    FDSolverConfig,
     SimulationConfig,
     SimulationParams,
 )
@@ -64,11 +63,11 @@ from astronomix import (
     time_integration,
 )
 
-#: the linearisations of casa_4dvar.TANGENTS
+#: the linearisations of the WENO reconstruction: exact, or with the nonlinear
+#: weights frozen
 TANGENTS = {
-    "exact": dict(weno_ad_frozen_weights=False, ad_tangent_llf_cold_factor=0.0),
-    "approx": dict(weno_ad_frozen_weights=True, ad_tangent_llf_cold_factor=1000.0),
-    "semi": dict(weno_ad_frozen_weights=False, ad_tangent_llf_cold_factor=1000.0),
+    "exact": dict(weno_ad_frozen_weights=False),
+    "approx": dict(weno_ad_frozen_weights=True),
 }
 
 
@@ -103,13 +102,9 @@ def make_setup(fields, box, backend, tangent, num_steps, checkpoints, pallas_adj
         box_size=box,
         backend_config=BackendConfig(backend=backend, pallas_adjoint=pallas_adjoint),
         boundary_settings=BoundarySettings(periodic, periodic, periodic),
-        weno_positivity_preserving=True,
-        positivity_config=PositivityConfig(coldcrush_blend=True, coldcrush_blend_factor=8.0),
-        dual_energy=True,
+        solver_config=FDSolverConfig(weno_positivity_preserving=True, dual_energy=True, **TANGENTS[tangent]),
         differentiation_mode=BACKWARDS,
         num_checkpoints=checkpoints,
-        ad_remat="axis",
-        **TANGENTS[tangent],
     )
     registered_variables = get_registered_variables(config)
     density_scale = float(np.median(fields["rho"]))
@@ -123,7 +118,6 @@ def make_setup(fields, box, backend, tangent, num_steps, checkpoints, pallas_adj
         t_end=t_end,
         minimum_density=1e-6 * density_scale,
         minimum_pressure=1e-8 * pressure_scale,
-        minimum_specific_pressure=1e-2 * pressure_scale / density_scale,
     )
     state = construct_primitive_state(
         config=config,

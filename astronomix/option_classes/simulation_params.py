@@ -8,18 +8,15 @@ per-module parameter containers are bundled in here too.
 """
 
 # typing
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 # jax
 import jax.numpy as jnp
 
 # astronomix containers
-from astronomix._modules._cnn_mhd_corrector._cnn_mhd_corrector_options import CNNMHDconfig
 from astronomix._modules._cooling.cooling_options import CoolingParams
-from astronomix._modules._cosmic_rays.cosmic_ray_options import CosmicRayParams
-from astronomix._modules._neural_net_force._neural_net_force_options import NeuralNetForceParams
 from astronomix._modules._stellar_wind.stellar_wind_options import WindParams
-from astronomix._modules._turbulent_forcing._turbulent_forcing_options import TurbulentForcingParams
+from astronomix._modules._turbulence_driving._turbulence_driving_options import TurbulenceDrivingParams
 
 
 class FixedBoundaryState1D(NamedTuple):
@@ -61,18 +58,18 @@ class SimulationParams(NamedTuple):
     gravitational_potential: jnp.array = jnp.array([])
 
     #: Dynamic or kinematic viscosity depending
-    #: on the viscosity_type in SimulationConfig.
+    #: on the viscosity_type in DiffusionConfig.
     viscosity: float = 0.0
 
     #: Constant ohmic resistivity eta, the coefficient of the switch of the
-    #: same name, ``config.resistivity``, which must be set for it to act.
+    #: same name, ``config.diffusion_config.resistivity``, which must be set for it to act.
     #: Only implemented for 3D finite-difference CT MHD with the isothermal
     #: EOS (no ohmic heating term).
     resistivity: float = 0.0
 
     #: Constant thermal conductivity kappa in the conductive energy
-    #: source div(kappa grad T) (config.thermal_conduction); with
-    #: ``config.conduction_density_weighted`` it is the diffusivity alpha of
+    #: source div(kappa grad T) (config.diffusion_config.thermal_conduction); with
+    #: ``config.diffusion_config.conduction_density_weighted`` it is the diffusivity alpha of
     #: ``kappa = rho alpha`` instead. T is taken from the ideal-gas relation
     #: T = p / rho (code units, R = 1).
     #: NOTE: CURRENTLY ONLY IMPLEMENTED FOR FINITE DIFFERENCE MODE.
@@ -80,9 +77,12 @@ class SimulationParams(NamedTuple):
 
     #: The isothermal sound speed used when
     #: config.equation_of_state is ISOTHERMAL.
-    #: NOTE: CURRENTLY ONLY IMPLEMENTED FOR
-    #: FINITE DIFFERENCE MODE.
     isothermal_sound_speed: float = 1.0
+
+    #: The constant K and the exponent Gamma of p = K rho^Gamma, used when
+    #: config.equation_of_state is POLYTROPIC.
+    polytropic_constant: float = 1.0
+    polytropic_exponent: float = 1.0
 
     #: The adiabatic index of the gas.
     gamma: float = 5/3
@@ -91,8 +91,8 @@ class SimulationParams(NamedTuple):
     #: positivity-preserving WENO scalings (capped at half the state being
     #: scaled), the per-step HARD_FLOOR (which in the VL2 finite-volume scheme
     #: also switches on AthenaPK's floors in every stage), the finite-difference
-    #: MHD primitive recovery, the cold-crush flux blend and the read-only
-    #: clamps of the flux, wave-speed and time-step estimates.
+    #: MHD primitive recovery and the read-only clamps of the flux, wave-speed
+    #: and time-step estimates.
     minimum_density: float = 1e-14
 
     #: Minimum pressure, in the same roles as ``minimum_density``.
@@ -103,13 +103,6 @@ class SimulationParams(NamedTuple):
     #: |B|^2 / maximum_alfven_speed^2, momentum and total energy kept (see
     #: ``_apply_density_floor``). ``inf`` (the default) switches it off.
     maximum_alfven_speed: float = float("inf")
-
-    #: Temperature-floor scale ``p/rho`` (``= k_B T_floor / (mu m_p)`` in code
-    #: units). It defines the radiatively crushed interfaces that
-    #: ``PositivityConfig.coldcrush_blend`` blends towards first order and,
-    #: with ``PositivityConfig.per_step_specific_floor``, the per-step
-    #: temperature floor. 0.0 disables both.
-    minimum_specific_pressure: float = 0.0
 
     #: Ratio of the diffusive to the advective time scale of the GLM divergence
     #: cleaning in the VL2 finite-volume MHD scheme (AthenaPK ``glmmhd_alpha``,
@@ -138,20 +131,16 @@ class SimulationParams(NamedTuple):
 
     # parameters of physics modules
 
-    #: The parameters of the turbulent forcing module.
-    turbulent_forcing_params: TurbulentForcingParams = TurbulentForcingParams()
+    #: The parameters of the turbulence driving (differentiable).
+    turbulence_driving_params: TurbulenceDrivingParams = TurbulenceDrivingParams()
 
     #: The parameters of the stellar wind module.
     wind_params: WindParams = WindParams()
 
-    #: Cosmic ray parameters
-    cosmic_ray_params: CosmicRayParams = CosmicRayParams()
-
     #: The parameters of the cooling module.
     cooling_params: CoolingParams = CoolingParams()
 
-    #: The parameters of the neural network force module.
-    neural_net_force_params: NeuralNetForceParams = NeuralNetForceParams()
-
-    #: The parameters of the CNN MHD corrector module.
-    cnn_mhd_corrector_params: CNNMHDconfig = CNNMHDconfig()
+    #: Parameters of the user-supplied ``config.per_step_update`` (any
+    #: pytree, for example network weights). The simulation can be
+    #: differentiated with respect to them.
+    per_step_update_params: Any = None

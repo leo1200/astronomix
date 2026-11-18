@@ -13,8 +13,8 @@ selects, cell by cell,
                                        cancellation)
 
 This module holds the one switch formula shared by the pressure recoveries of
-the finite-difference scheme (primitive recovery, eigenstructure, cold-crush
-flux blending): ``dual_energy_internal_energy`` switches an internal energy,
+the finite-difference scheme (primitive recovery, eigenstructure):
+``dual_energy_internal_energy`` switches an internal energy,
 ``dual_energy_switched_pressure`` a gas pressure recovered from the total
 energy. Both are plain elementwise ``jax.numpy``, so they apply to whole arrays
 and to the per-cell values inside a kernel alike.
@@ -22,6 +22,11 @@ and to the per-cell values inside a kernel alike.
 
 # jax
 import jax.numpy as jnp
+
+#: Switch threshold of the dual-energy formalism: the fraction of the total
+#: energy below which the internal energy recovered from the total energy is
+#: deemed cancellation-unreliable and the advected ``g`` is used instead.
+DUAL_ENERGY_ETA = 1e-3
 
 
 def dual_energy_internal_energy(
@@ -48,7 +53,7 @@ def dual_energy_internal_energy(
         total_energy: The total energy density ``E``.
         internal_energy_density: The separately advected internal energy
             density ``g``.
-        eta: The switch threshold (``config.dual_energy_eta``).
+        eta: The switch threshold (``DUAL_ENERGY_ETA``).
 
     Returns:
         The switched internal energy density.
@@ -84,7 +89,7 @@ def dual_energy_switched_pressure(
         gamma: The adiabatic index.
         internal_energy_density: The separately advected internal energy
             density ``g``.
-        eta: The switch threshold (``config.dual_energy_eta``).
+        eta: The switch threshold (``DUAL_ENERGY_ETA``).
 
     Returns:
         The switched gas pressure ``(gamma - 1) e_int``.

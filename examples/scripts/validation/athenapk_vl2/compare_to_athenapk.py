@@ -48,7 +48,7 @@ from astronomix import SnapshotSettings
 
 # astronomix functions
 from astronomix import time_integration
-from astronomix._finite_volume._state_evolution._van_leer_integrator import _conserved_from_primitive_vl2
+from astronomix._finite_volume._stage import _conserved_from_primitive
 
 # validation helpers
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -111,7 +111,7 @@ def compare_case(case, backends):
     if own_initial_state is not None:
         config, params, registered_variables = astronomix_setup(case, own_initial_state.shape, NATIVE_JAX)
         initial_conserved = astronomix_layout_to_athenapk(
-            np.asarray(_conserved_from_primitive_vl2(own_initial_state, case.gamma, config, registered_variables)),
+            np.asarray(_conserved_from_primitive(own_initial_state, case.gamma, config, registered_variables)),
             case,
         )
 

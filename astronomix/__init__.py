@@ -15,21 +15,40 @@ from astronomix.option_classes.simulation_config import (
     OPTIMAL_BACKEND,
     FINITE_VOLUME,
     FINITE_DIFFERENCE,
+    RK2_SSP,
+    MUSCL_HANCOCK,
     VL2,
-    FORWARDS,
-    BACKWARDS,
+    SSPRK54,
+    SSPRK33,
+    LSRK4,
+    WENO_FLUX_SPLITTING,
+    RIEMANN_FLUX,
+    IDEAL_GAS,
+    ISOTHERMAL,
+    POLYTROPIC,
+    DONOR_CELL,
+    PIECEWISE_LINEAR,
     MINMOD,
-    OSHER,
     VAN_LEER,
+    SUPERBEE,
+    DOUBLE_MINMOD,
     HLL,
     HLLC,
-    HLLC_LM,
+    LAX_FRIEDRICHS,
     HLLD,
+    HLL5R,
+    RIEMANN_BY_EOS,
+    HLLEM_T,
+    HLLD_BOUNDED,
+    GLM,
+    CONSTRAINED_TRANSPORT,
+    INDUCTION_SOURCE,
+    FORWARDS,
+    BACKWARDS,
     OPEN_BOUNDARY,
     REFLECTIVE_BOUNDARY,
     PERIODIC_BOUNDARY,
     CARTESIAN,
-    CYLINDRICAL,
     SPHERICAL,
     ON_DEVICE,
     TO_DISK,
@@ -38,12 +57,23 @@ from astronomix.option_classes.simulation_config import (
 # astronomix containers
 from astronomix.option_classes.simulation_config import (
     SimulationConfig,
+    FVSolverConfig,
+    FDSolverConfig,
+    PassiveScalarConfig,
+    DiffusionConfig,
     BoundarySettings,
     BoundarySettings1D,
     SnapshotSettings,
     PositivityConfig,
     GravityConfig,
     BackendConfig,
+)
+from astronomix.option_classes.presets import (
+    ATHENAPK_VL2,
+    BEATTIE_REFERENCE,
+    FD_PAPER,
+    FD_RIEMANN_IDEAL_GAS,
+    FD_RIEMANN_ISOTHERMAL,
 )
 from astronomix.option_classes.simulation_params import SimulationParams
 from astronomix._modules._stellar_wind.stellar_wind_options import WindParams
@@ -52,6 +82,7 @@ from astronomix.data_classes.simulation_state_struct import (
     SinkParticles,
     StateStruct,
 )
+from astronomix._modules._turbulence_driving import TurbulenceDrivingConfig, TurbulenceDrivingParams
 from astronomix.units import CodeUnits
 
 # astronomix functions

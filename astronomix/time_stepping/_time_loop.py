@@ -15,11 +15,12 @@ time-stepping loop that are independent of the physics being integrated:
 The physics is supplied entirely through caller closures, so this module
 carries no domain knowledge and can be reused by any project:
 
-    step(t, state, snapshot_index) -> (dt, new_state)
+    step(t, state, snapshot_index, step_index) -> (dt, new_state)
         Advance ``state`` by one step.  Returns the timestep actually taken
         (the driver advances ``t``) and the new state.  ``snapshot_index`` is
         the current snapshot counter (0 when snapshots are disabled), passed
-        through so the step can clamp ``dt`` to land on snapshot times.
+        through so the step can clamp ``dt`` to land on snapshot times;
+        ``step_index`` is the number of steps taken so far.
 
     SnapshotSpec.record(t, state, store, index) -> store
         Write whatever diagnostics are wanted for snapshot ``index`` into the
@@ -119,7 +120,7 @@ def integrate(
 
     Args:
         state: Initial evolving-state pytree (opaque to the driver).
-        step: ``step(t, state, snapshot_index) -> (dt, new_state)``.
+        step: ``step(t, state, snapshot_index, step_index) -> (dt, new_state)``.
         t_end: Integration end time.
         backend: One of ``FIXED_STEP`` / ``ADAPTIVE_WHILE`` /
             ``ADAPTIVE_CHECKPOINTED``.
@@ -170,7 +171,7 @@ def integrate(
         else:
             t, state, snapshot_index, num_iterations = carry
 
-        dt, state = step(t, state, snapshot_index)
+        dt, state = step(t, state, snapshot_index, num_iterations)
         t_new = t + dt
         advanced = t_new > t
         t = t_new

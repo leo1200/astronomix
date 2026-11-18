@@ -35,7 +35,7 @@ field, which is itself a central interpolation of the interface fields.
 Near the Nyquist wavenumber that leaves the interface fields too little
 damping: a uniform field oblique to the grid lets grid-scale perturbations
 grow. ``ct_upwind_dissipation_rhs`` adds the missing upwind dissipation
-directly on the interface fields (``SimulationConfig.ct_upwind_dissipation``).
+directly on the interface fields (``FDSolverConfig.ct_upwind_dissipation``).
 """
 
 # general
@@ -46,7 +46,7 @@ import jax
 import jax.numpy as jnp
 
 # astronomix constants
-from astronomix.option_classes.simulation_config import IDEAL_GAS
+from astronomix.option_classes.simulation_config import IDEAL_GAS, RIEMANN_FLUX
 
 # astronomix containers
 from astronomix.option_classes.simulation_config import SimulationConfig
@@ -62,6 +62,12 @@ from astronomix._finite_difference._magnetic_update._constrained_transport_palla
     _ct_upwind_dissipation_pallas,
     _ct_upwind_pallas_supported,
 )
+from astronomix._finite_difference._magnetic_update._rebuild_energy import rebuilt_total_energy
+from astronomix._fluid_equations._equation_of_state import (
+    barotropic_law,
+    law_sound_speed,
+)
+from astronomix._pallas_helpers import diffable_pallas_call_n
 from astronomix._spatial_operators._differencing import finite_difference_int6
 from astronomix._spatial_operators._interpolate import (
     interp_center_to_face,
@@ -335,15 +341,18 @@ def update_cell_center_fields(
     bz_interface,
     config: SimulationConfig,
     registered_variables: RegisteredVariables,
+    params: SimulationParams = None,
 ):
     """
     Update the cell-centered B field from the interface values using
-    6th-order interpolation, and update the total energy accordingly so
-    that it is conserved.
+    6th-order interpolation, and update the total energy: with the pressure
+    held under ``scheme = WENO_FLUX_SPLITTING``, with the energy held
+    (``_rebuild_energy.py``) under ``scheme = RIEMANN_FLUX``.
 
     The Pallas implementation in ``_constrained_transport_pallas`` is
     used transparently when the Pallas backend is active and the
-    predicate applies (3D ideal-gas MHD).
+    predicate applies (3D MHD with the ideal gas, with either energy update,
+    or with the isothermal gas under ``scheme = RIEMANN_FLUX``).
 
     Args:
         conserved_state: The conserved MHD state.
@@ -352,20 +361,50 @@ def update_cell_center_fields(
         bz_interface: The B_z field at the z-interfaces.
         config: The simulation configuration.
         registered_variables: The registered variables.
+        params: The simulation parameters (read under ``scheme = RIEMANN_FLUX``).
 
     Returns:
         The conserved state with updated cell-centered fields (and energy).
     """
     if _ct_update_cell_center_fields_pallas_supported(conserved_state, config):
-        return _ct_update_cell_center_fields_pallas(
-            conserved_state,
-            bx_interface,
-            by_interface,
-            bz_interface,
-            config,
-            registered_variables,
-        )
+        if config.equation_of_state == IDEAL_GAS:
+            return _ct_update_cell_center_fields_pallas(
+                conserved_state,
+                bx_interface,
+                by_interface,
+                bz_interface,
+                config,
+                registered_variables,
+                params,
+            )
 
+        # the isothermal gas: the kernel computes the values, a derivative takes the array form
+        def kernel(state, bx, by, bz):
+            return _ct_update_cell_center_fields_pallas(state, bx, by, bz, config, registered_variables, params)
+
+        def array_form(state, bx, by, bz):
+            return _cell_center_fields_array_form(state, bx, by, bz, config, registered_variables, params)
+
+        return diffable_pallas_call_n(
+            (conserved_state, bx_interface, by_interface, bz_interface),
+            pallas_branch=kernel,
+            native_branch=array_form,
+        )
+    return _cell_center_fields_array_form(
+        conserved_state, bx_interface, by_interface, bz_interface, config, registered_variables, params
+    )
+
+
+def _cell_center_fields_array_form(
+    conserved_state,
+    bx_interface,
+    by_interface,
+    bz_interface,
+    config: SimulationConfig,
+    registered_variables: RegisteredVariables,
+    params: SimulationParams = None,
+):
+    """``update_cell_center_fields`` in the array form (the arguments and the result of that function)."""
     BX = registered_variables.magnetic_index.x
     BY = registered_variables.magnetic_index.y
     BZ = registered_variables.magnetic_index.z
@@ -394,10 +433,28 @@ def update_cell_center_fields(
     if config.equation_of_state == IDEAL_GAS:
         b2_new = conserved_new[BX] ** 2 + conserved_new[BY] ** 2 + conserved_new[BZ] ** 2
 
-        # Update the total energy: E_new = E_old + 0.5 * (b2_new - b2_old).
-        conserved_new = conserved_new.at[registered_variables.pressure_index].add(
-            0.5 * (b2_new - b2_old)
-        )
+        if config.solver_config.scheme == RIEMANN_FLUX:
+            energy_index = registered_variables.energy_index
+            momentum_index = registered_variables.momentum_index
+            momentum_squared = sum(
+                conserved_state[index] ** 2 for index in (momentum_index.x, momentum_index.y, momentum_index.z)
+            )
+            energy_new = rebuilt_total_energy(
+                conserved_state[energy_index],
+                conserved_state[registered_variables.density_index],
+                momentum_squared,
+                b2_old,
+                b2_new,
+                params.gamma,
+                params.minimum_density,
+                params.minimum_pressure,
+            )
+            conserved_new = conserved_new.at[energy_index].set(energy_new)
+        else:
+            # Update the total energy: E_new = E_old + 0.5 * (b2_new - b2_old).
+            conserved_new = conserved_new.at[registered_variables.pressure_index].add(
+                0.5 * (b2_new - b2_old)
+            )
     # There is no energy to update for the isothermal equation of state.
 
     return conserved_new
@@ -458,7 +515,7 @@ def ct_upwind_dissipation_rhs(
     edge EMF gets the jumps of the two interface-field components that meet at
     the edge, reconstructed to the edge from both sides, times half the local
     fast signal speed across each jump and the strength kappa
-    (``config.ct_upwind_strength``; 1 is the full upwind form),
+    (``config.solver_config.ct_upwind_strength``; 1 is the full upwind form),
 
         Omega_z += -kappa (a_y / 2) (B_x^+y - B_x^-y) + kappa (a_x / 2) (B_y^+x - B_y^-x)
 
@@ -483,7 +540,7 @@ def ct_upwind_dissipation_rhs(
         grid_spacing: The cell size.
         gamma: The adiabatic index (ideal gas).
         params: The simulation parameters (minimum density and pressure,
-            isothermal sound speed).
+            the barotropic law).
         config: The simulation configuration.
         registered_variables: The registered variables.
 
@@ -534,7 +591,8 @@ def ct_upwind_dissipation_rhs(
         )
         sound_speed_squared = gamma * jnp.maximum(gas_pressure, params.minimum_pressure) / density
     else:
-        sound_speed_squared = params.isothermal_sound_speed ** 2
+        # a barotropic gas: the sound speed of its law (local for a polytropic gas)
+        _, sound_speed_squared = law_sound_speed(barotropic_law(params, config), density)
 
     alfven_speed_squared = magnetic_field_squared / density
     total_speed_squared = sound_speed_squared + alfven_speed_squared
@@ -586,7 +644,7 @@ def ct_upwind_dissipation_rhs(
             return 0.0
         return finite_difference_int6(edge_field, axis)
 
-    half_strength = 0.5 * config.ct_upwind_strength
+    half_strength = 0.5 * config.solver_config.ct_upwind_strength
     emf_z = half_strength * (
         -upwind_term(1, XAXIS, YAXIS, bx_interface, YAXIS)
         + upwind_term(0, XAXIS, YAXIS, by_interface, XAXIS)

@@ -21,7 +21,7 @@ from astronomix.option_classes.simulation_config import FINITE_DIFFERENCE
 from astronomix.data_classes.simulation_snapshot_data import SnapshotData
 
 # astronomix functions
-from astronomix._finite_volume._magnetic_update._vector_maths import divergence3D
+from astronomix._spatial_operators._vector_maths import divergence3D
 from astronomix._fluid_equations.total_quantities import (
     calculate_gravitational_energy,
     calculate_internal_energy,
@@ -76,6 +76,7 @@ def spectra_requested(config) -> bool:
 
 
 def _spectral_bin_count(config) -> int:
+    """The number of wavenumber bins of the spectra of a 3D box of the configured size."""
     _, number_of_bins, _ = _wavenumber_bins(
         config.num_cells.x, config.num_cells.y, config.num_cells.z
     )
@@ -99,14 +100,17 @@ def spectral_wavenumbers(config):
 
 
 def _compute_states(primitive_state, helper_data, params, config, registered_variables):
+    """The primitive state itself (snapshot of the states)."""
     return primitive_state
 
 
 def _compute_total_mass(primitive_state, helper_data, params, config, registered_variables):
+    """The total mass."""
     return calculate_total_mass(primitive_state, helper_data, config)
 
 
 def _compute_total_energy(primitive_state, helper_data, params, config, registered_variables):
+    """The total energy."""
     return calculate_total_energy(
         primitive_state,
         helper_data,
@@ -119,20 +123,24 @@ def _compute_total_energy(primitive_state, helper_data, params, config, register
 
 
 def _compute_internal_energy(primitive_state, helper_data, params, config, registered_variables):
+    """The total internal energy."""
     return calculate_internal_energy(
         primitive_state, helper_data, params.gamma, config, registered_variables
     )
 
 
 def _compute_kinetic_energy(primitive_state, helper_data, params, config, registered_variables):
+    """The total kinetic energy."""
     return calculate_kinetic_energy(primitive_state, helper_data, config, registered_variables)
 
 
 def _compute_radial_momentum(primitive_state, helper_data, params, config, registered_variables):
+    """The total radial momentum."""
     return calculate_radial_momentum(primitive_state, helper_data, config, registered_variables)
 
 
 def _compute_gravitational_energy(primitive_state, helper_data, params, config, registered_variables):
+    """The total gravitational energy."""
     return calculate_gravitational_energy(
         primitive_state,
         helper_data,
@@ -144,6 +152,7 @@ def _compute_gravitational_energy(primitive_state, helper_data, params, config, 
 
 
 def _compute_magnetic_divergence(primitive_state, helper_data, params, config, registered_variables):
+    """The largest absolute divergence of the magnetic field."""
     if config.solver_mode == FINITE_DIFFERENCE:
         interface_magnetic_field = registered_variables.interface_magnetic_field_index
         return jnp.max(jnp.abs(_interface_field_divergence(
@@ -160,6 +169,7 @@ def _compute_magnetic_divergence(primitive_state, helper_data, params, config, r
 
 
 def _compute_kinetic_energy_spectrum(primitive_state, helper_data, params, config, registered_variables):
+    """The kinetic energy spectrum."""
     velocity = registered_variables.velocity_index
     _, spectrum = get_kinetic_energy_spectrum(
         primitive_state[velocity.x],
@@ -171,6 +181,7 @@ def _compute_kinetic_energy_spectrum(primitive_state, helper_data, params, confi
 
 
 def _compute_magnetic_energy_spectrum(primitive_state, helper_data, params, config, registered_variables):
+    """The magnetic energy spectrum."""
     magnetic_field = registered_variables.magnetic_index
     _, spectrum = get_magnetic_energy_spectrum(
         primitive_state[magnetic_field.x],
@@ -181,6 +192,7 @@ def _compute_magnetic_energy_spectrum(primitive_state, helper_data, params, conf
 
 
 def _compute_helicity_spectrum(primitive_state, helper_data, params, config, registered_variables):
+    """The magnetic helicity spectrum."""
     magnetic_field = registered_variables.magnetic_index
     _, spectrum = get_magnetic_helicity_spectrum(
         primitive_state[magnetic_field.x],
@@ -191,6 +203,7 @@ def _compute_helicity_spectrum(primitive_state, helper_data, params, config, reg
 
 
 def _compute_temperature_pdf(primitive_state, helper_data, params, config, registered_variables):
+    """The histogram of the temperature P / rho."""
     # temperature from the ideal gas law, ASSUMING T = P / rho
     temperature = (
         primitive_state[registered_variables.pressure_index]

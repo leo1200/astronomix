@@ -41,21 +41,21 @@ import jax.numpy as jnp
 # astronomix constants
 from astronomix import (
     FINITE_VOLUME,
+    LSRK4,
+    MUSCL_HANCOCK,
     OPEN_BOUNDARY,
     PERIODIC_BOUNDARY,
+    RIEMANN_FLUX,
+    RK2_SSP,
     VL2,
-)
-from astronomix.option_classes.simulation_config import (
-    MUSCL,
-    RK4_LSRK,
-    SPLIT,
-    UNSPLIT,
 )
 
 # astronomix containers
 from astronomix import (
     BoundarySettings,
     BoundarySettings1D,
+    FDSolverConfig,
+    FVSolverConfig,
     GravityConfig,
     SimulationConfig,
     SimulationParams,
@@ -279,31 +279,22 @@ def test_drift_through_uniform_gas():
     "solver_options",
     [
         dict(),
-        dict(time_integrator=RK4_LSRK),
+        dict(solver_config=FDSolverConfig(time_integrator=LSRK4)),
+        dict(solver_config=FDSolverConfig(scheme=RIEMANN_FLUX)),
         dict(mhd=True),
-        dict(mhd=True, time_integrator=RK4_LSRK),
-        dict(solver_mode=FINITE_VOLUME, split=SPLIT, time_integrator=MUSCL),
-        pytest.param(
-            dict(solver_mode=FINITE_VOLUME, split=UNSPLIT),
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason=(
-                    "classic FV unsplit never adds its gravity source to the gas: "
-                    "_evolve_gas_state_unsplit adds it only when "
-                    "config.time_integrator is also true, and its only "
-                    "integrator, RK2_SSP, is 0"
-                ),
-            ),
-        ),
-        dict(solver_mode=FINITE_VOLUME, time_integrator=VL2),
+        dict(mhd=True, solver_config=FDSolverConfig(time_integrator=LSRK4)),
+        dict(solver_mode=FINITE_VOLUME, solver_config=FVSolverConfig(time_integrator=MUSCL_HANCOCK)),
+        dict(solver_mode=FINITE_VOLUME, solver_config=FVSolverConfig(time_integrator=RK2_SSP)),
+        dict(solver_mode=FINITE_VOLUME, solver_config=FVSolverConfig(time_integrator=VL2)),
     ],
     ids=[
-        "fd_ssprk4",
+        "fd_ssprk54",
         "fd_lsrk4",
-        "fd_ssprk4_mhd",
+        "fd_riemann_flux",
+        "fd_ssprk54_mhd",
         "fd_lsrk4_mhd",
-        "classic_fv_split",
-        "classic_fv_unsplit",
+        "fv_muscl_hancock",
+        "fv_rk2_ssp",
         "vl2",
     ],
 )

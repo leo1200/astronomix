@@ -12,11 +12,12 @@ skeleton and §4 for the per-flavour recipes, and the ``pallasify`` skill).
 
 The module covers
 
-- the ideal-gas hydrodynamic WENO flux (``_weno_flux_hydro_pallas``),
+- the hydrodynamic WENO flux of the ideal and of a barotropic gas
+  (``_weno_flux_hydro_pallas``),
 - the ideal-gas MHD WENO flux (``_weno_flux_mhd_pallas``), including the
   x-direction variants with a kept x halo for the multi-GPU fast path of
   ``_lsrk4_with_ct``,
-- the isothermal MHD WENO flux (``_weno_flux_mhd_iso_pallas``),
+- the barotropic (isothermal or polytropic) MHD WENO flux (``_weno_flux_mhd_iso_pallas``),
 - a fused WENO flux + divergence kernel (``_weno_flux_hydro_pallas_rhs``).
 
 All kernels support the admissible face state of the characteristic basis,
@@ -41,7 +42,7 @@ import jax.numpy as jnp
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
     IDEAL_GAS,
-    ISOTHERMAL,
+    POLYTROPIC,
 )
 
 # astronomix containers
@@ -63,7 +64,15 @@ from astronomix._finite_difference._interface_fluxes._weno_positivity import (
     positivity_preserving_flux_local,
     positivity_preserving_interface_flux,
 )
+from astronomix._fluid_equations._dual_energy_switch import DUAL_ENERGY_ETA
+from astronomix._fluid_equations._equation_of_state import (
+    PolytropicLaw,
+    is_barotropic,
+    law_pressure,
+    law_sound_speed,
+)
 from astronomix._finite_difference._interface_fluxes._weno_weights import (
+    WENO_EPSILON,
     _weno_omega_weights,
     _weno_omega_weights_ad,
     _weno_omega_weights_z,
@@ -175,69 +184,6 @@ def _as_tile(value, like):
 # stencil position k holds the cell at offset k - 2 (k = 2 is cell i, k = 3 is
 # cell i + 1). The helpers below are plain Python and are inlined into every
 # kernel at trace time.
-
-
-class _FlooredHydroCell(NamedTuple):
-    """Primitive and wave-speed data of one cell after the density and
-    pressure floors (hydrodynamics, local component order)."""
-
-    density: object
-    normal_momentum: object
-    transverse_momentum_1: object
-    transverse_momentum_2: object
-    energy: object
-    normal_velocity: object
-    transverse_velocity_1: object
-    transverse_velocity_2: object
-    velocity_squared: object
-    pressure: object
-    specific_enthalpy: object
-    sound_speed: object
-
-
-class _FlooredMhdCell(NamedTuple):
-    """Primitive and wave-speed data of one cell after the density and
-    pressure floors (ideal MHD, local component order)."""
-
-    density: object
-    normal_momentum: object
-    transverse_momentum_1: object
-    transverse_momentum_2: object
-    normal_magnetic_field: object
-    transverse_magnetic_field_1: object
-    transverse_magnetic_field_2: object
-    energy: object
-    normal_velocity: object
-    transverse_velocity_1: object
-    transverse_velocity_2: object
-    velocity_squared: object
-    magnetic_field_squared: object
-    pressure: object
-    specific_enthalpy: object
-    sound_speed: object
-    sound_speed_squared: object
-    fast_speed: object
-    alfven_speed: object
-    slow_speed: object
-
-
-class _FlooredIsothermalMhdCell(NamedTuple):
-    """Primitive and wave-speed data of one cell after the density floor
-    (isothermal MHD, local component order)."""
-
-    density: object
-    normal_momentum: object
-    transverse_momentum_1: object
-    transverse_momentum_2: object
-    normal_magnetic_field: object
-    transverse_magnetic_field_1: object
-    transverse_magnetic_field_2: object
-    normal_velocity: object
-    transverse_velocity_1: object
-    transverse_velocity_2: object
-    fast_speed: object
-    alfven_speed: object
-    slow_speed: object
 
 
 class _SplitFaceFluxes(NamedTuple):
@@ -454,13 +400,9 @@ def _native_weno_flux(axis: int):
     points when their support predicate rejects the configuration).
     """
     # Imported lazily: ``_weno.py`` imports this module at load time.
-    from astronomix._finite_difference._interface_fluxes._weno import (
-        _weno_flux_x_native,
-        _weno_flux_y_native,
-        _weno_flux_z_native,
-    )
+    from astronomix._finite_difference._interface_fluxes._weno import _weno_flux_native_for_axis
 
-    return (_weno_flux_x_native, _weno_flux_y_native, _weno_flux_z_native)[axis]
+    return _weno_flux_native_for_axis(axis)
 
 
 # -------------------------------------------------------------
@@ -475,10 +417,9 @@ def _native_weno_flux(axis: int):
 
 def _hydro_pallas_flux_supported(conserved_state, config: SimulationConfig) -> bool:
     """
-    Whether the Pallas hydro WENO kernel can be used: ideal-gas
-    hydrodynamics in 1, 2 or 3 dimensions with a block shape that divides the
-    grid. MHD has its own kernels; isothermal hydrodynamics uses the native
-    flux.
+    Whether the Pallas hydro WENO kernel can be used: hydrodynamics of the
+    ideal or a barotropic gas in 1, 2 or 3 dimensions with a block shape that
+    divides the grid. MHD has its own kernels.
 
     Args:
         conserved_state: The conserved state.
@@ -492,8 +433,6 @@ def _hydro_pallas_flux_supported(conserved_state, config: SimulationConfig) -> b
     if not _backend_is_pallas(config):
         return False
     if config.mhd:
-        return False
-    if config.equation_of_state != IDEAL_GAS:
         return False
     ndim = int(config.dimensionality)
     if ndim not in (1, 2, 3):
@@ -557,7 +496,7 @@ def _weno_flux_hydro_pallas(
     internal_energy_density=None,
 ):
     """
-    Pallas implementation of the ideal-gas hydrodynamic WENO flux.
+    Pallas implementation of the hydrodynamic WENO flux (ideal or barotropic gas).
 
     Public entry point: checks the support predicate (falling back to the
     native flux) and applies the multi-GPU ``shard_map`` + halo wrap. The
@@ -1003,6 +942,187 @@ def _weno_hydro_flux_from_window(
     return flux_acc
 
 
+def _law_scalars(params: SimulationParams, config: SimulationConfig, dtype):
+    """The kernel scalars of a barotropic law: the isothermal sound speed, or K and Gamma."""
+    if config.equation_of_state == POLYTROPIC:
+        return (jnp.asarray(params.polytropic_constant, dtype), jnp.asarray(params.polytropic_exponent, dtype))
+    return (jnp.asarray(params.isothermal_sound_speed, dtype),)
+
+
+def _law_from_scalars(scalars):
+    """The ``barotropic_law`` of the kernel scalars of ``_law_scalars`` (values read from their refs)."""
+    if len(scalars) == 2:
+        return PolytropicLaw(*scalars)
+    return scalars[0]
+
+
+def _weno_barotropic_hydro_flux_from_window(
+    q_stencil,
+    law,
+    rhomin,
+    *,
+    ncomp,
+    epsilon,
+    omega_weights,
+    clamp_in_estimates,
+    positivity_preserving,
+    own_speed_modes,
+):
+    """
+    The hydro WENO interface flux of a barotropic gas (isothermal or polytropic)
+    at i + 1/2 from its six-cell window: ``_weno_flux_x_native`` with the flux
+    ``_euler_flux_barotropic_x`` and the eigen-system of ``_eigen_hydro_baro.py``
+    for one interface. ``ncomp`` components (rho, m_n, [m_t1, [m_t2]]) and as
+    many fields (u - a, the shear waves, u + a); a is the sound speed of the law
+    in the cell (splitting speeds) and at the averaged interface density
+    (eigenvectors).
+
+    Args:
+        q_stencil: The six local conserved tuples of cells i - 2 ... i + 3.
+        law: The isothermal sound speed or the ``PolytropicLaw`` (kernel values).
+        rhomin: The density floor.
+        ncomp: The number of local components (2, 3 or 4).
+        epsilon: The WENO epsilon.
+        omega_weights: The weight function ``(IS0, IS1, IS2, epsilon, tiny) ->
+            (omega_0, omega_2)``.
+        clamp_in_estimates: Whether the cell flux floors the density.
+        positivity_preserving: Whether the split fluxes are recombined with the
+            admissibility scalings.
+        own_speed_modes: The characteristic fields that keep their own
+            splitting speed under positivity preservation.
+
+    Returns:
+        The interface flux as a list of the ``ncomp`` local components.
+    """
+    tiny = 1e-14
+    num_modes = ncomp
+    last_mode = num_modes - 1
+
+    def flux_from_q(q):
+        rho = jnp.maximum(q[0], rhomin) if clamp_in_estimates else q[0]
+        normal_momentum = q[1]
+        flux = [normal_momentum, normal_momentum**2 / rho + law_pressure(law, rho, rhomin)]
+        return tuple(flux + [normal_momentum * (q[slot] / rho) for slot in range(2, ncomp)])
+
+    def cell_speeds(q):
+        rho = jnp.maximum(q[0], rhomin)
+        sound_speed, _ = law_sound_speed(law, rho)
+        return q[1] / rho, sound_speed
+
+    f_stencil = tuple(flux_from_q(q) for q in q_stencil)
+    speed_stencil = tuple(cell_speeds(q) for q in q_stencil)
+
+    # The interface state of the eigenvectors (``_eigenvector_building_blocks``
+    # of ``_eigen_hydro_baro.py``).
+    rho_face = jnp.maximum(
+        0.5 * (jnp.maximum(q_stencil[2][0], rhomin) + jnp.maximum(q_stencil[3][0], rhomin)), rhomin
+    )
+    v_face = [0.5 * (q_stencil[2][slot] + q_stencil[3][slot]) / rho_face for slot in range(1, ncomp)]
+    vn_face = v_face[0]
+    c_face, c2_face = law_sound_speed(law, rho_face)
+    acoustic_scale = 0.5 * jnp.where(c2_face > 0.0, 1.0 / c2_face, 0.0)
+    # The non-zero entries of the acoustic left eigenvectors (density, normal momentum).
+    acoustic_rows = {
+        0: (acoustic_scale * (c2_face + vn_face * c_face), acoustic_scale * (-c_face)),
+        last_mode: (acoustic_scale * (c2_face - vn_face * c_face), acoustic_scale * c_face),
+    }
+
+    def left_project(mode: int, values):
+        """Row ``mode`` of L (``_eigen_L_row_hydro_iso``) times a local vector."""
+        if mode in acoustic_rows:
+            density_entry, momentum_entry = acoustic_rows[mode]
+            return density_entry * values[0] + momentum_entry * values[1]
+        return -v_face[mode] * values[0] + values[mode + 1]
+
+    def add_right_correction(flux_acc, mode: int, Fs):
+        """Add Fs times column ``mode`` of R (``_eigen_R_col_hydro_iso``)."""
+        if mode in acoustic_rows:
+            normal_entry = vn_face - c_face if mode == 0 else vn_face + c_face
+            column = (1.0, normal_entry) + tuple(v_face[1:])
+        else:
+            column = tuple(1.0 if slot == mode + 1 else 0.0 for slot in range(ncomp))
+        return _add_scaled_column(flux_acc, column, Fs)
+
+    def alpha_for_mode(mode: int):
+        def eigenvalue(speeds):
+            velocity, sound_speed = speeds
+            if mode == 0:
+                return velocity - sound_speed
+            if mode == last_mode:
+                return velocity + sound_speed
+            return velocity
+
+        amx = jnp.abs(eigenvalue(speed_stencil[0]))
+        for k in range(1, 6):
+            amx = jnp.maximum(amx, jnp.abs(eigenvalue(speed_stencil[k])))
+        return amx
+
+    flux_acc = _central_face_values(f_stencil, ncomp)
+    if positivity_preserving:
+        # One splitting speed (the stencil's spectral radius |v_n| + a) for
+        # every field that carries mass; the split fluxes kept apart.
+        common_speed = jnp.abs(speed_stencil[0][0]) + speed_stencil[0][1]
+        for k in range(1, 6):
+            common_speed = jnp.maximum(common_speed, jnp.abs(speed_stencil[k][0]) + speed_stencil[k][1])
+        split = _start_split_face_fluxes(flux_acc, q_stencil, common_speed, ncomp)
+
+    flux_differences = _stencil_differences(f_stencil, ncomp)
+    state_differences = _stencil_differences(q_stencil, ncomp)
+    for mode in range(num_modes):
+        d0, d1, d2, d3, d4 = (left_project(mode, difference) for difference in flux_differences)
+        dq0, dq1, dq2, dq3, dq4 = (left_project(mode, difference) for difference in state_differences)
+        own_speed = positivity_preserving and mode in own_speed_modes
+        amx = common_speed if positivity_preserving and not own_speed else alpha_for_mode(mode)
+
+        aterm_p = 0.5 * (d0 + amx * dq0)
+        bterm_p = 0.5 * (d1 + amx * dq1)
+        cterm_p = 0.5 * (d2 + amx * dq2)
+        dterm_p = 0.5 * (d3 + amx * dq3)
+        IS0_p = 13.0 * (aterm_p - bterm_p) ** 2 + 3.0 * (aterm_p - 3.0 * bterm_p) ** 2
+        IS1_p = 13.0 * (bterm_p - cterm_p) ** 2 + 3.0 * (bterm_p + cterm_p) ** 2
+        IS2_p = 13.0 * (cterm_p - dterm_p) ** 2 + 3.0 * (3.0 * cterm_p - dterm_p) ** 2
+        omega0_p, omega2_p = omega_weights(IS0_p, IS1_p, IS2_p, epsilon, tiny)
+        second = (
+            omega0_p * (aterm_p - 2.0 * bterm_p + cterm_p) * (1.0 / 3.0)
+            + (omega2_p - 0.5) * (bterm_p - 2.0 * cterm_p + dterm_p) * (1.0 / 6.0)
+        )
+
+        aterm_m = 0.5 * (d4 - amx * dq4)
+        bterm_m = 0.5 * (d3 - amx * dq3)
+        cterm_m = 0.5 * (d2 - amx * dq2)
+        dterm_m = 0.5 * (d1 - amx * dq1)
+        IS0_m = 13.0 * (aterm_m - bterm_m) ** 2 + 3.0 * (aterm_m - 3.0 * bterm_m) ** 2
+        IS1_m = 13.0 * (bterm_m - cterm_m) ** 2 + 3.0 * (bterm_m + cterm_m) ** 2
+        IS2_m = 13.0 * (cterm_m - dterm_m) ** 2 + 3.0 * (3.0 * cterm_m - dterm_m) ** 2
+        omega0_m, omega2_m = omega_weights(IS0_m, IS1_m, IS2_m, epsilon, tiny)
+        third = (
+            omega0_m * (aterm_m - 2.0 * bterm_m + cterm_m) * (1.0 / 3.0)
+            + (omega2_m - 0.5) * (bterm_m - 2.0 * cterm_m + dterm_m) * (1.0 / 6.0)
+        )
+
+        if positivity_preserving:
+            projected_state = tuple(left_project(mode, q) for q in q_stencil) if own_speed else None
+            split = _add_mode_to_split_face_fluxes(
+                split,
+                add_right_correction,
+                mode,
+                second,
+                third,
+                own_speed=amx if own_speed else None,
+                projected_state=projected_state,
+            )
+            continue
+        flux_acc = add_right_correction(flux_acc, mode, -second + third)
+
+    if positivity_preserving:
+        flux_acc = positivity_preserving_flux_local(
+            q_stencil[2], q_stencil[3], f_stencil[2], f_stencil[3],
+            split.plus, split.minus, split.plus_shift, split.minus_shift,
+            common_speed, 0.0, rhomin, 0.0, ideal_gas=False,
+        )
+    return flux_acc
+
+
 def _weno_flux_hydro_pallas_local(
     conserved_state,
     params: SimulationParams,
@@ -1021,8 +1141,12 @@ def _weno_flux_hydro_pallas_local(
     ``(1, *spatial)`` array matching the (possibly halo-padded) state's
     spatial shape; the kernel applies the Bryan+95 switch to the pressure
     recovery in both the physical flux and the eigenstructure, mirroring
-    the native ``dual_switched_pressure_hydro`` / eigen threading."""
+    the native ``dual_switched_pressure_hydro`` / eigen threading.
+
+    A barotropic gas takes ``_weno_barotropic_hydro_flux_from_window``, with
+    the scalars of its law (``_law_scalars``) and the density floor."""
     has_g = internal_energy_density is not None
+    barotropic = is_barotropic(config)
     ndim = int(config.dimensionality)
     nvars = int(conserved_state.shape[0])
     spatial_shape = tuple(int(x) for x in conserved_state.shape[1:])
@@ -1033,14 +1157,16 @@ def _weno_flux_hydro_pallas_local(
     grid = (nx // bx, ny // by, nz // bz)
 
     local_indices = _hydro_indices_for_axis(config, registered_variables, axis)
+    if barotropic:
+        local_indices = local_indices[:-1]  # no energy row
     ncomp = len(local_indices)
     num_modes = ndim + 2
-    epsilon = config.weno_epsilon
+    epsilon = WENO_EPSILON
     # WENO-Z is a static config choice, so the weight function can be bound
     # here and inlined into the Pallas kernel body below.
-    omega_weights = _weno_omega_weights_z_kernel if config.weno_z else _weno_omega_weights
-    admissible_face_state = config.weno_admissible_face_state
-    positivity_preserving = config.weno_positivity_preserving
+    omega_weights = _weno_omega_weights_z_kernel if config.solver_config.weno_z else _weno_omega_weights
+    admissible_face_state = config.solver_config.weno_admissible_face_state
+    positivity_preserving = config.solver_config.weno_positivity_preserving
     # fields that carry no mass keep their own splitting speed
     own_speed_modes = mass_free_modes(config) if positivity_preserving else ()
 
@@ -1064,6 +1190,8 @@ def _weno_flux_hydro_pallas_local(
     def kernel(*refs):
         if has_g:
             q_ref, g_ref, gamma_ref, rhomin_ref, pgmin_ref, eta_ref, flux_out_ref = refs
+        elif barotropic:
+            q_ref, *law_refs, rhomin_ref, flux_out_ref = refs
         else:
             q_ref, gamma_ref, rhomin_ref, pgmin_ref, flux_out_ref = refs
         bi = pl.program_id(0)
@@ -1080,9 +1208,11 @@ def _weno_flux_hydro_pallas_local(
             jj = (bj * by + jnp.arange(by)[None, :, None]) % ny
             kk = (bk * bz + jnp.arange(bz)[None, None, :]) % nz
 
-        gamma = gamma_ref[()]
+        if not barotropic:
+            gamma = gamma_ref[()]
         rhomin = rhomin_ref[()]
-        pgmin = pgmin_ref[()]
+        if not barotropic:
+            pgmin = pgmin_ref[()]
         if has_g:
             dual_eta = eta_ref[()]
 
@@ -1126,21 +1256,34 @@ def _weno_flux_hydro_pallas_local(
             g_stencil = tuple(g_at(off) for off in range(-2, 4))
         else:
             g_stencil = (None,) * 6
-        flux_acc = _weno_hydro_flux_from_window(
-            q_stencil,
-            g_stencil,
-            gamma,
-            rhomin,
-            pgmin,
-            dual_eta if has_g else None,
-            ncomp=ncomp,
-            num_modes=num_modes,
-            epsilon=epsilon,
-            omega_weights=omega_weights,
-            admissible_face_state=admissible_face_state,
-            positivity_preserving=positivity_preserving,
-            own_speed_modes=own_speed_modes,
-        )
+        if barotropic:
+            flux_acc = _weno_barotropic_hydro_flux_from_window(
+                q_stencil,
+                _law_from_scalars(tuple(ref[()] for ref in law_refs)),
+                rhomin,
+                ncomp=ncomp,
+                epsilon=epsilon,
+                omega_weights=omega_weights,
+                clamp_in_estimates=config.positivity_config.clamp_in_estimates,
+                positivity_preserving=positivity_preserving,
+                own_speed_modes=own_speed_modes,
+            )
+        else:
+            flux_acc = _weno_hydro_flux_from_window(
+                q_stencil,
+                g_stencil,
+                gamma,
+                rhomin,
+                pgmin,
+                dual_eta if has_g else None,
+                ncomp=ncomp,
+                num_modes=num_modes,
+                epsilon=epsilon,
+                omega_weights=omega_weights,
+                admissible_face_state=admissible_face_state,
+                positivity_preserving=positivity_preserving,
+                own_speed_modes=own_speed_modes,
+            )
 
         # Set every output component.  Hydro should fill all components, but the
         # explicit zeroing makes failures obvious if a future registry adds fields.
@@ -1172,8 +1315,12 @@ def _weno_flux_hydro_pallas_local(
             jnp.asarray(params.gamma, dtype=conserved_state.dtype),
             jnp.asarray(params.minimum_density, dtype=conserved_state.dtype),
             jnp.asarray(params.minimum_pressure, dtype=conserved_state.dtype),
-            jnp.asarray(config.dual_energy_eta, dtype=conserved_state.dtype),
+            jnp.asarray(DUAL_ENERGY_ETA, dtype=conserved_state.dtype),
         )
+    elif barotropic:
+        law_scalars = _law_scalars(params, config, conserved_state.dtype)
+        in_specs = [in_state_spec] + [scalar_spec] * (len(law_scalars) + 1)
+        args = (conserved_state,) + law_scalars + (jnp.asarray(params.minimum_density, dtype=conserved_state.dtype),)
     else:
         in_specs = [in_state_spec, scalar_spec, scalar_spec, scalar_spec]
         args = (
@@ -1190,7 +1337,7 @@ def _weno_flux_hydro_pallas_local(
         in_specs=in_specs,
         out_specs=out_spec,
         interpret=config.backend_config.pallas_interpret,
-        name=f"hydro_weno_flux_axis_{axis}" + ("_dual" if has_g else ""),
+        name=f"hydro_weno_flux_axis_{axis}" + ("_dual" if has_g else "") + ("_barotropic" if barotropic else ""),
         **kwargs,
     )(*args)
 
@@ -1247,13 +1394,13 @@ def _weno_flux_hydro_pallas_vjp_local(
     component_order = jnp.asarray(local_indices)
     ncomp = len(local_indices)
     num_modes = ndim + 2
-    frozen = config.weno_ad_frozen_weights
-    if config.weno_z:
+    frozen = config.solver_config.weno_ad_frozen_weights
+    if config.solver_config.weno_z:
         omega_weights = _weno_omega_weights_z
     else:
         # the overflow-free derivative of the exact weights (as the native tangent)
         omega_weights = _weno_omega_weights_ad
-    positivity_preserving = config.weno_positivity_preserving
+    positivity_preserving = config.solver_config.weno_positivity_preserving
     own_speed_modes = mass_free_modes(config) if positivity_preserving else ()
 
     # -------------------------------------------------------------
@@ -1343,9 +1490,9 @@ def _weno_flux_hydro_pallas_vjp_local(
                 dual_eta,
                 ncomp=ncomp,
                 num_modes=num_modes,
-                epsilon=config.weno_epsilon,
+                epsilon=WENO_EPSILON,
                 omega_weights=omega_weights,
-                admissible_face_state=config.weno_admissible_face_state,
+                admissible_face_state=config.solver_config.weno_admissible_face_state,
                 positivity_preserving=positivity_preserving,
                 own_speed_modes=own_speed_modes,
                 frozen=frozen,
@@ -1377,7 +1524,7 @@ def _weno_flux_hydro_pallas_vjp_local(
         in_specs = [whole_state_spec, pl.BlockSpec(energy_front.shape, whole_map), whole_state_spec]
         in_specs += [scalar_spec] * 4
         args = (local_state, energy_front, local_cotangent) + scalars
-        args += (jnp.asarray(config.dual_energy_eta, dtype=dtype),)
+        args += (jnp.asarray(DUAL_ENERGY_ETA, dtype=dtype),)
         out_shape.append(jax.ShapeDtypeStruct((6,) + spatial_shape, dtype))
         out_specs.append(block_spec(6))
     else:
@@ -1556,9 +1703,9 @@ def _mhd_indices_for_axis(config: SimulationConfig, registered_variables: Regist
     if axis == 0:
         return (density_index, mx, my, mz, bx, by, bz, energy_index)
     if axis == 1:
-        # Matches native ``_weno_flux_y_native``: swap mom_x↔mom_y, B_x↔B_y.
+        # Matches native ``_weno_flux_transverse_native``: swap mom_x↔mom_y, B_x↔B_y.
         return (density_index, my, mx, mz, by, bx, bz, energy_index)
-    # axis == 2 — matches native ``_weno_flux_z_native`` transpose
+    # axis == 2 — matches native ``_weno_flux_transverse_native`` transpose
     # (0, 3, 2, 1) followed by mom_x↔mom_z and B_x↔B_z swap.
     return (density_index, mz, my, mx, bz, by, bx, energy_index)
 
@@ -1585,16 +1732,14 @@ def _weno_flux_mhd_pallas(
     """
     if not _mhd_pallas_flux_supported(conserved_state, config):
         # Lazy import to break the circular dependency with _weno.py.
-        from astronomix._finite_difference._interface_fluxes._weno import (
-            _weno_flux_x_native, _weno_flux_y_native, _weno_flux_z_native,
-        )
-        native = [_weno_flux_x_native, _weno_flux_y_native, _weno_flux_z_native][axis]
+        from astronomix._finite_difference._interface_fluxes._weno import _weno_flux_native_for_axis
+        native = _weno_flux_native_for_axis(axis)
         return native(conserved_state, params, config, registered_variables,
                       internal_energy_density=internal_energy_density,
                       inflow_reference=inflow_reference)
 
     # the paired positivity-preserving recombination reads interfaces i +- 1
-    halo_cells = 4 if config.weno_positivity_preserving else 3
+    halo_cells = 4 if config.solver_config.weno_positivity_preserving else 3
     if internal_energy_density is not None:
         g4 = internal_energy_density[None]
 
@@ -2070,19 +2215,16 @@ def _mhd_window_shared(
         jnp.where(Bt2_face >= 0.0, one_typed, neg_one_typed),
     )
 
-    # Fast / slow mode weighting; same algebra as the native helper.
+    # Fast / slow mode weighting; same algebra as the native helper
+    # (``_eigen_mhd._mode_weightings``). The floored roots keep the norm above
+    # zero in both branches of the selection.
     denom = lambda_fast * lambda_fast - lambda_slow * lambda_slow
     denom_safe = jnp.maximum(denom, b_eps)
-    am_fast = jnp.where(
-        denom >= b_eps,
-        ssqrt(c_sq_face - lambda_slow * lambda_slow) / jnp.sqrt(denom_safe),
-        1.0,
-    )
-    am_slow = jnp.where(
-        denom >= b_eps,
-        ssqrt(lambda_fast * lambda_fast - c_sq_face) / jnp.sqrt(denom_safe),
-        1.0,
-    )
+    am_fast = ssqrt(c_sq_face - lambda_slow * lambda_slow) / jnp.sqrt(denom_safe)
+    am_slow = ssqrt(lambda_fast * lambda_fast - c_sq_face) / jnp.sqrt(denom_safe)
+    norm = jnp.sqrt(am_fast * am_fast + am_slow * am_slow)
+    am_fast = jnp.where(denom >= b_eps, am_fast / norm, inv_sqrt_two_typed)
+    am_slow = jnp.where(denom >= b_eps, am_slow / norm, inv_sqrt_two_typed)
 
     sqrt_rho_face = jnp.sqrt(jnp.maximum(rho_face, rhomin))
     face = _MhdFace(
@@ -2393,8 +2535,8 @@ def _weno_mhd_flux_from_window(q_stencil, gamma, rhomin, pgmin, b_eps, sqrt_floo
     """Pure per-interface ideal-gas MHD WENO flux from a gathered 6-cell stencil.
 
     ``weno_z`` selects the WENO-Z nonlinear weights and ``weno_epsilon`` is the
-    floor of the smoothness denominators, as ``SimulationConfig.weno_z`` and
-    ``SimulationConfig.weno_epsilon`` for the native kernel. ``omega_weights``
+    floor of the smoothness denominators, as ``FDSolverConfig.weno_z`` and
+    ``WENO_EPSILON`` for the native kernel. ``omega_weights``
     overrides the weight function (the adjoint kernel passes the Jiang-Shu
     weights with the overflow-free derivative, ``_weno_omega_weights_ad``).
     ``frozen`` freezes the nonlinear weights, the face eigensystem and the
@@ -2612,7 +2754,7 @@ def _weno_flux_mhd_pallas_local(
     local_indices = _mhd_indices_for_axis(config, registered_variables, axis)
     ncomp = 8
     num_modes = 7
-    positivity_preserving = config.weno_positivity_preserving
+    positivity_preserving = config.solver_config.weno_positivity_preserving
     # positivity preserving: plus and minus split face fluxes, then the speed
     out_channels = 2 * nvars + 1 if positivity_preserving else nvars
 
@@ -2684,11 +2826,11 @@ def _weno_flux_mhd_pallas_local(
             q_stencil, gamma, rhomin, pgmin, b_eps, sqrt_floor,
             ncomp, num_modes,
             use_approx_rsqrt=config.backend_config.use_approximate_rsqrt,
-            admissible_face_state=config.weno_admissible_face_state,
+            admissible_face_state=config.solver_config.weno_admissible_face_state,
             positivity_preserving=positivity_preserving,
             return_split=positivity_preserving,
-            weno_z=config.weno_z,
-            weno_epsilon=config.weno_epsilon,
+            weno_z=config.solver_config.weno_z,
+            weno_epsilon=WENO_EPSILON,
             **window_kwargs,
         )
         if positivity_preserving:
@@ -2736,7 +2878,7 @@ def _weno_flux_mhd_pallas_local(
         in_g_spec = pl.BlockSpec(internal_energy_density.shape, lambda bi, bj, bk: (0, 0, 0, 0))
         in_specs = [in_state_spec, in_g_spec] + [scalar_spec] * 6
         args = (conserved_state, internal_energy_density) + scalars + (
-            jnp.asarray(config.dual_energy_eta, dtype=conserved_state.dtype),
+            jnp.asarray(DUAL_ENERGY_ETA, dtype=conserved_state.dtype),
         )
     else:
         in_specs = [in_state_spec] + [scalar_spec] * 5
@@ -3241,9 +3383,9 @@ def _weno_flux_mhd_pallas_window_vjp_local(
     component_order = jnp.asarray(local_indices)
     num_components = len(local_indices)
     num_modes = 7
-    positivity_preserving = config.weno_positivity_preserving
-    frozen = config.weno_ad_frozen_weights
-    if config.weno_z:
+    positivity_preserving = config.solver_config.weno_positivity_preserving
+    frozen = config.solver_config.weno_ad_frozen_weights
+    if config.solver_config.weno_z:
         omega_weights = _weno_omega_weights_z_kernel
     else:
         # the overflow-free derivative of the exact weights (as the native tangent)
@@ -3332,11 +3474,11 @@ def _weno_flux_mhd_pallas_window_vjp_local(
                 num_components, num_modes,
                 g_stencil=g_window,
                 dual_eta=dual_eta,
-                admissible_face_state=config.weno_admissible_face_state,
+                admissible_face_state=config.solver_config.weno_admissible_face_state,
                 positivity_preserving=positivity_preserving,
                 return_split=positivity_preserving,
-                weno_z=config.weno_z,
-                weno_epsilon=config.weno_epsilon,
+                weno_z=config.solver_config.weno_z,
+                weno_epsilon=WENO_EPSILON,
                 omega_weights=omega_weights,
                 frozen=frozen,
             )
@@ -3371,9 +3513,9 @@ def _weno_flux_mhd_pallas_window_vjp_local(
                 b_eps,
                 sqrt_floor,
                 dual_eta,
-                admissible_face_state=config.weno_admissible_face_state,
+                admissible_face_state=config.solver_config.weno_admissible_face_state,
                 positivity_preserving=positivity_preserving,
-                weno_epsilon=config.weno_epsilon,
+                weno_epsilon=WENO_EPSILON,
                 omega_weights=omega_weights,
                 frozen=frozen,
             )
@@ -3416,7 +3558,7 @@ def _weno_flux_mhd_pallas_window_vjp_local(
         in_specs = [whole_state_spec, pl.BlockSpec(energy_front.shape, whole_map), whole_cotangent_spec]
         in_specs += [scalar_spec] * 6
         args = (local_state, energy_front, local_cotangent) + scalars
-        args += (jnp.asarray(config.dual_energy_eta, dtype=dtype),)
+        args += (jnp.asarray(DUAL_ENERGY_ETA, dtype=dtype),)
         out_shape.append(jax.ShapeDtypeStruct((6,) + spatial_shape, dtype))
         out_specs.append(block_spec(6))
     else:
@@ -3572,7 +3714,7 @@ def _weno_flux_mhd_pallas_vjp(
         spatial_shape=conserved_state.shape[1:],
     )
     reference_cotangents = ()
-    if config.weno_positivity_preserving:
+    if config.solver_config.weno_positivity_preserving:
 
         def split_local(state_local, *energy_local):
             return _weno_flux_mhd_pallas_local(
@@ -3668,21 +3810,20 @@ def _weno_flux_mhd_pallas_vjp(
     return state_bar
 
 
-
 # -----------------------------------------------------------------------------
 # Pallas WENO for the isothermal MHD equations.
 # -----------------------------------------------------------------------------
 
 
 def _mhd_iso_pallas_flux_supported(conserved_state, config: SimulationConfig) -> bool:
-    """Whether the Pallas isothermal MHD WENO kernel can be used."""
+    """Whether the Pallas barotropic (isothermal or polytropic) MHD WENO kernel can be used."""
     if pl is None:
         return False
     if not _backend_is_pallas(config):
         return False
     if not config.mhd:
         return False
-    if config.equation_of_state != ISOTHERMAL:
+    if not is_barotropic(config):
         return False
     ndim = int(config.dimensionality)
     if ndim != 3:
@@ -3701,7 +3842,7 @@ def _mhd_iso_indices_for_axis(config: SimulationConfig, registered_variables: Re
     p_trans1, p_trans2, B_normal, B_trans1, B_trans2).  Seven slots — no
     energy.  ``B_normal`` is the 0-coefficient placeholder so the
     L_row/R_col formulas can use the same projection structure as ideal-gas
-    MHD, and its output flux slot is zeroed (matching ``_mhd_flux_isothermal_x``).
+    MHD, and its output flux slot is zeroed (matching ``_mhd_flux_barotropic_x``).
     """
     density_index = int(registered_variables.density_index)
     mx = int(registered_variables.momentum_index.x)
@@ -3726,7 +3867,7 @@ def _weno_flux_mhd_iso_pallas(
     *,
     axis: int,
 ):
-    """Pallas implementation of the isothermal MHD WENO interface flux.
+    """Pallas implementation of the barotropic (isothermal or polytropic) MHD WENO interface flux.
 
     Public entry point: dispatches the supported-predicate check and the
     multi-GPU ``shard_map`` + halo wrap.  Kernel arithmetic in
@@ -3734,14 +3875,8 @@ def _weno_flux_mhd_iso_pallas(
     """
     if not _mhd_iso_pallas_flux_supported(conserved_state, config):
         # Lazy import to break the circular dependency with _weno.py.
-        from astronomix._finite_difference._interface_fluxes._weno import (
-            _weno_flux_x_native, _weno_flux_y_native, _weno_flux_z_native,
-        )
-        if axis == 0:
-            return _weno_flux_x_native(conserved_state, params, config, registered_variables)
-        if axis == 1:
-            return _weno_flux_y_native(conserved_state, params, config, registered_variables)
-        return _weno_flux_z_native(conserved_state, params, config, registered_variables)
+        from astronomix._finite_difference._interface_fluxes._weno import _weno_flux_native_for_axis
+        return _weno_flux_native_for_axis(axis)(conserved_state, params, config, registered_variables)
 
     def _local(state_local):
         return _weno_flux_mhd_iso_pallas_local(
@@ -3758,13 +3893,16 @@ def _weno_flux_mhd_iso_pallas_local(
     *,
     axis: int,
 ):
-    """Single-shard isothermal MHD WENO build.  Mirrors
+    """Single-shard barotropic MHD WENO build.  Mirrors
     ``_weno_flux_mhd_pallas`` but with 7 conserved-state slots (no
     energy) and 6 characteristic waves (no entropy mode): fast-,
-    alfvén-, slow-, slow+, alfvén+, fast+.  Sound speed is the fixed
-    ``params.isothermal_sound_speed``.  All face eigenstructure,
+    alfvén-, slow-, slow+, alfvén+, fast+.  The sound speed is the fixed
+    ``params.isothermal_sound_speed``, or for a polytropic gas that of the
+    law at the floored cell density (wave speeds) and at the interface
+    density (eigenvectors).  All face eigenstructure,
     ``L_row``, ``R_col``, and ``λ`` are inlined as kernel-local closures
-    mirroring ``_eigen_mhd_iso`` line-for-line."""
+    mirroring ``_eigen_mhd_baro`` line-for-line."""
+    polytropic = config.equation_of_state == POLYTROPIC
     ndim = 3
     nvars = int(conserved_state.shape[0])
     spatial_shape = tuple(int(x) for x in conserved_state.shape[1:])
@@ -3775,13 +3913,13 @@ def _weno_flux_mhd_iso_pallas_local(
     local_indices = _mhd_iso_indices_for_axis(config, registered_variables, axis)
     ncomp = 7
     num_modes = 6
-    epsilon = config.weno_epsilon
+    epsilon = WENO_EPSILON
     # WENO-Z is a static config choice, so the weight function can be bound
     # here and inlined into the Pallas kernel body below.
-    omega_weights = _weno_omega_weights_z_kernel if config.weno_z else _weno_omega_weights
+    omega_weights = _weno_omega_weights_z_kernel if config.solver_config.weno_z else _weno_omega_weights
     tiny = 1e-14
     b_eps_value = 1e-20
-    positivity_preserving = config.weno_positivity_preserving
+    positivity_preserving = config.solver_config.weno_positivity_preserving
     # fields that carry no mass keep their own splitting speed
     own_speed_modes = mass_free_modes(config) if positivity_preserving else ()
 
@@ -3790,7 +3928,8 @@ def _weno_flux_mhd_iso_pallas_local(
     in_state_spec = pl.BlockSpec(conserved_state.shape, lambda bi, bj, bk: (0, 0, 0, 0))
     scalar_spec = pl.BlockSpec((), lambda bi, bj, bk: ())
 
-    def kernel(q_ref, cs_ref, rhomin_ref, b_eps_ref, flux_out_ref):
+    def kernel(q_ref, *refs):
+        *law_refs, rhomin_ref, b_eps_ref, flux_out_ref = refs
         bi = pl.program_id(0)
         bj = pl.program_id(1)
         bk = pl.program_id(2)
@@ -3799,14 +3938,17 @@ def _weno_flux_mhd_iso_pallas_local(
         jj = (bj * by_ + jnp.arange(by_)[None, :, None]) % ny
         kk = (bk * bz_ + jnp.arange(bz_)[None, None, :]) % nz
 
-        cs = cs_ref[()]
-        cs2 = cs * cs
-        cs2_inv = jnp.where(cs2 > 0.0, 1.0 / cs2, 0.0)
+        if polytropic:
+            law = _law_from_scalars(tuple(ref[()] for ref in law_refs))
+        else:
+            cs = law_refs[0][()]
+            cs2 = cs * cs
+            cs2_inv = jnp.where(cs2 > 0.0, 1.0 / cs2, 0.0)
         rhomin = rhomin_ref[()]
         b_eps = b_eps_ref[()]
         # Properly-typed literal scalars (see x64-Triton workaround in the
         # ideal-gas MHD kernel for the rationale).
-        zero_typed = cs - cs
+        zero_typed = rhomin - rhomin if polytropic else cs - cs
         one_typed = zero_typed + 1.0
         neg_one_typed = zero_typed - 1.0
         inv_sqrt_two_typed = zero_typed + (1.0 / 2.0 ** 0.5)
@@ -3841,20 +3983,21 @@ def _weno_flux_mhd_iso_pallas_local(
             vt1_f = mt1 * inv_rho
             vt2_f = mt2 * inv_rho
             bn2_over_rho = (Bn * Bn) / rho_f
+            a2 = law_sound_speed(law, rho_f)[1] if polytropic else cs2
             disc_root = jnp.sqrt(jnp.maximum(
-                0.0, (b2 / rho_f + cs2) ** 2 - 4.0 * bn2_over_rho * cs2
+                0.0, (b2 / rho_f + a2) ** 2 - 4.0 * bn2_over_rho * a2
             ))
-            c_fast = jnp.sqrt(jnp.maximum(0.0, 0.5 * (b2 / rho_f + cs2 + disc_root)))
+            c_fast = jnp.sqrt(jnp.maximum(0.0, 0.5 * (b2 / rho_f + a2 + disc_root)))
             c_alfven = jnp.sqrt(jnp.maximum(0.0, bn2_over_rho))
-            c_slow = jnp.sqrt(jnp.maximum(0.0, 0.5 * (b2 / rho_f + cs2 - disc_root)))
+            c_slow = jnp.sqrt(jnp.maximum(0.0, 0.5 * (b2 / rho_f + a2 - disc_root)))
             return (rho_f, mn, mt1, mt2, Bn, Bt1, Bt2,
                     vn_f, vt1_f, vt2_f, c_fast, c_alfven, c_slow)
 
         def flux_from_q(q):
-            """Isothermal MHD x-flux in local order; B_normal flux is 0."""
+            """Barotropic MHD x-flux in local order; B_normal flux is 0."""
             rho, mn, mt1, mt2, Bn, Bt1, Bt2, vn, vt1, vt2, v2, b2 = primitive_from_q(q)
-            p_iso = cs2 * rho
-            p_total = p_iso + 0.5 * b2
+            p_gas = law_pressure(law, rho, rhomin) if polytropic else cs2 * rho
+            p_total = p_gas + 0.5 * b2
             return (
                 mn,
                 rho * vn * vn + p_total - Bn * Bn,
@@ -3897,6 +4040,10 @@ def _weno_flux_mhd_iso_pallas_local(
         Bn_face = 0.5 * (Bn_i + Bn_j)
         Bt1_face = 0.5 * (Bt1_i + Bt1_j)
         Bt2_face = 0.5 * (Bt2_i + Bt2_j)
+        if polytropic:
+            # the sound speed of the eigenvectors: that of the interface density
+            cs, cs2 = law_sound_speed(law, rho_face)
+            cs2_inv = jnp.where(cs2 > 0.0, 1.0 / cs2, 0.0)
 
         b2_face = Bn_face * Bn_face + Bt1_face * Bt1_face + Bt2_face * Bt2_face
         b2_over_rho = b2_face / rho_face
@@ -3920,18 +4067,15 @@ def _weno_flux_mhd_iso_pallas_local(
             jnp.where(Bt2_face >= 0.0, one_typed, neg_one_typed),
         )
 
+        # the mode weightings of ``_eigen_mhd._mode_weightings``; the roots are not floored here and both
+        # vanish where the speeds are equal, so the squared norm of that branch is replaced before its root
         denom = lambda_fast * lambda_fast - lambda_slow * lambda_slow
         denom_safe = jnp.maximum(denom, b_eps)
-        am_fast = jnp.where(
-            denom >= b_eps,
-            jnp.sqrt(jnp.maximum(0.0, cs2 - lambda_slow * lambda_slow)) / jnp.sqrt(denom_safe),
-            1.0,
-        )
-        am_slow = jnp.where(
-            denom >= b_eps,
-            jnp.sqrt(jnp.maximum(0.0, lambda_fast * lambda_fast - cs2)) / jnp.sqrt(denom_safe),
-            1.0,
-        )
+        am_fast = jnp.sqrt(jnp.maximum(0.0, cs2 - lambda_slow * lambda_slow)) / jnp.sqrt(denom_safe)
+        am_slow = jnp.sqrt(jnp.maximum(0.0, lambda_fast * lambda_fast - cs2)) / jnp.sqrt(denom_safe)
+        norm = jnp.sqrt(jnp.where(denom >= b_eps, am_fast * am_fast + am_slow * am_slow, one_typed))
+        am_fast = jnp.where(denom >= b_eps, am_fast / norm, inv_sqrt_two_typed)
+        am_slow = jnp.where(denom >= b_eps, am_slow / norm, inv_sqrt_two_typed)
 
         sqrt_rho_face = jnp.sqrt(jnp.maximum(rho_face, rhomin))
         cs_geq_alfven = cs >= lambda_alfven
@@ -4195,19 +4339,20 @@ def _weno_flux_mhd_iso_pallas_local(
     compiler_params = _pallas_compiler_params(config)
     if compiler_params is not None:
         kwargs["compiler_params"] = compiler_params
+    law_scalars = _law_scalars(params, config, conserved_state.dtype)
 
     return pl.pallas_call(
         kernel,
         out_shape=jax.ShapeDtypeStruct(conserved_state.shape, conserved_state.dtype),
         grid=grid,
-        in_specs=[in_state_spec, scalar_spec, scalar_spec, scalar_spec],
+        in_specs=[in_state_spec] + [scalar_spec] * (len(law_scalars) + 2),
         out_specs=out_spec,
         interpret=config.backend_config.pallas_interpret,
-        name=f"mhd_iso_weno_flux_axis_{axis}",
+        name=f"mhd_iso_weno_flux_axis_{axis}" + ("_polytropic" if polytropic else ""),
         **kwargs,
     )(
         conserved_state,
-        jnp.asarray(params.isothermal_sound_speed, dtype=conserved_state.dtype),
+        *law_scalars,
         jnp.asarray(params.minimum_density, dtype=conserved_state.dtype),
         jnp.asarray(b_eps_value, dtype=conserved_state.dtype),
     )
@@ -4250,9 +4395,9 @@ def _weno_flux_hydro_pallas_rhs(
     read inside ``F_{i-1/2}`` is at offset ``-3`` from the cell index.
     Arithmetic lives in ``_weno_flux_hydro_pallas_rhs_local``.
     """
-    if not _hydro_pallas_flux_supported(conserved_state, config):
+    if not _hydro_pallas_flux_supported(conserved_state, config) or is_barotropic(config):
         raise RuntimeError(
-            "_weno_flux_hydro_pallas_rhs called when Pallas WENO is unsupported."
+            "_weno_flux_hydro_pallas_rhs called when Pallas WENO is unsupported (ideal-gas hydrodynamics only)."
         )
 
     ndim = int(config.dimensionality)
@@ -4313,10 +4458,10 @@ def _weno_flux_hydro_pallas_rhs_local(
     local_indices = _hydro_indices_for_axis(config, registered_variables, axis)
     ncomp = len(local_indices)
     num_modes = ndim + 2
-    epsilon = config.weno_epsilon
+    epsilon = WENO_EPSILON
     # WENO-Z is a static config choice, so the weight function can be bound
     # here and inlined into the Pallas kernel body below.
-    omega_weights = _weno_omega_weights_z_kernel if config.weno_z else _weno_omega_weights
+    omega_weights = _weno_omega_weights_z_kernel if config.solver_config.weno_z else _weno_omega_weights
     tiny = 1e-14
 
     if ndim == 1:

@@ -17,6 +17,7 @@ MEI = 2  # momentum and energy injection
 
 
 class WindConfig(NamedTuple):
+    """Static settings of the stellar wind: on or off, the injection scheme, its number of cells and the wind tracer."""
     stellar_wind: bool = False
     num_injection_cells: int = 10
     wind_injection_scheme: int = EI
@@ -24,6 +25,7 @@ class WindConfig(NamedTuple):
 
 
 class WindParams(NamedTuple):
+    """Physical parameters of the stellar wind: mass-loss rate, terminal velocity and (MEO only) the pressure floor."""
     wind_mass_loss_rate: float = 0.0
     wind_final_velocity: float = 0.0
 

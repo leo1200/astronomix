@@ -8,9 +8,18 @@ constrained transport) call ``_hydro_flux_div_axis_pallas`` under the
 every variable channel, so one kernel serves all integrators and lets them keep
 a single physical right-hand-side buffer (via ``input_output_aliases``).
 
+With ``magnetic_state`` the energy row's flux loses the magnetic energy flux
+of the fluid's own field rows, sum_c B_f[c] F_{B_c} with the two-point face
+field of the stage state's cell-centred field: the fluid half of the
+Poynting-consistent energy flux of the MHD integrator
+(``_magnetic_update/_energy_flux.py``; the CT half is added after the CT).
+
 The module also holds the native-JAX twin of the kernel, used as its tangent
 for automatic differentiation, and the divergence of an x flux that already
-carries its x halo (the multi-GPU fast path of ``_lsrk4_with_ct``).
+carries its x halo (the multi-GPU fast path of ``_lsrk4_with_ct``). The stage
+of the Riemann-flux scheme on a device mesh calls the ``*_local`` build on a
+padded shard, where the state may carry a wider halo than the flux
+(``_padded_stage.py``).
 """
 
 # typing
@@ -28,10 +37,13 @@ from astronomix._pallas_helpers import (
     _as_3tuple_block_shape,
     _pallas_call_sharded,
     _pallas_compiler_params,
+    _shard_cells,
+    _shifted_index,
     diffable_pallas_call,
     diffable_pallas_call_n,
     pl,
 )
+from astronomix._finite_difference._magnetic_update._energy_flux import magnetic_energy_corrected_flux
 from astronomix._stencil_operations._stencil_operations import _shift
 
 
@@ -42,6 +54,8 @@ def _hydro_flux_div_axis_native(
     axis: int,
     rhs_accumulator=None,
     scale_in: Union[float, jnp.ndarray] = 1.0,
+    magnetic_state=None,
+    energy_flux_channels=None,
 ):
     """
     Native-JAX equivalent of :func:`_hydro_flux_div_axis_pallas`.
@@ -58,11 +72,17 @@ def _hydro_flux_div_axis_native(
         axis: The spatial axis of the divergence (0 = x).
         rhs_accumulator: Optional accumulator the divergence is added to.
         scale_in: The factor applied to the accumulator.
+        magnetic_state: Optional state whose cell-centred field corrects the
+            energy flux (``magnetic_energy_corrected_flux``).
+        energy_flux_channels: ``(energy channel, (B_x, B_y, B_z) channels)``,
+            with ``magnetic_state``.
 
     Returns:
         ``scale_in * rhs_accumulator - dt/dx * (F_{i+1/2} - F_{i-1/2})``, or the
         divergence term alone without an accumulator.
     """
+    if magnetic_state is not None:
+        interface_flux = magnetic_energy_corrected_flux(interface_flux, magnetic_state, energy_flux_channels, axis)
     divergence = -dt_over_dx * (interface_flux - _shift(interface_flux, 1, axis=axis + 1))
     if rhs_accumulator is None:
         return divergence
@@ -111,6 +131,8 @@ def _hydro_flux_div_axis_pallas(
     axis: int,
     rhs_accumulator=None,
     scale_in: Union[float, jnp.ndarray] = 1.0,
+    magnetic_state=None,
+    energy_flux_channels=None,
 ):
     """
     Per-axis Pallas divergence kernel with optional in-place accumulation.
@@ -140,13 +162,18 @@ def _hydro_flux_div_axis_pallas(
         axis: The spatial axis of the divergence (0 = x).
         rhs_accumulator: Optional accumulator, updated in place.
         scale_in: The factor applied to the accumulator (may be traced).
+        magnetic_state: Optional state whose cell-centred field removes the
+            fluid's magnetic energy flux from the energy row
+            (``magnetic_energy_corrected_flux``).
+        energy_flux_channels: ``(energy channel, (B_x, B_y, B_z) channels)``,
+            with ``magnetic_state``.
 
     Returns:
         The updated accumulator, or the divergence term without one.
     """
-    # Multi-GPU: the divergence reads F[i] - F[i - 1] along ``axis``, so the
-    # only halo needed is one cell on that axis (rounded up to the Pallas block
-    # size by ``_pallas_call_sharded``).
+    # Multi-GPU: the divergence reads F[i] - F[i - 1] along ``axis`` (and the
+    # field at i - 1 ... i + 1), so the only halo needed is one cell on that
+    # axis (rounded up to the Pallas block size by ``_pallas_call_sharded``).
     ndim = int(config.dimensionality)
     block_shape = _as_3tuple_block_shape(
         config.backend_config.pallas_block_shape,
@@ -157,6 +184,20 @@ def _hydro_flux_div_axis_pallas(
     if 0 <= axis < ndim:
         halo_list[axis] = 1
     halo = tuple(halo_list[:ndim])
+
+    if magnetic_state is not None:
+        return _hydro_flux_div_axis_with_energy_flux_pallas(
+            interface_flux,
+            dt_over_dx,
+            config,
+            axis=axis,
+            rhs_accumulator=rhs_accumulator,
+            scale_in=scale_in,
+            magnetic_state=magnetic_state,
+            energy_flux_channels=energy_flux_channels,
+            halo=halo,
+            block_shape=block_shape,
+        )
 
     if rhs_accumulator is None:
 
@@ -173,6 +214,7 @@ def _hydro_flux_div_axis_pallas(
                 state_inputs=(flux_in,),
                 halo=halo,
                 block_shape=block_shape[:ndim],
+                local_output=True,
             )
 
         def native_branch(flux_in, dt_over_dx_in):
@@ -209,6 +251,7 @@ def _hydro_flux_div_axis_pallas(
             # only the flux is exchanged.
             input_halos=(zero_halo, halo),
             block_shape=block_shape[:ndim],
+            local_output=True,
         )
 
     def native_branch_accumulate(flux_in, dt_over_dx_in, rhs_in, scale_in_array):
@@ -228,6 +271,84 @@ def _hydro_flux_div_axis_pallas(
         pallas_branch=pallas_branch_accumulate,
         native_branch=native_branch_accumulate,
     )
+
+
+def _hydro_flux_div_axis_with_energy_flux_pallas(
+    interface_flux,
+    dt_over_dx,
+    config: SimulationConfig,
+    *,
+    axis: int,
+    rhs_accumulator,
+    scale_in,
+    magnetic_state,
+    energy_flux_channels,
+    halo,
+    block_shape,
+):
+    """
+    :func:`_hydro_flux_div_axis_pallas` with the fluid's magnetic energy flux
+    removed from the energy row (``magnetic_state`` given); the same AD and
+    multi-GPU wrapping, with the state as a further halo-exchanged input.
+    """
+    ndim = int(config.dimensionality)
+    accumulate = rhs_accumulator is not None
+    zero_halo = (0,) * ndim
+
+    def pallas_branch(flux_in, dt_over_dx_in, state_in, *accumulation):
+        if accumulate:
+            rhs_in, scale_in_array = accumulation
+            return _pallas_call_sharded(
+                lambda rhs_local, flux_local, state_local: _hydro_flux_div_axis_pallas_local(
+                    flux_local,
+                    dt_over_dx_in,
+                    config,
+                    axis=axis,
+                    rhs_accumulator=rhs_local,
+                    scale_in=scale_in_array,
+                    magnetic_state=state_local,
+                    energy_flux_channels=energy_flux_channels,
+                ),
+                state_inputs=(rhs_in, flux_in, state_in),
+                halo=halo,
+                # The accumulator is only read and written at the cell itself.
+                input_halos=(zero_halo, halo, halo),
+                block_shape=block_shape[:ndim],
+                local_output=True,
+            )
+        return _pallas_call_sharded(
+            lambda flux_local, state_local: _hydro_flux_div_axis_pallas_local(
+                flux_local,
+                dt_over_dx_in,
+                config,
+                axis=axis,
+                rhs_accumulator=None,
+                scale_in=scale_in,
+                magnetic_state=state_local,
+                energy_flux_channels=energy_flux_channels,
+            ),
+            state_inputs=(flux_in, state_in),
+            halo=halo,
+            block_shape=block_shape[:ndim],
+            local_output=True,
+        )
+
+    def native_branch(flux_in, dt_over_dx_in, state_in, *accumulation):
+        rhs_in, scale_in_array = accumulation if accumulate else (None, scale_in)
+        return _hydro_flux_div_axis_native(
+            flux_in,
+            dt_over_dx_in,
+            axis=axis,
+            rhs_accumulator=rhs_in,
+            scale_in=scale_in_array,
+            magnetic_state=state_in,
+            energy_flux_channels=energy_flux_channels,
+        )
+
+    primals = (interface_flux, dt_over_dx, magnetic_state)
+    if accumulate:
+        primals = primals + (rhs_accumulator, jnp.asarray(scale_in))
+    return diffable_pallas_call_n(primals, pallas_branch=pallas_branch, native_branch=native_branch)
 
 
 def _hydro_flux_div_axis_native_from_kept_halo_sharded(
@@ -332,6 +453,8 @@ def _hydro_flux_div_axis_pallas_local(
     axis: int,
     rhs_accumulator=None,
     scale_in: Union[float, jnp.ndarray] = 1.0,
+    magnetic_state=None,
+    energy_flux_channels=None,
 ):
     """
     Single-shard ``pl.pallas_call`` build of the divergence kernel.
@@ -347,6 +470,10 @@ def _hydro_flux_div_axis_pallas_local(
         axis: The spatial axis of the divergence (0 = x).
         rhs_accumulator: Optional accumulator, aliased to the output.
         scale_in: The factor applied to the accumulator.
+        magnetic_state: Optional state whose cell-centred field removes the
+            fluid's magnetic energy flux from the energy row.
+        energy_flux_channels: ``(energy channel, (B_x, B_y, B_z) channels)``,
+            with ``magnetic_state``.
 
     Returns:
         The updated accumulator, or the divergence term without one.
@@ -354,17 +481,24 @@ def _hydro_flux_div_axis_pallas_local(
     ndim = int(config.dimensionality)
     num_vars = int(interface_flux.shape[0])
     spatial_shape = tuple(int(extent) for extent in interface_flux.shape[1:])
+    # On the shard of a device mesh the blocks cover the shard's cells, which
+    # the padded flux (and state) hold after their halo; the accumulator and
+    # the output have the shard's shape.
+    first_cells, written_extents = _shard_cells(spatial_shape)
+    first_x, first_y, first_z = first_cells + (0,) * (3 - ndim)
     nx = spatial_shape[0]
     ny = spatial_shape[1] if ndim >= 2 else 1
     nz = spatial_shape[2] if ndim == 3 else 1
     bx, by, bz = _as_3tuple_block_shape(
         config.backend_config.pallas_block_shape,
         ndim,
-        spatial_shape=spatial_shape,
+        spatial_shape=written_extents,
     )
-    grid = (nx // bx, ny // by, nz // bz)
+    written_x, written_y, written_z = written_extents + (1,) * (3 - ndim)
+    grid = (written_x // bx, written_y // by, written_z // bz)
 
     accumulate = rhs_accumulator is not None
+    corrected = magnetic_state is not None
 
     # The output (and the aliased accumulator) is tiled over the spatial axes
     # with the variable axis kept whole; the flux is passed whole so that each
@@ -385,10 +519,14 @@ def _hydro_flux_div_axis_pallas_local(
     scalar_spec = pl.BlockSpec((), lambda bi, bj, bk: ())
 
     def kernel(*refs):
+        refs = list(refs)
+        rhs_in_ref = refs.pop(0) if accumulate else None
+        flux_ref = refs.pop(0)
+        state_ref = refs.pop(0) if corrected else None
         if accumulate:
-            rhs_in_ref, flux_ref, dt_over_dx_ref, scale_in_ref, rhs_out_ref = refs
+            dt_over_dx_ref, scale_in_ref, rhs_out_ref = refs
         else:
-            flux_ref, dt_over_dx_ref, rhs_out_ref = refs
+            dt_over_dx_ref, rhs_out_ref = refs
 
         # Block program ids and the (periodically wrapped) cell indices of the
         # block along each axis.
@@ -397,30 +535,69 @@ def _hydro_flux_div_axis_pallas_local(
         bk = pl.program_id(2)
 
         if ndim == 1:
-            ii = (bi * bx + jnp.arange(bx)) % nx
+            ii = _shifted_index(bi * bx + jnp.arange(bx), first_x) % nx
         elif ndim == 2:
-            ii = (bi * bx + jnp.arange(bx)[:, None]) % nx
-            jj = (bj * by + jnp.arange(by)[None, :]) % ny
+            ii = _shifted_index(bi * bx + jnp.arange(bx)[:, None], first_x) % nx
+            jj = _shifted_index(bj * by + jnp.arange(by)[None, :], first_y) % ny
         else:
-            ii = (bi * bx + jnp.arange(bx)[:, None, None]) % nx
-            jj = (bj * by + jnp.arange(by)[None, :, None]) % ny
-            kk = (bk * bz + jnp.arange(bz)[None, None, :]) % nz
+            ii = _shifted_index(bi * bx + jnp.arange(bx)[:, None, None], first_x) % nx
+            jj = _shifted_index(bj * by + jnp.arange(by)[None, :, None], first_y) % ny
+            kk = _shifted_index(bk * bz + jnp.arange(bz)[None, None, :], first_z) % nz
 
         dt_over_dx_value = dt_over_dx_ref[()]
+        # On a padded shard the state may carry a wider halo than the flux (both around the same cells).
+        state_indices = None
+        if corrected and ndim == 3 and tuple(magnetic_state.shape[1:]) != spatial_shape:
+            state_indices = [
+                _shifted_index(program * block + jnp.arange(block).reshape(shape), first) % extent
+                for program, block, shape, first, extent in zip(
+                    (bi, bj, bk),
+                    (bx, by, bz),
+                    ((bx, 1, 1), (1, by, 1), (1, 1, bz)),
+                    _shard_cells(magnetic_state.shape[1:])[0],
+                    magnetic_state.shape[1:],
+                )
+            ]
+
+        def read(ref, var, offset):
+            """``ref[var]`` at the cell ``offset`` along ``axis``."""
+            if axis == 0:
+                index = ii if offset == 0 else (ii + offset) % nx
+                if ndim == 1:
+                    return ref[var, index]
+                if ndim == 2:
+                    return ref[var, index, jj]
+                return ref[var, index, jj, kk]
+            if axis == 1:
+                index = jj if offset == 0 else (jj + offset) % ny
+                if ndim == 2:
+                    return ref[var, ii, index]
+                return ref[var, ii, index, kk]
+            index = kk if offset == 0 else (kk + offset) % nz
+            return ref[var, ii, jj, index]
+
+        def read_state(var, offset):
+            """The state's ``var`` at the cell ``offset`` along ``axis``."""
+            if state_indices is None:
+                return read(state_ref, var, offset)
+            index = list(state_indices)
+            index[axis] = _shifted_index(index[axis], offset) % magnetic_state.shape[1 + axis]
+            return state_ref[(var, *index)]
+
+        def corrected_energy_flux(offset):
+            """F_E - sum_c B_f[c] F_{B_c} at the face ``offset`` (0: i + 1/2)."""
+            energy_channel, magnetic_channels = energy_flux_channels
+            magnetic_flux = 0.0
+            for channel in magnetic_channels:
+                face_field = 0.5 * (read_state(channel, offset) + read_state(channel, offset + 1))
+                magnetic_flux = magnetic_flux + face_field * read(flux_ref, channel, offset)
+            return read(flux_ref, energy_channel, offset) - magnetic_flux
 
         def flux_difference(var):
             """F_{i+1/2} - F_{i-1/2} of one variable along ``axis``."""
-            if axis == 0:
-                if ndim == 1:
-                    return flux_ref[var, ii] - flux_ref[var, (ii - 1) % nx]
-                if ndim == 2:
-                    return flux_ref[var, ii, jj] - flux_ref[var, (ii - 1) % nx, jj]
-                return flux_ref[var, ii, jj, kk] - flux_ref[var, (ii - 1) % nx, jj, kk]
-            if axis == 1:
-                if ndim == 2:
-                    return flux_ref[var, ii, jj] - flux_ref[var, ii, (jj - 1) % ny]
-                return flux_ref[var, ii, jj, kk] - flux_ref[var, ii, (jj - 1) % ny, kk]
-            return flux_ref[var, ii, jj, kk] - flux_ref[var, ii, jj, (kk - 1) % nz]
+            if corrected and var == energy_flux_channels[0]:
+                return corrected_energy_flux(0) - corrected_energy_flux(-1)
+            return read(flux_ref, var, 0) - read(flux_ref, var, -1)
 
         if accumulate:
             scale = scale_in_ref[()]
@@ -437,29 +614,38 @@ def _hydro_flux_div_axis_pallas_local(
     if compiler_params is not None:
         kwargs["compiler_params"] = compiler_params
 
+    # The state is passed whole, like the flux, for the field's neighbours.
+    state_specs = []
+    if corrected:
+        state_specs = [flux_spec]
+        if magnetic_state.shape != interface_flux.shape:
+            state_specs = [pl.BlockSpec(magnetic_state.shape, lambda bi, bj, bk: (0,) * magnetic_state.ndim)]
+    state_args = (magnetic_state,) if corrected else ()
     if accumulate:
-        in_specs = [out_spec, flux_spec, scalar_spec, scalar_spec]
+        in_specs = [out_spec, flux_spec] + state_specs + [scalar_spec, scalar_spec]
         kernel_args = (
             rhs_accumulator,
             interface_flux,
+            *state_args,
             jnp.asarray(dt_over_dx, dtype=interface_flux.dtype),
             jnp.asarray(scale_in, dtype=interface_flux.dtype),
         )
         kwargs["input_output_aliases"] = {0: 0}
     else:
-        in_specs = [flux_spec, scalar_spec]
+        in_specs = [flux_spec] + state_specs + [scalar_spec]
         kernel_args = (
             interface_flux,
+            *state_args,
             jnp.asarray(dt_over_dx, dtype=interface_flux.dtype),
         )
 
     return pl.pallas_call(
         kernel,
-        out_shape=jax.ShapeDtypeStruct(interface_flux.shape, interface_flux.dtype),
+        out_shape=jax.ShapeDtypeStruct((num_vars,) + written_extents, interface_flux.dtype),
         grid=grid,
         in_specs=in_specs,
         out_specs=out_spec,
         interpret=config.backend_config.pallas_interpret,
-        name=f"hydro_flux_div_axis_{axis}{'_acc' if accumulate else ''}",
+        name=f"hydro_flux_div_axis_{axis}{'_acc' if accumulate else ''}{'_energy' if corrected else ''}",
         **kwargs,
     )(*kernel_args)

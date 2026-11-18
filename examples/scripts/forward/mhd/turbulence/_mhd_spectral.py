@@ -15,11 +15,32 @@ and normalised so that ``sum_n E_kin(n) == mean(0.5 rho |v|^2)`` and
 Everything is written in ``jax.numpy`` so that the astronomix side can run it
 inside the snapshot callback (no host round-trip of the full cube), and the
 AthenaPK side gets the identical arithmetic on the same hardware.
+:func:`mesh_snapshot_spectra` is the same reduction for fields split over a
+device mesh, without gathering the cube.
 """
+
+# general
+from functools import partial
+from typing import NamedTuple
 
 # numerics
 import numpy as np
+import jax
 import jax.numpy as jnp
+from jax.sharding import PartitionSpec
+
+# astronomix
+from astronomix.analysis_helpers.sharded_spectra import (
+    ANGULAR_SHELLS,
+    INTEGER_SHELLS,
+    local_axes,
+    local_shells,
+    local_wavevectors,
+    shell_centres,
+    shell_sum,
+    squared_magnitude,
+)
+from astronomix.parallel.distributed_fft import FIELD_SPEC, check_decomposition, fft_block, ifft_block, spectral_mesh
 
 
 # -------------------------------------------------------------
@@ -434,4 +455,162 @@ SCALAR_NAMES = ("v_rms", "b_rms", "mean_absB", "rho_rms", "E_K", "E_B",
 SPECTRUM_NAMES = ("E_v", "E_kin", "E_mag", "T_v", "T_mag")
 # -------------------------------------------------------------
 # ============ ↑ Per-snapshot reduction (shared) ↑ =============
+# -------------------------------------------------------------
+
+
+# -------------------------------------------------------------
+# ============== ↓ The reduction on a device mesh ↓ ============
+# -------------------------------------------------------------
+class MeshSpectra(NamedTuple):
+    """The spectra of one snapshot from :func:`mesh_snapshot_spectra`."""
+
+    #: ``(rows, N/2 + 1)``: E_v, E_kin, E_mag, then T_v, T_mag with ``transfer``, then T_psi with ``psi``.
+    shells: jnp.ndarray
+    #: ``(3, N/2 + 1)``: E_v, E_kin, E_mag with the cell average deconvolved, or ``None``.
+    shells_deconvolved: jnp.ndarray
+    #: ``(2, number of bins)``: the kinetic (``sqrt(rho) v``) and the magnetic energy spectrum in unit-width bins of
+    #: the angular wavenumber, as ``astronomix.analysis_helpers.energy_spectrum`` computes them.
+    angular: jnp.ndarray
+    #: The centres of the angular bins.
+    angular_wavenumbers: jnp.ndarray
+
+
+def _cross(a, b):
+    return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
+
+
+def _after(done, values):
+    """``values``, to be used only once ``done`` is computed: an optimization barrier between two stages of the
+    reduction. Without it XLA starts the independent transforms of all stages at once and keeps their results."""
+    return jax.lax.optimization_barrier((done, values))[1]
+
+
+def _mesh_spectra_block(rho, vx, vy, vz, bx, by, bz, pressure, psi, sound_speed, grid_spacing, num_cells,
+                        transfer, deconvolve_cell_average):
+    """The shell sums of :func:`mesh_snapshot_spectra` from the local blocks of the fields (inside the shard_map).
+
+    Stages one after the other (the magnetic field, its transfer one component at a time, each velocity component,
+    each component of sqrt(rho) v), so that only a few transforms are alive at a time: about 22 local fields of
+    temporaries on a GPU next to the 7 to 9 fields passed in.
+    """
+    normalisation = float(np.prod(num_cells)) ** 2
+    shells, num_shells = local_shells(num_cells, INTEGER_SHELLS)
+    angular_shells, num_angular_shells = local_shells(num_cells, ANGULAR_SHELLS)
+    k = local_wavevectors(num_cells, grid_spacing)
+    if deconvolve_cell_average:
+        # Averaging a mode over one cell multiplies it by sinc(pi m_i / N_i) along every axis.
+        cell_average = local_axes(*[jnp.sinc(jnp.fft.fftfreq(n, d=1.0 / n) / n) for n in num_cells])
+        cell_average_squared = jnp.maximum((cell_average[0] * cell_average[1] * cell_average[2]) ** 2, 1e-6)
+    sums = {}
+
+    def add(name, per_mode, shell_index=shells, count=num_shells):
+        total = shell_sum(per_mode, shell_index, count)
+        sums[name] = sums[name] + total if name in sums else total
+
+    def add_energy(name, spectra, angular):
+        energy = 0.5 * sum(squared_magnitude(c) for c in spectra) / normalisation
+        add(name, energy)
+        if deconvolve_cell_average:
+            add(f"{name}_deconvolved", energy / cell_average_squared)
+        if angular:
+            add(f"{name}_angular", energy, angular_shells, num_angular_shells)
+
+    def fields_after(done):
+        """The fields with non-finite values zeroed and the density floored at 1e-12, for a stage that starts once
+        ``done`` is computed (per stage, so that no cleaned copy of the fields lives through the whole reduction)."""
+        density, velocity, magnetic = _after(done, (rho, (vx, vy, vz), (bx, by, bz)))
+        return (jnp.maximum(jnp.nan_to_num(density), 1e-12), [jnp.nan_to_num(c) for c in velocity],
+                [jnp.nan_to_num(c) for c in magnetic])
+
+    # The magnetic field: E_mag, T_psi, and the current j = curl B for T_mag and the Lorentz force, with the identity
+    # Re(conj(F[B]) . F[curl(v x B)]) = Re(conj(F[v x B]) . F[curl B]) at every mode.
+    _, _, magnetic = fields_after(sums)
+    magnetic_hat = [fft_block(c) for c in magnetic]
+    add_energy("E_mag", magnetic_hat, angular=True)
+    if psi is not None:
+        psi_hat = fft_block(psi)
+        add("T_psi", -sum(jnp.real(jnp.conj(b) * (1j * k_i * psi_hat)) for b, k_i in zip(magnetic_hat, k))
+            / normalisation)
+    if transfer:
+        current = []
+        for component in range(3):
+            _, velocity, magnetic = fields_after((sums, current))
+            current_hat = 1j * _cross(k, magnetic_hat)[component]
+            electric_hat = fft_block(_cross(velocity, magnetic)[component])
+            add("T_mag", jnp.real(jnp.conj(electric_hat) * current_hat) / normalisation)
+            current.append(ifft_block(current_hat))
+        density, _, _ = fields_after((sums, current))
+        potential_hat = fft_block(jnp.log(density) if pressure is None else pressure)
+
+    # Each velocity component: E_v and T_v = Re(conj(F[v]) . F[a]) with a = -(v . grad) v - grad p / rho + j x B / rho.
+    for component in range(3):
+        density, velocity, magnetic = fields_after(sums)
+        velocity_hat = fft_block(velocity[component])
+        add_energy("E_v", [velocity_hat], angular=False)
+        if not transfer:
+            continue
+        gradient = [ifft_block(1j * k_i * velocity_hat) for k_i in k]
+        advection = -(velocity[0] * gradient[0] + velocity[1] * gradient[1] + velocity[2] * gradient[2])
+        pressure_gradient = ifft_block(1j * k[component] * potential_hat)
+        if pressure is None:  # isothermal: grad p / rho = a^2 grad(ln rho)
+            pressure_force = sound_speed**2 * pressure_gradient
+        else:
+            pressure_force = pressure_gradient / density
+        lorentz = _cross(current, magnetic)[component] / density
+        acceleration = advection - pressure_force + lorentz
+        add("T_v", jnp.real(jnp.conj(velocity_hat) * fft_block(acceleration)) / normalisation)
+
+    # Each component of sqrt(rho) v: E_kin.
+    for component in range(3):
+        density, velocity, _ = fields_after(sums)
+        add_energy("E_kin", [fft_block(jnp.sqrt(density) * velocity[component])], angular=True)
+
+    names = ["E_v", "E_kin", "E_mag"] + (["T_v", "T_mag"] if transfer else []) + (["T_psi"] if psi is not None else [])
+    rows = jnp.stack([sums[name] for name in names])
+    angular = jnp.stack([sums["E_kin_angular"], sums["E_mag_angular"]])
+    if not deconvolve_cell_average:
+        return rows, None, angular
+    return rows, jnp.stack([sums[f"{name}_deconvolved"] for name in names[:3]]), angular
+
+
+def mesh_snapshot_spectra(rho, vx, vy, vz, bx, by, bz, sound_speed, grid_spacing, mesh=None, transfer=True,
+                          pressure=None, psi=None, deconvolve_cell_average=False):
+    """The spectra of :func:`snapshot_spectra` for fields split over a device mesh, in one pass.
+
+    Equal to the single-device reduction to float32 rounding: the rows of
+    ``snapshot_spectra(..., transfer=True, pressure=pressure)`` (``dealias``
+    and ``cell_average_input`` off), with ``psi`` the row of
+    :func:`glm_cleaning_transfer`, with ``deconvolve_cell_average`` the three
+    deconvolved energy spectra, and the angular kinetic and magnetic spectra
+    of ``analysis_helpers.energy_spectrum`` from the same transforms (the
+    density floored at 1e-12 as here, not at 0). Every device transforms its
+    own block (``astronomix.parallel.distributed_fft``) and only the shell sums
+    are added over the mesh; 16 forward and 15 inverse transforms with the
+    transfer, 9 without.
+
+    Args:
+        rho, vx, vy, vz, bx, by, bz: Cell fields (Nx, Ny, Nz) split like the
+            fields of the state (x over ``XAXIS``, y over ``YAXIS``).
+        sound_speed, grid_spacing: As for :func:`snapshot_spectra`.
+        mesh: The state mesh, shape (1, px, py, 1) (``sharding.mesh``);
+            ``None`` for one device.
+        transfer: Also the ideal transfer spectra T_v and T_mag.
+        pressure: The pressure of an ideal-gas run (``None``: isothermal).
+        psi: The GLM cleaning scalar of a GLM run (``None``: no T_psi row).
+        deconvolve_cell_average: Also the deconvolved E_v, E_kin, E_mag.
+
+    Returns:
+        A :class:`MeshSpectra`; its arrays are replicated over the mesh.
+    """
+    num_cells = rho.shape
+    mesh = spectral_mesh(mesh)
+    check_decomposition(num_cells, mesh)
+    block = partial(_mesh_spectra_block, sound_speed=sound_speed, grid_spacing=grid_spacing, num_cells=num_cells,
+                    transfer=transfer, deconvolve_cell_average=deconvolve_cell_average)
+    rows, deconvolved, angular = jax.shard_map(
+        block, mesh=mesh, in_specs=(FIELD_SPEC,) * 9, out_specs=PartitionSpec()
+    )(rho, vx, vy, vz, bx, by, bz, pressure, psi)
+    return MeshSpectra(rows, deconvolved, angular, shell_centres(num_cells, ANGULAR_SHELLS))
+# -------------------------------------------------------------
+# ============== ↑ The reduction on a device mesh ↑ ============
 # -------------------------------------------------------------

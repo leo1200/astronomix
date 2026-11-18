@@ -14,7 +14,7 @@ tangent. What is checked, in Pallas interpret mode on the CPU (float64):
   the Pallas forward: a dot test against its central finite difference (the
   native flux takes a slightly different value in those cells, so it is not the
   reference there);
-* the gradient of a few positivity-preserving, dual-energy, cold-crush-blended
+* the gradient of a few positivity-preserving, dual-energy
   steps through ``time_integration`` with the Pallas adjoint is the one through
   the native tangent.
 
@@ -22,14 +22,6 @@ Run on the CPU::
 
     JAX_PLATFORMS=cpu python -m pytest pytests/differentiability/test_pallas_weno_adjoint.py
 """
-
-# ==== GPU selection ====
-import os
-if os.environ.get("JAX_PLATFORMS") != "cpu" and os.environ.get("CUDA_VISIBLE_DEVICES") is None:
-    from autocvd import autocvd
-    autocvd(num_gpus=1)
-# ruff: noqa: E402
-# =======================
 
 # jax
 import jax
@@ -43,14 +35,14 @@ import pytest
 
 # astronomix constants
 from astronomix import BACKWARDS, PALLAS, PERIODIC_BOUNDARY
-from astronomix.option_classes.simulation_config import DOUBLE_PRECISION, FINITE_DIFFERENCE
+from astronomix.option_classes.simulation_config import FINITE_DIFFERENCE
 
 # astronomix containers
 from astronomix import (
     BackendConfig,
     BoundarySettings,
     BoundarySettings1D,
-    PositivityConfig,
+    FDSolverConfig,
     SimulationConfig,
     SimulationParams,
 )
@@ -68,7 +60,7 @@ from astronomix._finite_difference._interface_fluxes._weno_pallas import (
     _weno_flux_hydro_pallas_vjp_local,
 )
 
-jax.config.update("jax_enable_x64", True)
+pytestmark = [pytest.mark.x64, pytest.mark.slow]
 
 NUM_CELLS = 8
 PARAMS = SimulationParams(minimum_density=1e-6, minimum_pressure=1e-8)
@@ -82,10 +74,11 @@ def flux_config(positivity_preserving, dual_energy, frozen):
         num_cells=NUM_CELLS,
         box_size=1.0,
         backend_config=BackendConfig(backend=PALLAS, pallas_interpret=True, pallas_block_shape=(4, 4, 4)),
-        weno_positivity_preserving=positivity_preserving,
-        dual_energy=dual_energy,
-        weno_ad_frozen_weights=frozen,
-        numerical_precision=DOUBLE_PRECISION,
+        solver_config=FDSolverConfig(
+            weno_positivity_preserving=positivity_preserving,
+            weno_ad_frozen_weights=frozen,
+            dual_energy=dual_energy,
+        ),
     )
     registered_variables = get_registered_variables(config)
     if dual_energy:
@@ -169,8 +162,7 @@ def test_time_integration_gradient_matches_the_native_tangent():
     density = jnp.asarray(1.0 + 0.3 * rng.random(shape))
     velocity = [jnp.asarray(0.3 * rng.standard_normal(shape)) for _ in range(3)]
     pressure = jnp.asarray(0.5 + 0.2 * rng.random(shape))
-    params = SimulationParams(C_cfl=0.3, t_end=0.02, minimum_density=1e-6, minimum_pressure=1e-8,
-                              minimum_specific_pressure=1e-3)
+    params = SimulationParams(C_cfl=0.3, t_end=0.02, minimum_density=1e-6, minimum_pressure=1e-8)
     gradients = {}
     for pallas_adjoint in (False, True):
         config = SimulationConfig(
@@ -181,13 +173,13 @@ def test_time_integration_gradient_matches_the_native_tangent():
             backend_config=BackendConfig(backend=PALLAS, pallas_interpret=True, pallas_block_shape=(4, 4, 4),
                                          pallas_adjoint=pallas_adjoint),
             boundary_settings=BoundarySettings(periodic, periodic, periodic),
-            weno_positivity_preserving=True,
-            positivity_config=PositivityConfig(coldcrush_blend=True),
-            dual_energy=True,
-            weno_ad_frozen_weights=True,
+            solver_config=FDSolverConfig(
+                weno_positivity_preserving=True,
+                weno_ad_frozen_weights=True,
+                dual_energy=True,
+            ),
             differentiation_mode=BACKWARDS,
             num_checkpoints=2,
-            numerical_precision=DOUBLE_PRECISION,
         )
         registered_variables = get_registered_variables(config)
         state = construct_primitive_state(

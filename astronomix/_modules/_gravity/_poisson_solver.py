@@ -15,14 +15,12 @@ from functools import partial
 
 # typing
 from typing import Union
-from jaxtyping import Array, Float, jaxtyped
-from beartype import beartype as typechecker
+from jaxtyping import Array, Float
 
 # jax
 import jax
 import jax.numpy as jnp
 from jax.numpy.fft import fftn, ifftn
-from jax.sharding import PartitionSpec
 
 try:  # the stable alias (newer jax)
     from jax import shard_map as _shard_map
@@ -31,10 +29,12 @@ except ImportError:  # pragma: no cover - older jax
 
 # astronomix helpers
 from astronomix._pallas_helpers import _current_pallas_mesh
+from astronomix.parallel.distributed_fft import FIELD_SPEC, X_NAME, fft_block, ifft_block, local_part, spectral_mesh
 
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
     FIELD_TYPE,
+    GHOST_CELLS,
     PERIODIC_BOUNDARY,
 )
 
@@ -49,8 +49,9 @@ def _active_x_sharded_mesh():
     ``time_integration`` sets the mesh contextvar around the JIT trace
     whenever the caller supplies a sharding, with the standard
     ``(VARAXIS, XAXIS, YAXIS, ZAXIS)`` axis layout.  Only a pure-X
-    decomposition is supported by the slab-transposed FFT below; anything
-    else falls back to the replicated ``fftn`` path.
+    decomposition takes the distributed solve below (the transform also
+    takes (px, py, 1) meshes; the solver keeps the replicated path and its
+    results for those); anything else falls back to the replicated ``fftn``.
     """
     mesh = _current_pallas_mesh()
     if mesh is None:
@@ -98,14 +99,14 @@ def _periodic_poisson_3d_sharded(
     grid_spacing: float,
     G,
     mesh,
-    x_name,
     discrete_laplacian: bool = False,
 ):
     """Distributed periodic Poisson solve for an X-sharded 3D density.
 
     The SPMD partitioner replicates the operand of an FFT along its
     transform dimensions, so the plain ``fftn`` path costs *global*-grid
-    memory and work per device.  This version keeps everything slab-local:
+    memory and work per device.  This version keeps everything slab-local
+    with the distributed transform of ``astronomix.parallel.distributed_fft``:
     FFT over (y, z) batched over the local X slab, an ``all_to_all``
     transpose of the slab decomposition from X to Y, the X-axis FFT, the
     Green's-function multiply on the local k-slab, and the mirrored
@@ -117,36 +118,20 @@ def _periodic_poisson_3d_sharded(
     differs.
     """
     num_cells_x, num_cells_y, num_cells_z = gas_density.shape
-    num_slabs = mesh.shape[x_name]
-    local_cells_y = num_cells_y // num_slabs
-
-    # The state mesh uses *integer* axis names, which JAX's named
-    # collectives (all_to_all, axis_index) would misread as positional
-    # array axes.  Alias the same devices (same order, so no data movement)
-    # under string names for the shard_map body.
-    named_mesh = jax.sharding.Mesh(mesh.devices, ("vars", "x", "y", "z"))
 
     k_base_x = jnp.fft.fftfreq(num_cells_x, d=grid_spacing) * 2 * jnp.pi
     k_base_y = jnp.fft.fftfreq(num_cells_y, d=grid_spacing) * 2 * jnp.pi
     k_base_z = jnp.fft.fftfreq(num_cells_z, d=grid_spacing) * 2 * jnp.pi
 
     def _local_solve(density_block):
-        # density_block: the local X slab, (num_cells_x / P, ny, nz).
-        density_k = jnp.fft.fftn(density_block, axes=(1, 2))
-        # Transpose the decomposition X -> Y (device p ends up with full X
-        # and the p-th Y slab), then transform the now-local X axis.
-        density_k = jax.lax.all_to_all(
-            density_k, "x", split_axis=1, concat_axis=0, tiled=True
-        )
-        density_k = jnp.fft.fft(density_k, axis=0)
+        # density_block: the local X slab, (num_cells_x / P, ny, nz); its
+        # transform is the local k-slab (nx, ny / P, nz).
+        density_k = fft_block(density_block)
 
         # Green's function on this device's k-slab (same regularisation as
         # the replicated branch: the k = 0 mode maps to -1/(4 pi), harmless
         # because the mean density was already subtracted).
-        slab_index = jax.lax.axis_index("x")
-        k_local_y = jax.lax.dynamic_slice(
-            k_base_y, (slab_index * local_cells_y,), (local_cells_y,)
-        )
+        k_local_y = local_part(k_base_y, X_NAME)
         k_squared = (
             _negative_laplacian_symbol(k_base_x, grid_spacing, discrete_laplacian).reshape(-1, 1, 1)
             + _negative_laplacian_symbol(k_local_y, grid_spacing, discrete_laplacian).reshape(1, -1, 1)
@@ -157,26 +142,16 @@ def _periodic_poisson_3d_sharded(
             k_squared > 1e-12, -4 * jnp.pi * G / k_squared, -1 / (4 * jnp.pi)
         )
         potential_k = greens_function * density_k
+        return ifft_block(potential_k)
 
-        # Mirrored inverse: X-axis inverse FFT, transpose Y -> X back, then
-        # the (y, z) inverse on the local X slab.
-        potential_k = jnp.fft.ifft(potential_k, axis=0)
-        potential_k = jax.lax.all_to_all(
-            potential_k, "x", split_axis=0, concat_axis=1, tiled=True
-        )
-        potential = jnp.fft.ifftn(potential_k, axes=(1, 2))
-        return jnp.real(potential)
-
-    slab_spec = PartitionSpec("x", None, None)
     return _shard_map(
         _local_solve,
-        mesh=named_mesh,
-        in_specs=(slab_spec,),
-        out_specs=slab_spec,
+        mesh=spectral_mesh(mesh),
+        in_specs=(FIELD_SPEC,),
+        out_specs=FIELD_SPEC,
     )(gas_density)
 
 
-# @jaxtyped(typechecker=typechecker)
 @partial(jax.jit, static_argnames=["grid_spacing", "config"])
 def _compute_gravitational_potential(
     gas_density: FIELD_TYPE,
@@ -188,19 +163,21 @@ def _compute_gravitational_potential(
     Compute the gravitational potential using FFT to solve Poisson's equation for
     periodic and open boundaries (via the Hockney & Eastwood method).
 
+    A field with ghost cells is solved for the mass of the domain alone: a
+    periodic domain on its interior, the ghost cells wrapped around; an open
+    domain with the ghost density set to zero, so that the ghost cells receive
+    the potential of the domain's mass.
+
     Args:
-        gas_density: The gas density field.
+        gas_density: The gas density field (with or without ghost cells).
         grid_spacing: The grid spacing.
         config: The simulation configuration.
         G: The gravitational constant.
 
     Returns:
-        The gravitational potential.
+        The gravitational potential, shaped like the density.
 
     """
-
-    # TODO: remove ghost cells in this computation, which currently treats the
-    # padded field directly.
 
     dimensionality = config.dimensionality
     discrete_laplacian = config.gravity_config.poisson_discrete_laplacian
@@ -239,6 +216,15 @@ def _compute_gravitational_potential(
     if config.gravity_config.poisson_manual_open_boundaries:
         non_periodic_boundaries = True
 
+    interior_shape = tuple(config.num_cells)[:dimensionality]
+    if config.boundary_handling == GHOST_CELLS and gas_density.shape != interior_shape:
+        num_ghost_cells = config.num_ghost_cells
+        interior = (slice(num_ghost_cells, -num_ghost_cells),) * dimensionality
+        if not non_periodic_boundaries:
+            potential = _compute_gravitational_potential(gas_density[interior], grid_spacing, config, G)
+            return jnp.pad(potential, num_ghost_cells, mode="wrap")
+        gas_density = jnp.zeros_like(gas_density).at[interior].set(gas_density[interior])
+
     # The Jeans swindle: only a meaningful periodic solution exists once the
     # (unphysical) mean density is removed, so subtract it for periodic domains.
     if not non_periodic_boundaries:
@@ -269,7 +255,6 @@ def _compute_gravitational_potential(
                         grid_spacing,
                         G,
                         mesh,
-                        x_name,
                         discrete_laplacian,
                     )
 

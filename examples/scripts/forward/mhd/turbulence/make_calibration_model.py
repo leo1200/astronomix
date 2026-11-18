@@ -117,8 +117,8 @@ def astronomix_operator_transfer(N=64, seed=0):
     """``G(n)`` of astronomix's explicit operators, measured on the operators.
 
     astronomix's viscous stress uses 6th-order central first derivatives
-    applied twice (``_viscosity.fd_viscosity_source``) and the ohmic term is
-    the edge-EMF curl of ``_resistivity.fd_ohmic_interface_rhs``, which
+    applied twice (``_viscosity.viscosity_source``) and the ohmic term is
+    the edge-EMF curl of ``_resistivity.resistive_face_increment``, which
     involves face-to-centre and centre-to-face interpolations as well. Rather
     than assemble those symbols by hand, apply the actual JAX operators to a
     random isotropic solenoidal field and read off, per shell, the
@@ -130,26 +130,43 @@ def astronomix_operator_transfer(N=64, seed=0):
     os.environ.setdefault("JAX_PLATFORMS", "cpu")
     import jax
     import jax.numpy as jnp
-    from astronomix import (BoundarySettings, BoundarySettings1D, PERIODIC_BOUNDARY,
-                            SimulationConfig, SimulationParams,
-                            initialize_interface_fields, get_registered_variables)
+    from astronomix import (
+        BoundarySettings,
+        BoundarySettings1D,
+        PERIODIC_BOUNDARY,
+        SimulationConfig,
+        SimulationParams,
+        initialize_interface_fields,
+        get_registered_variables,
+        DiffusionConfig,
+    )
     from astronomix.option_classes.simulation_config import (
         CARTESIAN, FINITE_DIFFERENCE, ISOTHERMAL, KINEMATIC_VISCOSITY,
         StaticIntVector, StaticFloatVector)
-    from astronomix._modules._resistivity._resistivity import fd_ohmic_interface_rhs
-    from astronomix._modules._viscosity._viscosity import fd_viscosity_source
+    from astronomix._modules._resistivity._resistivity import resistive_face_increment
+    from astronomix._modules._viscosity._viscosity import viscosity_source
     from astronomix._spatial_operators._interpolate import interp_face_to_center
 
     L = 1.0
     dx = L / N
     per = BoundarySettings(*(BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY),) * 3)
-    cfg = SimulationConfig(solver_mode=FINITE_DIFFERENCE, dimensionality=3,
-                           geometry=CARTESIAN, mhd=True, equation_of_state=ISOTHERMAL,
-                           box_size=StaticFloatVector(L, L, L),
-                           num_cells=StaticIntVector(N, N, N), num_ghost_cells=0,
-                           grid_spacing=dx,     # not finalised: set it explicitly
-                           boundary_settings=per, diffusion=True,
-                           viscosity_type=KINEMATIC_VISCOSITY, resistivity=True)
+    cfg = SimulationConfig(
+        solver_mode=FINITE_DIFFERENCE,
+        dimensionality=3,
+        geometry=CARTESIAN,
+        mhd=True,
+        equation_of_state=ISOTHERMAL,
+        box_size=StaticFloatVector(L, L, L),
+        num_cells=StaticIntVector(N, N, N),
+        num_ghost_cells=0,
+        grid_spacing=dx,  # not finalised: set it explicitly
+        boundary_settings=per,
+        diffusion_config=DiffusionConfig(
+            viscosity=True,
+            viscosity_type=KINEMATIC_VISCOSITY,
+            resistivity=True,
+        ),
+    )
     rv = get_registered_variables(cfg)
     params = SimulationParams(viscosity=1.0, resistivity=1.0, isothermal_sound_speed=1.0)
 
@@ -181,12 +198,12 @@ def astronomix_operator_transfer(N=64, seed=0):
     prim = ndim_state.at[rv.density_index].set(1.0)
     for i, comp in enumerate(field):
         prim = prim.at[rv.velocity_index[i]].set(jnp.asarray(comp))
-    src = np.asarray(fd_viscosity_source(prim, params, cfg, rv))
+    src = np.asarray(viscosity_source(prim, params, cfg, rv))
     G_visc = shell_G(field, src[1:4])
 
     # Ohmic: interface field from the centred one, operator, both back to centres.
     bx, by, bz = initialize_interface_fields(*[jnp.asarray(c) for c in field])
-    rbx, rby, rbz = fd_ohmic_interface_rhs(bx, by, bz, 1.0, 1.0, dx, cfg)
+    rbx, rby, rbz = resistive_face_increment(bx, by, bz, 1.0, 1.0, dx, cfg.dimensionality)
     Bc = np.stack([np.asarray(interp_face_to_center(b, ax))
                    for ax, b in enumerate((bx, by, bz))])
     Rc = np.stack([np.asarray(interp_face_to_center(r, ax))

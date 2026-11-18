@@ -71,9 +71,10 @@ from astronomix.parallel.distributed import init_distributed  # noqa: E402
 from astronomix.option_classes.simulation_config import (  # noqa: E402
     FINITE_DIFFERENCE,
     PALLAS,
-    RK4_LSRK,
+    LSRK4,
     SimulationConfig,
     BackendConfig,
+    FDSolverConfig,
 )
 from astronomix.test_setups.self_gravity.jeans_waves import (  # noqa: E402
     JeansWaveSettings,
@@ -107,7 +108,7 @@ base_config = SimulationConfig(
         pallas_interpret=False,
     ),
     solver_mode=FINITE_DIFFERENCE,
-    time_integrator=RK4_LSRK,
+    solver_config=FDSolverConfig(time_integrator=LSRK4),
     mhd=False,
     dimensionality=3,
     donate_state=True,

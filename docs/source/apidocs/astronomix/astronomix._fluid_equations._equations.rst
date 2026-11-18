@@ -18,6 +18,9 @@ Functions
    :class: autosummary longtable
    :align: left
 
+   * - :py:obj:`dual_switched_pressure_hydro <astronomix._fluid_equations._equations.dual_switched_pressure_hydro>`
+     - .. autodoc2-docstring:: astronomix._fluid_equations._equations.dual_switched_pressure_hydro
+          :summary:
    * - :py:obj:`primitive_state_from_conserved <astronomix._fluid_equations._equations.primitive_state_from_conserved>`
      - .. autodoc2-docstring:: astronomix._fluid_equations._equations.primitive_state_from_conserved
           :summary:
@@ -46,7 +49,12 @@ Functions
 API
 ~~~
 
-.. py:function:: primitive_state_from_conserved(conserved_state: astronomix.option_classes.simulation_config.STATE_TYPE, gamma: typing.Union[float, jaxtyping.Float[jaxtyping.Array, ]], config: astronomix.option_classes.simulation_config.SimulationConfig, registered_variables: astronomix.variable_registry.registered_variables.RegisteredVariables) -> astronomix.option_classes.simulation_config.STATE_TYPE
+.. py:function:: dual_switched_pressure_hydro(E, rho, u, gamma, internal_energy_density, eta)
+   :canonical: astronomix._fluid_equations._equations.dual_switched_pressure_hydro
+
+   .. autodoc2-docstring:: astronomix._fluid_equations._equations.dual_switched_pressure_hydro
+
+.. py:function:: primitive_state_from_conserved(conserved_state: astronomix.option_classes.simulation_config.STATE_TYPE, gamma: typing.Union[float, jaxtyping.Float[jaxtyping.Array, ]], config: astronomix.option_classes.simulation_config.SimulationConfig, registered_variables: astronomix.variable_registry.registered_variables.RegisteredVariables, internal_energy_density=None) -> astronomix.option_classes.simulation_config.STATE_TYPE
    :canonical: astronomix._fluid_equations._equations.primitive_state_from_conserved
 
    .. autodoc2-docstring:: astronomix._fluid_equations._equations.primitive_state_from_conserved

@@ -37,11 +37,12 @@ from jax.sharding import AxisType, PartitionSpec  # noqa: E402
 from astronomix.option_classes.simulation_config import (  # noqa: E402
     FINITE_DIFFERENCE,
     PALLAS,
-    RK4_LSRK,
+    LSRK4,
     BackendConfig,
     SimulationConfig,
     SnapshotSettings,
     StaticIntVector,
+    FDSolverConfig,
 )
 from astronomix.option_classes.simulation_params import SimulationParams  # noqa: E402
 from astronomix.time_stepping.time_integration import time_integration  # noqa: E402
@@ -79,7 +80,7 @@ def _base_config(mhd, pallas_ct=False):
             pallas_ct=pallas_ct,
         ),
         solver_mode=FINITE_DIFFERENCE,
-        time_integrator=RK4_LSRK,
+        solver_config=FDSolverConfig(time_integrator=LSRK4),
         mhd=mhd,
         dimensionality=3,
         donate_state=False,

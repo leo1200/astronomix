@@ -15,6 +15,9 @@ from functools import partial
 import jax
 import jax.numpy as jnp
 
+#: Absolute floor in the WENO smoothness denominators (JS and Z).
+WENO_EPSILON = 1e-7
+
 
 def _weno_omega_weights(IS0, IS1, IS2, epsilon, tiny):
     """
@@ -157,75 +160,3 @@ def _weno_omega_weights_z(IS0, IS1, IS2, epsilon, tiny):
     return alpha0 / alpha_sum, alpha2 / alpha_sum
 
 
-def _weno_omega_weights_adjoint(IS0, IS1, IS2, omega0_bar, omega2_bar, epsilon, tiny):
-    """
-    Hand transpose of :func:`_weno_omega_weights`.
-
-    The clamp branch follows the hand-adjoint convention of the Pallas kernels:
-    ties route the gradient to the clamp side, as in the
-    ``jnp.where(s > tiny, ...)`` rule.
-
-    Args:
-        IS0: The smoothness indicator of the left-most sub-stencil.
-        IS1: The smoothness indicator of the central sub-stencil.
-        IS2: The smoothness indicator of the right-most sub-stencil.
-        omega0_bar: The cotangent of ``omega_0``.
-        omega2_bar: The cotangent of ``omega_2``.
-        epsilon: The regularisation added to each indicator.
-        tiny: The floor of the weight sum.
-
-    Returns:
-        ``(omega0, omega2, IS0_bar, IS1_bar, IS2_bar)``: the recomputed forward
-        weights plus the cotangents of the smoothness indicators.
-    """
-    t0 = epsilon + IS0
-    t1 = epsilon + IS1
-    t2 = epsilon + IS2
-    if t0.dtype == jnp.float64:
-        q0 = t1 * t2
-        q1 = t0 * t2
-        q2 = t0 * t1
-        u0 = q0 ** 2
-        u1 = 6.0 * q1 ** 2
-        u2 = 3.0 * q2 ** 2
-        S = u0 + u1 + u2
-        prod = t0 * q0
-        clamp = tiny * prod * prod
-        inv = 1.0 / jnp.maximum(S, clamp)
-        omega0 = u0 * inv
-        omega2 = u2 * inv
-        u0_bar = omega0_bar * inv
-        u2_bar = omega2_bar * inv
-        inv_bar = omega0_bar * u0 + omega2_bar * u2
-        denom_bar = -inv_bar * inv * inv
-        S_bar = jnp.where(S > clamp, denom_bar, 0.0)
-        prod_bar = jnp.where(S > clamp, 0.0, denom_bar) * tiny * 2.0 * prod
-        u0_bar += S_bar
-        u1_bar = S_bar
-        u2_bar += S_bar
-        q0_bar = 2.0 * u0_bar * q0
-        q1_bar = 12.0 * u1_bar * q1
-        q2_bar = 6.0 * u2_bar * q2
-        t0_bar = q1_bar * t2 + q2_bar * t1 + prod_bar * q0
-        t1_bar = q0_bar * t2 + q2_bar * t0 + prod_bar * q1
-        t2_bar = q0_bar * t1 + q1_bar * t0 + prod_bar * q2
-        return omega0, omega2, t0_bar, t1_bar, t2_bar
-    alpha0 = 1.0 / t0 ** 2
-    alpha1 = 6.0 / t1 ** 2
-    alpha2 = 3.0 / t2 ** 2
-    s3 = alpha0 + alpha1 + alpha2
-    alpha_sum = jnp.maximum(s3, tiny)
-    omega0 = alpha0 / alpha_sum
-    omega2 = alpha2 / alpha_sum
-    alpha0_bar = omega0_bar / alpha_sum
-    alpha_sum_bar = omega0_bar * (-alpha0 / alpha_sum ** 2)
-    alpha2_bar = omega2_bar / alpha_sum
-    alpha_sum_bar += omega2_bar * (-alpha2 / alpha_sum ** 2)
-    s3_bar = jnp.where(s3 > tiny, alpha_sum_bar, 0.0)
-    alpha0_bar += s3_bar
-    alpha1_bar = s3_bar
-    alpha2_bar += s3_bar
-    IS0_bar = alpha0_bar * (-2.0) * t0 ** (-3)
-    IS1_bar = alpha1_bar * 6.0 * (-2.0) * t1 ** (-3)
-    IS2_bar = alpha2_bar * 3.0 * (-2.0) * t2 ** (-3)
-    return omega0, omega2, IS0_bar, IS1_bar, IS2_bar

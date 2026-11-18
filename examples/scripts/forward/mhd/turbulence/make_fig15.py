@@ -31,6 +31,18 @@ import numpy as np
 # plotting
 import matplotlib.pyplot as plt
 
+# astronomix constants
+from astronomix.plotting_helpers.paper_style import (
+    GUIDE_COLOR,
+    TEXT_WIDTH,
+)
+
+# astronomix functions
+from astronomix.plotting_helpers.paper_style import (
+    figure_legend,
+    use_paper_style,
+)
+
 
 #: Script-relative directories (data/ is shared with paper_turbulence.py).
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -53,8 +65,9 @@ COLUMNS = (
     ("spec_EB", r"$E_B(k)$", "magnetic spectrum"),
 )
 
-#: Line colour per resolution.
-COLORS = {128: "tab:green", 256: "tab:blue", 512: "tab:red"}
+#: Line colour per resolution: shades of the finite-difference blue of the
+#: paper, darker with resolution.
+COLORS = {resolution: plt.get_cmap("Blues")(shade) for resolution, shade in ((128, 0.35), (256, 0.55), (512, 0.9))}
 
 #: Box fundamental wavenumber (box size 1): the x-axis is k / k_0.
 FUNDAMENTAL_WAVENUMBER = 2.0 * np.pi
@@ -164,7 +177,8 @@ def plot_spectra(smooth):
     Returns:
         The matplotlib figure.
     """
-    figure, axes = plt.subplots(2, 3, figsize=(13.5, 8.0))
+    use_paper_style()
+    figure, axes = plt.subplots(2, 3, figsize=(TEXT_WIDTH, 4.6), layout="constrained")
     for row, case in enumerate(CASES):
         runs = runs_of_case(case)
         for column, (key, label, title) in enumerate(COLUMNS):
@@ -177,7 +191,6 @@ def plot_spectra(smooth):
                 axis.loglog(
                     modes,
                     values,
-                    lw=1.6 if smooth else 1.4,
                     color=COLORS.get(resolution),
                     label=f"$N={resolution}^3$",
                 )
@@ -186,13 +199,13 @@ def plot_spectra(smooth):
             if np.isfinite(largest_value):
                 guide_modes = np.array([2.0, 20.0])
                 guide_values = 1.6 * largest_value * (guide_modes / guide_modes[0]) ** (-5.0 / 3.0)
-                axis.plot(guide_modes, guide_values, "k--", lw=1.0)
-                axis.text(
-                    guide_modes[0] * 1.6,
-                    guide_values[0],
-                    r"$k^{-5/3}$",
-                    fontsize=9,
-                    va="bottom",
+                axis.plot(
+                    guide_modes,
+                    guide_values,
+                    color=GUIDE_COLOR,
+                    linestyle="--",
+                    linewidth=1.0,
+                    label=r"$\propto k^{-5/3}$",
                 )
                 # About five decades: clips the noise floor.
                 axis.set_ylim(largest_value / 3e4, largest_value * 4)
@@ -202,17 +215,14 @@ def plot_spectra(smooth):
             if row == 0:
                 axis.set_title(title)
             axis.text(
-                0.04,
+                0.05,
                 0.06,
                 case,
                 transform=axis.transAxes,
-                fontsize=11,
                 fontweight="bold",
                 va="bottom",
             )
-            axis.legend(fontsize=8, frameon=False, loc="upper right")
-            axis.grid(True, which="both", alpha=0.15)
-    figure.tight_layout()
+    figure_legend(figure)
     return figure
 
 
@@ -222,16 +232,15 @@ def main():
 
     figure = plot_spectra(smooth=True)
     smooth_path = FIGURE_DIR / "turbulence_spectra_smooth"
-    for suffix in (".svg", ".pdf"):
+    for suffix in (".svg", ".pdf", ".png"):
         figure.savefig(str(smooth_path) + suffix)
-    figure.savefig(str(smooth_path) + ".png", dpi=200)
     plt.close(figure)
     print("wrote", str(smooth_path) + ".svg/.pdf/.png")
 
     figure = plot_spectra(smooth=False)
     raw_path = FIGURE_DIR / "turbulence_spectra"
     figure.savefig(str(raw_path) + ".svg")
-    figure.savefig(str(raw_path) + ".png", dpi=200)
+    figure.savefig(str(raw_path) + ".png")
     plt.close(figure)
     print("wrote", str(raw_path) + ".svg/.png")
 

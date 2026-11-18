@@ -13,7 +13,6 @@ import numpy as np
 from scipy.integrate import solve_ivp
 
 # units and constants
-from astropy.constants import M_sun
 from astropy import units as u
 
 

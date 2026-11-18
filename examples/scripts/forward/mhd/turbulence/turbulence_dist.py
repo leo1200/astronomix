@@ -6,10 +6,9 @@ sharded multi-node grids (2048^3 and beyond):
 
 * The initial condition (uniform density and B_z, gas at rest) is built
   globally sharded -- each process materialises only its local shard.
-* The OU forcing runs in coarse spectral-synthesis mode
-  (``synthesis_resolution``): the stochastic state lives on a tiny replicated
-  nc^3 spectral grid and the band-limited acceleration is synthesised on each
-  device's shard, so no full-grid FFT is ever taken.
+* The TurbGen driving (as in ``paper_turbulence.py``) keeps a few hundred
+  replicated mode amplitudes; each device sums the modes on its own shard,
+  so no full-grid FFT and no communication is needed for the acceleration.
 * Snapshots stream to disk (Orbax, one shard per device) via the TO_DISK
   segment loop, which doubles as checkpoint/restart across Slurm walltime
   limits: resubmitting the same command auto-resumes from the latest
@@ -36,14 +35,12 @@ parser.add_argument("--mturb", type=float, default=0.5, help="target turbulent M
 parser.add_argument("--beta", type=float, default=1e6, help="initial plasma beta")
 parser.add_argument("--N", type=int, required=True, help="cells per dimension")
 parser.add_argument("--tcross", type=float, default=5.0, help="t_end in crossing times")
-parser.add_argument("--F0", type=float, default=3.5, help="OU forcing amplitude")
-parser.add_argument("--tau", type=float, default=0.5, help="OU correlation time")
-parser.add_argument("--kf", type=float, default=3.0 * 3.141592653589793,
-                    help="OU peak wavenumber (= 0.75 k_exp)")
+parser.add_argument("--kdrive", type=float, default=1.5,
+                    help="peak of the driving in units of 2 pi / L (= 0.75 k_exp); band kdrive -+ 0.5")
+parser.add_argument("--amplitude-factor", type=float, default=1.0,
+                    help="TurbGen amplitude factor at the start (adjusted automatically)")
 parser.add_argument("--cfl", type=float, default=1.5)
 parser.add_argument("--gamma", type=float, default=5.0 / 3.0)
-parser.add_argument("--synth", type=int, default=64,
-                    help="coarse spectral-synthesis resolution nc (0 = full-grid FFT)")
 parser.add_argument("--nseg", type=int, default=50,
                     help="number of checkpoint segments spanning [0, t_end]")
 parser.add_argument("--block-shape", type=str, default="4,4,8")
@@ -77,6 +74,7 @@ from jax.sharding import AxisType, PartitionSpec  # noqa: E402
 from astronomix import (  # noqa: E402
     BoundarySettings,
     BoundarySettings1D,
+    FDSolverConfig,
     PERIODIC_BOUNDARY,
     PositivityConfig,
     SimulationConfig,
@@ -90,14 +88,14 @@ from astronomix.option_classes.simulation_config import (  # noqa: E402
     FINITE_DIFFERENCE,
     ISOTHERMAL,
     PALLAS,
-    RK4_LSRK,
+    LSRK4,
     TO_DISK,
     BackendConfig,
     StaticIntVector,
 )
-from astronomix._modules._turbulent_forcing._turbulent_forcing_options import (  # noqa: E402
-    TurbulentForcingConfig,
-    TurbulentForcingParams,
+from astronomix._modules._turbulence_driving import (  # noqa: E402
+    TurbulenceDrivingConfig,
+    TurbulenceDrivingParams,
 )
 from astronomix._snapshotting._orbax_storage import (  # noqa: E402
     latest_step,
@@ -133,7 +131,7 @@ config = SimulationConfig(
         pallas_interpret=False,
     ),
     solver_mode=FINITE_DIFFERENCE,
-    time_integrator=RK4_LSRK,
+    solver_config=FDSolverConfig(time_integrator=LSRK4),
     equation_of_state=ISOTHERMAL,
     dimensionality=3,
     num_cells=StaticIntVector(args.N, args.N, args.N),
@@ -146,10 +144,11 @@ config = SimulationConfig(
         BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY),
         BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY),
     ),
-    turbulent_forcing_config=TurbulentForcingConfig(
-        turbulent_forcing=True,
-        ou_forcing=True,
-        synthesis_resolution=args.synth,
+    turbulence_driving_config=TurbulenceDrivingConfig(
+        turbulence_driving=True,
+        k_min=args.kdrive - 0.5,
+        k_max=args.kdrive + 0.5,
+        amplitude_auto_adjust=True,
     ),
     # Subsonic turbulence needs no positivity machinery: no floors, plain WENO.
     positivity_config=PositivityConfig(),
@@ -163,10 +162,11 @@ params = SimulationParams(
     gamma=args.gamma,
     isothermal_sound_speed=a,
     t_end=t_end,
-    turbulent_forcing_params=TurbulentForcingParams(
-        forcing_amplitude=args.F0,
-        correlation_time=args.tau,
-        forcing_wavenumber=args.kf,
+    turbulence_driving_params=TurbulenceDrivingParams(
+        velocity=vrms_target,
+        k_driving=args.kdrive,
+        solenoidal_weight=1.0,
+        amplitude_factor=args.amplitude_factor,
     ),
 )
 
@@ -228,21 +228,13 @@ del density, zero, b_z
 restart_state = None
 resume_step = latest_step(args.ckpt)
 if resume_step is not None:
-    ckpt = load_loop_checkpoint(
-        args.ckpt,
-        sharding=sharding,
-        replicated_keys=("forcing",) if args.synth > 0 else (),
-    )
+    ckpt = load_loop_checkpoint(args.ckpt, sharding=sharding)
     initial_state = ckpt.primitive_state
-    # The restart carry only needs the PRNG key and the OU forcing; holding
+    # The restart carry only needs the driving state; holding
     # the restored primitive state here as well would pin its buffer for
     # the whole run and defeat donate_state (the extra live reference forces
     # XLA to copy the ~12 GB/GPU state, which OOMed resumed hero runs).
-    restart_state = LoopState(
-        primitive_state=None,
-        key=ckpt.key,
-        forcing=ckpt.forcing,
-    )
+    restart_state = LoopState(primitive_state=None, driving_state=ckpt.driving_state)
     params = params._replace(t_start=float(ckpt.time))
     if rank == 0:
         print(
@@ -257,8 +249,8 @@ if rank == 0:
     print(
         f"[{args.tag}] G={G} grid={N}^3 ({total:.3e} cells, "
         f"{total / G:.3e}/GPU) M_turb={args.mturb} beta={args.beta:g} "
-        f"a={a:.3f} B0={B0:.4g} F0={args.F0} tau={args.tau} kf={args.kf:.3f} "
-        f"cfl={args.cfl} synth={args.synth} t_end={t_end:.4f} "
+        f"a={a:.3f} B0={B0:.4g} kdrive={args.kdrive} amplitude_factor={args.amplitude_factor} "
+        f"cfl={args.cfl} t_end={t_end:.4f} "
         f"segments={args.nseg} ckpt={args.ckpt}",
         flush=True,
     )

@@ -12,6 +12,7 @@ from astronomix import (
     BackendConfig,
     BoundarySettings,
     BoundarySettings1D,
+    FDSolverConfig,
     NATIVE_JAX,
     PALLAS,
     PERIODIC_BOUNDARY,
@@ -45,7 +46,7 @@ for variant in ["base", "pp"]:
             dimensionality=3, num_cells=n, mhd=True, equation_of_state=ISOTHERMAL,
             boundary_settings=BoundarySettings(periodic, periodic, periodic),
             backend_config=BackendConfig(backend=backend, pallas_interpret=True, pallas_block_shape=(8, 8, 8)),
-            **options,
+            solver_config=FDSolverConfig(**options),
         )
         registered_variables = get_registered_variables(config)
         configs[backend] = finalize_config(config, (registered_variables.num_vars,) + shape)

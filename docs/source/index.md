@@ -6,6 +6,8 @@
 :caption: Introduction
 
 self
+configuration
+migration
 
 ```
 
@@ -23,8 +25,7 @@ self
 
 :::{grid-item-card} {octicon}`shield-check;1.5em;sd-mr-1` Well-considered Numerical Methods
 
-A high-order finite difference constrained transport WENO MHD scheme following [HOW-MHD by Seo & Ryu 2023](https://arxiv.org/abs/2304.04360) complemented with a semi-discretely energy-conserving self-gravity scheme and
-improved stability mechanisms.
+Fifth-order finite-difference schemes (WENO flux splitting with the constrained transport of [HOW-MHD by Seo & Ryu 2023](https://arxiv.org/abs/2304.04360), and WENO face states with a Riemann flux), AthenaPK's second-order finite-volume scheme and the reference scheme of Beattie et al. (2025), with a semi-discretely energy-conserving self-gravity scheme; see [the configuration](configuration.md).
 
 :::
 
@@ -128,7 +129,7 @@ examples/notebooks/hydro/kelvin_helmholtz.ipynb
 :caption: magnetohydrodynamics
 :maxdepth: 1
 
-examples/notebooks/mhd/orsag_tang.ipynb
+examples/notebooks/mhd/orszag_tang_vortex.ipynb
 examples/notebooks/mhd/jet.ipynb
 ```
 
@@ -199,5 +200,8 @@ There is also a workshop paper on an earlier stage of the project:
 :maxdepth: 1
 
 source/astronomix.time_stepping.time_integration
+source/astronomix.option_classes.simulation_config
+source/astronomix.option_classes.presets
+source/astronomix.option_classes.simulation_params
 
 ```

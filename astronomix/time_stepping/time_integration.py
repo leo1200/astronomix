@@ -44,36 +44,45 @@ from astronomix.option_classes.simulation_config import (
     PALLAS,
     PERIODIC_ROLL,
     POSITIVITY_HARD_FLOOR,
-    RK4_LSRK,
+    LSRK4,
+    RIEMANN_FLUX,
     STATE_TYPE,
     TO_DISK,
 )
 
 # astronomix containers
-from astronomix.option_classes.simulation_config import SimulationConfig
-from astronomix.data_classes.simulation_state_struct import StateStruct
+from astronomix.option_classes.simulation_config import (
+    SimulationConfig,
+    get_solver_config,
+)
 from astronomix.data_classes.simulation_helper_data import HelperData
 from astronomix.variable_registry.registered_variables import RegisteredVariables
 from astronomix.option_classes.simulation_params import SimulationParams
 from astronomix.data_classes.simulation_snapshot_data import SnapshotData
+from astronomix.data_classes.simulation_state_struct import StateStruct
 
 # astronomix functions
-from astronomix._finite_volume._state_evolution.evolve_state import _evolve_state_fv
-from astronomix._finite_difference._state_evolution._evolve_state import _evolve_state_fd
-from astronomix._finite_volume._timestep_estimation._timestep_estimator import (
+from astronomix._finite_volume._evolve_state import _evolve_state_fv
+from astronomix._finite_difference._evolve_state import _evolve_state_fd
+from astronomix._finite_volume._timestep import (
     _cfl_time_step,
     _source_term_aware_time_step,
 )
-from astronomix._finite_difference._timestep_estimation._timestep_estimator import (
+from astronomix._finite_difference._timestep import (
     _cfl_time_step_fd,
     _cfl_time_step_fd_hydro,
 )
 from astronomix._fluid_equations._passive_scalars import _fill_scalar_ghost_cells
-from astronomix._modules._iteration_level_updates import (
+from astronomix._modules._per_step_updates import (
     _apply_density_floor,
-    _iteration_level_updates,
+    per_step_updates,
 )
-from astronomix._modules._turbulent_forcing._turbulent_forcing import _init_ou_forcing_state
+from astronomix._modules._turbulence_driving import (
+    advance_turbulence_driving,
+    init_turbulence_driving,
+    update_interval,
+    velocity_dispersion,
+)
 from astronomix._modules._sink_particles._sink_particle_formation import (
     _empty_sink_particles,
     _form_sink_particles,
@@ -124,22 +133,33 @@ class LoopState(NamedTuple):
     """The physics evolving-state threaded through the generic time-loop driver.
 
     The driver (``astronomix.time_stepping._time_loop.integrate``) treats this
-    as an opaque pytree; only the closures here unpack it. Holding the PRNG key
-    and the persistent Ornstein-Uhlenbeck forcing field here (rather than
-    overloading a bare tuple slot) keeps the carry explicit and extensible.
+    as an opaque pytree; only the closures here unpack it.
 
     Attributes:
         primitive_state: The (padded) primitive fluid state being evolved.
-        key: The PRNG key advanced by stochastic per-step modules (forcing, ...).
-        forcing: The persistent OU forcing field ``f`` (shape (3, nx, ny, nz)),
-            or ``None`` when OU forcing is inactive.
-        sink_particles: The sink particles, or ``None`` when sink particle
-            formation is inactive.
+        driving_state: The ``TurbulenceDrivingState`` of the turbulence driving
+            (mode amplitudes, pattern number, key; a few kilobytes), or
+            ``None`` without driving.
+        sink_particles: The sink particles, or ``None`` when sink particles
+            are off.
     """
     primitive_state: Any
-    key: Any
-    forcing: Any = None
+    driving_state: Any = None
     sink_particles: Any = None
+
+
+def _compiler_options(config: SimulationConfig, dtype) -> Union[dict, NoneType]:
+    """
+    The XLA options of the compiled time integration: the multi-output fusion
+    pass off for the finite-difference scheme with a Riemann flux in float64 on
+    a GPU. With the pass, XLA (jaxlib 0.9.2) builds a four-output loop kernel of
+    the flux sweep that reads out of bounds (CUDA_ERROR_ILLEGAL_ADDRESS, seen
+    with open boundaries on (N, 1, 1) cells, N >= 416).
+    """
+    riemann_flux = config.solver_mode == FINITE_DIFFERENCE and config.solver_config.scheme == RIEMANN_FLUX
+    if riemann_flux and dtype == jnp.float64 and jax.default_backend() == "gpu":
+        return {"xla_disable_hlo_passes": "multi_output_fusion"}
+    return None
 
 
 def _raise_with_time_integration_hint(error: Exception, config: SimulationConfig):
@@ -154,8 +174,8 @@ def _raise_with_time_integration_hint(error: Exception, config: SimulationConfig
       on the finite-difference path, plus donating the input state buffers.
     - The solver going unstable and producing NaNs (caught by ``checkify`` when
       ``runtime_debugging`` is on). We suggest the stability knobs: the
-      positivity-preserving WENO (finite difference), a positivity-preserving
-      limiter (finite volume), and a smaller CFL number.
+      positivity-preserving WENO (finite difference), the MINMOD limiter
+      (finite volume), and a smaller CFL number.
 
     The original error is always re-raised so callers and tracebacks are
     unchanged; the hints are printed alongside it as a convenience.
@@ -183,9 +203,9 @@ def _raise_with_time_integration_hint(error: Exception, config: SimulationConfig
             "the memory footprint:"
         )
         if config.solver_mode == FINITE_DIFFERENCE:
-            if config.time_integrator != RK4_LSRK:
+            if config.solver_config.time_integrator != LSRK4:
                 hints.append(
-                    "  - set config.time_integrator = RK4_LSRK, the 2N-storage "
+                    "  - set config.solver_config.time_integrator = LSRK4, the 2N-storage "
                     "low-memory RK4 integrator (one fewer full-state buffer)."
                 )
             if config.backend_config.backend != PALLAS:
@@ -210,12 +230,12 @@ def _raise_with_time_integration_hint(error: Exception, config: SimulationConfig
         )
         hints.append(
             "  - finite difference: enable the positivity-preserving WENO, "
-            "config.weno_positivity_preserving = True (provably positive for "
+            "config.solver_config.weno_positivity_preserving = True (provably positive for "
             "C_cfl <= 0.75 with SSPRK4)."
         )
         hints.append(
-            "  - finite volume: use a positivity-preserving limiter such as "
-            "VAN_ALBADA_PP (config.limiter)."
+            "  - finite volume: use the most diffusive limiter, MINMOD "
+            "(config.solver_config.limiter)."
         )
         hints.append(
             "  - reduce the CFL number (params.C_cfl) for smaller, safer time "
@@ -277,9 +297,10 @@ def time_integration(
             slots have zero mass), so it must accept it.
         sharding: The sharding to use for the padded helper data. If None,
                   no sharding is applied.
-        restart_state: An optional :class:`LoopState` providing the PRNG key
-            and persistent OU forcing field to resume from (typically obtained
-            from ``astronomix.setup_helpers.restart_from_latest_checkpoint``).
+        restart_state: An optional :class:`LoopState` providing the state of
+            the turbulence driving and the sink particles to resume from
+            (typically obtained from
+            ``astronomix.setup_helpers.restart_from_latest_checkpoint``).
             Its ``primitive_state`` slot is ignored; pass the restored state as
             the ``primitive_state`` argument. Mainly used together with
             ``snapshot_storage_mode == TO_DISK`` and ``params.t_start``.
@@ -287,7 +308,7 @@ def time_integration(
     Returns:
         Depending on the configuration (return_snapshots, num_snapshots)
         either the final state of the fluid after the time
-        integration of snapshots of the time evolution. With
+        integration or snapshots of the time evolution. With
         ``config.state_struct`` set, the final state is a
         :class:`StateStruct` holding the primitive state and the sink
         particles.
@@ -302,6 +323,10 @@ def time_integration(
     # runtime debugging via checkify if requested, printing the elapsed
     # time if requested, compiling the function for memory analysis if
     # requested, etc.
+
+    # A configuration that did not pass through finalize_config may leave
+    # solver_config unset: fill in the default container of the solver mode.
+    config = config._replace(solver_config=get_solver_config(config))
 
     # Every run starts a fresh plain-text progress log.
     if config.progress_bar:
@@ -375,6 +400,7 @@ def time_integration(
             # Turn an opaque out-of-memory / NaN failure into an actionable one.
             _raise_with_time_integration_hint(error, config)
 
+    compiler_options = _compiler_options(config, _state_dtype(primitive_state, config))
     if config.donate_state:
         time_integration_jit = jax.jit(
             _time_integration,
@@ -384,6 +410,7 @@ def time_integration(
                 "snapshot_callable"
             ],
             donate_argnames=["state"],
+            compiler_options=compiler_options,
         )
     else:
         time_integration_jit = jax.jit(
@@ -393,6 +420,7 @@ def time_integration(
                 "registered_variables",
                 "snapshot_callable"
             ],
+            compiler_options=compiler_options,
         )
 
     if config.runtime_debugging:
@@ -621,14 +649,23 @@ def _seed_internal_energy(primitive_state, params, registered_variables):
     )
 
 
+def _state_dtype(state, config: SimulationConfig):
+    """The dtype of the primitive state, which ``state`` wraps in a
+    :class:`StateStruct` when ``config.state_struct`` is set."""
+    if config.state_struct:
+        return jnp.result_type(state.primitive_state)
+    return jnp.result_type(state)
+
+
 def _fill_ghost_cells(primitive_state, config, params, registered_variables):
     """
     Fill the ghost cells of a padded primitive state via the boundary handler.
 
-    The gas boundary handler must not touch the three-component magnetic block
-    that the FV (PPCT) and FD MHD layouts keep behind the gas variables (the FD
-    integrators fill the interface field's ghost cells before every stage); the
-    VL2 GLM-MHD layout is cell centred throughout and handled as a whole.
+    The gas boundary handler must not touch the interface magnetic field that
+    the FD MHD layout keeps behind the gas variables (the FD integrators fill
+    its ghost cells before every stage); the VL2 GLM-MHD layout is cell centred
+    throughout and handled as a whole (VL2 with constrained transport is
+    periodic and never gets here).
 
     Args:
         primitive_state: The padded primitive state.
@@ -639,43 +676,31 @@ def _fill_ghost_cells(primitive_state, config, params, registered_variables):
     Returns:
         The padded primitive state with filled ghost cells.
     """
-    if config.mhd and not registered_variables.magnetic_psi_active:
-        if config.solver_mode == FINITE_DIFFERENCE:
-            # FD MHD layout: gas and cell-centred field, the interface field,
-            # then the optional dual-energy g and passive scalars. The trailing
-            # rows behind the interface field are scalars that keep their sign
-            # at a reflective wall, so they get the passive-scalar boundary
-            # fill. For open, periodic and reflective boundaries this gives g
-            # the same ghost cells as deriving it from the filled pressure, as
-            # the step does.
-            interface_field_start = registered_variables.interface_magnetic_field_index.x
-            trailing_rows_start = interface_field_start + 3
-            primitive_state = primitive_state.at[:interface_field_start, ...].set(
-                _boundary_handler(
-                    primitive_state[:interface_field_start, ...],
-                    config,
-                    registered_variables,
-                    params,
-                )
-            )
-            if primitive_state.shape[0] > trailing_rows_start:
-                primitive_state = primitive_state.at[trailing_rows_start:, ...].set(
-                    _fill_scalar_ghost_cells(
-                        primitive_state[trailing_rows_start:, ...],
-                        config,
-                    )
-                )
-            return primitive_state
-
-        # FV (PPCT) layout: the magnetic field in the last three slots.
-        return primitive_state.at[:-3, ...].set(
+    if config.mhd and config.solver_mode == FINITE_DIFFERENCE:
+        # FD MHD layout: gas and cell-centred field, the interface field, then
+        # the optional dual-energy g and passive scalars. The trailing rows
+        # behind the interface field are scalars that keep their sign at a
+        # reflective wall, so they get the passive-scalar boundary fill. For
+        # open, periodic and reflective boundaries this gives g the same ghost
+        # cells as deriving it from the filled pressure, as the step does.
+        interface_field_start = registered_variables.interface_magnetic_field_index.x
+        trailing_rows_start = interface_field_start + 3
+        primitive_state = primitive_state.at[:interface_field_start, ...].set(
             _boundary_handler(
-                primitive_state[:-3, ...],
+                primitive_state[:interface_field_start, ...],
                 config,
                 registered_variables,
                 params,
             )
         )
+        if primitive_state.shape[0] > trailing_rows_start:
+            primitive_state = primitive_state.at[trailing_rows_start:, ...].set(
+                _fill_scalar_ghost_cells(
+                    primitive_state[trailing_rows_start:, ...],
+                    config,
+                )
+            )
+        return primitive_state
 
     return _boundary_handler(
         primitive_state,
@@ -695,12 +720,6 @@ def _prepare_padded_state(primitive_state, config, params, registered_variables)
     from disk reproduces the ghost cells the loop would have held, keeping a
     disk restart consistent with an uninterrupted run. The dual-energy ``g``
     must already be initialised (:func:`_seed_internal_energy`).
-
-    NOTE: the shock-history scalars are deliberately NOT re-derived here.
-    Unlike the dual-energy ``g``, which is a function of the current state and
-    so can be re-derived on every restart, they are genuine history variables:
-    ``entropy_initial`` is seeded once in ``construct_primitive_state`` and a
-    checkpointed value must be restored as-is.
 
     Args:
         primitive_state: The unpadded primitive state.
@@ -753,46 +772,13 @@ def _warn_if_clock_stalled(final_time, end_time):
         )
 
 
-def _seed_key_and_forcing(config, params):
-    """Seed the PRNG key and (when OU forcing is active) the persistent forcing
-    field from ``config.random_seed`` for a fresh run."""
-    key0 = jax.random.key(config.random_seed)
-    if (config.turbulent_forcing_config.turbulent_forcing
-            and config.turbulent_forcing_config.ou_forcing):
-        key0, forcing0 = _init_ou_forcing_state(
-            key0, config, params.turbulent_forcing_params
-        )
-    else:
-        forcing0 = None
-    return key0, forcing0
-
-
-def _build_initial_loop_state(
-    primitive_state,
-    config,
-    params,
-    restart_state=None,
-    sink_particles=None,
-):
-    """Construct the initial loop carry for an (already padded) state.
-
-    When ``restart_state`` is given, its PRNG key and persistent OU forcing
-    field are reused so a resumed run continues the same stochastic realisation;
-    otherwise they are seeded from ``config.random_seed``. The OU forcing (when
-    active) needs a persistent solenoidal field; otherwise the forcing slot
-    stays ``None`` and costs nothing in the carry. The same holds for the sink
-    particles, which are only carried when sink particle formation is active.
-    """
-    if restart_state is not None:
-        return LoopState(
-            primitive_state,
-            restart_state.key,
-            restart_state.forcing,
-            sink_particles,
-        )
-
-    key0, forcing0 = _seed_key_and_forcing(config, params)
-    return LoopState(primitive_state, key0, forcing0, sink_particles)
+def _initial_driving_state(config, dtype):
+    """The state of the turbulence driving before the first step of a fresh
+    run (seeded from ``turbulence_driving_config.random_seed``), or ``None``
+    without driving."""
+    if not config.turbulence_driving_config.turbulence_driving:
+        return None
+    return init_turbulence_driving(config.turbulence_driving_config, dtype)
 
 
 def _integrate_core(
@@ -865,7 +851,7 @@ def _integrate_core(
     # advances the state by one (adaptive) timestep, and — when snapshots are
     # requested — a recorder plus the predicate that decides when to record.
 
-    def _step(time, state, snapshot_index):
+    def _step(time, state, snapshot_index, step_index):
         """Advance the state by one timestep.
 
         Estimates ``dt``, clamps it to land on the next snapshot time / the
@@ -875,8 +861,8 @@ def _integrate_core(
         ``(dt, new_state)``; the driver advances the time.
         """
         primitive_state = state.primitive_state
-        key = state.key
-        forcing = state.forcing
+        driving_state = state.driving_state
+        driving = config.turbulence_driving_config.turbulence_driving
         sink_particles = state.sink_particles
         sinks_active = config.sink_particle_config.sink_particles
 
@@ -930,15 +916,25 @@ def _integrate_core(
                             params.C_cfl,
                         )
                     )
-
-            # No sink may move more than half a cell in one step.
-            if sinks_active:
-                dt = jnp.minimum(
-                    dt,
-                    jax.lax.stop_gradient(_sink_time_step(sink_particles, config)),
-                )
         else:
             dt = params.t_end / config.num_timesteps
+
+        # The turbulence driving limits the time step to half its update
+        # interval, as FLASH does (TurbGen, plugins/flash/StirMain/Stir_computeDt.F90).
+        if driving and not config.fixed_timestep:
+            dt = jnp.minimum(
+                dt,
+                jax.lax.stop_gradient(
+                    0.5 * update_interval(config.turbulence_driving_config, params.turbulence_driving_params)
+                ),
+            )
+
+        # No sink may move more than half a cell in one step.
+        if sinks_active and not config.fixed_timestep:
+            dt = jnp.minimum(
+                dt,
+                jax.lax.stop_gradient(_sink_time_step(sink_particles, config)),
+            )
 
         # make sure we exactly hit the snapshot time points
         if config.use_specific_snapshot_timepoints and (
@@ -951,6 +947,21 @@ def _integrate_core(
         # make sure we exactly hit the end time
         if config.exact_end_time and not config.use_specific_snapshot_timepoints:
             dt = jnp.minimum(dt, params.t_end - time)
+
+        # The velocity dispersion for the automatic amplitude adjustment of
+        # the driving, measured at the start of a step that ends in a new
+        # pattern (zero otherwise, which the adjustment ignores).
+        measured_dispersion = None
+        if driving and config.turbulence_driving_config.amplitude_auto_adjust:
+            interval = update_interval(config.turbulence_driving_config, params.turbulence_driving_params)
+            measured_dispersion = jax.lax.stop_gradient(
+                jax.lax.cond(
+                    jnp.floor((time + dt) / interval) > driving_state.step,
+                    lambda state: velocity_dispersion(state, config, registered_variables),
+                    lambda state: jnp.zeros(config.turbulence_driving_config.dimensionality, state.dtype),
+                    primitive_state,
+                )
+            )
 
         # The first kick of the sinks takes the acceleration from the gas and
         # the sinks at the start of the step. It does not depend on the step
@@ -965,13 +976,14 @@ def _integrate_core(
             )
 
         def advance(step_size):
-            """The per-step modules and the evolve over ``step_size``, from the
-            state, PRNG key, forcing and sinks at the start of the step. With
-            sink particles on, the sinks get a half kick and a half drift
-            before the per-step modules, so that the whole hydro update feels
-            them at their mid-step positions, and a half drift and a half kick
-            after the evolve, with the acceleration of the updated gas and the
-            sinks at their end positions."""
+            """The per-step modules, the pattern of the driving at the end of
+            the step and the evolve over ``step_size``, from the state, the
+            driving state and the sinks at the start of the step. With sink
+            particles on, the sinks get a half kick and a half drift before
+            the per-step modules, so that the whole hydro update feels them at
+            their mid-step positions, and a half drift and a half kick after
+            the evolve, with the acceleration of the updated gas and the sinks
+            at their end positions."""
 
             # --------------- ↓ First kick and half drift ↓ ----------------
 
@@ -993,10 +1005,17 @@ def _integrate_core(
 
             # --------------- ↑ First kick and half drift ↑ ----------------
 
-            new_key, new_forcing, new_state = _iteration_level_updates(
+            new_driving_state = None
+            if driving:
+                new_driving_state = advance_turbulence_driving(
+                    driving_state,
+                    time + step_size,
+                    config.turbulence_driving_config,
+                    params.turbulence_driving_params,
+                    measured_dispersion,
+                )
+            new_state = per_step_updates(
                 primitive_state,
-                key,
-                forcing,
                 step_size,
                 config,
                 params,
@@ -1013,6 +1032,8 @@ def _integrate_core(
                     params,
                     helper_data_pad,
                     registered_variables,
+                    step_index,
+                    new_driving_state,
                     sink_potential=sink_potential,
                 )
             elif config.solver_mode == FINITE_DIFFERENCE:
@@ -1024,6 +1045,7 @@ def _integrate_core(
                     params,
                     helper_data_pad,
                     registered_variables,
+                    new_driving_state,
                     sink_potential=sink_potential,
                 )
 
@@ -1043,7 +1065,7 @@ def _integrate_core(
 
             # --------------- ↑ Second half drift and kick ↑ ---------------
 
-            return new_key, new_forcing, new_state, new_sinks
+            return new_driving_state, new_state, new_sinks
 
         if config.positivity_config.step_retry:
             # Repeat a step that left a non-finite value or a non-positive
@@ -1061,38 +1083,36 @@ def _integrate_core(
                 return admissible_state
 
             def retry_pending(carry):
-                attempt, _, _, _, _, _, accepted = carry
+                attempt, _, _, _, _, accepted = carry
                 return jnp.logical_not(accepted) & (attempt <= MAXIMUM_STEP_RETRIES)
 
             def attempt_step(carry):
-                attempt, step_size, _, _, _, _, _ = carry
+                attempt, step_size, _, _, _, _ = carry
                 step_size = jnp.where(attempt == 0, step_size, 0.5 * step_size)
-                new_key, new_forcing, new_state, new_sinks = advance(step_size)
+                new_driving_state, new_state, new_sinks = advance(step_size)
                 return (
                     attempt + 1,
                     step_size,
-                    new_key,
-                    new_forcing,
+                    new_driving_state,
                     new_state,
                     new_sinks,
                     admissible(new_state),
                 )
 
-            _, dt, key, forcing, primitive_state, sink_particles, _ = jax.lax.while_loop(
+            _, dt, driving_state, primitive_state, sink_particles, _ = jax.lax.while_loop(
                 retry_pending,
                 attempt_step,
                 (
                     jnp.asarray(0),
                     dt,
-                    key,
-                    forcing,
+                    driving_state,
                     primitive_state,
                     sink_particles,
                     jnp.asarray(False),
                 ),
             )
         else:
-            key, forcing, primitive_state, sink_particles = advance(dt)
+            driving_state, primitive_state, sink_particles = advance(dt)
 
         # AthenaPK floors the density in every stage's conversion to
         # primitives, so its time step and output see the floored state; the
@@ -1110,7 +1130,7 @@ def _integrate_core(
         # Sink particle formation and accretion act on the updated state, so
         # sinks form from and accrete the gas as it is at the end of this step.
         # New sinks are created massless and get their mass from the accretion.
-        if config.sink_particle_config.sink_particles:
+        if sinks_active:
             sink_particles, num_active_sinks = _form_sink_particles(
                 primitive_state,
                 sink_particles,
@@ -1137,7 +1157,7 @@ def _integrate_core(
                     registered_variables,
                 )
 
-        return dt, LoopState(primitive_state, key, forcing, sink_particles)
+        return dt, LoopState(primitive_state, driving_state, sink_particles)
 
     def _record_snapshot(time, state, store, idx):
         """Record snapshot ``idx`` (the requested diagnostics)."""
@@ -1295,7 +1315,9 @@ def _time_integration(
     Time integration (the body jitted by :func:`time_integration`).
 
     Args:
-        state: The primitive state array (or state struct).
+        state: The primitive state array, or a :class:`StateStruct` with the
+            primitive state and the sink particles when
+            ``config.state_struct`` is set.
         config: The simulation configuration.
         params: The simulation parameters.
         registered_variables: The registered variables.
@@ -1303,7 +1325,7 @@ def _time_integration(
         snapshot_callable: The user callable for
             ``config.activate_snapshot_callback``, or ``None``.
         initial_loop_state: An optional explicit initial loop carry (used to
-            resume a run); seeded from ``config.random_seed`` when ``None``.
+            resume a run); a fresh driving state when ``None``.
 
     Returns:
         Depending on the configuration (return_snapshots, num_snapshots)
@@ -1311,9 +1333,8 @@ def _time_integration(
         or snapshots of the time evolution.
     """
 
-    # in simulations, where we also follow e.g. sink particles,
-    # the state may be a struct containing the primitive state
-    # and the sink particle data
+    # In simulations where we also follow e.g. sink particles, the state may
+    # be a struct containing the primitive state and the sink particle data.
     if config.state_struct:
         primitive_state = state.primitive_state
         sink_particles = state.sink_particles
@@ -1321,9 +1342,9 @@ def _time_integration(
         primitive_state = state
         sink_particles = None
 
-    # When sink particle formation is active but no sinks were passed in,
-    # the simulation starts without sinks: every slot is empty. Sinks passed
-    # in with fewer slots than max_num_sinks get empty slots appended.
+    # When sink particles are on but no sinks were passed in, the simulation
+    # starts without sinks: every slot is empty. Sinks passed in with fewer
+    # slots than max_num_sinks get empty slots appended.
     if config.sink_particle_config.sink_particles:
         if sink_particles is None:
             sink_particles = _empty_sink_particles(config, primitive_state.dtype)
@@ -1340,11 +1361,10 @@ def _time_integration(
     )
 
     if initial_loop_state is None:
-        initial_loop_state = _build_initial_loop_state(
+        initial_loop_state = LoopState(
             primitive_state,
-            config,
-            params,
-            sink_particles=sink_particles,
+            _initial_driving_state(config, primitive_state.dtype),
+            sink_particles,
         )
 
     _, loop_state, snapshot_store, num_iterations = _integrate_core(
@@ -1399,9 +1419,8 @@ def _run_segment(
     params: SimulationParams,
     registered_variables: RegisteredVariables,
     helper_data_pad: Union[HelperData, NoneType],
-    init_key,
-    init_forcing,
-    init_sink_particles=None,
+    initial_driving_state,
+    initial_sink_particles=None,
 ):
     """Integrate one segment for the disk-checkpointing (TO_DISK) driver.
 
@@ -1413,8 +1432,9 @@ def _run_segment(
     left uninterrupted. ``config`` always has snapshots disabled here (each
     segment end is itself a checkpoint), so no snapshot buffers are allocated.
 
-    Returns ``(t_final, primitive_state_unpadded, key, forcing, sink_particles,
-    num_iterations)``; ``sink_particles`` is ``None`` when sink particles are off.
+    Returns ``(t_final, primitive_state_unpadded, driving_state,
+    sink_particles, num_iterations)``; ``sink_particles`` is ``None`` when sink
+    particles are off.
     """
     primitive_state = _seed_internal_energy(primitive_state, params, registered_variables)
     original_shape = primitive_state.shape
@@ -1423,9 +1443,8 @@ def _run_segment(
     )
     initial_loop_state = LoopState(
         primitive_state,
-        init_key,
-        init_forcing,
-        init_sink_particles,
+        initial_driving_state,
+        initial_sink_particles,
     )
     t_final, loop_state, _, num_iterations = _integrate_core(
         config,
@@ -1442,8 +1461,7 @@ def _run_segment(
     return (
         t_final,
         primitive_state,
-        loop_state.key,
-        loop_state.forcing,
+        loop_state.driving_state,
         loop_state.sink_particles,
         num_iterations,
     )
@@ -1464,10 +1482,10 @@ def _time_integration_to_disk(
 
     The run is split into ``config.num_snapshots`` segments spanning
     ``[params.t_start, params.t_end]``. Each segment is integrated by the JIT'd
-    :func:`_run_segment`; afterwards the loop carry (primitive state, PRNG key,
-    OU forcing, sink particles) plus the time and cumulative iteration count
-    are written to ``config.snapshot_storage_path`` via Orbax. The carry stays
-    on device (sharded) between segments, and Orbax writes each device's shard
+    :func:`_run_segment`; afterwards the loop carry (primitive state, driving
+    state, sink particles) plus the time and cumulative iteration count are
+    written to ``config.snapshot_storage_path`` via Orbax. The carry stays on
+    device (sharded) between segments, and Orbax writes each device's shard
     independently, so this scales to multiple devices / nodes.
 
     Returns the final (unpadded) primitive state, or the state struct with the
@@ -1489,15 +1507,15 @@ def _time_integration_to_disk(
         primitive_state = state
         sink_particles = None
 
-    # The carry between segments is the unpadded state plus the stochastic
-    # bits (PRNG key, OU forcing) and the sink particles. On a restart these
-    # come from the checkpoint.
+    # The carry between segments is the unpadded state plus the state of the
+    # turbulence driving and the sink particles. On a restart the latter come
+    # from the checkpoint.
     if restart_state is not None:
-        key, forcing = restart_state.key, restart_state.forcing
+        driving_state = restart_state.driving_state
         if restart_state.sink_particles is not None:
             sink_particles = restart_state.sink_particles
     else:
-        key, forcing = _seed_key_and_forcing(config, params)
+        driving_state = _initial_driving_state(config, jnp.result_type(primitive_state))
 
     # As in the in-memory path, a run with sink particles but none passed in
     # starts with every slot empty, and sinks passed in or restored with fewer
@@ -1526,6 +1544,7 @@ def _time_integration_to_disk(
     run_segment_jit = jax.jit(
         _run_segment,
         static_argnames=["config", "registered_variables"],
+        compiler_options=_compiler_options(config, jnp.result_type(primitive_state)),
     )
 
     mesh_ctx = sharding.mesh if sharding is not None else nullcontext()
@@ -1578,8 +1597,7 @@ def _time_integration_to_disk(
                 (
                     t_final,
                     primitive_state,
-                    key,
-                    forcing,
+                    driving_state,
                     sink_particles,
                     num_iterations,
                 ) = run_segment_jit(
@@ -1588,8 +1606,7 @@ def _time_integration_to_disk(
                     segment_params,
                     registered_variables,
                     helper_data_pad,
-                    key,
-                    forcing,
+                    driving_state,
                     sink_particles,
                 )
 
@@ -1601,20 +1618,12 @@ def _time_integration_to_disk(
             # device_put onto the explicit NamedSharding makes it concrete (and
             # is a no-op data-movement-wise when already so placed).
             store_state = primitive_state
-            store_forcing = forcing
+            store_driving_state = driving_state
             if sharding is not None:
                 store_state = jax.device_put(primitive_state, sharding)
-                if forcing is not None:
-                    # The full-grid OU field shards like the state; the coarse
-                    # spectral OU state (synthesis_resolution > 0) is a small
-                    # replicated array and must stay replicated -- its nc^3
-                    # axes generally do not divide the mesh.
-                    forcing_sharding = (
-                        replicated
-                        if config.turbulent_forcing_config.synthesis_resolution > 0
-                        else sharding
-                    )
-                    store_forcing = jax.device_put(forcing, forcing_sharding)
+                # The driving state (modes, not grid) stays replicated.
+                if driving_state is not None:
+                    store_driving_state = jax.device_put(driving_state, replicated)
             # The sink particles are small and replicated on every device.
             store_sink_particles = sink_particles
             if sharding is not None and sink_particles is not None:
@@ -1625,8 +1634,7 @@ def _time_integration_to_disk(
                 step=start_step + i + 1,
                 time=t_final,
                 primitive_state=store_state,
-                key=key,
-                forcing=store_forcing,
+                driving_state=store_driving_state,
                 num_iterations=cumulative_iterations,
                 sink_particles=store_sink_particles,
             )

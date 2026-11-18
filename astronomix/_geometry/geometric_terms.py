@@ -2,41 +2,29 @@
 Geometric source terms for curvilinear finite-volume updates.
 
 Provides the pressure-nozzling source term that accounts for the changing cell
-cross-section in cylindrical and spherical geometry (Crittenden & Balachandar,
-2018).
+cross-section in spherical geometry (Crittenden & Balachandar, 2018).
 """
 
 # general
 from functools import partial
-
-# typing
-from typing import Union
-from beartype import beartype as typechecker
-from jaxtyping import Array, Float, jaxtyped
 
 # jax
 import jax
 import jax.numpy as jnp
 
 # astronomix constants
-from astronomix.option_classes.simulation_config import (
-    STATE_TYPE,
-    STATE_TYPE_ALTERED,
-)
+from astronomix.option_classes.simulation_config import STATE_TYPE_ALTERED
 
 # astronomix containers
 from astronomix.option_classes.simulation_config import SimulationConfig
 from astronomix.data_classes.simulation_helper_data import HelperData
 from astronomix.variable_registry.registered_variables import RegisteredVariables
 
-# astronomix functions
-from astronomix._finite_volume._state_evolution.limited_gradients import _calculate_limited_gradients
 
-
-# @jaxtyped(typechecker=typechecker)
 @partial(jax.jit, static_argnames=["config", "registered_variables"])
 def _pressure_nozzling_source(
-    primitive_state: STATE_TYPE,
+    pressure,
+    pressure_gradient,
     config: SimulationConfig,
     helper_data: HelperData,
     registered_variables: RegisteredVariables,
@@ -44,7 +32,10 @@ def _pressure_nozzling_source(
     """Pressure nozzling source term as of the geometry of the domain.
 
     Args:
-        primitive_state: The primitive state array.
+        pressure: The gas pressure of the cells (given by the caller, so that the
+            source serves a state without pressure slot as well).
+        pressure_gradient: The limited radial pressure gradient of the cells
+            (the scheme's own, so that the source matches its reconstruction).
         config: The simulation configuration.
         helper_data: The helper data.
         registered_variables: The registered variables.
@@ -53,13 +44,9 @@ def _pressure_nozzling_source(
         The pressure nozzling source
     """
 
-    # get the pressure
-    p = primitive_state[registered_variables.pressure_index]
+    p = pressure
 
-    # calculate the limited pressure gradients
-    dp_dr = _calculate_limited_gradients(primitive_state, config, helper_data, axis=1)[
-        registered_variables.pressure_index
-    ]
+    dp_dr = pressure_gradient
 
     # calculate the pressure nozzling term, following
     # eq. 14 in Crittendend and Balachandar, 2018

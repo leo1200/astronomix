@@ -16,8 +16,18 @@ import jax
 import jax.numpy as jnp
 
 from astronomix import (
-    BackendConfig, BoundarySettings, BoundarySettings1D, GravityConfig, NATIVE_JAX, PERIODIC_BOUNDARY,
-    SimulationConfig, SimulationParams, finalize_config, get_registered_variables, get_helper_data,
+    BackendConfig,
+    BoundarySettings,
+    BoundarySettings1D,
+    GravityConfig,
+    NATIVE_JAX,
+    PERIODIC_BOUNDARY,
+    SimulationConfig,
+    SimulationParams,
+    finalize_config,
+    get_registered_variables,
+    get_helper_data,
+    FDSolverConfig,
 )
 from astronomix.option_classes.simulation_config import FOURTH_ORDER_CONSERVATIVE
 from astronomix._fluid_equations._equations import conserved_state_from_primitive
@@ -36,8 +46,12 @@ def make_config(fct):
     config = SimulationConfig(
         gravity_config=GravityConfig(self_gravity=True, self_gravity_version=FOURTH_ORDER_CONSERVATIVE,
                                      poisson_manual_open_boundaries=True, work_flux_correction=fct),
-        dimensionality=3, box_size=4.0, num_cells=n, backend_config=BackendConfig(backend=NATIVE_JAX),
-        boundary_settings=BoundarySettings(periodic, periodic, periodic), weno_positivity_preserving=True,
+        dimensionality=3,
+        box_size=4.0,
+        num_cells=n,
+        backend_config=BackendConfig(backend=NATIVE_JAX),
+        boundary_settings=BoundarySettings(periodic, periodic, periodic),
+        solver_config=FDSolverConfig(weno_positivity_preserving=True),
     )
     return finalize_config(config, state.shape)
 

@@ -94,7 +94,7 @@ def _derived_fields(state):
 def main():
     step = args.step if args.step is not None else latest_step(args.ckpt)
     ckpt = load_loop_checkpoint(
-        args.ckpt, step, sharding=sharding, replicated_keys=("forcing",)
+        args.ckpt, step, sharding=sharding
     )
     rho, magnetic_energy, speed = _derived_fields(ckpt.primitive_state)
 

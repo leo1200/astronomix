@@ -65,6 +65,15 @@ import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.ticker import FixedFormatter, FixedLocator, NullLocator  # noqa: E402
 
 # astronomix constants
+from astronomix.plotting_helpers.paper_style import (  # noqa: E402
+    FD_COLOR,
+    FV_COLOR,
+    GUIDE_COLOR,
+    COLUMN_WIDTH,
+    TEXT_WIDTH,
+    TWO_COLUMN,
+    layout_path,
+)
 from astronomix.option_classes.simulation_config import (  # noqa: E402
     FINITE_DIFFERENCE,
     FINITE_VOLUME,
@@ -72,14 +81,16 @@ from astronomix.option_classes.simulation_config import (  # noqa: E402
     HLLD,
     NATIVE_JAX,
     PALLAS,
-    RK4_LSRK,
-    RK4_SSP,
+    LSRK4,
+    SSPRK54,
     VL2,
 )
 
 # astronomix containers
 from astronomix.option_classes.simulation_config import (  # noqa: E402
     BackendConfig,
+    FDSolverConfig,
+    FVSolverConfig,
     SimulationConfig,
     SnapshotSettings,
     StaticIntVector,
@@ -90,14 +101,19 @@ from astronomix.option_classes.simulation_params import SimulationParams  # noqa
 from astronomix import get_registered_variables, time_integration  # noqa: E402
 from astronomix.test_setups.hydrodynamics.sound_wave3D import setup_sound_wave  # noqa: E402
 from astronomix.test_setups.mhd.alfven_wave3D import setup_cp_alfven_wave  # noqa: E402
-from astronomix._finite_volume._timestep_estimation._timestep_estimator import (  # noqa: E402
+from astronomix._finite_volume._timestep import (  # noqa: E402
     _cfl_time_step,
 )
-from astronomix._finite_difference._timestep_estimation._timestep_estimator import (  # noqa: E402
+from astronomix._finite_difference._timestep import (  # noqa: E402
     _cfl_time_step_fd,
     _cfl_time_step_fd_hydro,
 )
 from astronomix._pallas_helpers import _as_3tuple_block_shape  # noqa: E402
+from astronomix.plotting_helpers.paper_style import (  # noqa: E402
+    figure_legend,
+    use_paper_style,
+    variant_style,
+)
 
 
 # -------------------------------------------------------------
@@ -166,24 +182,30 @@ POINT_FIELDS = (
 )
 
 GIB = 1024**3
+GIGABYTE = 1.0e9
 
-#: Plot style of the four configurations, continuing the colours and markers
-#: of the earlier single-GPU figures: native JAX solid with circles, Pallas
-#: dashed with squares; blue-violet for finite differences, orange-red for
-#: finite volumes.
+#: Plot style of the four configurations, in the colours of all figures of
+#: the paper: the Pallas backend solid with filled markers, native JAX as the
+#: dashed, hollow variant.
 CONFIGURATION_STYLE = {
-    ("FD", "jax"): dict(label="FD (JAX)", color="cornflowerblue", marker="o", linestyle="-"),
-    ("FD", "pallas"): dict(label="FD (Pallas)", color="darkviolet", marker="s", linestyle="--"),
-    ("FV", "jax"): dict(label="FV (JAX)", color="tab:orange", marker="o", linestyle="-"),
-    ("FV", "pallas"): dict(label="FV (Pallas)", color="firebrick", marker="s", linestyle="--"),
+    ("FD", "jax"): dict(label="FD (JAX)", marker="o", **variant_style(FD_COLOR)),
+    ("FD", "pallas"): dict(label="FD (Pallas)", color=FD_COLOR, marker="o", linestyle="-"),
+    ("FV", "jax"): dict(label="FV (JAX)", marker="s", **variant_style(FV_COLOR)),
+    ("FV", "pallas"): dict(label="FV (Pallas)", color=FV_COLOR, marker="s", linestyle="-"),
 }
-SPEEDUP_COLOR = {"FD": "darkviolet", "FV": "firebrick"}
+SPEEDUP_COLOR = {"FD": FD_COLOR, "FV": FV_COLOR}
+SPEEDUP_MARKER = {"FD": "o", "FV": "s"}
 MAIN_INTEGRATOR = {"FD": "LSRK4", "FV": "VL2"}
 MAIN_CFL = {"FD": FD_CFL, "FV": FV_CFL}
-LINE_WIDTH = 2.0
-MARKER_SIZE = 6
-GRID_ALPHA = 0.25
 RESOLUTION_TICKS = (16, 32, 64, 128, 256, 512, 1024)
+
+#: The resolution range of the speedup figure of the paper: from where the
+#: kernels no longer run at launch-overhead-dominated sizes to the grid of
+#: the memory table.
+SPEEDUP_FIGURE_RESOLUTIONS = (64, 256)
+
+#: The resolution of the memory table of the paper (grid 2N x N x N).
+MEMORY_TABLE_RESOLUTION = 256
 
 # -------------------------------------------------------------
 # ===================== ↑ Settings ↑ ==========================
@@ -210,18 +232,22 @@ def build_simulation_config(point: dict) -> SimulationConfig:
     mhd = point["physics"] == "mhd"
 
     if point["scheme"] == "FD":
-        time_integrator = RK4_LSRK if point["integrator"] == "LSRK4" else RK4_SSP
+        time_integrator = LSRK4 if point["integrator"] == "LSRK4" else SSPRK54
         scheme_options = dict(
             solver_mode=FINITE_DIFFERENCE,
-            time_integrator=time_integrator,
-            weno_z=True,
-            weno_positivity_preserving=point["positivity_preserving"],
+            solver_config=FDSolverConfig(
+                time_integrator=time_integrator,
+                weno_z=True,
+                weno_positivity_preserving=point["positivity_preserving"],
+            ),
         )
     else:
         scheme_options = dict(
             solver_mode=FINITE_VOLUME,
-            time_integrator=VL2,
-            riemann_solver=HLLD if mhd else HLLC,
+            solver_config=FVSolverConfig(
+                time_integrator=VL2,
+                riemann_solver=HLLD if mhd else HLLC,
+            ),
         )
 
     backend = PALLAS if point["backend"] == "pallas" else NATIVE_JAX
@@ -783,7 +809,7 @@ def main_series(records: list, physics: str, scheme: str, backend: str) -> dict:
     return {record["resolution"]: record for record in selected}
 
 
-def speedup_series(records: list, physics: str, scheme: str) -> tuple:
+def speedup_series(records: list, physics: str, scheme: str, resolution_range: tuple = None) -> tuple:
     """
     The Pallas speedup T(JAX) / T(Pallas) of a scheme at every resolution
     both backends ran.
@@ -792,6 +818,7 @@ def speedup_series(records: list, physics: str, scheme: str) -> tuple:
         records: The point records.
         physics: ``hydro`` or ``mhd``.
         scheme: ``FD`` or ``FV``.
+        resolution_range: Optional ``(smallest, largest)`` N to keep.
 
     Returns:
         The resolutions and the speedups (arrays).
@@ -799,14 +826,18 @@ def speedup_series(records: list, physics: str, scheme: str) -> tuple:
     native = main_series(records, physics, scheme, "jax")
     pallas = main_series(records, physics, scheme, "pallas")
     resolutions = sorted(set(native) & set(pallas))
+    if resolution_range is not None:
+        resolutions = [
+            resolution for resolution in resolutions if resolution_range[0] <= resolution <= resolution_range[1]
+        ]
     speedups = [native[resolution]["time_per_step"] / pallas[resolution]["time_per_step"] for resolution in resolutions]
     return np.array(resolutions), np.array(speedups)
 
 
-def format_resolution_axis(axis, resolutions) -> None:
-    """Log resolution axis labelled at the powers of two within the measured range."""
+def format_resolution_axis(axis, resolutions, ticks=RESOLUTION_TICKS) -> None:
+    """Log resolution axis labelled at the given ticks within the measured range."""
     axis.set_xscale("log")
-    ticks = [tick for tick in RESOLUTION_TICKS if min(resolutions) <= tick <= max(resolutions)]
+    ticks = [tick for tick in ticks if min(resolutions) <= tick <= max(resolutions)]
     axis.xaxis.set_major_locator(FixedLocator(ticks))
     axis.xaxis.set_major_formatter(FixedFormatter([str(tick) for tick in ticks]))
     axis.xaxis.set_minor_locator(NullLocator())
@@ -816,7 +847,7 @@ def save_figure(figure, figure_dir: str, name: str) -> None:
     """Write a figure as SVG, PDF and PNG into the figure directory."""
     os.makedirs(figure_dir, exist_ok=True)
     for extension in ("svg", "pdf", "png"):
-        figure.savefig(os.path.join(figure_dir, f"{name}.{extension}"), dpi=150)
+        figure.savefig(layout_path(os.path.join(figure_dir, f"{name}.{extension}")))
     plt.close(figure)
     print(f"wrote {os.path.join(figure_dir, name)}.{{svg,pdf,png}}")
 
@@ -827,88 +858,68 @@ def plot_pallas_speedup(
     name: str,
     overlay_records: list = None,
     overlay_label: str = None,
+    main_label_suffix: str = None,
 ) -> None:
     """
-    The Pallas speedup figure: columns hydrodynamics | MHD; top row the time
-    per step of the four configurations versus N, bottom row the speedup of
-    the Pallas over the native-JAX backend for FD and FV.
+    The Pallas speedup figure: columns hydrodynamics | MHD, the speedup of the
+    Pallas over the native-JAX backend for FD and FV against N within
+    ``SPEEDUP_FIGURE_RESOLUTIONS``. The time per step of the configurations is
+    printed by ``print_main_table``.
 
     Args:
         records: The point records of the main precision.
         figure_dir: The directory of the figure files.
         name: The figure file name (without extension).
         overlay_records: Optional records of a second precision whose speedups
-            are added to the bottom row (hollow markers, dotted).
-        overlay_label: The legend suffix of the overlay (e.g. "fp64").
+            are added as the hollow, dashed variant.
+        overlay_label: The legend suffix of the overlay (e.g. "double").
+        main_label_suffix: The legend suffix of the main precision (e.g. "single").
     """
-    figure, axes = plt.subplots(2, 2, figsize=(11, 8), sharex="col", height_ratios=(3, 2))
+    use_paper_style()
+    # Side by side in the single-column layout, stacked in one column (sharing
+    # N) in the two-column layout.
+    if TWO_COLUMN:
+        figure, axes = plt.subplots(2, 1, figsize=(COLUMN_WIDTH, 4.8), sharex=True, layout="constrained")
+    else:
+        figure, axes = plt.subplots(1, 2, figsize=(TEXT_WIDTH, 2.7), sharey=True, layout="constrained")
 
-    for column, physics in enumerate(PHYSICS):
-        time_axis = axes[0, column]
-        speedup_axis = axes[1, column]
+    maximum_speedup = 1.0
+    for axis, physics in zip(axes, PHYSICS):
         measured_resolutions = []
-
-        for (scheme, backend), style in CONFIGURATION_STYLE.items():
-            series = main_series(records, physics, scheme, backend)
-            if not series:
-                continue
-            resolutions = np.array(sorted(series))
-            seconds_per_step = np.array([series[resolution]["time_per_step"] for resolution in resolutions])
-            measured_resolutions += list(resolutions)
-            time_axis.loglog(
-                resolutions,
-                seconds_per_step,
-                linewidth=LINE_WIDTH,
-                markersize=MARKER_SIZE,
-                **style,
-            )
-
-        maximum_speedup = 1.0
         for scheme in ("FD", "FV"):
-            resolutions, speedups = speedup_series(records, physics, scheme)
-            if resolutions.size:
+            main_label = f"{scheme}, {main_label_suffix}" if main_label_suffix else scheme
+            series_of_precisions = [(records, dict(color=SPEEDUP_COLOR[scheme]), main_label)]
+            if overlay_records:
+                series_of_precisions.append(
+                    (overlay_records, variant_style(SPEEDUP_COLOR[scheme]), f"{scheme}, {overlay_label}")
+                )
+            for precision_records, style, label in series_of_precisions:
+                resolutions, speedups = speedup_series(
+                    precision_records,
+                    physics,
+                    scheme,
+                    SPEEDUP_FIGURE_RESOLUTIONS,
+                )
+                if not resolutions.size:
+                    continue
                 maximum_speedup = max(maximum_speedup, speedups.max())
-                speedup_axis.plot(
+                measured_resolutions += list(resolutions)
+                axis.plot(
                     resolutions,
                     speedups,
-                    color=SPEEDUP_COLOR[scheme],
-                    marker="s",
-                    linestyle="-",
-                    linewidth=LINE_WIDTH,
-                    markersize=MARKER_SIZE,
-                    label=scheme,
+                    marker=SPEEDUP_MARKER[scheme],
+                    label=label,
+                    **style,
                 )
-            if overlay_records:
-                resolutions, speedups = speedup_series(overlay_records, physics, scheme)
-                if resolutions.size:
-                    maximum_speedup = max(maximum_speedup, speedups.max())
-                    speedup_axis.plot(
-                        resolutions,
-                        speedups,
-                        color=SPEEDUP_COLOR[scheme],
-                        marker="s",
-                        markerfacecolor="white",
-                        linestyle=":",
-                        linewidth=LINE_WIDTH,
-                        markersize=MARKER_SIZE,
-                        label=f"{scheme}, {overlay_label}",
-                    )
-        speedup_axis.axhline(1.0, color="k", linestyle=":", alpha=0.5)
-
-        time_axis.set_title(PHYSICS_TITLE[physics], fontsize=12)
-        time_axis.set_ylabel("time per step (s)")
-        speedup_axis.set_ylabel("Pallas speedup  T(JAX) / T(Pallas)")
-        speedup_axis.set_xlabel("N  (grid 2N x N x N)")
-        speedup_axis.set_ylim(0, 1.12 * maximum_speedup)
-        for axis in (time_axis, speedup_axis):
-            axis.grid(True, which="both", alpha=GRID_ALPHA)
-            # Both columns show the same curves, so one legend per row suffices.
-            if column == 0:
-                axis.legend(fontsize=9)
+        axis.set_title(PHYSICS_TITLE[physics])
+        if not TWO_COLUMN or axis is axes[-1]:
+            axis.set_xlabel(r"$N$ (grid $2N \times N \times N$)")
         if measured_resolutions:
-            format_resolution_axis(speedup_axis, measured_resolutions)
-
-    figure.tight_layout()
+            format_resolution_axis(axis, measured_resolutions, ticks=sorted(set(measured_resolutions)))
+    for axis in axes if TWO_COLUMN else axes[:1]:
+        axis.set_ylabel(r"Pallas speedup $T_\mathrm{JAX} / T_\mathrm{Pallas}$")
+        axis.set_ylim(0, 1.12 * maximum_speedup)
+    figure_legend(figure, ncols=2 if TWO_COLUMN else None)
     save_figure(figure, figure_dir, name)
 
 
@@ -916,14 +927,16 @@ def plot_memory_breakdown(records: list, figure_dir: str, name: str) -> None:
     """
     The single-GPU memory figure: columns hydrodynamics | MHD; top row the
     total compiled memory versus N with the device memory, bottom row the
-    transient-to-argument memory ratio.
+    transient-to-argument memory ratio. (The paper condenses it into the
+    table of ``print_memory_table``.)
 
     Args:
         records: The point records of one precision.
         figure_dir: The directory of the figure files.
         name: The figure file name (without extension).
     """
-    figure, axes = plt.subplots(2, 2, figsize=(11, 8), sharex="col")
+    use_paper_style()
+    figure, axes = plt.subplots(2, 2, figsize=(TEXT_WIDTH, 4.8), sharex="col", layout="constrained")
 
     device_memory_mib = [
         float(record["gpu"]["memory.total"].split()[0])
@@ -946,46 +959,48 @@ def plot_memory_breakdown(records: list, figure_dir: str, name: str) -> None:
                 [series[resolution]["temp_bytes"] / series[resolution]["argument_bytes"] for resolution in resolutions]
             )
             measured_resolutions += list(resolutions)
-            total_axis.loglog(
-                resolutions,
-                total_gib,
-                linewidth=LINE_WIDTH,
-                markersize=MARKER_SIZE,
-                **style,
-            )
-            ratio_axis.plot(
-                resolutions,
-                ratios,
-                linewidth=LINE_WIDTH,
-                markersize=MARKER_SIZE,
-                **style,
-            )
+            total_axis.loglog(resolutions, total_gib, **style)
+            ratio_axis.plot(resolutions, ratios, **style)
 
         if device_memory_mib:
             total_axis.axhline(
                 max(device_memory_mib) / 1024,
-                color="k",
+                color=GUIDE_COLOR,
                 linestyle="-.",
-                alpha=0.5,
                 label="device memory (HBM)",
             )
-        ratio_axis.axhline(2.0, color="k", linestyle=":", alpha=0.5, label="ratio = 2")
+        ratio_axis.axhline(2.0, color=GUIDE_COLOR, linestyle=":", label="ratio = 2")
 
-        total_axis.set_title(PHYSICS_TITLE[physics], fontsize=12)
+        total_axis.set_title(PHYSICS_TITLE[physics])
         total_axis.set_ylabel("total compiled memory (GiB)")
         ratio_axis.set_ylabel("transient / argument memory")
-        ratio_axis.set_xlabel("N  (grid 2N x N x N)")
+        ratio_axis.set_xlabel(r"$N$ (grid $2N \times N \times N$)")
         ratio_axis.set_ylim(bottom=0)
-        for axis in (total_axis, ratio_axis):
-            axis.grid(True, which="both", alpha=GRID_ALPHA)
-            # Both columns show the same curves, so one legend per row suffices.
-            if column == 0:
-                axis.legend(fontsize=9)
         if measured_resolutions:
             format_resolution_axis(ratio_axis, measured_resolutions)
 
-    figure.tight_layout()
+    figure_legend(figure, ncols=3)
     save_figure(figure, figure_dir, name)
+
+
+def print_memory_table(records: list, resolution: int = MEMORY_TABLE_RESOLUTION) -> None:
+    """
+    Print the total compiled memory of one time step at one resolution as the
+    rows of the LaTeX memory table of the paper: one row per scheme and
+    backend, one column per physics, in GB (10^9 bytes).
+
+    Args:
+        records: The point records of one precision.
+        resolution: The resolution N (grid 2N x N x N).
+    """
+    print(f"\n% total compiled memory at N = {resolution} (grid {2 * resolution} x {resolution} x {resolution}), GB")
+    for scheme, backend in (("FD", "pallas"), ("FD", "jax"), ("FV", "pallas"), ("FV", "jax")):
+        cells = []
+        for physics in PHYSICS:
+            record = main_series(records, physics, scheme, backend).get(resolution)
+            cells.append(f"{record['total_bytes'] / GIGABYTE:.1f}" if record else "--")
+        backend_name = "\\texttt{Pallas}" if backend == "pallas" else "native \\texttt{JAX}"
+        print(f"{scheme} & {backend_name} & " + " & ".join(cells) + " \\\\")
 
 
 def print_main_table(records: list, precision: str) -> None:
@@ -1106,9 +1121,11 @@ def make_figures(arguments: argparse.Namespace) -> None:
             arguments.figure_dir,
             "pallas_speedup",
             overlay_records=double_records or None,
-            overlay_label="fp64",
+            overlay_label="double",
+            main_label_suffix="single",
         )
         plot_memory_breakdown(single_records, arguments.figure_dir, "single_gpu_memory_breakdown")
+        print_memory_table(single_records)
     if double_records:
         plot_pallas_speedup(double_records, arguments.figure_dir, "pallas_speedup_fp64")
         plot_memory_breakdown(double_records, arguments.figure_dir, "single_gpu_memory_breakdown_fp64")

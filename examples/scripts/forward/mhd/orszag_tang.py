@@ -35,7 +35,6 @@ import numpy as np
 
 # plotting
 import matplotlib.pyplot as plt
-from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 # astronomix constants
 from astronomix import (
@@ -46,6 +45,10 @@ from astronomix import (
     PERIODIC_BOUNDARY,
     VL2,
 )
+from astronomix.plotting_helpers.paper_style import (
+    REFERENCE_COLOR,
+    TEXT_WIDTH,
+)
 
 # astronomix containers
 from astronomix import (
@@ -54,6 +57,8 @@ from astronomix import (
     BoundarySettings,
     BoundarySettings1D,
     BackendConfig,
+    FDSolverConfig,
+    FVSolverConfig,
 )
 
 # astronomix functions
@@ -64,13 +69,18 @@ from astronomix import (
     initialize_interface_fields,
     construct_primitive_state,
 )
+from astronomix.plotting_helpers.paper_style import (
+    attach_colorbar,
+    figure_legend,
+    use_paper_style,
+)
 
 # shared figure helpers
 from _common import DATA_DIR
 from _common import FIG_DIR
 from _common import rerun_requested
 from _common import FD_COLOR
-from _common import FV_HLL_COLOR
+from _common import FV_COLOR
 
 
 GAMMA = 5.0 / 3.0
@@ -128,14 +138,15 @@ def make_config(solver_mode, num_cells, turbulence_setup=False):
     )
     if solver_mode == FINITE_DIFFERENCE:
         return SimulationConfig(
-            weno_z=True,
-            weno_positivity_preserving=turbulence_setup,
-            ct_upwind_dissipation=turbulence_setup,
+            solver_config=FDSolverConfig(
+                weno_z=True,
+                weno_positivity_preserving=turbulence_setup,
+                ct_upwind_dissipation=turbulence_setup,
+            ),
             **common_settings,
         )
     return SimulationConfig(
-        time_integrator=VL2,
-        riemann_solver=HLLD,
+        solver_config=FVSolverConfig(time_integrator=VL2, riemann_solver=HLLD),
         **common_settings,
     )
 
@@ -301,7 +312,8 @@ def plot(rerun):
     # ================= ↑ Load / run the states ↑ ================
     # -------------------------------------------------------------
 
-    fig, axs = plt.subplots(1, 2, figsize=(12, 5))
+    use_paper_style()
+    fig, axs = plt.subplots(1, 2, figsize=(TEXT_WIDTH, 3.0))
 
     # -------------------------------------------------------------
     # ============ ↓ Left: high-resolution FD field ↓ ============
@@ -315,11 +327,11 @@ def plot(rerun):
         cmap="viridis",
         rasterized=True,
     )
-    axs[0].set_xlabel("x")
-    axs[0].set_ylabel("y")
+    axs[0].set_xlabel("$x$")
+    axs[0].set_ylabel("$y$")
     axs[0].set_aspect("equal", adjustable="box")
-    cax = make_axes_locatable(axs[0]).append_axes("right", size="5%", pad=0.05)
-    fig.colorbar(image, cax=cax, label="density")
+    axs[0].grid(False)
+    attach_colorbar(fig, image, axs[0], label="density")
 
     # Mark where the profile cut is taken.
     axs[0].axhline(Y_CUT, color="white", ls="--", lw=1.0, alpha=0.8)
@@ -336,44 +348,42 @@ def plot(rerun):
     axs[1].plot(
         x_hi,
         cut(fd_hi, x_hi),
-        color="black",
-        lw=1.6,
-        label=f"{FD_LABEL}, {RES_HIGH} (reference)",
+        color=REFERENCE_COLOR,
+        linewidth=1.2,
+        label=f"{FD_LABEL}, ${RES_HIGH}^2$ (reference)",
     )
     axs[1].plot(
         x_fv,
         cut(fv_lo, x_fv),
-        color=FV_HLL_COLOR,
-        label=f"{FV_LABEL}, {RES_LOW}",
+        color=FV_COLOR,
+        label=f"{FV_LABEL}, ${RES_LOW}^2$",
     )
     axs[1].plot(
         x_lo,
         cut(fd_lo, x_lo),
         color=FD_COLOR,
-        ls="--",
-        label=f"{FD_LABEL}, {RES_LOW}",
+        linestyle="--",
+        label=f"{FD_LABEL}, ${RES_LOW}^2$",
     )
     axs[1].plot(
         x_lo,
         cut(turbulence_lo, x_lo),
         color=FD_COLOR,
-        ls=":",
-        lw=1.6,
-        label=f"{FD_TURBULENCE_LABEL}, {RES_LOW}",
+        linestyle=":",
+        label=f"{FD_TURBULENCE_LABEL}, ${RES_LOW}^2$",
     )
 
-    axs[1].set_xlabel("x")
+    axs[1].set_xlabel("$x$")
     axs[1].set_ylabel("density")
-    axs[1].legend(fontsize=9)
+    figure_legend(fig, ncols=2)
 
     # -------------------------------------------------------------
     # =========== ↑ Right: density-cut comparison ↑ ==============
     # -------------------------------------------------------------
 
-    plt.tight_layout()
     out = FIG_DIR / "orszag_tang.svg"
     fig.savefig(out)
-    fig.savefig(out.with_suffix(".png"), dpi=200)
+    fig.savefig(out.with_suffix(".png"))
     plt.close(fig)
     print(f"saved {out}")
 

@@ -75,13 +75,13 @@ from astronomix.option_classes.simulation_config import (
 )
 
 # astronomix containers
-from astronomix import BackendConfig, SimulationConfig, SimulationParams
+from astronomix import BackendConfig, FVSolverConfig, SimulationConfig, SimulationParams
 
 # astronomix functions
 from astronomix import get_registered_variables
 from astronomix.test_setups.mhd.alfven_wave3D import setup_cp_alfven_wave
-from astronomix._finite_volume._timestep_estimation._timestep_estimator import _cfl_time_step
-from astronomix._finite_volume._state_evolution.evolve_state import _evolve_state_fv
+from astronomix._finite_volume._timestep import _cfl_time_step
+from astronomix._finite_volume._evolve_state import _evolve_state_fv
 
 # validation helpers
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -126,9 +126,11 @@ def astronomix_step_function(resolution: int, backend: int, steps: int):
     """
     base_config = SimulationConfig(
         solver_mode=FINITE_VOLUME,
-        time_integrator=VL2,
-        riemann_solver=HLLD,
-        limiter=VAN_LEER,
+        solver_config=FVSolverConfig(
+            time_integrator=VL2,
+            limiter=VAN_LEER,
+            riemann_solver=HLLD,
+        ),
         mhd=True,
         dimensionality=3,
         num_cells=StaticIntVector(2 * resolution, resolution, resolution),

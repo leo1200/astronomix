@@ -7,6 +7,7 @@ Submodules
 .. toctree::
    :maxdepth: 4
 
+   astronomix.option_classes.presets
    astronomix.option_classes.simulation_config
    astronomix.option_classes.simulation_params
 

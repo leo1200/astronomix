@@ -26,7 +26,7 @@ Results are written to ``results/comparison_<platform>.json``. With
 ``--regression-data`` the script instead stores two small Athena++ runs
 (initial state, final state, cycles) in
 ``pytests/self_gravity/data/athenapp_vl2_gravity`` for the regression test
-``pytests/self_gravity/vl2_athenapp_regression.py``.
+``pytests/self_gravity/test_vl2_athenapp_regression.py``.
 """
 
 # ==== GPU selection ====
@@ -73,6 +73,7 @@ from astronomix import (
     BackendConfig,
     BoundarySettings,
     BoundarySettings1D,
+    FVSolverConfig,
     GravityConfig,
     SimulationConfig,
     SimulationParams,
@@ -211,8 +212,7 @@ def astronomix_setup(case, discrete_laplacian):
     config = SimulationConfig(
         backend_config=BackendConfig(backend=NATIVE_JAX),
         solver_mode=FINITE_VOLUME,
-        time_integrator=VL2,
-        riemann_solver=HLLC,
+        solver_config=FVSolverConfig(time_integrator=VL2, riemann_solver=HLLC),
         gravity_config=GravityConfig(
             self_gravity=True,
             self_gravity_version=ATHENA_SECOND_ORDER,

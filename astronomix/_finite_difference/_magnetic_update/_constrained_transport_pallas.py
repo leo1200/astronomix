@@ -58,19 +58,24 @@ import jax
 import jax.numpy as jnp
 
 # astronomix constants
-from astronomix.option_classes.simulation_config import IDEAL_GAS
+from astronomix.option_classes.simulation_config import IDEAL_GAS, ISOTHERMAL, POLYTROPIC, RIEMANN_FLUX
 
 # astronomix containers
 from astronomix.option_classes.simulation_config import SimulationConfig
+from astronomix.option_classes.simulation_params import SimulationParams
 from astronomix.variable_registry.registered_variables import RegisteredVariables
 
 # astronomix functions
+from astronomix._finite_difference._interface_fluxes._riemann_flux_pallas import _riemann_flux_pallas_supported
+from astronomix._finite_difference._magnetic_update._rebuild_energy import rebuilt_total_energy
 from astronomix._pallas_helpers import (
     _as_3tuple_block_shape,
     _backend_is_pallas,
     _pallas_call_sharded,
     _pallas_compiler_params,
     _pallas_mesh_splits_axis,
+    _shard_cells,
+    _shifted_index,
     pl,
 )
 
@@ -115,31 +120,34 @@ def _ct_pallas_block_ok(state_shape, config: SimulationConfig) -> bool:
 
 def _ct_block_and_grid(spatial_shape, config: SimulationConfig):
     """
-    Block shape and Pallas grid for a (possibly halo-padded) local spatial
-    shape. Called inside every ``*_local`` build so that the grid resizes
-    automatically when ``_pallas_call_sharded`` hands the build a padded shard.
+    Block shape and Pallas grid of a kernel whose inputs have the (possibly
+    halo-padded) local spatial shape ``spatial_shape``. Called inside every
+    ``*_local`` build, so that the grid resizes when ``_pallas_call_sharded``
+    hands the build a shard: the blocks cover the cells the kernel writes
+    (``_shard_cells``), the shard's own with ``local_output``.
 
     Args:
-        spatial_shape: The spatial shape ``(nx, ny, nz)`` to tile.
+        spatial_shape: The spatial shape ``(nx, ny, nz)`` of the inputs.
         config: The simulation configuration.
 
     Returns:
         ``((nx, ny, nz), (block_x, block_y, block_z), grid)``.
     """
     nx, ny, nz = (int(extent) for extent in spatial_shape)
-    block_x, block_y, block_z = _as_3tuple_block_shape(
+    _, written_extents = _shard_cells((nx, ny, nz))
+    block_shape = _as_3tuple_block_shape(
         config.backend_config.pallas_block_shape,
         3,
-        spatial_shape=(nx, ny, nz),
+        spatial_shape=written_extents,
     )
-    grid = (nx // block_x, ny // block_y, nz // block_z)
-    return (nx, ny, nz), (block_x, block_y, block_z), grid
+    grid = tuple(extent // block for extent, block in zip(written_extents, block_shape))
+    return (nx, ny, nz), block_shape, grid
 
 
 def _block_cell_indices(block_shape, spatial_shape):
     """
-    Cell indices ``(ii, jj, kk)`` of the current Pallas block, broadcastable
-    over the 3D tile.
+    Cell indices ``(ii, jj, kk)`` of the current Pallas block in inputs of
+    the spatial shape ``spatial_shape``, broadcastable over the 3D tile.
 
     Args:
         block_shape: The block shape ``(block_x, block_y, block_z)``.
@@ -150,9 +158,10 @@ def _block_cell_indices(block_shape, spatial_shape):
     """
     block_x, block_y, block_z = block_shape
     nx, ny, nz = spatial_shape
-    ii = (pl.program_id(0) * block_x + jnp.arange(block_x)[:, None, None]) % nx
-    jj = (pl.program_id(1) * block_y + jnp.arange(block_y)[None, :, None]) % ny
-    kk = (pl.program_id(2) * block_z + jnp.arange(block_z)[None, None, :]) % nz
+    first_x, first_y, first_z = _shard_cells(spatial_shape)[0]
+    ii = _shifted_index(pl.program_id(0) * block_x + jnp.arange(block_x)[:, None, None], first_x) % nx
+    jj = _shifted_index(pl.program_id(1) * block_y + jnp.arange(block_y)[None, :, None], first_y) % ny
+    kk = _shifted_index(pl.program_id(2) * block_z + jnp.arange(block_z)[None, None, :], first_z) % nz
     return ii, jj, kk
 
 
@@ -296,8 +305,11 @@ def _ct_update_cell_center_fields_pallas_supported(state, config: SimulationConf
     """
     Whether the Pallas cell-centre reconstruction can run.
 
-    3D ideal-gas MHD only; the isothermal and lower-dimensional paths use the
-    short native version. Gated on ``config.backend_config.pallas_ct``.
+    3D MHD with the ideal gas, and with the isothermal gas under
+    ``scheme = RIEMANN_FLUX`` (no energy row); the other gases and the
+    lower-dimensional paths use the short native version. Gated on
+    ``config.backend_config.pallas_ct``, and under ``scheme = RIEMANN_FLUX``
+    on the condition of that scheme's kernels.
 
     Args:
         state: The conserved state.
@@ -314,11 +326,14 @@ def _ct_update_cell_center_fields_pallas_supported(state, config: SimulationConf
         return False
     if not config.mhd:
         return False
-    if config.equation_of_state != IDEAL_GAS:
+    riemann_flux = config.solver_config.scheme == RIEMANN_FLUX
+    if config.equation_of_state != IDEAL_GAS and not (riemann_flux and config.equation_of_state == ISOTHERMAL):
         return False
     if int(config.dimensionality) != 3:
         return False
     if state.ndim != 4:
+        return False
+    if config.solver_config.scheme == RIEMANN_FLUX and not _riemann_flux_pallas_supported(state, config):
         return False
     return _ct_pallas_block_ok(state.shape, config)
 
@@ -330,11 +345,13 @@ def _ct_update_cell_center_fields_pallas(
     bz_interface,
     config: SimulationConfig,
     registered_variables: RegisteredVariables,
+    params: SimulationParams = None,
 ):
     """
     Pallas ``update_cell_center_fields``: the cell-centred magnetic field from
     the interface fields, with the total energy adjusted to the new magnetic
-    energy.
+    energy (the pressure held), or under ``scheme = RIEMANN_FLUX`` the energy
+    held (``rebuilt_total_energy``, which reads ``params``).
 
     The three interface fields are stacked along a leading axis so that they
     ride the variables-first halo exchange of ``_pallas_call_sharded`` (halo 3:
@@ -347,66 +364,86 @@ def _ct_update_cell_center_fields_pallas(
         bz_interface: The z-face magnetic field.
         config: The simulation configuration.
         registered_variables: The registered variables.
+        params: The simulation parameters (gamma and the floors; read under ``RIEMANN_FLUX``).
 
     Returns:
         The conserved state with updated cell-centred field and energy.
     """
     assert _ct_update_cell_center_fields_pallas_supported(conserved_state, config)
     ndim = int(config.dimensionality)
+    dtype = conserved_state.dtype
     _, block_shape, _ = _ct_block_and_grid(conserved_state.shape[1:], config)
     stacked_interface_fields = jnp.stack([bx_interface, by_interface, bz_interface])
     interface_field_halo = (3, 3, 3)[:ndim]
     zero_halo = (0,) * ndim
+    hold_energy = config.solver_config.scheme == RIEMANN_FLUX and config.equation_of_state == IDEAL_GAS
+    scalars = (params.gamma, params.minimum_density, params.minimum_pressure) if hold_energy else ()
 
-    def build_local(state_local, interface_fields_local):
+    def build_local(state_local, interface_fields_local, *scalars_local):
         return _ct_update_cell_center_fields_pallas_local(
             state_local,
             interface_fields_local,
-            config,
-            registered_variables,
+            *scalars_local,
+            config=config,
+            registered_variables=registered_variables,
+            hold_energy=hold_energy,
         )
 
     return _pallas_call_sharded(
         build_local,
         state_inputs=(conserved_state, stacked_interface_fields),
+        other_args=tuple(jnp.asarray(scalar, dtype=dtype) for scalar in scalars),
         halo=interface_field_halo,
         # The kernel reads the conserved state only at the cell itself, so
         # only the interface fields (stencil -3..+2 on every axis) are
         # exchanged.
         input_halos=(zero_halo, interface_field_halo),
         block_shape=block_shape[:ndim],
+        local_output=True,
     )
 
 
 def _ct_update_cell_center_fields_pallas_local(
     conserved_state,
     interface_fields,
+    *scalars,
     config: SimulationConfig,
     registered_variables: RegisteredVariables,
+    hold_energy: bool = False,
 ):
     """
     Single-shard build of ``_ct_update_cell_center_fields_pallas``: three
-    independent face-to-centre stencils, the cell-centred field and the energy
-    update, and a pass-through of every other variable. All shapes come from
-    this call's arguments, so the build works on padded local shards.
+    independent face-to-centre stencils, the cell-centred field and (ideal
+    gas) the energy update, and a pass-through of every other variable. All
+    shapes come from this call's arguments, so the build works on the shard of
+    a device mesh or on a region of a padded shard, whose cells the padded
+    inputs hold after their halos (``_shard_cells``).
 
     Args:
-        conserved_state: The conserved state (possibly halo-padded).
+        conserved_state: The conserved state.
         interface_fields: The stacked ``(3, nx, ny, nz)`` interface fields.
+        *scalars: With ``hold_energy``: gamma, the minimum density and the
+            minimum pressure (scalar arrays).
         config: The simulation configuration.
         registered_variables: The registered variables.
+        hold_energy: Hold the total energy instead of the pressure (static).
 
     Returns:
         The updated conserved state.
     """
     num_vars = int(conserved_state.shape[0])
-    spatial_shape, block_shape, grid = _ct_block_and_grid(conserved_state.shape[1:], config)
-    nx, ny, nz = spatial_shape
+    state_shape, block_shape, grid = _ct_block_and_grid(conserved_state.shape[1:], config)
+    interface_shape = tuple(int(extent) for extent in interface_fields.shape[1:])
+    nx, ny, nz = interface_shape
 
+    density_index = int(registered_variables.density_index)
+    momentum_indices = tuple(int(index) for index in registered_variables.momentum_index)
     magnetic_x_index = int(registered_variables.magnetic_index.x)
     magnetic_y_index = int(registered_variables.magnetic_index.y)
     magnetic_z_index = int(registered_variables.magnetic_index.z)
     energy_index = int(registered_variables.energy_index)
+    ideal_gas = config.equation_of_state == IDEAL_GAS
+    field_rows = (magnetic_x_index, magnetic_y_index, magnetic_z_index)
 
     state_out_spec = pl.BlockSpec(
         (num_vars,) + block_shape,
@@ -414,19 +451,32 @@ def _ct_update_cell_center_fields_pallas_local(
     )
     state_in_spec = pl.BlockSpec(conserved_state.shape, lambda bi, bj, bk: (0, 0, 0, 0))
     interface_in_spec = pl.BlockSpec(interface_fields.shape, lambda bi, bj, bk: (0, 0, 0, 0))
+    scalar_spec = pl.BlockSpec((), lambda bi, bj, bk: ())
 
-    def kernel(state_ref, interface_ref, out_ref):
-        ii, jj, kk = _block_cell_indices(block_shape, spatial_shape)
+    def kernel(state_ref, interface_ref, *refs):
+        scalar_refs, out_ref = refs[:-1], refs[-1]
+        ii, jj, kk = _block_cell_indices(block_shape, state_shape)
+        same_cells = interface_shape == state_shape
+        fi, fj, fk = (ii, jj, kk) if same_cells else _block_cell_indices(block_shape, interface_shape)
 
         bx_center = _face_to_center(
-            lambda offset: interface_ref[0, _wrapped_index(ii, offset, nx), jj, kk]
+            lambda offset: interface_ref[0, _wrapped_index(fi, offset, nx), fj, fk]
         )
         by_center = _face_to_center(
-            lambda offset: interface_ref[1, ii, _wrapped_index(jj, offset, ny), kk]
+            lambda offset: interface_ref[1, fi, _wrapped_index(fj, offset, ny), fk]
         )
         bz_center = _face_to_center(
-            lambda offset: interface_ref[2, ii, jj, _wrapped_index(kk, offset, nz)]
+            lambda offset: interface_ref[2, fi, fj, _wrapped_index(fk, offset, nz)]
         )
+
+        if not ideal_gas:
+            # a barotropic gas: the field rows are replaced, the others passed through
+            for var in range(num_vars):
+                if var in field_rows:
+                    out_ref[var, ...] = (bx_center, by_center, bz_center)[field_rows.index(var)]
+                else:
+                    out_ref[var, ...] = state_ref[var, ii, jj, kk]
+            return
 
         bx_old = state_ref[magnetic_x_index, ii, jj, kk]
         by_old = state_ref[magnetic_y_index, ii, jj, kk]
@@ -436,7 +486,23 @@ def _ct_update_cell_center_fields_pallas_local(
             bx_center * bx_center + by_center * by_center + bz_center * bz_center
         )
         energy_old = state_ref[energy_index, ii, jj, kk]
-        energy_new = energy_old + 0.5 * (magnetic_energy_density_new - magnetic_energy_density_old)
+        if hold_energy:
+            gamma, minimum_density, minimum_pressure = (ref[()] for ref in scalar_refs)
+            momentum_squared = sum(
+                state_ref[index, ii, jj, kk] * state_ref[index, ii, jj, kk] for index in momentum_indices
+            )
+            energy_new = rebuilt_total_energy(
+                energy_old,
+                state_ref[density_index, ii, jj, kk],
+                momentum_squared,
+                magnetic_energy_density_old,
+                magnetic_energy_density_new,
+                gamma,
+                minimum_density,
+                minimum_pressure,
+            )
+        else:
+            energy_new = energy_old + 0.5 * (magnetic_energy_density_new - magnetic_energy_density_old)
 
         for var in range(num_vars):
             if var == magnetic_x_index:
@@ -452,14 +518,14 @@ def _ct_update_cell_center_fields_pallas_local(
 
     return pl.pallas_call(
         kernel,
-        out_shape=jax.ShapeDtypeStruct(conserved_state.shape, conserved_state.dtype),
+        out_shape=jax.ShapeDtypeStruct((num_vars,) + _shard_cells(state_shape)[1], conserved_state.dtype),
         grid=grid,
-        in_specs=[state_in_spec, interface_in_spec],
+        in_specs=[state_in_spec, interface_in_spec] + [scalar_spec] * len(scalars),
         out_specs=state_out_spec,
         interpret=config.backend_config.pallas_interpret,
         name="ct_update_cell_center_fields",
         **_compiler_kwargs(config),
-    )(conserved_state, interface_fields)
+    )(conserved_state, interface_fields, *scalars)
 
 
 # -------------------------------------------------------------
@@ -1508,7 +1574,7 @@ def _ct_upwind_dissipation_pallas(
         dt_over_dx: The (stage) time step over the cell size.
         gamma: The adiabatic index (ideal gas).
         params: The simulation parameters (minimum density and pressure,
-            isothermal sound speed).
+            the barotropic law).
         config: The simulation configuration.
         registered_variables: The registered variables.
 
@@ -1518,8 +1584,13 @@ def _ct_upwind_dissipation_pallas(
     ndim = int(config.dimensionality)
     dtype = interface_fields.dtype
     _, block_shape, _ = _ct_block_and_grid(interface_fields.shape[1:], config)
+    # The two scalars of the gas: (unused, gamma) for the ideal gas, (c_s^2, unused)
+    # for the isothermal gas and (K, Gamma) for the polytropic gas.
     if config.equation_of_state == IDEAL_GAS:
         sound_speed_squared = jnp.zeros((), dtype=dtype)
+    elif config.equation_of_state == POLYTROPIC:
+        sound_speed_squared = jnp.asarray(params.polytropic_constant, dtype=dtype)
+        gamma = params.polytropic_exponent
     else:
         sound_speed_squared = jnp.asarray(params.isothermal_sound_speed ** 2, dtype=dtype)
 
@@ -1579,9 +1650,10 @@ def _ct_upwind_emf_pallas_local(
         interface_fields: The stacked interface fields (possibly halo-padded).
         minimum_density: The density floor of the speed estimate (scalar array).
         minimum_pressure: The pressure floor of the speed estimate (scalar array).
-        sound_speed_squared: The isothermal sound speed squared (scalar array;
-            unused for an ideal gas).
-        gamma: The adiabatic index (scalar array; ideal gas only).
+        sound_speed_squared: The isothermal sound speed squared, or the constant K
+            of a polytropic gas (scalar array; unused for an ideal gas).
+        gamma: The adiabatic index, or the exponent Gamma of a polytropic gas
+            (scalar array; unused for an isothermal gas).
         config: The simulation configuration.
         registered_variables: The registered variables.
 
@@ -1592,7 +1664,8 @@ def _ct_upwind_emf_pallas_local(
     nx, ny, nz = spatial_shape
     extents = (nx, ny, nz)
     ideal_gas = config.equation_of_state == IDEAL_GAS
-    half_strength = 0.5 * config.ct_upwind_strength
+    polytropic = config.equation_of_state == POLYTROPIC
+    half_strength = 0.5 * config.solver_config.ct_upwind_strength
     density_index = registered_variables.density_index
     momentum_indices = (
         registered_variables.momentum_index.x,
@@ -1632,6 +1705,9 @@ def _ct_upwind_emf_pallas_local(
                     state_ref[(energy_index,) + index] - kinetic - 0.5 * field_squared
                 )
                 cs2 = gamma_ref[()] * jnp.maximum(pressure, pmin_ref[()]) / density
+            elif polytropic:
+                # a^2 = Gamma K rho^(Gamma - 1)
+                cs2 = gamma_ref[()] * cs2_ref[()] * density ** (gamma_ref[()] - 1.0)
             else:
                 cs2 = cs2_ref[()]
             total = cs2 + field_squared / density
@@ -1738,7 +1814,7 @@ def _ct_plain_curl_pallas_local(emf_slices, dt_over_dx, config: SimulationConfig
         out_ref[1, ...] = scale * (-difference(1, 2) + difference(0, 0))
         out_ref[2, ...] = scale * (-difference(2, 0) + difference(1, 1))
 
-    out_shape = jax.ShapeDtypeStruct((3,) + tuple(spatial_shape), emf_slices.dtype)
+    out_shape = jax.ShapeDtypeStruct((3,) + _shard_cells(spatial_shape)[1], emf_slices.dtype)
     return pl.pallas_call(
         kernel,
         out_shape=out_shape,

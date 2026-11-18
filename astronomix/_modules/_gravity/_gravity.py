@@ -5,8 +5,8 @@ Assembles the total gravitational potential (self-gravity from the FFT Poisson
 solve plus any external potential) and turns it into momentum and energy source
 terms for the fluid. Several couplings are supported: a simple non-conservative
 source and two conservative flux-based formulations (second- and fourth-order)
-used by the finite-difference solver, and Athena++'s second-order coupling used
-by the finite-volume VL2 scheme. Optionally
+used by the finite-difference solver; Athena++'s second-order coupling of the
+finite-volume VL2 scheme is in ``_finite_volume/_gravity_coupling.py``. Optionally
 (``GravityConfig.work_flux_correction``) the potential-energy flux of the
 conservative finite-difference couplings is flux-corrected so that the
 gravitational work cannot drive the internal energy negative. The potential of
@@ -38,7 +38,6 @@ from astronomix.option_classes.simulation_config import (
 )
 
 # astronomix containers
-from astronomix.data_classes.simulation_helper_data import HelperData
 from astronomix.variable_registry.registered_variables import RegisteredVariables
 from astronomix.option_classes.simulation_config import SimulationConfig
 from astronomix.option_classes.simulation_params import SimulationParams
@@ -155,8 +154,9 @@ def _second_order_gravitational_acceleration(
     """
     Gravitational acceleration at the cell centres from the 2nd-order centred
     finite difference of the potential, a_i = -(phi_{i+1} - phi_{i-1}) / (2 dx).
-    The classic finite-volume coupling applies it to the gas momentum and the
-    sink particles read it back, so that gas and sinks feel the same field.
+    It is the average of the two face accelerations of VL2's coupling
+    (``_finite_volume/_gravity_coupling.py``), the momentum source of the gas;
+    the sink particles read it back, so that gas and sinks feel the same field.
     """
     return -_stencil_add(
         gravitational_potential,
@@ -250,12 +250,14 @@ def _fd_gravity_source(
     sink_potential=None,
 ):
     """
-    Build the finite-difference self-gravity source term for the full state.
+    Build the gravity source term of the stages for the full state (the
+    finite-difference schemes; ``RK2_SSP`` and ``MUSCL_HANCOCK`` with
+    ``SIMPLE_SOURCE``).
 
     Computes the total gravitational potential and assembles the momentum and
     energy source contributions for every spatial axis, according to the
     configured coupling (``SIMPLE_SOURCE`` or one of the conservative,
-    flux-based schemes). With ``GravityConfig.work_flux_correction`` the
+    flux-based schemes of the finite-difference solver). With ``GravityConfig.work_flux_correction`` the
     potential-energy flux of the conservative couplings is then limited (see
     ``_flux_correct_gravitational_work``). The potential of the sink
     particles, when given, acts on the gas through the simple source
@@ -306,12 +308,13 @@ def _fd_gravity_source(
             )
 
             # Simple (non-conservative) coupling: rho * a for momentum and
-            # rho * v * a for energy.
+            # rho * v * a for energy (a barotropic gas has no energy row).
             axis_source = jnp.zeros_like(primitive_state)
             axis_source = axis_source.at[momentum_index].set(density * acceleration)
-            axis_source = axis_source.at[registered_variables.energy_index].set(
-                density * velocity * acceleration
-            )
+            if registered_variables.energy_index >= 0:
+                axis_source = axis_source.at[registered_variables.energy_index].set(
+                    density * velocity * acceleration
+                )
 
             gravity_source += axis_source * dt
 
@@ -436,9 +439,11 @@ def _fd_gravity_source(
             gravity_source = gravity_source.at[momentum_index].add(
                 density * sink_acceleration * dt
             )
-            gravity_source = gravity_source.at[registered_variables.energy_index].add(
-                density * primitive_state[velocity_index] * sink_acceleration * dt
-            )
+            # A barotropic gas has no energy row.
+            if registered_variables.energy_index >= 0:
+                gravity_source = gravity_source.at[registered_variables.energy_index].add(
+                    density * primitive_state[velocity_index] * sink_acceleration * dt
+                )
 
     return gravity_source
 
@@ -626,158 +631,3 @@ def _flux_correct_gravitational_work(
     # -------------------------------------------------------------
 
     return gravity_source.at[energy_index].add(correction * dt)
-
-
-def _add_athena_gravity_source(
-    conserved_state: STATE_TYPE,
-    stage_density: FIELD_TYPE,
-    mass_fluxes_per_axis,
-    stage_potential: FIELD_TYPE,
-    work_potential: FIELD_TYPE,
-    stage_time_step,
-    config: SimulationConfig,
-    registered_variables: RegisteredVariables,
-) -> STATE_TYPE:
-    """
-    Add Athena++'s self-gravity source of one VL2 stage to the conserved state
-    (Athena++: ``HydroSourceTerms::SelfGravity``, ``self_gravity.cpp``).
-
-    With the face accelerations ``g_{i-1/2} = -(phi_i - phi_{i-1}) / dx``, cell
-    ``i`` receives along every axis
-
-        (rho v)_i += (beta dt / 2) rho_i (g_{i-1/2} + g_{i+1/2})
-        E_i       += (beta dt / 2) (F_{i-1/2} g_{i-1/2} + F_{i+1/2} g_{i+1/2})
-
-    where ``rho`` and the momentum potential are those of the stage's initial
-    state and ``F`` are the stage's Riemann mass fluxes, the same fluxes that
-    update the density. The momentum source is the cell-centred
-    ``rho grad(phi)`` of Mullen, Hanawa & Gammie (2021); with the potential of
-    the discrete Laplacian (``GravityConfig.poisson_discrete_laplacian``) it is
-    the divergence of a discrete gravitational stress tensor. The energy
-    source is ``-div(F phi_face) + phi_i div(F)`` with the face potential
-    ``(phi_i + phi_{i+1}) / 2``, so summed over the domain it equals
-    ``sum phi_i * (density change)``: total energy is conserved for the
-    time-continuous update. The expressions follow Athena++'s arithmetic, axis
-    by axis, so the two codes agree to round-off.
-
-    Args:
-        conserved_state: The conserved state after the stage's flux update.
-        stage_density: The density of the stage's initial (primitive) state.
-        mass_fluxes_per_axis: The stage's density fluxes per axis, at the faces
-            ``i - 1/2``.
-        stage_potential: The potential of the stage's initial state (momentum
-            source).
-        work_potential: The potential the mass fluxes are charged with (energy
-            source): ``stage_potential`` in Athena++, the time-centred average
-            with ``GravityConfig.time_centred_energy_source``.
-        stage_time_step: The stage's time-step weight ``beta * dt``.
-        config: The simulation configuration.
-        registered_variables: The registered variables.
-
-    Returns:
-        The conserved state with the gravity source added.
-    """
-    half_step_over_spacing = 0.5 * stage_time_step / config.grid_spacing
-    energy_index = registered_variables.energy_index
-
-    for spatial_axis, mass_flux in enumerate(mass_fluxes_per_axis):
-        momentum_index = _component_index(registered_variables.momentum_index, spatial_axis)
-
-        # The face accelerations times dx at i - 1/2 and i + 1/2 (Athena++'s
-        # dpl and dpr).
-        stage_acceleration_left = -(
-            stage_potential - _shift(stage_potential, 1, axis=spatial_axis)
-        )
-        stage_acceleration_right = -(
-            _shift(stage_potential, -1, axis=spatial_axis) - stage_potential
-        )
-        work_acceleration_left = -(
-            work_potential - _shift(work_potential, 1, axis=spatial_axis)
-        )
-        work_acceleration_right = -(
-            _shift(work_potential, -1, axis=spatial_axis) - work_potential
-        )
-
-        momentum_change = (
-            half_step_over_spacing
-            * stage_density
-            * (stage_acceleration_left + stage_acceleration_right)
-        )
-        energy_change = half_step_over_spacing * (
-            mass_flux * work_acceleration_left
-            + _shift(mass_flux, -1, axis=spatial_axis) * work_acceleration_right
-        )
-        conserved_state = conserved_state.at[momentum_index].add(momentum_change)
-        conserved_state = conserved_state.at[energy_index].add(energy_change)
-
-    return conserved_state
-
-
-@partial(
-    jax.jit,
-    static_argnames=[
-        "axis",
-        "grid_spacing",
-        "registered_variables",
-        "config",
-    ],
-)
-def _gravitational_source_term_along_axis(
-    gravitational_potential: FIELD_TYPE,
-    primitive_state: STATE_TYPE,
-    grid_spacing: float,
-    registered_variables: RegisteredVariables,
-    dt: Union[float, Float[Array, ""]],
-    gamma: Union[float, Float[Array, ""]],
-    config: SimulationConfig,
-    params: SimulationParams,
-    helper_data: HelperData,
-    axis: int,
-) -> STATE_TYPE:
-    """
-    Compute the source term for the self-gravity solver along a single axis.
-    Currently, simply density * gravitational_acceleration for the momentum
-    and density * velocity * gravitational_acceleration for the energy.
-
-    This simple coupling serves the classic finite-volume schemes (RK2, MUSCL);
-    the VL2 scheme uses Athena++'s coupling (``_add_athena_gravity_source``)
-    and the conservative flux schemes are finite-difference only (see
-    ``_fd_gravity_source``).
-
-    Args:
-        gravitational_potential: The gravitational potential.
-        primitive_state: The primitive state.
-        grid_spacing: The grid spacing.
-        registered_variables: The registered variables.
-        dt: The time step.
-        gamma: The adiabatic index.
-        config: The simulation configuration.
-        params: The simulation parameters.
-        helper_data: The helper data.
-        axis: The state-array axis along which to compute the source term
-            (1-based spatial axis; the leading state axis indexes the fields).
-
-    Returns:
-        The source term.
-    """
-
-    spatial_axis = axis - 1
-    momentum_index = _component_index(registered_variables.momentum_index, spatial_axis)
-    velocity_index = _component_index(registered_variables.velocity_index, spatial_axis)
-
-    density = primitive_state[registered_variables.density_index]
-    velocity = primitive_state[velocity_index]
-
-    acceleration = _second_order_gravitational_acceleration(
-        gravitational_potential,
-        spatial_axis,
-        grid_spacing,
-    )
-
-    source_term = jnp.zeros_like(primitive_state)
-    source_term = source_term.at[momentum_index].set(density * acceleration)
-    source_term = source_term.at[registered_variables.energy_index].set(
-        density * velocity * acceleration
-    )
-
-    return source_term

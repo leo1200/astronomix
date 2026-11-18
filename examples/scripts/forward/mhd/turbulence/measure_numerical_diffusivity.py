@@ -129,7 +129,7 @@ def solenoidal_white_field(key, n_cells, amplitude, shell=0):
 # -------------------------------------------------------------
 
 
-def build_config(n_cells, num_snapshots, seed):
+def build_config(n_cells, num_snapshots):
     periodic = BoundarySettings(
         BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY),
         BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY),
@@ -145,7 +145,7 @@ def build_config(n_cells, num_snapshots, seed):
         # equally well, but `use_specific_snapshot_timepoints` clips the step to
         # land on each snapshot exactly and the first log intervals are short
         # enough to collapse dt to zero.
-        num_snapshots=num_snapshots, random_seed=seed, progress_bar=False,
+        num_snapshots=num_snapshots, progress_bar=False,
     )
 
 
@@ -174,7 +174,7 @@ def main():
         1e-6 if args.field == "magnetic" else 1e-4)
     # At fixed n/N the decay rate grows with N, so a coarser grid needs longer.
     t_end = args.t_end if args.t_end > 0 else 30.0 * (64.0 / args.n)
-    config = build_config(args.n, args.nsnap, args.seed)
+    config = build_config(args.n, args.nsnap)
     rv = get_registered_variables(config)
     params = SimulationParams(C_cfl=args.cfl, isothermal_sound_speed=CS,
                               t_end=t_end, minimum_density=1e-4,

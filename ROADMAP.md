@@ -13,7 +13,7 @@ single- and multi-GPU (`_pallas_call_sharded`).
 holds the AthenaPK runner, the 19-case comparison (round-off agreement, the scale
 being AthenaPK's own GPU-vs-CPU difference), the CP Alfvén convergence study and
 the A100 benchmark (Pallas 9.25 ms per step at 2 x 128³ in double precision
-against AthenaPK's 25.4 ms). `pytests/mhd/vl2_athenapk_regression.py` guards it.
+against AthenaPK's 25.4 ms). `pytests/mhd/test_vl2_athenapk_regression.py` guards it.
 
 **Done since** (paper revision, branch `paper-revision`): AthenaPK builds for the
 JUPITER GH200 nodes in double and single precision
@@ -40,9 +40,8 @@ positivity-preserving WENO (`weno_positivity_preserving=True`, set by
 
 **On JUPITER** (casanova's `jupiter/README.md`):
 the observation data rebuilt from the public Chandra archive (no CIAO on aarch64:
-`--responses tables`), the ICs from Orlando's delivery, gates G0-G5 measured, the
-cold-face tangent (P2, `ad_tangent_llf_cold_factor`) added after G2 failed at
-256³/512³, the hydro WENO Pallas adjoint back (`BackendConfig.pallas_adjoint`),
+`--responses tables`), the ICs from Orlando's delivery, gates G0-G5 measured,
+the hydro WENO Pallas adjoint back (`BackendConfig.pallas_adjoint`),
 deterministic scatters made cheap, `casa_4dvar` across nodes (`CASA_DISTRIBUTED=1`),
 a 128³ refit and the 512³ 4D-Var on 8 GH200 (198-835 s per gradient, <= 66 GB/GPU),
 which improves the held-out 2019/2022 score by 17.2 % (128³: 12.3 %).
@@ -61,7 +60,8 @@ astronomix WENO5/WENO-Z + CT against AthenaPK PLM/PPM/WENO-Z + GLM, in-flight
 spectra and transfer functions, the numerical viscosity and resistivity measured
 at matched E_B/E_K (Pm_num is a scheme constant: CT ~1.21, every GLM scheme
 0.48-0.63), explicit-diffusivity calibration ladders, AthenaPK-style few-modes
-forcing (`TurbulentForcingConfig.forcing_modes`). The hydro counterpart against
+forcing (`TurbulentForcingConfig.forcing_modes` of the forcing module before the
+TurbGen driving, tag `pre-streamline`). The hydro counterpart against
 AthenaK is in `examples/scripts/forward/hydro/turbulence`.
 
 **Done since** (paper revision): the study with astronomix's own VL2 scheme
@@ -85,8 +85,8 @@ explicit diffusivities at fixed Pm.
 - Self-gravity with the isothermal equation of state is not rejected by
   `finalize_config`, although the energy source then has no energy variable.
 - The multi-GPU fast path of the LSRK4 + CT step (kept x halo, fused CT parts) is
-  used only without positivity-preserving WENO, dual energy and the cold-crush
-  blend; porting it to the SSPRK4 integrator and to the PP data flow is open.
+  used only without positivity-preserving WENO and dual energy; porting it to
+  the SSPRK4 integrator and to the PP data flow is open.
 - The pairwise `all_to_all` halo exchange of the multi-GPU scaling work
   (esovetkin/optim_scaling, 256483e) is now merged and the default for
   multi-device meshes (`BackendConfig.halo_exchange = "pair_all_to_all"`; the

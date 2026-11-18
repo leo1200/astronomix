@@ -17,6 +17,9 @@ with the repo on PYTHONPATH and GPU selection through autocvd, e.g.
 import sys
 from pathlib import Path
 
+# astronomix constants
+from astronomix.plotting_helpers import paper_style
+
 # The generators live alongside this helper; anchor the cache and figure
 # directories to that location so they resolve the same regardless of cwd.
 HERE = Path(__file__).resolve().parent
@@ -36,10 +39,9 @@ def rerun_requested() -> bool:
     return "--rerun" in sys.argv
 
 
-# Consistent solver colours across the hydrodynamics figures, so the same
-# solver reads as the same colour from one figure to the next.
-FV_HLL_COLOR = "#1f77b4"       # blue
-FV_HLLC_COLOR = "#2ca02c"      # green
-FV_AM_HLLC_COLOR = "#9467bd"   # purple
-FD_COLOR = "#d62728"           # red
-EXACT_COLOR = "black"
+# The solver colours of all figures of the paper, so the same solver reads as
+# the same colour from one figure to the next.
+FV_HLL_COLOR = paper_style.FV_HLLE_COLOR
+FV_HLLC_COLOR = paper_style.FV_COLOR
+FD_COLOR = paper_style.FD_COLOR
+EXACT_COLOR = paper_style.REFERENCE_COLOR

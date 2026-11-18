@@ -331,8 +331,11 @@ def test_control_volume_at_open_boundary():
     the starting velocity of a new sink is the mass-weighted mean over them.
     """
     # A clump on the first cell along x, in a flow contracting along x. The
-    # ghost cells copy the velocity of the first cell, which differs from the
-    # mean over the interior cells: counting them gives 0.488 instead of 0.480.
+    # Poisson solve leaves out the ghost cells, so the potential minimum, and
+    # with it the sink, lies one cell inside the box, where the control volume
+    # still reaches 2 cells past the boundary. The ghost cells copy the
+    # velocity of the first cell, which differs from the mean over the
+    # interior cells: counting them gives 0.478 instead of 0.473.
     settings = SETTINGS._replace(
         boundary_settings=BoundarySettings(),
         overdensity_center=(0.5 * CELL_SIZE, CLUMP_CENTER, CLUMP_CENTER),
@@ -355,14 +358,18 @@ def test_control_volume_at_open_boundary():
         registered_variables,
     )
 
+    assert num_active_sinks == 1
+    sink_cell_x = int(sink_particles.position[0, 0] / CELL_SIZE)
     offsets = _control_volume_offsets(config)
-    interior_offsets = offsets[offsets[:, 0] >= 0]
-    cells = tuple((interior_offsets + (0, NUM_CELLS // 2, NUM_CELLS // 2)).T)
+    assert sink_cell_x + int(offsets[:, 0].min()) < 0, (
+        "the control volume of the sink does not reach past the boundary"
+    )
+    interior_offsets = offsets[sink_cell_x + offsets[:, 0] >= 0]
+    cells = tuple((interior_offsets + (sink_cell_x, NUM_CELLS // 2, NUM_CELLS // 2)).T)
     density = state.primitive_state[registered_variables.density_index][cells]
     velocity_x = state.primitive_state[registered_variables.velocity_index.x][cells]
     expected_velocity_x = jnp.sum(density * velocity_x) / jnp.sum(density)
 
-    assert num_active_sinks == 1
     assert jnp.allclose(sink_particles.velocity[0, 0], expected_velocity_x)
 
 

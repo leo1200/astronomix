@@ -106,10 +106,8 @@ def run_problem(problem, num_cells, precision, cfl, rho_floor):
         time_integration,
     )
     from astronomix.option_classes.simulation_config import (
-        DOUBLE_PRECISION,
         ISOTHERMAL,
         OPEN_BOUNDARY,
-        SINGLE_PRECISION,
         BoundarySettings1D,
     )
 
@@ -119,7 +117,6 @@ def run_problem(problem, num_cells, precision, cfl, rho_floor):
         box_size=problem.box_size,
         equation_of_state=ISOTHERMAL,
         mhd=True,
-        numerical_precision=DOUBLE_PRECISION if precision == 64 else SINGLE_PRECISION,
         boundary_settings=BoundarySettings1D(
             left_boundary=OPEN_BOUNDARY, right_boundary=OPEN_BOUNDARY
         ),

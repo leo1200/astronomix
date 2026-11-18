@@ -24,14 +24,6 @@ The second half of the file runs the full ``update_pressure_by_cooling`` update
 and checks the temperature-floor handling and the per-step cooling cap.
 """
 
-# ==== GPU selection ====
-import os
-if os.environ.get("CUDA_VISIBLE_DEVICES") is None and os.environ.get("JAX_PLATFORMS") != "cpu":
-    from autocvd import autocvd
-    autocvd(num_gpus=1)
-# ruff: noqa: E402
-# =======================
-
 # jax
 import jax.numpy as jnp
 

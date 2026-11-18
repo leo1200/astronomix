@@ -66,19 +66,12 @@ API
 
       .. autodoc2-docstring:: astronomix._snapshotting._orbax_storage.LoopCheckpoint.primitive_state
 
-   .. py:attribute:: key
-      :canonical: astronomix._snapshotting._orbax_storage.LoopCheckpoint.key
+   .. py:attribute:: driving_state
+      :canonical: astronomix._snapshotting._orbax_storage.LoopCheckpoint.driving_state
       :type: typing.Any
       :value: None
 
-      .. autodoc2-docstring:: astronomix._snapshotting._orbax_storage.LoopCheckpoint.key
-
-   .. py:attribute:: forcing
-      :canonical: astronomix._snapshotting._orbax_storage.LoopCheckpoint.forcing
-      :type: typing.Any
-      :value: None
-
-      .. autodoc2-docstring:: astronomix._snapshotting._orbax_storage.LoopCheckpoint.forcing
+      .. autodoc2-docstring:: astronomix._snapshotting._orbax_storage.LoopCheckpoint.driving_state
 
    .. py:attribute:: num_iterations
       :canonical: astronomix._snapshotting._orbax_storage.LoopCheckpoint.num_iterations
@@ -99,7 +92,7 @@ API
 
    .. autodoc2-docstring:: astronomix._snapshotting._orbax_storage.loop_checkpointer
 
-.. py:function:: save_loop_checkpoint(writer: astronomix._snapshotting._orbax_storage._LoopCheckpointWriter, step: int, *, time, primitive_state, key, forcing, num_iterations) -> None
+.. py:function:: save_loop_checkpoint(writer: astronomix._snapshotting._orbax_storage._LoopCheckpointWriter, step: int, *, time, primitive_state, driving_state, num_iterations) -> None
    :canonical: astronomix._snapshotting._orbax_storage.save_loop_checkpoint
 
    .. autodoc2-docstring:: astronomix._snapshotting._orbax_storage.save_loop_checkpoint

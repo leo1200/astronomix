@@ -11,9 +11,9 @@ Subpackages
    astronomix.data_classes
    astronomix.initial_condition_generation
    astronomix.option_classes
+   astronomix.parallel
    astronomix.plotting_helpers
    astronomix.setup_helpers
-   astronomix.shock_finder
    astronomix.time_stepping
    astronomix.units
 

@@ -114,6 +114,7 @@ from astronomix import (
     BackendConfig,
     BoundarySettings,
     BoundarySettings1D,
+    FDSolverConfig,
     SimulationConfig,
     SimulationParams,
 )
@@ -185,10 +186,10 @@ class KHParams(NamedTuple):
     #: Checkpoints of the adaptive reverse-mode loop per segment; None sizes
     #: them to the expected number of time steps (see ``build_problem``).
     num_checkpoints: Optional[int] = None
-    #: Reverse-mode rematerialisation ("none", "stage", "axis"). "stage" is
-    #: both lighter and faster here (the backward is memory-bound), and the
+    #: Reverse-mode rematerialisation of the Runge-Kutta stages. It is both
+    #: lighter and faster here (the backward is memory-bound), and the
     #: computed gradient is the same.
-    ad_remat: str = "stage"
+    rematerialize_stages: bool = True
     #: Differentiate the WENO reconstruction with its nonlinear weights frozen
     #: (``weno_ad_frozen_weights``), the usual WENO linearisation. The exact
     #: weight derivative is ~ 2 / epsilon^3 where the gas is near-uniform (far
@@ -279,11 +280,13 @@ def build_simulation(
         num_cells=kh_params.num_cells,
         box_size=kh_params.box_size,
         progress_bar=False,
-        weno_z=True,
+        solver_config=FDSolverConfig(
+            weno_z=True,
+            weno_ad_frozen_weights=kh_params.frozen_weno_weights,
+        ),
         differentiation_mode=differentiation_mode,
         num_checkpoints=num_checkpoints,
-        ad_remat=kh_params.ad_remat,
-        weno_ad_frozen_weights=kh_params.frozen_weno_weights,
+        rematerialize_stages=kh_params.rematerialize_stages,
         boundary_settings=BoundarySettings(
             x=BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY),
             y=BoundarySettings1D(OPEN_BOUNDARY, OPEN_BOUNDARY),
@@ -1926,7 +1929,7 @@ def run_cells(
                 num_segments=problem.num_segments,
                 wavenumber_max=problem.kh_params.wavenumber_max,
                 backend=backend,
-                ad_remat=problem.kh_params.ad_remat,
+                rematerialize_stages=problem.kh_params.rematerialize_stages,
                 frozen_weno_weights=problem.kh_params.frozen_weno_weights,
                 settings_json=json.dumps(settings._replace(learning_rate=learning_rate)._asdict()),
                 reference_loss=reference_losses[run_index],
@@ -2014,7 +2017,7 @@ def time_steps(
                     "backend": backend_name,
                     "horizon": horizon,
                     "batch_size": batch_size,
-                    "ad_remat": kh_params.ad_remat,
+                    "rematerialize_stages": kh_params.rematerialize_stages,
                     "xla_flags": os.environ.get("XLA_FLAGS", ""),
                 }
                 for name, function, arguments in (
@@ -2733,7 +2736,7 @@ def main():
     run_parser.add_argument("--num-cells", type=int, default=256)
     run_parser.add_argument("--batch-size", type=int, default=8, help="runs optimised together")
     run_parser.add_argument("--checkpoint-minutes", type=float, default=20.0)
-    run_parser.add_argument("--ad-remat", default="stage", choices=["none", "stage", "axis"])
+    run_parser.add_argument("--rematerialize-stages", action=argparse.BooleanOptionalAction, default=True)
     run_parser.add_argument("--frozen-weno-weights", action="store_true", help="differentiate with frozen WENO weights")
     run_parser.add_argument(
         "--learning-rates",
@@ -2756,7 +2759,7 @@ def main():
     time_parser.add_argument("--horizons", type=float, nargs="+", default=[20.0, 60.0])
     time_parser.add_argument("--native", action="store_true", help="also time the native-JAX backend")
     time_parser.add_argument("--batch-sizes", type=int, nargs="+", default=[1, 4, 8])
-    time_parser.add_argument("--ad-remat", default="stage", choices=["none", "stage", "axis"])
+    time_parser.add_argument("--rematerialize-stages", action=argparse.BooleanOptionalAction, default=True)
     time_parser.add_argument("--skip-jacobian", action="store_true")
     time_parser.add_argument("--num-cells", type=int, default=256)
     time_parser.add_argument("--repeats", type=int, default=3)
@@ -2836,7 +2839,7 @@ def main():
             kh_params=KHParams(
                 num_cells=arguments.num_cells,
                 wavenumber_max=arguments.wavenumber_max,
-                ad_remat=arguments.ad_remat,
+                rematerialize_stages=arguments.rematerialize_stages,
                 frozen_weno_weights=arguments.frozen_weno_weights,
             ),
             num_segments=arguments.num_segments,
@@ -2852,7 +2855,10 @@ def main():
             arguments.batch_sizes,
             arguments.repeats,
             arguments.output,
-            kh_params=KHParams(num_cells=arguments.num_cells, ad_remat=arguments.ad_remat),
+            kh_params=KHParams(
+                num_cells=arguments.num_cells,
+                rematerialize_stages=arguments.rematerialize_stages,
+            ),
             skip_jacobian=arguments.skip_jacobian,
         )
     elif arguments.command == "diagnose":

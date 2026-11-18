@@ -36,9 +36,10 @@ from timeit import default_timer as timer
 from typing import NamedTuple
 
 # ==== GPU selection ====
-from autocvd import autocvd
-
-autocvd(num_gpus=1)
+import sys as _sys
+if "--plot-only" not in _sys.argv:
+    from autocvd import autocvd
+    autocvd(num_gpus=1)
 # ruff: noqa: E402
 # =======================
 
@@ -70,11 +71,20 @@ from astronomix import (
     VL2,
 )
 from astronomix.option_classes.simulation_config import PERIODIC_ROLL
+from astronomix.plotting_helpers.paper_style import (
+    FD_COLOR,
+    FV_COLOR,
+    GUIDE_COLOR,
+    REFERENCE_COLOR,
+    TEXT_WIDTH,
+)
 
 # astronomix containers
 from astronomix import (
     BackendConfig,
     BoundarySettings1D,
+    FDSolverConfig,
+    FVSolverConfig,
     SimulationConfig,
     SimulationParams,
 )
@@ -86,6 +96,11 @@ from astronomix import (
     get_helper_data,
     get_registered_variables,
     time_integration,
+)
+from astronomix.plotting_helpers.paper_style import (
+    figure_legend,
+    use_paper_style,
+    variant_style,
 )
 
 
@@ -193,9 +208,9 @@ def _base_config(problem: _Problem, spec: CheckpointSpec):
         A ``(config, params)`` tuple for the periodic 1D acoustic problem.
     """
     if spec.solver_mode == FINITE_VOLUME:
-        scheme_options = dict(time_integrator=VL2, riemann_solver=HLLC)
+        solver_config = FVSolverConfig(time_integrator=VL2, riemann_solver=HLLC)
     else:
-        scheme_options = dict(weno_z=True)
+        solver_config = FDSolverConfig(weno_z=True)
 
     config = SimulationConfig(
         solver_mode=spec.solver_mode,
@@ -213,7 +228,7 @@ def _base_config(problem: _Problem, spec: CheckpointSpec):
         ),
         return_snapshots=False,
         backend_config=BackendConfig(backend=spec.backend),
-        **scheme_options,
+        solver_config=solver_config,
     )
     # In 1D the finite-difference and the VL2 time steps are both
     # C_cfl * dx / max(|v| + c_s), so the two solvers take the same number of
@@ -441,20 +456,15 @@ def run_sweep(
 
 
 def _curve_style(label):
-    """Backend colours shared with the other paper figures.
-
-    FD (JAX) light blue, FD (Pallas) violet, FV (JAX) orange, FV (Pallas)
-    brown; the JAX variants thick solid with dots, the Pallas variants thinner
-    dashed with crosses on top, so that both stay visible where they overlap.
+    """The colours of the schemes in all figures of the paper: the Pallas runs
+    as filled markers on solid lines on top of the native-JAX runs, which are
+    the dashed, hollow variant, so that both stay visible where they overlap.
     """
-    is_pallas = "Pallas" in label
-    if label.startswith("FD"):
-        color = "darkviolet" if is_pallas else "cornflowerblue"
-    else:
-        color = "saddlebrown" if is_pallas else "tab:orange"
-    if is_pallas:
-        return dict(color=color, linestyle="--", linewidth=1.8, marker="x", markersize=7, zorder=3)
-    return dict(color=color, linestyle="-", linewidth=3.0, marker="o", markersize=6, zorder=2)
+    color = FD_COLOR if label.startswith("FD") else FV_COLOR
+    marker = "o" if label.startswith("FD") else "s"
+    if "Pallas" in label:
+        return dict(color=color, linestyle="-", marker=marker, zorder=3)
+    return dict(marker=marker, markersize=7, zorder=2, **variant_style(color))
 
 
 def plot_results(results, figure_path):
@@ -464,7 +474,8 @@ def plot_results(results, figure_path):
         results: The per-configuration results dict from :func:`run_sweep`.
         figure_path: The path to write the resulting SVG figure to.
     """
-    fig, axs = plt.subplots(1, 3, figsize=(16, 5))
+    use_paper_style()
+    fig, axs = plt.subplots(1, 3, figsize=(TEXT_WIDTH, 3.0), layout="constrained")
     ax_rt, ax_recomp, ax_mem = axs
 
     # -------------------------------------------------------------
@@ -496,9 +507,10 @@ def plot_results(results, figure_path):
         ax_recomp.plot(
             c_grid,
             recomp,
+            color=REFERENCE_COLOR,
             marker="o",
-            markersize=3,
-            linewidth=1.5,
+            markersize=2,
+            linewidth=1.0,
             label="minimal recomputations" + (f" (N = {N})" if len(N_values) > 1 else ""),
         )
 
@@ -510,16 +522,18 @@ def plot_results(results, figure_path):
     if c_r3 is not None:
         ax_recomp.axvline(
             c_r3,
+            color=GUIDE_COLOR,
             linestyle=":",
-            linewidth=1.2,
-            label=f"threshold where repetition number r ≤ 3 (at c = {c_r3})",
+            linewidth=1.0,
+            label=f"repetition number $r \\leq 3$ ($c \\geq {c_r3}$)",
         )
     if c_r2 is not None:
         ax_recomp.axvline(
             c_r2,
+            color=GUIDE_COLOR,
             linestyle="-.",
-            linewidth=1.2,
-            label=f"threshold where repetition number r ≤ 2 (at c = {c_r2})",
+            linewidth=1.0,
+            label=f"repetition number $r \\leq 2$ ($c \\geq {c_r2}$)",
         )
 
     # -------------------------------------------------------------
@@ -531,29 +545,21 @@ def plot_results(results, figure_path):
     # -------------------------------------------------------------
 
     ax_rt.set_yscale("log")
-    ax_rt.set_xlabel("number of checkpoints c")
-    ax_rt.set_ylabel("gradient runtime [s]")
-    ax_rt.set_title("Backward-pass runtime")
-    ax_rt.grid(True, which="both", linewidth=0.5, alpha=0.5)
-    ax_rt.legend()
+    ax_rt.set_xlabel("number of checkpoints $c$")
+    ax_rt.set_ylabel("gradient runtime (s)")
+    ax_rt.set_title("backward-pass runtime")
 
     ax_recomp.set_yscale("log")
-    ax_recomp.set_xlabel("number of checkpoints c")
-    ax_recomp.set_ylabel("extra forward steps / recomputations")
-    ax_recomp.set_title(
-        f"Checkpointing recomputation cost for N = {', '.join(str(value) for value in N_values)}"
-    )
-    ax_recomp.grid(True, which="both", linewidth=0.5, alpha=0.5)
-    ax_recomp.legend()
+    ax_recomp.set_xlabel("number of checkpoints $c$")
+    ax_recomp.set_ylabel("recomputed forward steps")
+    ax_recomp.set_title(f"recomputations ($N = {', '.join(str(value) for value in N_values)}$)")
 
-    ax_mem.set_xlabel("number of checkpoints c")
-    ax_mem.set_ylabel("compiled gradient memory [MB]")
-    ax_mem.set_title("Backward-pass memory")
-    ax_mem.grid(True, which="both", linewidth=0.5, alpha=0.5)
-    ax_mem.legend()
+    ax_mem.set_xlabel("number of checkpoints $c$")
+    ax_mem.set_ylabel("gradient memory (MB)")
+    ax_mem.set_title("backward-pass memory")
 
-    fig.tight_layout()
-    fig.savefig(figure_path, dpi=180, bbox_inches="tight")
+    figure_legend(fig, ncols=3)
+    fig.savefig(figure_path)
     plt.close(fig)
     print(f"\nSaved {figure_path}")
 

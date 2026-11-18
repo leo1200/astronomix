@@ -74,10 +74,17 @@ from _collapse import (
 from _common import (
     COLLAPSE_SCHEMES,
     CONSERVATIVE_SCHEMES,
+    FIGURE_CONSERVATIVE_SCHEMES,
+    SINGLE_PANEL_WIDTH,
     CORRECTED_SCHEME,
     SIMPLE_SCHEME,
     DATA_DIR,
+    COLUMN_WIDTH,
+    GUIDE_COLOR,
+    TEXT_WIDTH,
+    TWO_COLUMN,
     apply_paper_style,
+    figure_legend,
     observed_orders,
     save_figure,
 )
@@ -194,8 +201,11 @@ def plot():
     float64 round-off floor of the energy error.
     """
     apply_paper_style()
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5.4), sharey=True)
-    for ax, (case_key, title, initial_energy) in zip(axes, CASES):
+    # The paper shows the cold collapse only; the mild one is quoted in the text.
+    figure_cases = CASES[:1]
+    fig, ax = plt.subplots(figsize=(SINGLE_PANEL_WIDTH, 4.0), layout="constrained")
+    axes = [ax]
+    for ax, (case_key, title, initial_energy) in zip(axes, figure_cases):
         data = np.load(data_file(case_key))
         dt = data["dt"]
         # The simple source sits ~8 decades above the conservative couplings
@@ -208,10 +218,10 @@ def plot():
             f"{SIMPLE_SCHEME.label}: $|\\Delta E|/|E_0| = {simple_errors.mean():.2f}$ at every $\\Delta t$",
             transform=ax.transAxes,
             va="top",
-            fontsize=10,
+            fontsize=8,
             color=SIMPLE_SCHEME.color,
         )
-        for scheme in CONSERVATIVE_SCHEMES:
+        for scheme in FIGURE_CONSERVATIVE_SCHEMES:
             ax.plot(
                 dt,
                 data[f"energy_error_{scheme.key}"],
@@ -232,9 +242,9 @@ def plot():
             ax.plot(
                 guide_dt,
                 anchor_error * 2.0 * (guide_dt / anchor_dt) ** exponent,
-                color="0.45",
+                color=GUIDE_COLOR,
                 linestyle=linestyle,
-                linewidth=1.2,
+                linewidth=1.0,
                 label=rf"$\propto \Delta t^{exponent}$",
             )
 
@@ -250,15 +260,9 @@ def plot():
         ax.set_ylim(1e-14, 1e-7)
         ax.set_xlabel(r"time step $\Delta t$")
         ax.set_title(rf"{title} ($e_{{th,0}} = {initial_energy}$)")
-        ax.grid(True, which="both", alpha=0.3)
-    axes[0].set_ylabel(r"final relative total energy error $|\Delta E| / |E_0|$")
-    handles, labels = axes[1].get_legend_handles_labels()
-    fig.legend(handles, labels, loc="lower center", ncol=3, fontsize=10, frameon=False)
-    fig.suptitle(
-        f"Evrard's collapse, $N = {NUM_CELLS}^3$, $t = {T_END}$ ({PRECISION_LABEL}): "
-        "energy error vs fixed time step"
-    )
-    fig.tight_layout(rect=(0, 0.1, 1, 1))
+    axes[0].set_ylabel(r"final relative energy error $|\Delta E| / |E_0|$")
+    handles, labels = axes[0].get_legend_handles_labels()
+    figure_legend(fig, handles, labels, ncols=2)
     figure_path = save_figure(fig, FIGURE_STEM, extensions=("svg", "pdf", "png"))
     print(f"Saved -> {figure_path}")
 

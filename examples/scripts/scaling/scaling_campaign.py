@@ -76,13 +76,16 @@ from astronomix.option_classes.simulation_config import (  # noqa: E402
     FOURTH_ORDER_CONSERVATIVE,
     NATIVE_JAX,
     PALLAS,
-    RK4_LSRK,
+    LSRK4,
     SIMPLE_SOURCE,
+    VL2,
     GravityConfig,
     SimulationConfig,
     SnapshotSettings,
     StaticFloatVector,
     BackendConfig,
+    FDSolverConfig,
+    FVSolverConfig,
 )
 from astronomix.test_setups.hydrodynamics.sound_wave3D import setup_sound_wave  # noqa: E402
 from astronomix.test_setups.mhd.alfven_wave3D import setup_cp_alfven_wave  # noqa: E402
@@ -129,7 +132,7 @@ def _fv(**extra):
 def _fd_jax(**extra):
     return SimulationConfig(
         backend_config=BackendConfig(backend=NATIVE_JAX), solver_mode=FINITE_DIFFERENCE,
-        time_integrator=RK4_LSRK, **_snap, **extra,
+        solver_config=FDSolverConfig(time_integrator=LSRK4), **_snap, **extra,
     )
 
 
@@ -139,7 +142,7 @@ def _fd_pallas(block=BEST_BLOCK, **extra):
             backend=PALLAS, pallas_block_shape=block,
             pallas_use_triton=True, pallas_interpret=False,
         ),
-        solver_mode=FINITE_DIFFERENCE, time_integrator=RK4_LSRK,
+        solver_mode=FINITE_DIFFERENCE, solver_config=FDSolverConfig(time_integrator=LSRK4),
         **_snap, **extra,
     )
 
@@ -164,7 +167,7 @@ def _hydro_specs():
 
 def _mhd_specs():
     return [
-        BenchmarkSpec("FV (JAX)", _fv(**_MHD), 0.4),
+        BenchmarkSpec("FV VL2 (JAX)", _fv(solver_config=FVSolverConfig(time_integrator=VL2), **_MHD), 0.3),
         BenchmarkSpec("FD (JAX)", _fd_jax(**_MHD), 1.5),
         BenchmarkSpec("FD (Pallas)", _fd_pallas(**_MHD), 1.5),
     ]

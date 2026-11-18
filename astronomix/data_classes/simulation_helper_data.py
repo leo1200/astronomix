@@ -4,12 +4,11 @@ Geometric helper data for the simulation.
 Bundles the precomputed per-cell geometry (cell centers, radii, volumes, cell
 boundaries) used throughout the solver and the snapshot diagnostics, together
 with the machinery to build only the fields the active subsystems actually need
-(see :class:`HelperDataRequirements`), optionally on the host, and to pad /
-shard / unpad them for the time integrator.
+(see :class:`HelperDataRequirements`), and to pad / shard / unpad them for the
+time integrator.
 """
 
 # general
-from contextlib import nullcontext
 import math
 
 # typing
@@ -25,7 +24,6 @@ import jax.numpy as jnp
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
     CARTESIAN,
-    CYLINDRICAL,
     FINITE_VOLUME,
     SPHERICAL,
 )
@@ -58,8 +56,8 @@ class HelperData(NamedTuple):
 
     #: 1D arrays of cell centers along each Cartesian axis.
     #: Shape ``(N_axis + 2 * ngc,)``. These broadcast against the state
-    #: array so consumers that only need one axis (e.g. the frame
-    #: tracker) avoid materialising the full meshgrid.
+    #: array so consumers that only need one axis avoid materialising
+    #: the full meshgrid.
     cell_centers_x: jnp.ndarray = None
     cell_centers_y: jnp.ndarray = None
     cell_centers_z: jnp.ndarray = None
@@ -130,14 +128,14 @@ def _helper_data_requirements(config: SimulationConfig) -> HelperDataRequirement
     needs_r = False
 
     # Finite-volume geometric source / reconstruction terms in
-    # curvilinear geometry (1D spherical / cylindrical).
+    # curvilinear geometry (1D spherical).
     if finite_volume and curvilinear:
         needs_geometric_centers = True
         needs_volumetric_centers = True
         needs_r_hat_alpha = True
         # 1D curvilinear get_helper_data also produces cell_volumes
         # and inner/outer boundaries; downstream code reads them in
-        # the wind / cosmic-ray paths, gated by their own flags.
+        # the wind path, gated by its own flag.
 
     # Stellar wind injection.
     if config.wind_config.stellar_wind:
@@ -147,22 +145,6 @@ def _helper_data_requirements(config: SimulationConfig) -> HelperDataRequirement
         if dimensionality > 1:
             needs_geometric_centers = True
             needs_r = True
-
-    # Cosmic-ray diffusive shock acceleration.
-    if config.cosmic_ray_config.diffusive_shock_acceleration:
-        needs_geometric_centers = True
-        needs_cell_volumes = True
-
-    # Neural-network body force / cnn corrector positions.
-    if config.neural_net_force_config.neural_net_force:
-        needs_geometric_centers = True
-
-    # Frame tracking (3D Cartesian) only needs the z-axis array.
-    needs_cell_centers_x = False
-    needs_cell_centers_y = False
-    needs_cell_centers_z = False
-    if config.frame_tracking:
-        needs_cell_centers_z = True
 
     # Snapshot diagnostics.
     if config.return_snapshots:
@@ -185,9 +167,6 @@ def _helper_data_requirements(config: SimulationConfig) -> HelperDataRequirement
     return HelperDataRequirements(
         needs_geometric_centers=needs_geometric_centers,
         needs_volumetric_centers=needs_volumetric_centers,
-        needs_cell_centers_x=needs_cell_centers_x,
-        needs_cell_centers_y=needs_cell_centers_y,
-        needs_cell_centers_z=needs_cell_centers_z,
         needs_r=needs_r,
         needs_r_hat_alpha=needs_r_hat_alpha,
         needs_cell_volumes=needs_cell_volumes,
@@ -266,13 +245,6 @@ def get_helper_data(
     conditions keep working. The time integrator passes a
     config-derived :class:`HelperDataRequirements` explicitly so the
     in-simulation helper data is minimal.
-
-    With ``config.host_helper_data=True`` the arrays are built inside a
-    CPU device context and only the requested fields are moved onto the
-    target device (respecting ``sharding`` for 3D Cartesian
-    ``geometric_centers``). Fields needed only as intermediates (e.g.
-    the full ``X, Y, Z`` meshgrid when only ``r`` is requested) never
-    materialise on the accelerator.
     """
 
     config = _normalize_config_vectors(config)
@@ -287,26 +259,10 @@ def get_helper_data(
 
     grid_spacing = config.grid_spacing
 
-    host_build = config.host_helper_data
-    if host_build:
-        cpu_devices = jax.devices("cpu")
-        if not cpu_devices:
-            raise RuntimeError(
-                "host_helper_data=True requires a CPU device to be available."
-            )
-        build_ctx = jax.default_device(cpu_devices[0])
-    else:
-        build_ctx = nullcontext()
+    helper_data = _build_helper_data(config, requirements, ngc, grid_spacing)
 
-    with build_ctx:
-        helper_data = _build_helper_data(config, requirements, ngc, grid_spacing)
-
-    if host_build:
-        helper_data = _move_helper_data_to_device(helper_data, sharding)
-    else:
-        # Match the original behaviour: apply sharding to the 3D Cartesian
-        # geometric_centers if requested.
-        helper_data = _apply_sharding(helper_data, sharding, config)
+    # Apply sharding to the 3D Cartesian geometric_centers if requested.
+    helper_data = _apply_sharding(helper_data, sharding, config)
 
     return helper_data
 
@@ -326,7 +282,7 @@ def _build_helper_data(
 
     fields = {}
 
-    if config.geometry == SPHERICAL or config.geometry == CYLINDRICAL:
+    if config.geometry == SPHERICAL:
         # 1D curvilinear geometry.
         r_axis = jnp.linspace(
             grid_spacing / 2 - ngc * grid_spacing,
@@ -495,31 +451,6 @@ def _apply_sharding(
         # volumetric_centers points at the same array in Cartesian.
         replaced["volumetric_centers"] = centers
     return helper_data._replace(**replaced)
-
-
-def _move_helper_data_to_device(
-    helper_data: HelperData,
-    sharding: Union[NoneType, NamedSharding],
-) -> HelperData:
-    """Move only materialised fields onto the target device.
-
-    With ``sharding`` provided, ``geometric_centers`` / ``volumetric_centers``
-    are placed with that sharding; the remaining 1D arrays are replicated
-    via ``jax.device_put``.
-    """
-
-    moved = {}
-    for name, value in helper_data._asdict().items():
-        if value is None:
-            continue
-        if sharding is not None and name in (
-            "geometric_centers",
-            "volumetric_centers",
-        ):
-            moved[name] = jax.device_put(value, sharding)
-        else:
-            moved[name] = jax.device_put(value)
-    return HelperData(**moved)
 
 
 def _unpad_helper_data(

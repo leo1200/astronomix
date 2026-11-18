@@ -43,13 +43,11 @@ from astronomix import (
     BoundarySettings,
     BoundarySettings1D,
     CodeUnits,
+    FDSolverConfig,
     SimulationConfig,
     SimulationParams,
 )
-from astronomix._modules._turbulent_forcing._turbulent_forcing_options import (
-    TurbulentForcingConfig,
-    TurbulentForcingParams,
-)
+from astronomix import TurbulenceDrivingConfig, TurbulenceDrivingParams
 
 # astronomix functions
 from astronomix import (
@@ -67,7 +65,10 @@ CODE_UNITS = CodeUnits(3 * u.parsec, 100 * u.M_sun, 100 * u.km / u.s)
 DENSITY_0 = (2 * c.m_p / u.cm**3).to(CODE_UNITS.code_density).value
 PRESSURE_0 = (3e4 * u.K / u.cm**3 * c.k_B).to(CODE_UNITS.code_pressure).value
 MAGNETIC_FIELD_0 = (13.5 * u.microgauss / c.mu0**0.5).to(CODE_UNITS.code_magnetic_field).value
-ENERGY_INJECTION_RATE = (4.3e34 * u.erg / u.s).to(CODE_UNITS.code_energy / CODE_UNITS.code_time).value
+# Target velocity dispersion of the TurbGen driving: the v_rms ~ 0.42 v_0 that the
+# paper's background reached with the earlier forcing module (tag pre-streamline;
+# a cached background of that module stays a valid input, a new one is driven by TurbGen).
+TURBULENT_VELOCITY_DISPERSION = 0.42
 
 # Duration of the driven phase (~3.5 crossing times at v_rms ~ 0.42 v_0).
 DRIVING_TIME = (24 * 1e4 * u.yr).to(CODE_UNITS.code_time).value
@@ -80,10 +81,10 @@ LOGO_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.png")
 
 def make_config(
     num_cells,
-    turbulent_forcing=False,
+    turbulence_driving=False,
     backward=False,
     num_checkpoints=16,
-    ad_remat="stage",
+    rematerialize_stages=True,
     return_snapshots=False,
     backend=PALLAS,
     pallas_adjoint=False,
@@ -93,10 +94,10 @@ def make_config(
 
     Args:
         num_cells: Cells per dimension of the periodic unit box.
-        turbulent_forcing: Drive the turbulence (the background generation).
+        turbulence_driving: Drive the turbulence (the background generation).
         backward: Reverse-mode differentiable time loop (checkpointed).
         num_checkpoints: Checkpoints of the reverse-mode time loop.
-        ad_remat: Rematerialisation of the Runge-Kutta stages in the backward.
+        rematerialize_stages: Rematerialise the Runge-Kutta stages in the backward.
         return_snapshots: Return snapshot data (used to count time steps).
         backend: The backend of the primal (PALLAS or NATIVE_JAX).
         pallas_adjoint: Differentiate the WENO flux of the reverse-mode time
@@ -109,8 +110,7 @@ def make_config(
     periodic = BoundarySettings1D(PERIODIC_BOUNDARY, PERIODIC_BOUNDARY)
     return SimulationConfig(
         mhd=True,
-        weno_z=True,
-        weno_positivity_preserving=True,
+        solver_config=FDSolverConfig(weno_z=True, weno_positivity_preserving=True),
         backend_config=BackendConfig(backend=backend, pallas_adjoint=pallas_adjoint),
         progress_bar=False,
         donate_state=False,
@@ -119,10 +119,10 @@ def make_config(
         num_cells=num_cells,
         differentiation_mode=BACKWARDS if backward else FORWARDS,
         num_checkpoints=num_checkpoints,
-        ad_remat=ad_remat,
+        rematerialize_stages=rematerialize_stages,
         return_snapshots=return_snapshots,
         num_snapshots=2,
-        turbulent_forcing_config=TurbulentForcingConfig(turbulent_forcing=turbulent_forcing),
+        turbulence_driving_config=TurbulenceDrivingConfig(turbulence_driving=turbulence_driving),
         boundary_settings=BoundarySettings(periodic, periodic, periodic),
     )
 
@@ -135,7 +135,7 @@ def make_params(t_end):
         t_end: End time of the integration in code units.
 
     Returns:
-        The SimulationParams (the forcing parameters only act with forcing on).
+        The SimulationParams (the driving parameters only act with the driving on).
     """
     return SimulationParams(
         C_cfl=COURANT_NUMBER,
@@ -144,9 +144,7 @@ def make_params(t_end):
         t_end=t_end,
         minimum_density=1e-2 * DENSITY_0,
         minimum_pressure=1e-2 * PRESSURE_0,
-        turbulent_forcing_params=TurbulentForcingParams(
-            energy_injection_rate=ENERGY_INJECTION_RATE,
-        ),
+        turbulence_driving_params=TurbulenceDrivingParams(velocity=TURBULENT_VELOCITY_DISPERSION),
     )
 
 
@@ -217,7 +215,7 @@ def driven_turbulence(num_cells, cache_path):
     """
     if os.path.exists(cache_path):
         return jnp.asarray(np.load(cache_path)), 0.0
-    registered_variables, config = finalized(make_config(num_cells, turbulent_forcing=True))
+    registered_variables, config = finalized(make_config(num_cells, turbulence_driving=True))
     shape = (num_cells,) * 3
     zero = jnp.zeros(shape)
     uniform_state = build_state(

@@ -34,9 +34,9 @@ class SinkParticleConfig(NamedTuple):
     one cell outside the edge; beyond that it moves in a straight line. Where
     the Poisson solve treats the edge of the box differently from the gas
     boundaries (periodic gas with ``poisson_manual_open_boundaries``, mixed
-    boundaries, classic finite volume on a periodic box), a sink within 2
-    cells of the edge (4 on the finite-difference path) feels a force from
-    itself, and the forces between masses are not exactly equal and opposite.
+    boundaries), a sink within 4 cells of the edge (2 with VL2) feels a force
+    from itself, and the forces between masses are not exactly equal and
+    opposite.
     """
 
     #: Switch sink particles on or off.

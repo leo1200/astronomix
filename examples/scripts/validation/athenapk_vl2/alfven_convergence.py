@@ -51,7 +51,7 @@ from astronomix import SnapshotSettings
 
 # astronomix functions
 from astronomix import time_integration
-from astronomix._finite_volume._state_evolution._van_leer_integrator import _conserved_from_primitive_vl2
+from astronomix._finite_volume._stage import _conserved_from_primitive
 
 # validation helpers
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -158,7 +158,7 @@ def run_astronomix(initial_state, backend: int, dtype):
     result = time_integration(state, config, params, registered_variables)
     final_state = jax.block_until_ready(result.final_state)
     seconds = time.perf_counter() - start
-    conserved = _conserved_from_primitive_vl2(final_state.astype(jnp.float64), case.gamma, config, registered_variables)
+    conserved = _conserved_from_primitive(final_state.astype(jnp.float64), case.gamma, config, registered_variables)
     return conserved, int(result.num_iterations), seconds
 
 
