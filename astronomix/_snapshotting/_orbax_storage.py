@@ -5,8 +5,9 @@ Used by the ``snapshot_storage_mode == TO_DISK`` path of the time integration
 the restart helper in :mod:`astronomix.setup_helpers`.
 
 Each on-disk checkpoint stores the loop carry threaded through the integrator
-— the (unpadded) primitive state and the state of the turbulence driving (when
-active) — plus the current simulation time and iteration count. This mirrors
+— the (unpadded) primitive state, the state of the turbulence driving (when
+active) and the sink particles (when active) — plus the current simulation
+time and iteration count. This mirrors
 :class:`~astronomix.time_stepping.time_integration.LoopState`, so a checkpoint
 is everything needed to resume a run bit-reproducibly.
 
@@ -24,7 +25,9 @@ The driving state is written as the sub-tree ``turbulence_driving`` (only when
 present; its absence on load is reported as ``driving_state = None``), its key
 as raw key data (``jax.random.key_data`` -> a plain uint32 array tensorstore
 can serialise), rebuilt with ``jax.random.wrap_key_data`` on load. It holds
-modes, not grid cells, and is restored replicated.
+modes, not grid cells, and is restored replicated. The sink particles are
+written as the sub-tree ``sink_particles`` (mass, position, velocity), only
+when present; their absence on load is reported as ``None``.
 """
 
 # general
@@ -40,6 +43,7 @@ from jax.sharding import NamedSharding, PartitionSpec
 
 # astronomix containers
 from astronomix._modules._turbulence_driving import TurbulenceDrivingState
+from astronomix.data_classes.simulation_state_struct import SinkParticles
 
 # checkpointing (optional dependency — only needed for the TO_DISK snapshot and
 # restart path). The import is guarded so that ``import astronomix`` keeps
@@ -76,6 +80,8 @@ class LoopCheckpoint(NamedTuple):
     primitive_state: Any
     #: The ``TurbulenceDrivingState``, or ``None`` if the run was not driven.
     driving_state: Any
+    #: The sink particles, or ``None`` if they were not stored.
+    sink_particles: Any
     #: Cumulative number of integration steps taken up to this checkpoint.
     num_iterations: int
     #: The step index of this checkpoint.
@@ -89,11 +95,21 @@ class _LoopCheckpointWriter:
         self._checkpointer = checkpointer
         self._directory = Path(directory).resolve()
 
-    def save(self, step, *, time, primitive_state, driving_state, num_iterations):
+    def save(
+        self,
+        step,
+        *,
+        time,
+        primitive_state,
+        driving_state,
+        num_iterations,
+        sink_particles=None,
+    ):
         """Serialise one loop carry into the ``<root>/<step>`` sub-directory.
 
-        The driving state is only written when present, so its absence is
-        unambiguous on load; its typed key is stored as raw key data.
+        The driving state and the sink particles are only written when
+        present, so their absence is unambiguous on load; the driving
+        state's typed key is stored as raw key data.
         """
         tree = {
             "time": time,
@@ -102,6 +118,8 @@ class _LoopCheckpointWriter:
         }
         if driving_state is not None:
             tree["turbulence_driving"] = driving_state._replace(key=jax.random.key_data(driving_state.key))._asdict()
+        if sink_particles is not None:
+            tree["sink_particles"] = sink_particles._asdict()
         # Synchronous save; ``force`` overwrites a partially written step dir.
         self._checkpointer.save(self._directory / str(step), tree, force=True)
 
@@ -131,6 +149,7 @@ def save_loop_checkpoint(
     primitive_state,
     driving_state,
     num_iterations,
+    sink_particles=None,
 ) -> None:
     """Write one loop checkpoint at ``step`` through an open ``writer``.
 
@@ -143,6 +162,7 @@ def save_loop_checkpoint(
         primitive_state=primitive_state,
         driving_state=driving_state,
         num_iterations=num_iterations,
+        sink_particles=sink_particles,
     )
 
 
@@ -243,10 +263,14 @@ def load_loop_checkpoint(
     if "turbulence_driving" in tree:
         driving_state = TurbulenceDrivingState(**tree["turbulence_driving"])
         driving_state = driving_state._replace(key=jax.random.wrap_key_data(driving_state.key))
+    sink_particles = tree.get("sink_particles", None)
+    if sink_particles is not None:
+        sink_particles = SinkParticles(**sink_particles)
     return LoopCheckpoint(
         time=tree["time"],
         primitive_state=tree["primitive_state"],
         driving_state=driving_state,
+        sink_particles=sink_particles,
         num_iterations=tree["num_iterations"],
         step=step,
     )

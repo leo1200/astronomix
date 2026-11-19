@@ -24,6 +24,7 @@ import jax
 
 # astronomix containers
 from astronomix._modules._cooling.cooling_options import CoolingConfig
+from astronomix._modules._sink_particles._sink_particle_options import SinkParticleConfig
 from astronomix._modules._stellar_wind.stellar_wind_options import WindConfig
 from astronomix._modules._turbulence_driving._turbulence_driving_options import TurbulenceDrivingConfig
 
@@ -796,6 +797,9 @@ class SimulationConfig(NamedTuple):
     #: The number of dimensions of the simulation.
     dimensionality: int = 1
 
+    #: Use a struct for the state.
+    state_struct: bool = False
+
     #: The geometry of the simulation.
     geometry: int = CARTESIAN
 
@@ -863,6 +867,10 @@ class SimulationConfig(NamedTuple):
     #: ``SimulationParams.turbulence_driving_params``.
     turbulence_driving_config: TurbulenceDrivingConfig = TurbulenceDrivingConfig()
 
+    #: Configuration of the sink particles (formation, accretion and motion;
+    #: see SinkParticleConfig).
+    sink_particle_config: SinkParticleConfig = SinkParticleConfig()
+
     #: User-supplied update of the primitive state, called once per time
     #: step before the hydro update (after the stellar wind and cooling
     #: updates, before viscosity):
@@ -928,7 +936,8 @@ class SimulationConfig(NamedTuple):
 
     #: Call a user given function on the snapshot data,
     #: e.g. for saving or plotting. Must have signature
-    #: callback(time, state, registered_variables).
+    #: callback(time, state, registered_variables); with sink particles on,
+    #: it is also given the keyword argument sink_particles.
     activate_snapshot_callback: bool = False
 
     #: Return snapshots at specific time points.
@@ -1214,7 +1223,7 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
     positivity-protection defaults, the number
     of cells per axis, the grid spacing, the box of the turbulence driving,
     the geometry- and solver-specific overrides, the master gravity switch, the boundary defaults, and the
-    disk-snapshot requirements. Combinations the solvers do not implement
+    disk-snapshot and sink particle requirements. Combinations the solvers do not implement
     (e.g. self-gravity or non-Cartesian geometry with VL2, HLLD outside VL2,
     a solver container or a time integrator of the other solver) raise a
     ``ValueError``.
@@ -1856,6 +1865,31 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
             raise ValueError(
                 "snapshot_storage_mode == TO_DISK is forward-mode only; "
                 "set differentiation_mode = FORWARDS."
+            )
+
+    # Sink particle formation requirements. The formation checks of Federrath
+    # et al. (2010) are formulated in 3D and need the self-gravity potential.
+    if config.sink_particle_config.sink_particles:
+        if config.dimensionality != 3:
+            raise ValueError("Sink particles are only supported in 3D.")
+        if not config.gravity_config.self_gravity:
+            raise ValueError("Sink particles require self_gravity = True.")
+        if not config.state_struct:
+            raise ValueError(
+                "Sink particles require state_struct = True; the sinks are "
+                "passed in and returned in the StateStruct."
+            )
+        # The potential-minimum check shifts the potential with periodic rolls
+        # over the padded grid, so its reach must stay inside the ghost layer.
+        accretion_radius_in_cells = config.sink_particle_config.accretion_radius_in_cells
+        if (
+            config.boundary_handling == GHOST_CELLS
+            and math.floor(accretion_radius_in_cells) > config.num_ghost_cells
+        ):
+            raise ValueError(
+                f"accretion_radius_in_cells = {accretion_radius_in_cells} reaches "
+                f"beyond the ghost layer of num_ghost_cells = "
+                f"{config.num_ghost_cells} cells."
             )
 
     return config

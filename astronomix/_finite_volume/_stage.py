@@ -728,6 +728,7 @@ def _sources_and_conversion(
     registered_variables: RegisteredVariables,
     stage_potential=None,
     initial_potential=None,
+    sink_potential=None,
 ):
     """
     The second half of a stage: Athena++'s gravity source (when the integrator
@@ -751,6 +752,8 @@ def _sources_and_conversion(
             ``None`` for a stage without the gravity source.
         initial_potential: The potential at the start of the step, ``t^n``
             (gravity with the time-centred energy source only).
+        sink_potential: The potential of the sink particles, part of the
+            potential at the end of the stage (``None``: no sink particles).
 
     Returns:
         The primitive state after the stage, and the potential of the stage's
@@ -770,6 +773,7 @@ def _sources_and_conversion(
                 config,
                 params,
                 registered_variables,
+                sink_potential=sink_potential,
             )
             work_potential = 0.5 * (initial_potential + end_potential)
         conserved_state = _add_athena_gravity_source(
@@ -829,6 +833,7 @@ def fv_stage(
     axes=None,
     predictor_half_step=None,
     helper_data: HelperData = None,
+    sink_potential=None,
 ):
     """
     One stage (native JAX): ``U = U_base - beta dt L(W_stage)``, the gravity
@@ -854,6 +859,8 @@ def fv_stage(
         predictor_half_step: Half the time step of the sweep for the Hancock
             predictor of the split scheme (``None``: no predictor).
         helper_data: The helper data (the split scheme only).
+        sink_potential: The potential of the sink particles, part of the
+            potential at the end of the stage (``None``: no sink particles).
 
     Returns:
         The primitive state after the stage, and the potential of the stage's
@@ -887,6 +894,7 @@ def fv_stage(
         registered_variables,
         stage_potential,
         initial_potential,
+        sink_potential,
     )
 
 

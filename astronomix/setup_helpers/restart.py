@@ -48,7 +48,8 @@ def restart_from_latest_checkpoint(
         :func:`~astronomix.time_stepping.time_integration.time_integration`,
         ``params`` has ``t_start`` set to the checkpoint time, and
         ``restart_state`` is the :class:`LoopState` carrying the state of the
-        turbulence driving to pass via ``restart_state=``.
+        turbulence driving and the sink particles (each ``None`` when the run
+        has none) to pass via ``restart_state=``.
 
     Example::
 
@@ -56,14 +57,18 @@ def restart_from_latest_checkpoint(
             path, params, sharding=sharding
         )
         final = time_integration(
-            ps, config, params, registered_variables,
+            finalize_state(config, ps), config, params, registered_variables,
             sharding=sharding, restart_state=restart,
         )
     """
     checkpoint = load_loop_checkpoint(directory, step, sharding=sharding)
 
     params = params._replace(t_start=checkpoint.time)
-    restart_state = LoopState(primitive_state=checkpoint.primitive_state, driving_state=checkpoint.driving_state)
+    restart_state = LoopState(
+        primitive_state=checkpoint.primitive_state,
+        driving_state=checkpoint.driving_state,
+        sink_particles=checkpoint.sink_particles,
+    )
     return checkpoint.primitive_state, params, restart_state
 
 
