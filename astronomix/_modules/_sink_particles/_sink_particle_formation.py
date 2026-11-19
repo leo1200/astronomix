@@ -18,13 +18,6 @@ wraps around periodic axes and ends at the edge of the box on non-periodic
 axes. Reflective walls are treated like the other edges: mirrored gas is not
 counted.
 
-Above a safety density threshold ρ_safe, where the Jeans length is shorter
-than ``safety_jeans_length_in_cells`` cells, the converging flow and bound
-state checks are skipped. Both judge by gas motion, and on a uniform grid they
-can keep rejecting collapsing gas, e.g. a dense layer fed by fast inflow,
-until the Jeans length is far below a cell and the solver fails. The safety
-threshold is not part of the method of Federrath et al. (2010).
-
 The refinement check of Section 2.2.2 is not applied: astronomix uses a
 uniform grid, so every cell is already on the highest level of refinement.
 """
@@ -208,21 +201,17 @@ def _sound_speed_squared(
     return jnp.full_like(density, params.isothermal_sound_speed**2)
 
 
-def _density_thresholds(
+def _density_threshold(
     sound_speed_squared: FIELD_TYPE,
     config: SimulationConfig,
     params: SimulationParams,
-) -> tuple[FIELD_TYPE, FIELD_TYPE]:
+) -> FIELD_TYPE:
     """
-    The density threshold ρ_res and the safety density threshold ρ_safe in
-    every cell.
+    The density threshold ρ_res in every cell.
 
-    Both are densities at which the Jeans length λ_J = (π c_s² / (G ρ))^½
-    takes a given value. ρ_res is the density at which λ_J = 2 r_acc, the
-    smallest Jeans length the grid resolves (Federrath et al. 2010, Eq. 32).
-    ρ_safe is the density at which λ_J = N Δx, with N the
-    ``safety_jeans_length_in_cells``. Both use the local c_s², so they scale
-    together with temperature and resolution.
+    ρ_res is the density at which the Jeans length λ_J = (π c_s² / (G ρ))^½
+    equals 2 r_acc, the smallest Jeans length the grid resolves (Federrath et
+    al. 2010, Eq. 32). It uses the local c_s².
 
     Args:
         sound_speed_squared: The squared sound speed in every cell.
@@ -230,26 +219,16 @@ def _density_thresholds(
         params: The simulation parameters.
 
     Returns:
-        ``(density_threshold, safety_density_threshold)``, each with the shape
-        of ``sound_speed_squared``.
+        The density threshold, with the shape of ``sound_speed_squared``.
     """
-    sink_particle_config = config.sink_particle_config
-    grid_spacing = config.grid_spacing
-    accretion_radius = sink_particle_config.accretion_radius_in_cells * grid_spacing
-    safety_jeans_length = sink_particle_config.safety_jeans_length_in_cells * grid_spacing
-    gravitational_constant = params.gravitational_constant
-
-    density_threshold = (
+    accretion_radius = (
+        config.sink_particle_config.accretion_radius_in_cells * config.grid_spacing
+    )
+    return (
         jnp.pi
         * sound_speed_squared
-        / (4.0 * gravitational_constant * accretion_radius**2)
+        / (4.0 * params.gravitational_constant * accretion_radius**2)
     )
-    safety_density_threshold = (
-        jnp.pi
-        * sound_speed_squared
-        / (gravitational_constant * safety_jeans_length**2)
-    )
-    return density_threshold, safety_density_threshold
 
 
 def _interior_mask(
@@ -668,21 +647,19 @@ def _form_sink_particles(
         axis=-1,
     )
 
-    # The density threshold (Federrath et al. 2010, Eq. 32) and the safety
-    # density threshold depend on the local sound speed, so they are evaluated
-    # in every cell.
+    # The density threshold (Federrath et al. 2010, Eq. 32) depends on the
+    # local sound speed, so it is evaluated in every cell.
     sound_speed_squared = _sound_speed_squared(
         primitive_state,
         config,
         params,
         registered_variables,
     )
-    density_threshold, safety_density_threshold = _density_thresholds(
+    density_threshold = _density_threshold(
         sound_speed_squared,
         config,
         params,
     )
-    above_safety_threshold = density > safety_density_threshold
 
     # The gravitational potential of the gas (plus any external potential),
     # from a Poisson solve on the updated density. The hydro update computes it
@@ -706,14 +683,10 @@ def _form_sink_particles(
     # 2.2.4). Ghost cells are excluded, as they only mirror physical cells or
     # hold boundary values. The converging flow check reads their velocity,
     # since these ±1 neighbours are what the hydro solver sees at the boundary;
-    # the potential check does not count them as gas. Above the safety density
-    # threshold, the converging flow check is skipped: in a dense layer the grid
-    # cannot resolve, gas spreading sideways, or shear, can make a neighbour
-    # move away from a collapsing cell.
-    converging_flow = _converging_flow_mask(velocity)
+    # the potential check does not count them as gas.
     candidate_mask = (
         (density > density_threshold)
-        & (converging_flow | above_safety_threshold)
+        & _converging_flow_mask(velocity)
         & _potential_minimum_mask(
             _fill_potential_ghost_cells(gravitational_potential, config),
             offsets,
@@ -862,18 +835,12 @@ def _form_sink_particles(
         < 0.0
     )
 
-    # Above the safety density threshold at the candidate cell, the bound
-    # state check is skipped. E_kin counts all motion relative to the centre
-    # of mass as support, including converging inflow, which cannot hold the
-    # gas up when a strongly cooling gas radiates the energy of the inflow.
     candidate_cell_indices = tuple(candidate_indices.T)
-    candidate_above_safety_threshold = above_safety_threshold[candidate_cell_indices]
-
     candidate_passes = (
         candidate_is_valid
         & far_from_existing_sinks
         & jeans_unstable
-        & (bound | candidate_above_safety_threshold)
+        & bound
     )
 
     # Proximity among the new sinks (Section 2.2.7): several nearby cells can
@@ -888,11 +855,6 @@ def _form_sink_particles(
         is_periodic,
         box_length,
     )
-
-    # The new sinks that would fail the converging flow or the bound state
-    # check, and only form because of the safety density threshold.
-    passes_motion_checks = converging_flow[candidate_cell_indices] & bound
-    num_safety_sinks = jnp.sum(candidate_passes & ~passes_motion_checks)
 
     # -------------------------------------------------------------
     # =========== ↑ Stage 2: control-volume checks ↑ ==============
@@ -935,18 +897,7 @@ def _form_sink_particles(
     # then, so a warning is enough. A new sink without a free slot would be
     # lost, leaving its gas above the threshold on the grid, so the run stops
     # with an error instead (a host callback that raises aborts the jitted
-    # computation). Sinks formed only because of the safety density
-    # threshold are reported, since that threshold is not part of the method
-    # of Federrath et al. (2010).
-    jax.lax.cond(
-        num_safety_sinks > 0,
-        lambda: jax.debug.print(
-            "{} new sink particles formed only because of the safety density "
-            "threshold.",
-            num_safety_sinks,
-        ),
-        lambda: None,
-    )
+    # computation).
     jax.lax.cond(
         num_candidates_found > max_num_candidates,
         lambda: jax.debug.print(

@@ -2,10 +2,9 @@
 Configuration container for sink particles.
 
 Sink particles are created following the checks of Federrath et al. (2010),
-ApJ 713, 269, Section 2.2, with a safety density threshold above which the
-checks that judge by gas motion are skipped, and they accrete the gas above
-the density threshold within their accretion radius (Section 2.3). The density
-threshold is derived from the Jeans length resolution (Eq. 32 of the paper).
+ApJ 713, 269, Section 2.2, and they accrete the gas above the density
+threshold within their accretion radius (Section 2.3). The density threshold
+is derived from the Jeans length resolution (Eq. 32 of the paper).
 They move with a kick-drift-kick leapfrog, once per hydro step, and all their
 gravity goes through the grid (Gong & Ostriker 2013, ApJS 204, 8). All options
 here are static: changing them triggers recompilation.
@@ -59,21 +58,3 @@ class SinkParticleConfig(NamedTuple):
     #: al. (2010), Section 4.2.1, use r_acc = 2.5 grid cells. With ghost cells,
     #: its integer part must not exceed num_ghost_cells.
     accretion_radius_in_cells: float = 2.5
-
-    #: Jeans length N, in units of the grid spacing, that defines the safety
-    #: density threshold ρ_safe = π c_s² / (G N² Δx²), the density at which
-    #: the Jeans length is N cells. Relative to the density of Eq. 32,
-    #: ρ_res = π c_s² / (4 G r_acc²), at which the Jeans length is 2 r_acc,
-    #: ρ_safe / ρ_res = (2 r_acc / (N Δx))², which is (5 / N)² for
-    #: r_acc = 2.5 Δx. accretion_radius_in_cells changes ρ_res but not
-    #: ρ_safe.
-    #: Above ρ_safe, the checks that judge by gas motion are skipped: the
-    #: converging flow and bound state checks of the creation, and the bound
-    #: and radial velocity checks of the accretion. On a uniform grid these
-    #: checks can keep rejecting collapsing gas, e.g. a dense layer fed by fast
-    #: inflow, until the Jeans length is far below a cell. The default puts
-    #: ρ_safe at the Larson–Penston density at half a cell, the creation
-    #: threshold of Gong & Ostriker (2013), ApJS 204, 8, so that
-    #: ρ_safe ≈ 22 ρ_res for r_acc = 2.5 Δx. The safety threshold is not part
-    #: of the method of Federrath et al. (2010).
-    safety_jeans_length_in_cells: float = 1.06

@@ -4,8 +4,7 @@ Sink particle formation pytest (fast).
 Checks the sink particle creation of Federrath et al. (2010), Section 2.2:
 the creation checks (converging flow, potential minimum, Jeans instability
 with and without a magnetic field, bound state, proximity to existing sinks
-and between sinks formed in the same call), the skipping of the bound state
-check above the safety density threshold, the limit on the number of sink
+and between sinks formed in the same call), the limit on the number of sink
 slots, the wrapping of a new sink's position into a periodic box, and the
 control volume at an open boundary.
 """
@@ -277,27 +276,6 @@ def test_bound_state(angular_velocity, expected_num_sinks):
     sink_particles = _form_sinks_once(state, config, params, registered_variables)
 
     assert _num_sinks(sink_particles) == expected_num_sinks
-
-
-def test_safety_threshold_skips_bound_state():
-    """Above the safety density threshold, the bound state check is skipped,
-    so the unbound, fast-rotating clump of ``test_bound_state`` forms a sink.
-    With a safety Jeans length of 3 cells, ρ_safe = π c_s² / (G N² Δx²) ≈ 357
-    lies below the central density of about 401. With the default of 1.06
-    cells, ρ_safe ≈ 2860 and ``test_bound_state`` checks that the same clump
-    forms no sink."""
-    state, config, params, registered_variables = _setup(
-        safety_jeans_length_in_cells=3.0,
-    )
-    state = _with_rotation(state, registered_variables, angular_velocity=50.0)
-
-    sink_particles = _form_sinks_once(state, config, params, registered_variables)
-
-    num_sinks = _num_sinks(sink_particles)
-    assert num_sinks == 1, (
-        f"{num_sinks} sinks formed from the unbound clump above the safety "
-        "density threshold; expected 1"
-    )
 
 
 @pytest.mark.parametrize(

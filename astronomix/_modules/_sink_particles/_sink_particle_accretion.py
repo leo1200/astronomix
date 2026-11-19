@@ -9,10 +9,7 @@ conserved (Appendix B); the sink moves to the centre of mass of itself and the
 accreted gas. New sinks, created with zero mass, get their mass here too.
 
 Gas must be bound to the sink and move toward it, except in the cell that
-contains the sink and above the safety density threshold ρ_safe (see
-``_sink_particle_formation.py``). Above ρ_safe, inflow passing near a sink
-could otherwise pile up within r_acc, where the proximity check keeps a new
-sink from forming.
+contains the sink.
 
 Only gas in interior cells is accreted. The cells around a sink wrap around
 periodic axes and end at the edge of the box on non-periodic axes. Reflective
@@ -46,7 +43,7 @@ from astronomix.variable_registry.registered_variables import RegisteredVariable
 
 # astronomix functions
 from astronomix._modules._sink_particles._sink_particle_formation import (
-    _density_thresholds,
+    _density_threshold,
     _interior_cell_indices,
     _periodic_box,
     _sound_speed_squared,
@@ -123,15 +120,14 @@ def _accrete_gas(
         axis=-1,
     )
 
-    # The density threshold of Eq. 32 and the safety density threshold, per
-    # cell, as in the creation step.
+    # The density threshold of Eq. 32, per cell, as in the creation step.
     sound_speed_squared = _sound_speed_squared(
         primitive_state,
         config,
         params,
         registered_variables,
     )
-    density_threshold, safety_density_threshold = _density_thresholds(
+    density_threshold = _density_threshold(
         sound_speed_squared,
         config,
         params,
@@ -226,15 +222,9 @@ def _accrete_gas(
     radial_velocity = jnp.sum(separation * relative_velocity, axis=-1) / safe_distance
     radial_velocity_tolerance = 1e-5 * jnp.sqrt(sound_speed_squared[cell_indices])
     moving_toward_sink = radial_velocity <= radial_velocity_tolerance
-    passes_motion_checks = bound & moving_toward_sink
-
-    # Above the safety density threshold, the bound and radial velocity
-    # checks are skipped. Both judge by motion relative to the sink, so
-    # inflow passing near a sink can keep failing them while it piles up.
-    above_safety_threshold = density_in_reach > safety_density_threshold[cell_indices]
 
     eligible_accretion = possible_accretion & (
-        is_inner_cell | passes_motion_checks | above_safety_threshold
+        is_inner_cell | (bound & moving_toward_sink)
     )
 
     # -------------------------------------------------------------
@@ -281,22 +271,6 @@ def _accrete_gas(
     # -------------------------------------------------------------
     # ============= ↑ Choosing one sink per cell ↑ ================
     # -------------------------------------------------------------
-
-    # The cells accreted only because of the safety density threshold are
-    # reported, since that threshold is not part of the method of Federrath
-    # et al. (2010).
-    num_safety_accreted_cells = jnp.sum(
-        accreted & ~is_inner_cell & ~passes_motion_checks
-    )
-    jax.lax.cond(
-        num_safety_accreted_cells > 0,
-        lambda: jax.debug.print(
-            "{} cells accreted onto sink particles only because of the safety "
-            "density threshold.",
-            num_safety_accreted_cells,
-        ),
-        lambda: None,
-    )
 
     # -------------------------------------------------------------
     # ==================== ↓ Gas update ↓ =========================
