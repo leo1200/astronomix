@@ -305,6 +305,65 @@ def test_restart_continues_the_run_bit_for_bit(tmp_path):
     assert int(resumed.step) == int(whole.step) == 3
 
 
+@pytest.mark.parametrize("auto_adjust", [False, True], ids=["fixed amplitude", "auto adjust"])
+def test_in_memory_chunks_continue_the_run_bit_for_bit(auto_adjust):
+    # Integrating in memory in chunks, each call resuming from the loop state
+    # the previous call returned, reproduces one uninterrupted call bit for
+    # bit: the driving sequence (and the amplitude adjustment) continues
+    # across the calls. Fixed time steps make both take the same steps: a
+    # power of two, so that every chunk's start, end and step are exact, and
+    # not a divisor of the update interval, so that no pattern switch falls
+    # on a step end.
+    driving = DRIVING._replace(amplitude_auto_adjust=auto_adjust)
+    interval = float(update_interval(driving._replace(dimensionality=3), TurbulenceDrivingParams()))
+    time_step = 2.0**-7
+    assert 2.0 < interval / time_step < 10.0 and interval / time_step % 1.0 > 0.1
+    chunk_steps = (9, 11, 8)
+    fixed_steps = dict(snapshot_storage_mode=ON_DEVICE, fixed_timestep=True, num_timesteps=sum(chunk_steps))
+    config, params, registered_variables, initial_state = driven_run(
+        None, sum(chunk_steps) * time_step, driving=driving, **fixed_steps
+    )
+    uninterrupted, whole = time_integration(
+        initial_state, config, params, registered_variables, return_loop_state=True
+    )
+
+    state, loop_state, steps_done = initial_state, None, 0
+    for num_steps in chunk_steps:
+        chunk_config = config._replace(num_timesteps=num_steps)
+        chunk_params = params._replace(t_start=steps_done * time_step, t_end=(steps_done + num_steps) * time_step)
+        state, loop_state = time_integration(
+            state, chunk_config, chunk_params, registered_variables, restart_state=loop_state, return_loop_state=True
+        )
+        steps_done += num_steps
+
+    assert int(loop_state.driving_state.step) == int(whole.driving_state.step) >= 3
+    np.testing.assert_array_equal(loop_state.driving_state.ou_phases, whole.driving_state.ou_phases)
+    np.testing.assert_array_equal(
+        loop_state.driving_state.amplitude_adjustment, whole.driving_state.amplitude_adjustment
+    )
+    np.testing.assert_array_equal(np.asarray(loop_state.primitive_state), np.asarray(state))
+    np.testing.assert_array_equal(np.asarray(state), np.asarray(uninterrupted))
+
+
+def test_restarting_from_a_fresh_loop_state_repeats_the_sequence():
+    # Without the loop state, a second call starts the driving sequence again
+    # from its seed: the reason to carry the loop state between chunks.
+    interval = float(update_interval(DRIVING._replace(dimensionality=3), TurbulenceDrivingParams()))
+    config, params, registered_variables, initial_state = driven_run(
+        None, 1.5 * interval, snapshot_storage_mode=ON_DEVICE
+    )
+    _, first = time_integration(initial_state, config, params, registered_variables, return_loop_state=True)
+    second_params = params._replace(t_start=1.5 * interval, t_end=3.0 * interval)
+    _, carried = time_integration(
+        first.primitive_state, config, second_params, registered_variables, restart_state=first, return_loop_state=True
+    )
+    _, fresh = time_integration(
+        first.primitive_state, config, second_params, registered_variables, return_loop_state=True
+    )
+    assert int(carried.driving_state.step) == 3
+    assert not np.array_equal(np.asarray(carried.driving_state.ou_phases), np.asarray(fresh.driving_state.ou_phases))
+
+
 def test_automatic_amplitude_adjustment_acts_in_the_loop(tmp_path):
     driving = DRIVING._replace(amplitude_auto_adjust=True)
     t_end = 4.5 * float(update_interval(driving._replace(dimensionality=3), TurbulenceDrivingParams()))
