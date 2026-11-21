@@ -24,6 +24,7 @@ import jax
 
 # astronomix containers
 from astronomix._modules._cooling.cooling_options import CoolingConfig
+from astronomix._modules._relaxation_zone._relaxation_zone_options import RelaxationZoneConfig
 from astronomix._modules._stellar_wind.stellar_wind_options import WindConfig
 from astronomix._modules._turbulence_driving._turbulence_driving_options import TurbulenceDrivingConfig
 
@@ -863,6 +864,11 @@ class SimulationConfig(NamedTuple):
     #: ``SimulationParams.turbulence_driving_params``.
     turbulence_driving_config: TurbulenceDrivingConfig = TurbulenceDrivingConfig()
 
+    #: The relaxation zone (see RelaxationZoneConfig): a region pulled towards
+    #: a target state once per step; its target and rate are
+    #: ``SimulationParams.relaxation_zone_params``.
+    relaxation_zone_config: RelaxationZoneConfig = RelaxationZoneConfig()
+
     #: User-supplied update of the primitive state, called once per time
     #: step before the hydro update (after the stellar wind and cooling
     #: updates, before viscosity):
@@ -1668,6 +1674,10 @@ def finalize_config(config: SimulationConfig, state_shape) -> SimulationConfig:
         for option, is_set in cartesian_only:
             if is_set:
                 raise ValueError(f"{option} is implemented for geometry=CARTESIAN only: switch it off.")
+    if config.relaxation_zone_config.relaxation_zone and config.mhd:
+        # Relaxing the magnetic field cell by cell towards a target would
+        # break div B = 0.
+        raise ValueError("relaxation_zone_config.relaxation_zone is not implemented for MHD: switch it off.")
     if config.wind_config.stellar_wind and config.dimensionality != 3:
         # The 3D wind is a source of the stages of every scheme; the 1D wind is the injection of the spherical
         # grid, which the split finite-volume scheme carries.

@@ -3,7 +3,8 @@ Hook 2 of the physics modules: the operator-split updates, once per time step.
 
 ``per_step_updates`` runs between two solver steps on the primitive state: the
 spherical 1D stellar-wind injection, the user-supplied
-``config.per_step_update`` and the per-step positivity floor. Two further
+``config.per_step_update``, the relaxation zone and the per-step positivity
+floor. Two further
 operator-split updates sit inside the step of every scheme, because they need
 the state at its start or the driving pattern at its end: the advection of the
 passive scalars (``_fluid_equations/_passive_scalars.py``) and the kick of the
@@ -37,6 +38,7 @@ from astronomix.variable_registry.registered_variables import RegisteredVariable
 
 # astronomix functions
 from astronomix._modules._explicit_sources import wind_source_active
+from astronomix._modules._relaxation_zone._relaxation_zone import apply_relaxation_zone
 from astronomix._modules._stellar_wind.stellar_wind import _wind_injection
 
 
@@ -165,6 +167,11 @@ def per_step_updates(
             helper_data,
             registered_variables,
         )
+
+    # Relaxation zone: after the user update, so a reservoir or absorbing layer
+    # has the last word on the state that the next solver step starts from.
+    if config.relaxation_zone_config.relaxation_zone:
+        primitive_state = apply_relaxation_zone(primitive_state, dt, config, params)
 
     # Per-step state floor (HARD_FLOOR): AthenaPK's density floor, momentum and
     # total energy kept (see _apply_density_floor), then the pressure floor.
