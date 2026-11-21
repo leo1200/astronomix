@@ -36,7 +36,7 @@ The options of the containers (time integrators `SSPRK54`, `SSPRK33`, `LSRK4` fo
 `INDUCTION_SOURCE`) are documented field by field in
 `astronomix/option_classes/simulation_config.py`. Physics modules have containers of their
 own (`gravity_config`, `diffusion_config`, `passive_scalar_config`, `wind_config`, `cooling_config`,
-`turbulence_driving_config`), as do the positivity safeguards (`positivity_config`) and the backend
+`turbulence_driving_config`, `relaxation_zone_config`), as do the positivity safeguards (`positivity_config`) and the backend
 (`backend_config`). Scripts written for the configuration before these containers are migrated by
 [`tools/migrate_config.py`](https://github.com/leo1200/astronomix/blob/main/tools/migrate_config.py); see the [migration note](migration.md).
 
@@ -69,6 +69,12 @@ operator-split updates run once per step after the solver (`_modules/_per_step_u
   `SimulationParams(turbulence_driving_params=TurbulenceDrivingParams(velocity=...))`): a port of TurbGen
   (Ornstein-Uhlenbeck modes with band, parabola or power-law spectra, solenoidal weight, automatic amplitude
   adjustment) that runs on the GPU inside the time loop without host round trips.
+- a relaxation zone (`RelaxationZoneConfig(relaxation_zone=True)` with
+  `SimulationParams(relaxation_zone_params=RelaxationZoneParams(target_state=..., rate=...))`): once per step the
+  primitive state relaxes exactly as `dq/dt = -rate (q - q_target)` towards a target state, with a rate field that
+  is zero outside the zone (one rate for all variables or one per variable). An absorbing layer at the domain edge,
+  a reservoir that holds the inflow at a background state, or the boundary region of a zoom-in whose target
+  changes between calls of the time integration; not for MHD.
 
 ## Pallas kernels and device meshes
 

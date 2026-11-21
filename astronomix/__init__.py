@@ -75,6 +75,7 @@ from astronomix.option_classes.presets import (
     FD_RIEMANN_ISOTHERMAL,
 )
 from astronomix.option_classes.simulation_params import SimulationParams
+from astronomix._modules._relaxation_zone import RelaxationZoneConfig, RelaxationZoneParams
 from astronomix._modules._stellar_wind.stellar_wind_options import WindParams
 from astronomix._modules._turbulence_driving import TurbulenceDrivingConfig, TurbulenceDrivingParams
 from astronomix.units import CodeUnits

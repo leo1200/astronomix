@@ -15,6 +15,7 @@ import jax.numpy as jnp
 
 # astronomix containers
 from astronomix._modules._cooling.cooling_options import CoolingParams
+from astronomix._modules._relaxation_zone._relaxation_zone_options import RelaxationZoneParams
 from astronomix._modules._stellar_wind.stellar_wind_options import WindParams
 from astronomix._modules._turbulence_driving._turbulence_driving_options import TurbulenceDrivingParams
 
@@ -139,6 +140,10 @@ class SimulationParams(NamedTuple):
 
     #: The parameters of the cooling module.
     cooling_params: CoolingParams = CoolingParams()
+
+    #: The target state and the rate of the relaxation zone (used when
+    #: ``config.relaxation_zone_config.relaxation_zone`` is set).
+    relaxation_zone_params: RelaxationZoneParams = RelaxationZoneParams()
 
     #: Parameters of the user-supplied ``config.per_step_update`` (any
     #: pytree, for example network weights). The simulation can be
