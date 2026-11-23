@@ -194,6 +194,7 @@ def _riemann_flux_rhs_on_padded_shards(
     helper_data: HelperData,
     config: SimulationConfig,
     registered_variables: RegisteredVariables,
+    sink_potential=None,
 ):
     """
     The right-hand side of a stage under ``scheme = RIEMANN_FLUX`` on a device
@@ -245,6 +246,7 @@ def _riemann_flux_rhs_on_padded_shards(
         registered_variables,
         density_fluxes=density_fluxes,
         density_increment=increment[registered_variables.density_index],
+        sink_potential=sink_potential,
     )
     if face_fields is None:
         return increment
@@ -277,6 +279,7 @@ def _ssprk_with_ct(
     config: SimulationConfig,
     registered_variables: RegisteredVariables,
     internal_energy_density=None,
+    sink_potential=None,
 ):
     """
     Integrates the MHD equations for one time step using a 5-stage, 4th-order
@@ -299,6 +302,8 @@ def _ssprk_with_ct(
         internal_energy_density: The dual-energy ``g`` with shape
             ``(x, y, z)`` (used in the pressure recovery of the fluxes), or
             None.
+        sink_potential: The gravitational potential of the sink particles,
+            which acts on the gas together with its own gravity, or ``None``.
 
     Returns:
         The updated ``(conserved_state, bx_interface, by_interface,
@@ -520,6 +525,7 @@ def _ssprk_with_ct(
             registered_variables,
             density_fluxes=density_fluxes,
             density_increment=density_increment,
+            sink_potential=sink_potential,
         )
 
         return rhs_q, rhs_bx, rhs_by, rhs_bz
@@ -529,6 +535,7 @@ def _ssprk_with_ct(
         rhs = partial(
             _riemann_flux_rhs_on_padded_shards, gamma=gamma, grid_spacing=grid_spacing, params=params,
             helper_data=helper_data, config=config, registered_variables=registered_variables,
+            sink_potential=sink_potential,
         )
     rhs = _stage_remat(rhs, config)
 
@@ -620,6 +627,7 @@ def _hydro_step_rhs(
     helper_data,
     density_fluxes_needed: bool,
     internal_energy_density=None,
+    sink_potential=None,
 ):
     """
     RHS for one hydro time-step stage (excluding RK coefficient logic),
@@ -645,6 +653,8 @@ def _hydro_step_rhs(
         internal_energy_density: The dual-energy ``g`` with shape
             ``(x, y, z)`` (used in the pressure recovery of the fluxes), or
             None.
+        sink_potential: The gravitational potential of the sink particles,
+            which acts on the gas together with its own gravity, or ``None``.
 
     Returns:
         The stage increment ``rhs_q``.
@@ -667,6 +677,7 @@ def _hydro_step_rhs(
             registered_variables,
             density_fluxes=density_fluxes,
             density_increment=rhs_q[registered_variables.density_index],
+            sink_potential=sink_potential,
         )
 
     # Fused WENO + axis-flux-divergence: each axis is built and consumed one
@@ -790,6 +801,7 @@ def _hydro_step_rhs(
         registered_variables,
         density_fluxes=density_fluxes,
         density_increment=density_increment,
+        sink_potential=sink_potential,
     )
 
     return rhs_q
@@ -810,6 +822,7 @@ def _ssprk_hydro(
     config: SimulationConfig,
     registered_variables: RegisteredVariables,
     internal_energy_density=None,
+    sink_potential=None,
 ):
     """
     Integrates the Euler (hydrodynamics) equations for one time step using a
@@ -833,6 +846,8 @@ def _ssprk_hydro(
         internal_energy_density: The dual-energy ``g`` with shape
             ``(x, y, z)`` (used in the pressure recovery of the fluxes), or
             None.
+        sink_potential: The gravitational potential of the sink particles,
+            which acts on the gas together with its own gravity, or ``None``.
 
     Returns:
         The updated conserved state.
@@ -863,6 +878,7 @@ def _ssprk_hydro(
             helper_data=helper_data,
             density_fluxes_needed=density_fluxes_needed,
             internal_energy_density=internal_energy_density,
+            sink_potential=sink_potential,
         )
 
     # On a device mesh: the stage on padded shards, one halo exchange per split axis.
@@ -870,6 +886,7 @@ def _ssprk_hydro(
         rhs = partial(
             _riemann_flux_rhs_on_padded_shards, gamma=gamma, grid_spacing=grid_spacing, params=params,
             helper_data=helper_data, config=config, registered_variables=registered_variables,
+            sink_potential=sink_potential,
         )
     rhs = _stage_remat(rhs, config)
 
@@ -897,6 +914,7 @@ def _lsrk4_hydro(
     config: SimulationConfig,
     registered_variables: RegisteredVariables,
     internal_energy_density=None,
+    sink_potential=None,
 ):
     """
     Carpenter-Kennedy 2N-storage, 5-stage, 4th-order low-storage RK4.
@@ -925,6 +943,8 @@ def _lsrk4_hydro(
         internal_energy_density: The dual-energy ``g`` with shape
             ``(x, y, z)`` (used in the pressure recovery of the fluxes), or
             None.
+        sink_potential: The gravitational potential of the sink particles,
+            which acts on the gas together with its own gravity, or ``None``.
 
     Returns:
         The updated conserved state.
@@ -1025,6 +1045,7 @@ def _lsrk4_hydro(
                 helper_data,
                 registered_variables,
                 density_increment=dq[registered_variables.density_index],
+                sink_potential=sink_potential,
             )
             if sources is not None:
                 dq = dq + sources
@@ -1042,6 +1063,7 @@ def _lsrk4_hydro(
             helper_data=helper_data,
             density_fluxes_needed=density_fluxes_needed,
             internal_energy_density=internal_energy_density,
+            sink_potential=sink_potential,
         )
         return a_coef * dq + rhs
 
@@ -1073,6 +1095,7 @@ def _lsrk4_with_ct(
     config: SimulationConfig,
     registered_variables: RegisteredVariables,
     internal_energy_density=None,
+    sink_potential=None,
 ):
     """
     Carpenter-Kennedy 2N-storage 5-stage 4th-order LSRK4 for MHD-CT.
@@ -1107,6 +1130,8 @@ def _lsrk4_with_ct(
         internal_energy_density: The dual-energy ``g`` with shape
             ``(x, y, z)`` (used in the pressure recovery of the fluxes), or
             None.
+        sink_potential: The gravitational potential of the sink particles,
+            which acts on the gas together with its own gravity, or ``None``.
 
     Returns:
         The updated ``(conserved_state, bx_interface, by_interface,
@@ -1157,6 +1182,7 @@ def _lsrk4_with_ct(
         grid_spacing,
         params,
         helper_data,
+        sink_potential,
     ):
         """Compute ``dq_new = a_coef * dq + dt * L_q`` (in-place via the
         Pallas div-axis accumulator when available) and the three
@@ -1170,7 +1196,10 @@ def _lsrk4_with_ct(
         ``rhs_q`` → ``dq = a_coef * dq + rhs_q`` pattern.
 
         ``kept_halo_path`` (static) selects the multi-GPU fast path described
-        above; both paths compute the same stage.
+        above; both paths compute the same stage. The fast path runs inside
+        the ``jax.custom_jvp`` of ``diffable_pallas_call_n``, which cannot
+        differentiate through values read from the enclosing scope, so every
+        traced input, ``sink_potential`` included, is an argument.
         """
         dtdx = dt / grid_spacing
         dtdy = dt / grid_spacing
@@ -1486,6 +1515,7 @@ def _lsrk4_with_ct(
                 registered_variables,
                 density_fluxes=density_fluxes,
                 density_increment=dq[registered_variables.density_index],
+                sink_potential=sink_potential,
             )
             if sources is not None:
                 dq = dq + sources
@@ -1500,6 +1530,7 @@ def _lsrk4_with_ct(
                 registered_variables,
                 density_fluxes=density_fluxes,
                 density_increment=rhs_q_for_phys[registered_variables.density_index],
+                sink_potential=sink_potential,
             )
             dq = a_coef * dq + rhs_q_for_phys
 
@@ -1511,7 +1542,20 @@ def _lsrk4_with_ct(
 
     def compute_lqs(current_q, bx, by, bz, dq, a_coef):
         """The stage increments of ``stage_rhs``, on the fast path if it applies."""
-        primals = (current_q, bx, by, bz, dq, a_coef, dt, gamma, grid_spacing, params, helper_data)
+        primals = (
+            current_q,
+            bx,
+            by,
+            bz,
+            dq,
+            a_coef,
+            dt,
+            gamma,
+            grid_spacing,
+            params,
+            helper_data,
+            sink_potential,
+        )
         if not use_kept_x_flux_halo:
             return stage_rhs(False, *primals)
         # The kept-halo kernels call Pallas outside the differentiable

@@ -52,6 +52,7 @@ def _evolve_state_fv(
     registered_variables: RegisteredVariables,
     step_index=0,
     driving_state=None,
+    sink_potential=None,
 ) -> STATE_TYPE:
     """
     Advance the primitive state by one finite-volume time step.
@@ -67,6 +68,8 @@ def _evolve_state_fv(
         step_index: The number of the step in the run (the split MHD scheme alternates its sweep order).
         driving_state: The state of the turbulence driving at the end of the
             step, or ``None`` without driving.
+        sink_potential: The gravitational potential of the sink particles,
+            or ``None`` without sink particles.
 
     Returns:
         The primitive state ``W^{n+1}``.
@@ -82,11 +85,13 @@ def _evolve_state_fv(
     step_arguments = (dt, gamma, config, params, helper_data, registered_variables)
 
     if config.solver_config.time_integrator == VL2:
-        primitive_state = vl2_step(primitive_state, *step_arguments)
+        primitive_state = vl2_step(primitive_state, *step_arguments, sink_potential=sink_potential)
     elif config.solver_config.time_integrator == RK2_SSP:
-        primitive_state = rk2_ssp_step(primitive_state, *step_arguments)
+        primitive_state = rk2_ssp_step(primitive_state, *step_arguments, sink_potential=sink_potential)
     else:
-        primitive_state = muscl_hancock_step(primitive_state, *step_arguments, step_index)
+        primitive_state = muscl_hancock_step(
+            primitive_state, *step_arguments, step_index, sink_potential=sink_potential
+        )
 
     # The kick of the turbulence driving, operator-split after the update; the
     # ghost cells are filled at the start of the next step.

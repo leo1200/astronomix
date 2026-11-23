@@ -120,6 +120,7 @@ def explicit_sources(
     density_fluxes=None,
     density_increment=None,
     primitive_state=None,
+    sink_potential=None,
 ) -> STATE_TYPE:
     """
     The increment of the conserved state over ``dt`` from the explicit sources and diffusive fluxes of the
@@ -137,6 +138,8 @@ def explicit_sources(
         density_increment: The density increment of the stage (the conservative gravity couplings), or None.
         primitive_state: The primitive form of ``conserved_state`` if the caller holds it (the finite-volume
             stages); otherwise it is converted here.
+        sink_potential: The gravitational potential of the sink particles, which acts on the gas together
+            with its own gravity, or None.
 
     Returns:
         The increment, laid out like the conserved state.
@@ -200,6 +203,7 @@ def explicit_sources(
             config,
             params,
             registered_variables,
+            sink_potential=sink_potential,
         )
 
     if config.diffusion_config.viscosity:

@@ -40,16 +40,19 @@ def _vl2_gravitational_potential(
     config: SimulationConfig,
     params: SimulationParams,
     registered_variables: RegisteredVariables,
+    sink_potential=None,
 ):
     """
-    The total gravitational potential (self-gravity and external) of a density
-    field of the VL2 scheme.
+    The total gravitational potential (self-gravity, external and sink
+    particles) of a density field of the VL2 scheme.
 
     Args:
         density: The density field.
         config: The simulation configuration.
         params: The simulation parameters.
         registered_variables: The registered variables.
+        sink_potential: The potential of the sink particles, added to the
+            total (``None``: no sink particles).
 
     Returns:
         The potential, shaped like the density.
@@ -61,6 +64,7 @@ def _vl2_gravitational_potential(
         params,
         registered_variables,
         params.gravitational_constant,
+        sink_potential=sink_potential,
     )
 
 

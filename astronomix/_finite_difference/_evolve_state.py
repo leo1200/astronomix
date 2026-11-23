@@ -84,6 +84,7 @@ def _evolve_state_fd(
     helper_data: HelperData,
     registered_variables: RegisteredVariables,
     driving_state=None,
+    sink_potential=None,
 ) -> STATE_TYPE:
     """
     Advance the primitive state by one finite-difference time step.
@@ -104,6 +105,8 @@ def _evolve_state_fd(
         registered_variables: The registered variables.
         driving_state: The state of the turbulence driving at the end of the
             step, or ``None`` without driving.
+        sink_potential: The gravitational potential of the sink particles,
+            which acts on the gas together with its own gravity, or ``None``.
 
     Returns:
         The primitive state after one time step.
@@ -229,6 +232,7 @@ def _evolve_state_fd(
             config,
             registered_variables,
             internal_energy_density=internal_energy_density,
+            sink_potential=sink_potential,
         )
 
         # back to primitive state
@@ -287,6 +291,7 @@ def _evolve_state_fd(
             config,
             registered_variables,
             internal_energy_density=internal_energy_density,
+            sink_potential=sink_potential,
         )
 
         primitive_state = primitive_state_from_conserved(

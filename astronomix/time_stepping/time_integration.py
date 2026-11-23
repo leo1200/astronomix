@@ -59,6 +59,7 @@ from astronomix.data_classes.simulation_helper_data import HelperData
 from astronomix.variable_registry.registered_variables import RegisteredVariables
 from astronomix.option_classes.simulation_params import SimulationParams
 from astronomix.data_classes.simulation_snapshot_data import SnapshotData
+from astronomix.data_classes.simulation_state_struct import StateStruct
 
 # astronomix functions
 from astronomix._finite_volume._evolve_state import _evolve_state_fv
@@ -81,6 +82,19 @@ from astronomix._modules._turbulence_driving import (
     init_turbulence_driving,
     update_interval,
     velocity_dispersion,
+)
+from astronomix._modules._sink_particles._sink_particle_formation import (
+    _empty_sink_particles,
+    _form_sink_particles,
+    _pad_sink_particles,
+)
+from astronomix._modules._sink_particles._sink_particle_accretion import _accrete_gas
+from astronomix._modules._sink_particles._sink_particle_dynamics import (
+    _drift,
+    _kick,
+    _sink_acceleration,
+    _sink_potential,
+    _sink_time_step,
 )
 from astronomix._snapshotting._snapshot_diagnostics import (
     build_snapshot_store,
@@ -126,9 +140,12 @@ class LoopState(NamedTuple):
         driving_state: The ``TurbulenceDrivingState`` of the turbulence driving
             (mode amplitudes, pattern number, key; a few kilobytes), or
             ``None`` without driving.
+        sink_particles: The sink particles, or ``None`` when sink particles
+            are off.
     """
     primitive_state: Any
     driving_state: Any = None
+    sink_particles: Any = None
 
 
 def _compiler_options(config: SimulationConfig, dtype) -> Union[dict, NoneType]:
@@ -232,21 +249,28 @@ def _raise_with_time_integration_hint(error: Exception, config: SimulationConfig
 
 
 def time_integration(
-    primitive_state: STATE_TYPE,
+    primitive_state: Union[STATE_TYPE, StateStruct],
     config: SimulationConfig,
     params: SimulationParams,
     registered_variables: RegisteredVariables,
     snapshot_callable = None,
     sharding: Union[NoneType, jax.NamedSharding] = None,
     restart_state: Union[NoneType, "LoopState"] = None,
-) -> Union[STATE_TYPE, SnapshotData]:
+) -> Union[STATE_TYPE, StateStruct, SnapshotData]:
     """
     Integrate the fluid equations in time. For the options of
     the time integration see the simulation configuration and
     the simulation parameters.
 
+    With sink particles on (``SinkParticleConfig``), the sinks move with a
+    kick-drift-kick leapfrog around every hydro step, and adaptive steps are
+    also limited so that no sink moves more than half a cell per step
+    (Federrath et al. 2010, Eq. 22). Fixed-step runs do not apply that limit.
+
     Args:
-        primitive_state: The primitive state array.
+        primitive_state: The primitive state array, or a
+            :class:`StateStruct` wrapping it when ``config.state_struct``
+            is set; ``finalize_state`` gives the right form for ``config``.
         config: The simulation configuration.
         params: The simulation parameters.
         registered_variables: The registered variables.
@@ -267,10 +291,15 @@ def time_integration(
             To avoid moving large amounts of data to the host, only pass
             the necessary data to the function in the jax.debug.callback call,
             e.g. only the slice or summary statistics you need.
+            With sink particles on, the callable is also given the sinks,
+            as the keyword argument ``sink_particles`` (a
+            :class:`SinkParticles` with all ``max_num_sinks`` slots; empty
+            slots have zero mass), so it must accept it.
         sharding: The sharding to use for the padded helper data. If None,
                   no sharding is applied.
         restart_state: An optional :class:`LoopState` providing the state of
-            the turbulence driving to resume from (typically obtained from
+            the turbulence driving and the sink particles to resume from
+            (typically obtained from
             ``astronomix.setup_helpers.restart_from_latest_checkpoint``).
             Its ``primitive_state`` slot is ignored; pass the restored state as
             the ``primitive_state`` argument. Mainly used together with
@@ -279,7 +308,10 @@ def time_integration(
     Returns:
         Depending on the configuration (return_snapshots, num_snapshots)
         either the final state of the fluid after the time
-        integration or snapshots of the time evolution.
+        integration or snapshots of the time evolution. With
+        ``config.state_struct`` set, the final state is a
+        :class:`StateStruct` holding the primitive state and the sink
+        particles.
 
     Warns:
         RuntimeWarning: If an adaptive run stops before ``params.t_end``
@@ -337,6 +369,16 @@ def time_integration(
             lambda leaf: jax.device_put(jnp.asarray(leaf), replicated),
             params,
         )
+        # Sink particles passed in are small jit inputs too: copy them to
+        # every device in the same way, which is also the layout they keep
+        # during the run.
+        if config.state_struct and primitive_state.sink_particles is not None:
+            primitive_state = primitive_state._replace(
+                sink_particles=jax.tree.map(
+                    lambda leaf: jax.device_put(jnp.asarray(leaf), replicated),
+                    primitive_state.sink_particles,
+                )
+            )
 
     # Disk-checkpointing mode is driven on the host: it runs JIT'd segments
     # between snapshot times and streams each segment's loop carry to disk via
@@ -358,7 +400,7 @@ def time_integration(
             # Turn an opaque out-of-memory / NaN failure into an actionable one.
             _raise_with_time_integration_hint(error, config)
 
-    compiler_options = _compiler_options(config, primitive_state.dtype)
+    compiler_options = _compiler_options(config, _state_dtype(primitive_state, config))
     if config.donate_state:
         time_integration_jit = jax.jit(
             _time_integration,
@@ -607,6 +649,67 @@ def _seed_internal_energy(primitive_state, params, registered_variables):
     )
 
 
+def _state_dtype(state, config: SimulationConfig):
+    """The dtype of the primitive state, which ``state`` wraps in a
+    :class:`StateStruct` when ``config.state_struct`` is set."""
+    if config.state_struct:
+        return jnp.result_type(state.primitive_state)
+    return jnp.result_type(state)
+
+
+def _fill_ghost_cells(primitive_state, config, params, registered_variables):
+    """
+    Fill the ghost cells of a padded primitive state via the boundary handler.
+
+    The gas boundary handler must not touch the interface magnetic field that
+    the FD MHD layout keeps behind the gas variables (the FD integrators fill
+    its ghost cells before every stage); the VL2 GLM-MHD layout is cell centred
+    throughout and handled as a whole (VL2 with constrained transport is
+    periodic and never gets here).
+
+    Args:
+        primitive_state: The padded primitive state.
+        config: The simulation configuration.
+        params: The simulation parameters.
+        registered_variables: The registered variables.
+
+    Returns:
+        The padded primitive state with filled ghost cells.
+    """
+    if config.mhd and config.solver_mode == FINITE_DIFFERENCE:
+        # FD MHD layout: gas and cell-centred field, the interface field, then
+        # the optional dual-energy g and passive scalars. The trailing rows
+        # behind the interface field are scalars that keep their sign at a
+        # reflective wall, so they get the passive-scalar boundary fill. For
+        # open, periodic and reflective boundaries this gives g the same ghost
+        # cells as deriving it from the filled pressure, as the step does.
+        interface_field_start = registered_variables.interface_magnetic_field_index.x
+        trailing_rows_start = interface_field_start + 3
+        primitive_state = primitive_state.at[:interface_field_start, ...].set(
+            _boundary_handler(
+                primitive_state[:interface_field_start, ...],
+                config,
+                registered_variables,
+                params,
+            )
+        )
+        if primitive_state.shape[0] > trailing_rows_start:
+            primitive_state = primitive_state.at[trailing_rows_start:, ...].set(
+                _fill_scalar_ghost_cells(
+                    primitive_state[trailing_rows_start:, ...],
+                    config,
+                )
+            )
+        return primitive_state
+
+    return _boundary_handler(
+        primitive_state,
+        config,
+        registered_variables,
+        params,
+    )
+
+
 def _prepare_padded_state(primitive_state, config, params, registered_variables):
     """
     Pad the primitive state with ghost cells and fill them via the boundary
@@ -630,46 +733,15 @@ def _prepare_padded_state(primitive_state, config, params, registered_variables)
     if config.boundary_handling != PERIODIC_ROLL:
         primitive_state = _pad(primitive_state, config)
 
+    # The ghost cells are filled before the first time-step estimate, so that
+    # active boundaries enter the CFL criterion.
     if config.boundary_handling == GHOST_CELLS:
-        # Fill the ghost cells before the first time-step estimate, so that
-        # active boundaries enter the CFL criterion. The gas boundary handler
-        # must not touch the interface magnetic field that the FD MHD layout
-        # keeps behind the gas variables (the FD integrators fill its ghost
-        # cells before every stage); the VL2 GLM-MHD layout is cell centred
-        # throughout and handled as a whole (VL2 with constrained transport
-        # is periodic and never gets here).
-        if config.mhd and config.solver_mode == FINITE_DIFFERENCE:
-            # FD MHD layout: gas and cell-centred field, the interface
-            # field, then the optional dual-energy g and passive scalars.
-            # The trailing rows behind the interface field are scalars
-            # that keep their sign at a reflective wall, so they get the
-            # passive-scalar boundary fill. For open, periodic and
-            # reflective boundaries this gives g the same ghost cells as
-            # deriving it from the filled pressure, as the step does.
-            interface_field_start = registered_variables.interface_magnetic_field_index.x
-            trailing_rows_start = interface_field_start + 3
-            primitive_state = primitive_state.at[:interface_field_start, ...].set(
-                _boundary_handler(
-                    primitive_state[:interface_field_start, ...],
-                    config,
-                    registered_variables,
-                    params,
-                )
-            )
-            if primitive_state.shape[0] > trailing_rows_start:
-                primitive_state = primitive_state.at[trailing_rows_start:, ...].set(
-                    _fill_scalar_ghost_cells(
-                        primitive_state[trailing_rows_start:, ...],
-                        config,
-                    )
-                )
-        else:
-            primitive_state = _boundary_handler(
-                primitive_state,
-                config,
-                registered_variables,
-                params,
-            )
+        primitive_state = _fill_ghost_cells(
+            primitive_state,
+            config,
+            params,
+            registered_variables,
+        )
 
     return primitive_state
 
@@ -753,6 +825,16 @@ def _integrate_core(
         snapshot_data = build_snapshot_store(
             config, config.num_snapshots, original_shape
         )
+        # The sink particles get one buffer slot per snapshot, like the states.
+        if config.sink_particle_config.sink_particles:
+            snapshot_data = snapshot_data._replace(
+                sink_particles=jax.tree.map(
+                    lambda field: jnp.zeros(
+                        (config.num_snapshots, *field.shape), dtype=field.dtype
+                    ),
+                    initial_loop_state.sink_particles,
+                )
+            )
     elif config.activate_snapshot_callback:
         snapshot_data = SnapshotData(current_checkpoint=0)
 
@@ -773,12 +855,16 @@ def _integrate_core(
         """Advance the state by one timestep.
 
         Estimates ``dt``, clamps it to land on the next snapshot time / the
-        end time, runs the per-step modules and evolves the state.  Returns
+        end time, runs the per-step modules and evolves the state.  With sink
+        particles on, the sinks move with a kick-drift-kick leapfrog around
+        the evolve, and then form and accrete from the updated gas.  Returns
         ``(dt, new_state)``; the driver advances the time.
         """
         primitive_state = state.primitive_state
         driving_state = state.driving_state
         driving = config.turbulence_driving_config.turbulence_driving
+        sink_particles = state.sink_particles
+        sinks_active = config.sink_particle_config.sink_particles
 
         # determine the time step size
         if not config.fixed_timestep:
@@ -843,6 +929,13 @@ def _integrate_core(
                 ),
             )
 
+        # No sink may move more than half a cell in one step.
+        if sinks_active and not config.fixed_timestep:
+            dt = jnp.minimum(
+                dt,
+                jax.lax.stop_gradient(_sink_time_step(sink_particles, config)),
+            )
+
         # make sure we exactly hit the snapshot time points
         if config.use_specific_snapshot_timepoints and (
             config.return_snapshots or config.activate_snapshot_callback
@@ -870,10 +963,48 @@ def _integrate_core(
                 )
             )
 
+        # The first kick of the sinks takes the acceleration from the gas and
+        # the sinks at the start of the step. It does not depend on the step
+        # size, so a retried step reuses it.
+        if sinks_active:
+            start_acceleration = _sink_acceleration(
+                primitive_state,
+                sink_particles,
+                config,
+                params,
+                registered_variables,
+            )
+
         def advance(step_size):
             """The per-step modules, the pattern of the driving at the end of
-            the step and the evolve over ``step_size``, from the state and the
-            driving state at the start of the step."""
+            the step and the evolve over ``step_size``, from the state, the
+            driving state and the sinks at the start of the step. With sink
+            particles on, the sinks get a half kick and a half drift before
+            the per-step modules, so that the whole hydro update feels them at
+            their mid-step positions, and a half drift and a half kick after
+            the evolve, with the acceleration of the updated gas and the sinks
+            at their end positions."""
+
+            # --------------- ↓ First kick and half drift ↓ ----------------
+
+            sink_potential = None
+            if sinks_active:
+                mid_step_sinks = _drift(
+                    _kick(sink_particles, start_acceleration, 0.5 * step_size),
+                    0.5 * step_size,
+                    config,
+                )
+                # The sinks keep their mid-step positions for the whole hydro
+                # update, so their potential is solved once for the step.
+                sink_potential = _sink_potential(
+                    mid_step_sinks,
+                    primitive_state.shape[1:],
+                    config,
+                    params,
+                )
+
+            # --------------- ↑ First kick and half drift ↑ ----------------
+
             new_driving_state = None
             if driving:
                 new_driving_state = advance_turbulence_driving(
@@ -903,6 +1034,7 @@ def _integrate_core(
                     registered_variables,
                     step_index,
                     new_driving_state,
+                    sink_potential=sink_potential,
                 )
             elif config.solver_mode == FINITE_DIFFERENCE:
                 new_state = _evolve_state_fd(
@@ -914,8 +1046,26 @@ def _integrate_core(
                     helper_data_pad,
                     registered_variables,
                     new_driving_state,
+                    sink_potential=sink_potential,
                 )
-            return new_driving_state, new_state
+
+            # --------------- ↓ Second half drift and kick ↓ ---------------
+
+            new_sinks = sink_particles
+            if sinks_active:
+                end_sinks = _drift(mid_step_sinks, 0.5 * step_size, config)
+                end_acceleration = _sink_acceleration(
+                    new_state,
+                    end_sinks,
+                    config,
+                    params,
+                    registered_variables,
+                )
+                new_sinks = _kick(end_sinks, end_acceleration, 0.5 * step_size)
+
+            # --------------- ↑ Second half drift and kick ↑ ---------------
+
+            return new_driving_state, new_state, new_sinks
 
         if config.positivity_config.step_retry:
             # Repeat a step that left a non-finite value or a non-positive
@@ -933,22 +1083,36 @@ def _integrate_core(
                 return admissible_state
 
             def retry_pending(carry):
-                attempt, _, _, _, accepted = carry
+                attempt, _, _, _, _, accepted = carry
                 return jnp.logical_not(accepted) & (attempt <= MAXIMUM_STEP_RETRIES)
 
             def attempt_step(carry):
-                attempt, step_size, _, _, _ = carry
+                attempt, step_size, _, _, _, _ = carry
                 step_size = jnp.where(attempt == 0, step_size, 0.5 * step_size)
-                new_driving_state, new_state = advance(step_size)
-                return attempt + 1, step_size, new_driving_state, new_state, admissible(new_state)
+                new_driving_state, new_state, new_sinks = advance(step_size)
+                return (
+                    attempt + 1,
+                    step_size,
+                    new_driving_state,
+                    new_state,
+                    new_sinks,
+                    admissible(new_state),
+                )
 
-            _, dt, driving_state, primitive_state, _ = jax.lax.while_loop(
+            _, dt, driving_state, primitive_state, sink_particles, _ = jax.lax.while_loop(
                 retry_pending,
                 attempt_step,
-                (jnp.asarray(0), dt, driving_state, primitive_state, jnp.asarray(False)),
+                (
+                    jnp.asarray(0),
+                    dt,
+                    driving_state,
+                    primitive_state,
+                    sink_particles,
+                    jnp.asarray(False),
+                ),
             )
         else:
-            driving_state, primitive_state = advance(dt)
+            driving_state, primitive_state, sink_particles = advance(dt)
 
         # AthenaPK floors the density in every stage's conversion to
         # primitives, so its time step and output see the floored state; the
@@ -963,7 +1127,37 @@ def _integrate_core(
                 params.maximum_alfven_speed,
             )
 
-        return dt, LoopState(primitive_state, driving_state)
+        # Sink particle formation and accretion act on the updated state, so
+        # sinks form from and accrete the gas as it is at the end of this step.
+        # New sinks are created massless and get their mass from the accretion.
+        if sinks_active:
+            sink_particles, num_active_sinks = _form_sink_particles(
+                primitive_state,
+                sink_particles,
+                config,
+                params,
+                registered_variables,
+            )
+            primitive_state, sink_particles = _accrete_gas(
+                primitive_state,
+                sink_particles,
+                num_active_sinks,
+                config,
+                params,
+                registered_variables,
+            )
+
+            # Accretion changes interior cells, and the next step can read the
+            # ghost cells before its first refill.
+            if config.boundary_handling == GHOST_CELLS:
+                primitive_state = _fill_ghost_cells(
+                    primitive_state,
+                    config,
+                    params,
+                    registered_variables,
+                )
+
+        return dt, LoopState(primitive_state, driving_state, sink_particles)
 
     def _record_snapshot(time, state, store, idx):
         """Record snapshot ``idx`` (the requested diagnostics)."""
@@ -977,7 +1171,7 @@ def _integrate_core(
         # Recover the unpadded helper data by slicing — free under jit.
         helper_data_unpad = _unpad_helper_data(helper_data_pad, config)
 
-        return record_snapshot(
+        store = record_snapshot(
             store,
             idx,
             time,
@@ -987,6 +1181,17 @@ def _integrate_core(
             config,
             registered_variables,
         )
+
+        if config.sink_particle_config.sink_particles:
+            store = store._replace(
+                sink_particles=jax.tree.map(
+                    lambda buffer, field: buffer.at[idx].set(field),
+                    store.sink_particles,
+                    state.sink_particles,
+                )
+            )
+
+        return store
 
     def _should_record_snapshot(time, idx):
         """Whether snapshot ``idx`` is due at the start of a step at ``time``."""
@@ -1003,9 +1208,19 @@ def _integrate_core(
         NOTE: to pass data to the host, the callable must use
         ``jax.debug.callback`` internally, and should only pass the slice /
         summary statistics actually needed to avoid moving large arrays.
+        With sink particles on, the sinks are also passed, as the keyword
+        argument ``sink_particles``.
         """
         primitive_state = state.primitive_state
-        snapshot_callable(time, primitive_state, registered_variables)
+        if config.sink_particle_config.sink_particles:
+            snapshot_callable(
+                time,
+                primitive_state,
+                registered_variables,
+                sink_particles=state.sink_particles,
+            )
+        else:
+            snapshot_callable(time, primitive_state, registered_variables)
         return store
 
     def _should_record_callback(time, idx):
@@ -1088,19 +1303,21 @@ def _integrate_core(
 
 
 def _time_integration(
-    state: STATE_TYPE,
+    state: Union[STATE_TYPE, StateStruct],
     config: SimulationConfig,
     params: SimulationParams,
     registered_variables: RegisteredVariables,
     helper_data_pad: Union[HelperData, NoneType],
     snapshot_callable = None,
     initial_loop_state: Union["LoopState", NoneType] = None,
-) -> Union[STATE_TYPE, SnapshotData]:
+) -> Union[STATE_TYPE, StateStruct, SnapshotData]:
     """
     Time integration (the body jitted by :func:`time_integration`).
 
     Args:
-        state: The primitive state array.
+        state: The primitive state array, or a :class:`StateStruct` with the
+            primitive state and the sink particles when
+            ``config.state_struct`` is set.
         config: The simulation configuration.
         params: The simulation parameters.
         registered_variables: The registered variables.
@@ -1116,7 +1333,22 @@ def _time_integration(
         or snapshots of the time evolution.
     """
 
-    primitive_state = state
+    # In simulations where we also follow e.g. sink particles, the state may
+    # be a struct containing the primitive state and the sink particle data.
+    if config.state_struct:
+        primitive_state = state.primitive_state
+        sink_particles = state.sink_particles
+    else:
+        primitive_state = state
+        sink_particles = None
+
+    # When sink particles are on but no sinks were passed in, the simulation
+    # starts without sinks: every slot is empty. Sinks passed in with fewer
+    # slots than max_num_sinks get empty slots appended.
+    if config.sink_particle_config.sink_particles:
+        if sink_particles is None:
+            sink_particles = _empty_sink_particles(config, primitive_state.dtype)
+        sink_particles = _pad_sink_particles(sink_particles, config)
 
     # Initialise the dual-energy g first, so the unpadded shape that sizes the
     # snapshot buffers includes its slot, then pad the state with ghost cells
@@ -1130,7 +1362,9 @@ def _time_integration(
 
     if initial_loop_state is None:
         initial_loop_state = LoopState(
-            primitive_state, _initial_driving_state(config, primitive_state.dtype)
+            primitive_state,
+            _initial_driving_state(config, primitive_state.dtype),
+            sink_particles,
         )
 
     _, loop_state, snapshot_store, num_iterations = _integrate_core(
@@ -1166,6 +1400,12 @@ def _time_integration(
     if config.boundary_handling != PERIODIC_ROLL:
         primitive_state = _unpad(primitive_state, config)
 
+    if config.state_struct:
+        return StateStruct(
+            primitive_state=primitive_state,
+            sink_particles=loop_state.sink_particles,
+        )
+
     return primitive_state
 
     # -------------------------------------------------------------
@@ -1180,6 +1420,7 @@ def _run_segment(
     registered_variables: RegisteredVariables,
     helper_data_pad: Union[HelperData, NoneType],
     initial_driving_state,
+    initial_sink_particles=None,
 ):
     """Integrate one segment for the disk-checkpointing (TO_DISK) driver.
 
@@ -1191,14 +1432,20 @@ def _run_segment(
     left uninterrupted. ``config`` always has snapshots disabled here (each
     segment end is itself a checkpoint), so no snapshot buffers are allocated.
 
-    Returns ``(t_final, primitive_state_unpadded, driving_state, num_iterations)``.
+    Returns ``(t_final, primitive_state_unpadded, driving_state,
+    sink_particles, num_iterations)``; ``sink_particles`` is ``None`` when sink
+    particles are off.
     """
     primitive_state = _seed_internal_energy(primitive_state, params, registered_variables)
     original_shape = primitive_state.shape
     primitive_state = _prepare_padded_state(
         primitive_state, config, params, registered_variables
     )
-    initial_loop_state = LoopState(primitive_state, initial_driving_state)
+    initial_loop_state = LoopState(
+        primitive_state,
+        initial_driving_state,
+        initial_sink_particles,
+    )
     t_final, loop_state, _, num_iterations = _integrate_core(
         config,
         params,
@@ -1211,7 +1458,13 @@ def _run_segment(
     primitive_state = loop_state.primitive_state
     if config.boundary_handling != PERIODIC_ROLL:
         primitive_state = _unpad(primitive_state, config)
-    return t_final, primitive_state, loop_state.driving_state, num_iterations
+    return (
+        t_final,
+        primitive_state,
+        loop_state.driving_state,
+        loop_state.sink_particles,
+        num_iterations,
+    )
 
 
 def _time_integration_to_disk(
@@ -1230,12 +1483,13 @@ def _time_integration_to_disk(
     The run is split into ``config.num_snapshots`` segments spanning
     ``[params.t_start, params.t_end]``. Each segment is integrated by the JIT'd
     :func:`_run_segment`; afterwards the loop carry (primitive state, driving
-    state) plus the time and cumulative iteration count are written to
-    ``config.snapshot_storage_path`` via Orbax. The carry stays on device
-    (sharded) between segments, and Orbax writes each device's shard
+    state, sink particles) plus the time and cumulative iteration count are
+    written to ``config.snapshot_storage_path`` via Orbax. The carry stays on
+    device (sharded) between segments, and Orbax writes each device's shard
     independently, so this scales to multiple devices / nodes.
 
-    Returns the final (unpadded) primitive state, like the no-snapshot path of
+    Returns the final (unpadded) primitive state, or the state struct with the
+    final sink particles, like the no-snapshot path of
     :func:`_time_integration`; the per-snapshot data lives on disk.
     """
     # local import keeps the (optional) orbax dependency out of the import path
@@ -1246,14 +1500,31 @@ def _time_integration_to_disk(
         save_loop_checkpoint,
     )
 
-    primitive_state = state
+    if config.state_struct:
+        primitive_state = state.primitive_state
+        sink_particles = state.sink_particles
+    else:
+        primitive_state = state
+        sink_particles = None
 
     # The carry between segments is the unpadded state plus the state of the
-    # turbulence driving. On a restart the latter comes from the checkpoint.
+    # turbulence driving and the sink particles. On a restart the latter come
+    # from the checkpoint.
     if restart_state is not None:
         driving_state = restart_state.driving_state
+        if restart_state.sink_particles is not None:
+            sink_particles = restart_state.sink_particles
     else:
         driving_state = _initial_driving_state(config, jnp.result_type(primitive_state))
+
+    # As in the in-memory path, a run with sink particles but none passed in
+    # starts with every slot empty, and sinks passed in or restored with fewer
+    # slots than max_num_sinks (e.g. from a checkpoint of a run with fewer
+    # slots) get empty slots appended.
+    if config.sink_particle_config.sink_particles:
+        if sink_particles is None:
+            sink_particles = _empty_sink_particles(config, primitive_state.dtype)
+        sink_particles = _pad_sink_particles(sink_particles, config)
 
     # Segment config: snapshots stay off (each segment end *is* a checkpoint)
     # and ON_DEVICE so the segment runner does not recurse into this driver.
@@ -1273,7 +1544,7 @@ def _time_integration_to_disk(
     run_segment_jit = jax.jit(
         _run_segment,
         static_argnames=["config", "registered_variables"],
-        compiler_options=_compiler_options(config, state.dtype),
+        compiler_options=_compiler_options(config, jnp.result_type(primitive_state)),
     )
 
     mesh_ctx = sharding.mesh if sharding is not None else nullcontext()
@@ -1301,6 +1572,10 @@ def _time_integration_to_disk(
             # otherwise sensitive to the layout XLA happens to pick).
             if sharding is not None:
                 primitive_state = jax.device_put(primitive_state, sharding)
+                # The sink particles, small, are copied to every device, the
+                # layout they are also restored with from a checkpoint.
+                if sink_particles is not None:
+                    sink_particles = jax.device_put(sink_particles, replicated)
 
             segment_params = params._replace(t_start=times[i], t_end=times[i + 1])
             # Keep every params leaf on a concrete (replicated) sharding so pjit
@@ -1319,13 +1594,20 @@ def _time_integration_to_disk(
                 pallas_spec,
                 config.backend_config.halo_exchange,
             ):
-                t_final, primitive_state, driving_state, num_iterations = run_segment_jit(
+                (
+                    t_final,
+                    primitive_state,
+                    driving_state,
+                    sink_particles,
+                    num_iterations,
+                ) = run_segment_jit(
                     primitive_state,
                     segment_config,
                     segment_params,
                     registered_variables,
                     helper_data_pad,
                     driving_state,
+                    sink_particles,
                 )
 
             cumulative_iterations = cumulative_iterations + num_iterations
@@ -1342,6 +1624,10 @@ def _time_integration_to_disk(
                 # The driving state (modes, not grid) stays replicated.
                 if driving_state is not None:
                     store_driving_state = jax.device_put(driving_state, replicated)
+            # The sink particles are small and replicated on every device.
+            store_sink_particles = sink_particles
+            if sharding is not None and sink_particles is not None:
+                store_sink_particles = jax.device_put(sink_particles, replicated)
 
             save_loop_checkpoint(
                 checkpointer,
@@ -1350,6 +1636,13 @@ def _time_integration_to_disk(
                 primitive_state=store_state,
                 driving_state=store_driving_state,
                 num_iterations=cumulative_iterations,
+                sink_particles=store_sink_particles,
             )
+
+    if config.state_struct:
+        return StateStruct(
+            primitive_state=primitive_state,
+            sink_particles=sink_particles,
+        )
 
     return primitive_state

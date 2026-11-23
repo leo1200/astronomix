@@ -148,6 +148,7 @@ def _add_explicit_sources(
     params: SimulationParams,
     helper_data: HelperData,
     registered_variables: RegisteredVariables,
+    sink_potential=None,
 ) -> STATE_TYPE:
     """
     Add the explicit sources of the modules over ``stage_time_step``, evaluated at ``stage_primitive_state``,
@@ -162,6 +163,7 @@ def _add_explicit_sources(
         params: The simulation parameters.
         helper_data: The helper data.
         registered_variables: The registered variables.
+        sink_potential: The potential of the sink particles (``None``: no sink particles).
 
     Returns:
         The primitive state with the sources added; its ghost cells are not up to date.
@@ -177,6 +179,7 @@ def _add_explicit_sources(
         helper_data,
         registered_variables,
         primitive_state=stage_primitive_state,
+        sink_potential=sink_potential,
     )
     conserved_state = _conserved_from_primitive(new_primitive_state, gamma, config, registered_variables)
     return _primitive_from_conserved(conserved_state + increment, gamma, config, params, registered_variables)
@@ -200,6 +203,7 @@ def vl2_step(
     params: SimulationParams,
     helper_data: HelperData,
     registered_variables: RegisteredVariables,
+    sink_potential=None,
 ) -> STATE_TYPE:
     """
     Advance the primitive state by one VL2 step: a donor-cell predictor to the
@@ -218,6 +222,7 @@ def vl2_step(
         params: The simulation parameters.
         helper_data: The helper data (the explicit sources).
         registered_variables: The registered variables.
+        sink_potential: The potential of the sink particles (``None``: no sink particles).
 
     Returns:
         The primitive state ``W^{n+1}``.
@@ -231,7 +236,7 @@ def vl2_step(
     # the physical cells without touching the halo.
     primitive_state = _update_ghost_cells(primitive_state, config, params, registered_variables)
 
-    source_arguments = (gamma, config, params, helper_data, registered_variables)
+    source_arguments = (gamma, config, params, helper_data, registered_variables, sink_potential)
 
     # The cleaning speed and the psi damping are quantities of the GLM
     # cleaning; constrained transport has none.
@@ -310,6 +315,7 @@ def vl2_step(
             config,
             params,
             registered_variables,
+            sink_potential=sink_potential,
         )
 
     initial_conserved_state = _conserved_from_primitive(
@@ -331,6 +337,7 @@ def vl2_step(
         registered_variables=registered_variables,
         stage_potential=initial_potential,
         initial_potential=initial_potential,
+        sink_potential=sink_potential,
     )
     half_step_primitive_state = _add_explicit_sources(
         half_step_primitive_state, primitive_state, 0.5 * dt, *source_arguments
@@ -352,6 +359,7 @@ def vl2_step(
             config,
             params,
             registered_variables,
+            sink_potential=sink_potential,
         )
 
     new_primitive_state, _ = fv_stage(
@@ -367,6 +375,7 @@ def vl2_step(
         registered_variables=registered_variables,
         stage_potential=half_step_potential,
         initial_potential=initial_potential,
+        sink_potential=sink_potential,
     )
     new_primitive_state = _add_explicit_sources(
         new_primitive_state, half_step_primitive_state, dt, *source_arguments
@@ -397,6 +406,7 @@ def _forward_euler_stage(
     params: SimulationParams,
     helper_data: HelperData,
     registered_variables: RegisteredVariables,
+    sink_potential=None,
 ) -> STATE_TYPE:
     """
     One forward Euler stage ``U - dt L(W) + dt S(W)`` from the state itself, on
@@ -411,6 +421,7 @@ def _forward_euler_stage(
         params: The simulation parameters.
         helper_data: The helper data (the explicit sources).
         registered_variables: The registered variables.
+        sink_potential: The potential of the sink particles (``None``: no sink particles).
 
     Returns:
         The primitive state after the stage, ghost cells updated.
@@ -439,7 +450,15 @@ def _forward_euler_stage(
         conserved_state = _conserved_from_primitive(primitive_state, gamma, config, registered_variables)
         new_primitive_state, _ = fv_stage(primitive_state, conserved_state, **stage_arguments)
     new_primitive_state = _add_explicit_sources(
-        new_primitive_state, primitive_state, dt, gamma, config, params, helper_data, registered_variables
+        new_primitive_state,
+        primitive_state,
+        dt,
+        gamma,
+        config,
+        params,
+        helper_data,
+        registered_variables,
+        sink_potential,
     )
     return _update_ghost_cells(new_primitive_state, config, params, registered_variables)
 
@@ -453,6 +472,7 @@ def rk2_ssp_step(
     params: SimulationParams,
     helper_data: HelperData,
     registered_variables: RegisteredVariables,
+    sink_potential=None,
 ) -> STATE_TYPE:
     """
     Advance the primitive state by one step of the second-order
@@ -467,6 +487,7 @@ def rk2_ssp_step(
         params: The simulation parameters.
         helper_data: The helper data (the explicit sources).
         registered_variables: The registered variables.
+        sink_potential: The potential of the sink particles (``None``: no sink particles).
 
     Returns:
         The primitive state ``W^{n+1}``.
@@ -475,7 +496,7 @@ def rk2_ssp_step(
     # the physical cells without touching the halo.
     primitive_state = _update_ghost_cells(primitive_state, config, params, registered_variables)
 
-    stage_arguments = (dt, gamma, config, params, helper_data, registered_variables)
+    stage_arguments = (dt, gamma, config, params, helper_data, registered_variables, sink_potential)
     first_stage_state = _forward_euler_stage(primitive_state, *stage_arguments)
     second_stage_state = _forward_euler_stage(first_stage_state, *stage_arguments)
 
@@ -565,6 +586,7 @@ def muscl_hancock_step(
     helper_data: HelperData,
     registered_variables: RegisteredVariables,
     step_index=0,
+    sink_potential=None,
 ) -> STATE_TYPE:
     """
     Advance the primitive state by one step of the dimensionally split
@@ -582,6 +604,7 @@ def muscl_hancock_step(
         helper_data: The helper data (radii of the spherical 1D grid).
         registered_variables: The registered variables.
         step_index: The number of the step in the run (the MHD form: its parity sets the order of the sweeps).
+        sink_potential: The potential of the sink particles (``None``: no sink particles).
 
     Returns:
         The primitive state ``W^{n+1}``.
@@ -593,7 +616,7 @@ def muscl_hancock_step(
 
     # The explicit sources of the modules: half a step before the sweeps and half a step after them, each by the
     # explicit midpoint rule, so that the splitting stays second order.
-    source_arguments = (gamma, config, params, helper_data, registered_variables)
+    source_arguments = (gamma, config, params, helper_data, registered_variables, sink_potential)
 
     def half_step_of_sources(state):
         if not has_explicit_sources(config):
