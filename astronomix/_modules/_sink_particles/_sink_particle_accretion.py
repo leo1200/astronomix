@@ -4,7 +4,9 @@ Gas accretion onto sink particles following Federrath et al. (2010), ApJ 713, 26
 Once per time step, after sink creation, every sink takes the gas above the
 density threshold from the cells within its accretion radius (Section 2.3):
 from a cell with ρ > ρ_res, the mass increment ΔM = (ρ − ρ_res) ΔV (Eq. 13)
-moves to the sink and the cell is left at ρ_res. Mass and linear momentum are
+moves to the sink and the cell is left at ρ_res. For a polytropic gas ρ_res
+changes with the density, and the cell is left at ρ*, the density at which it
+is at its own threshold. Mass and linear momentum are
 conserved (Appendix B); the sink moves to the centre of mass of itself and the
 accreted gas. New sinks, created with zero mass, get their mass here too.
 
@@ -32,6 +34,7 @@ import jax.numpy as jnp
 # astronomix constants
 from astronomix.option_classes.simulation_config import (
     IDEAL_GAS,
+    POLYTROPIC,
     STATE_TYPE,
 )
 
@@ -46,6 +49,7 @@ from astronomix._modules._sink_particles._sink_particle_formation import (
     _density_threshold,
     _interior_cell_indices,
     _periodic_box,
+    _polytropic_resolved_density,
     _sound_speed_squared,
 )
 
@@ -133,6 +137,19 @@ def _accrete_gas(
         params,
     )
 
+    # The density an accreted cell is left at. For an ideal or isothermal gas
+    # c_s² does not change with the accretion, so this is the threshold. For a
+    # polytropic gas c_s² drops with the density, and the threshold with it, so
+    # a cell left at the threshold of its density before accretion would still
+    # be above its threshold; it is left at ρ* instead, the density at which it
+    # is at its own threshold.
+    accreted_cell_density = density_threshold
+    if config.equation_of_state == POLYTROPIC:
+        accreted_cell_density = jnp.full_like(
+            density,
+            _polytropic_resolved_density(config, params),
+        )
+
     # -------------------------------------------------------------
     # ================ ↓ Cells around each sink ↓ =================
     # -------------------------------------------------------------
@@ -167,7 +184,9 @@ def _accrete_gas(
     density_in_reach = density[cell_indices]
     density_threshold_in_reach = density_threshold[cell_indices]
     velocity_in_reach = velocity[cell_indices]
-    mass_increment = (density_in_reach - density_threshold_in_reach) * cell_volume
+    mass_increment = (
+        density_in_reach - accreted_cell_density[cell_indices]
+    ) * cell_volume
 
     # A (sink, cell) pair is a possible accretion if the sink is active, the
     # cell is a real cell within r_acc of the sink, and the cell is above the
@@ -276,17 +295,18 @@ def _accrete_gas(
     # ==================== ↓ Gas update ↓ =========================
     # -------------------------------------------------------------
 
-    # An accreted cell is left at the density threshold. The velocity is
-    # unchanged, so the cell's momentum drops with its mass. For an ideal gas
-    # the pressure and the dual-energy g are scaled with the density, which
-    # keeps c_s² (the temperature) unchanged, as FLASH does at fixed specific
-    # internal energy. The update goes through a grid mask, so that several
-    # pairs pointing to the same cell never write conflicting values.
+    # An accreted cell is left at the density threshold, or at ρ* for a
+    # polytropic gas. The velocity is unchanged, so the cell's momentum drops
+    # with its mass. For an ideal gas the pressure and the dual-energy g are
+    # scaled with the density, which keeps c_s² (the temperature) unchanged,
+    # as FLASH does at fixed specific internal energy. The update goes through
+    # a grid mask, so that several pairs pointing to the same cell never write
+    # conflicting values.
     cell_is_accreted = jnp.zeros(density.shape, dtype=bool).at[cell_indices].max(
         accreted
     )
     primitive_state = primitive_state.at[registered_variables.density_index].set(
-        jnp.where(cell_is_accreted, density_threshold, density)
+        jnp.where(cell_is_accreted, accreted_cell_density, density)
     )
     if config.equation_of_state == IDEAL_GAS:
         energy_rows = [registered_variables.pressure_index]
@@ -295,7 +315,7 @@ def _accrete_gas(
         for row in energy_rows:
             energy = primitive_state[row]
             primitive_state = primitive_state.at[row].set(
-                jnp.where(cell_is_accreted, energy * density_threshold / density, energy)
+                jnp.where(cell_is_accreted, energy * accreted_cell_density / density, energy)
             )
 
     # -------------------------------------------------------------

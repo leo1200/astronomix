@@ -5,8 +5,9 @@ Checks the sink particle creation of Federrath et al. (2010), Section 2.2:
 the creation checks (converging flow, potential minimum, Jeans instability
 with and without a magnetic field, bound state, proximity to existing sinks
 and between sinks formed in the same call), the limit on the number of sink
-slots, the wrapping of a new sink's position into a periodic box, and the
-control volume at an open boundary.
+slots, the wrapping of a new sink's position into a periodic box, the
+control volume at an open boundary, and the density threshold of a polytropic
+gas.
 """
 
 # ==== GPU selection ====
@@ -27,8 +28,10 @@ from astronomix.option_classes.simulation_config import BoundarySettings
 # astronomix functions
 from astronomix._modules._sink_particles._sink_particle_formation import (
     _control_volume_offsets,
+    _density_threshold,
     _empty_sink_particles,
     _form_sink_particles,
+    _sound_speed_squared,
 )
 from astronomix.time_stepping.time_integration import _prepare_padded_state
 
@@ -37,10 +40,13 @@ from _sink_helpers import (
     CELL_SIZE,
     CLUMP_CENTER,
     NUM_CELLS,
+    POLYTROPIC_CONSTANT,
+    POLYTROPIC_EXPONENT,
     SETTINGS,
     _form_sinks_once,
     _num_sinks,
     _one_sink_at,
+    _polytropic_setup,
     _setup,
     _with_linear_velocity,
 )
@@ -366,6 +372,38 @@ def test_error_when_sink_slots_full():
         sink_particles.mass.block_until_ready()
 
 
+def test_density_threshold_of_polytropic_gas():
+    """For a polytropic gas the density threshold uses c_s² = Γ K ρ^(Γ−1): in
+    a uniform gas it equals π Γ K ρ^(Γ−1) / (4 G r_acc²), not the threshold of
+    the isothermal c_s²."""
+    density = 10.0
+    primitive_state, config, params, registered_variables = _polytropic_setup(density)
+
+    density_threshold = _density_threshold(
+        _sound_speed_squared(primitive_state, config, params, registered_variables),
+        config,
+        params,
+    )
+
+    accretion_radius = (
+        config.sink_particle_config.accretion_radius_in_cells * config.grid_spacing
+    )
+    expected_threshold = (
+        jnp.pi
+        * POLYTROPIC_EXPONENT
+        * POLYTROPIC_CONSTANT
+        * density ** (POLYTROPIC_EXPONENT - 1.0)
+        / (4.0 * params.gravitational_constant * accretion_radius**2)
+    )
+    assert density_threshold.shape == primitive_state.shape[1:], (
+        f"the threshold has the shape {density_threshold.shape}, not that of the grid"
+    )
+    assert jnp.allclose(density_threshold, expected_threshold, rtol=1e-6), (
+        f"the density threshold of the polytropic gas is {float(density_threshold.max())}, "
+        f"not π Γ K ρ^(Γ−1) / (4 G r_acc²) = {float(expected_threshold)}"
+    )
+
+
 if __name__ == "__main__":
     test_position_wrapping()
     test_proximity()
@@ -382,3 +420,4 @@ if __name__ == "__main__":
     test_magnetic_energy(30.0, 0)
     test_control_volume_at_open_boundary()
     test_error_when_sink_slots_full()
+    test_density_threshold_of_polytropic_gas()

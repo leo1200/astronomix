@@ -4,8 +4,8 @@ Sink particle accretion pytest (fast).
 Checks the gas accretion onto sink particles of Federrath et al. (2010),
 Section 2.3: the mass, position and velocity of a new sink after its first
 accretion, the conservation of mass and momentum (with and without a magnetic
-field), the bound and radial velocity checks, and the choice of a single sink
-for each accreted cell.
+field), the bound and radial velocity checks, the choice of a single sink
+for each accreted cell, and the density at which a polytropic gas is left.
 """
 
 # ==== GPU selection ====
@@ -21,8 +21,10 @@ import pytest
 import jax.numpy as jnp
 
 # astronomix functions
+from astronomix._modules._sink_particles._sink_particle_accretion import _accrete_gas
 from astronomix._modules._sink_particles._sink_particle_formation import (
     _empty_sink_particles,
+    _polytropic_resolved_density,
 )
 
 # sink particle test helpers
@@ -34,6 +36,7 @@ from _sink_helpers import (
     _gas_mass_and_momentum,
     _num_accreted_cells,
     _num_sinks,
+    _polytropic_setup,
     _setup,
     _sink_at_clump_center,
     _update_sinks_once,
@@ -356,6 +359,66 @@ def test_accretion_tie_break():
     assert sink_gain[1] == 0.0
 
 
+def test_polytropic_accretion_leaves_cells_at_resolved_density():
+    """A polytropic gas is left at ρ*, the density at which it is at its own
+    threshold, so that it is resolved after one accretion: a sink at rest in
+    uniform gas at rest at 10 ρ* accretes every cell within r_acc down to ρ*,
+    and a second accretion on the result takes nothing."""
+    _, config, params, _ = _polytropic_setup(1.0)
+    resolved_density = float(_polytropic_resolved_density(config, params))
+    primitive_state, config, params, registered_variables = _polytropic_setup(
+        10.0 * resolved_density
+    )
+    dtype = primitive_state.dtype
+
+    # A sink at rest at the centre of cell (8, 8, 8).
+    sink_particles = _empty_sink_particles(config, dtype)
+    sink_particles = sink_particles._replace(
+        mass=sink_particles.mass.at[0].set(1.0),
+        position=sink_particles.position.at[0].set(8.5 * config.grid_spacing),
+    )
+
+    def accrete(primitive_state, sink_particles):
+        return _accrete_gas(
+            primitive_state,
+            sink_particles,
+            jnp.asarray(1),
+            config,
+            params,
+            registered_variables,
+        )
+
+    density_index = registered_variables.density_index
+    density = primitive_state[density_index]
+    accreted_state, accreted_sinks = accrete(primitive_state, sink_particles)
+    accreted_density = accreted_state[density_index]
+
+    # Every cell within r_acc (81 cells for r_acc = 2.5 cells) is bound to the
+    # sink and does not move away from it.
+    is_accreted = accreted_density < density
+    num_accreted = int(jnp.sum(is_accreted))
+    assert num_accreted == 81, f"{num_accreted} cells were accreted instead of 81"
+    assert jnp.allclose(accreted_density[is_accreted], resolved_density, rtol=1e-5), (
+        f"the accreted cells were left between {float(accreted_density[is_accreted].min())} "
+        f"and {float(accreted_density[is_accreted].max())}, not at ρ* = {resolved_density}"
+    )
+    mass_gain = float(accreted_sinks.mass[0] - sink_particles.mass[0])
+    expected_gain = num_accreted * 9.0 * resolved_density * config.grid_spacing**3
+    assert jnp.allclose(mass_gain, expected_gain, rtol=1e-5), (
+        f"the sink gained {mass_gain}, not (10 ρ* − ρ*) ΔV per cell = {expected_gain}"
+    )
+
+    second_state, second_sinks = accrete(accreted_state, accreted_sinks)
+    second_gain = float(second_sinks.mass[0] - accreted_sinks.mass[0])
+    assert abs(second_gain) <= 1e-6 * mass_gain, (
+        f"a second accretion took {second_gain} more: the gas left at ρ* is still above "
+        "its threshold"
+    )
+    assert jnp.allclose(second_state[density_index], accreted_density, rtol=1e-6), (
+        "a second accretion changed the density of the gas left at ρ*"
+    )
+
+
 if __name__ == "__main__":
     test_new_sink_accretion()
     test_accretion_conservation(False)
@@ -365,3 +428,4 @@ if __name__ == "__main__":
     test_no_accretion_of_gas_moving_away()
     test_accretion_most_bound_sink()
     test_accretion_tie_break()
+    test_polytropic_accretion_leaves_cells_at_resolved_density()

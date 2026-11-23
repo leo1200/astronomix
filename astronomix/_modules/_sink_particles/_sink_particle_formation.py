@@ -66,6 +66,7 @@ from astronomix.option_classes.simulation_params import SimulationParams
 from astronomix.variable_registry.registered_variables import RegisteredVariables
 
 # astronomix functions
+from astronomix._fluid_equations._equation_of_state import sound_speed_squared
 from astronomix._geometry.boundaries import _axis_slice, _periodic_boundaries
 from astronomix._modules._gravity._gravity import _compute_total_potential
 from astronomix._stencil_operations._stencil_operations import _shift
@@ -192,13 +193,21 @@ def _sound_speed_squared(
         registered_variables: The registered variables.
 
     Returns:
-        c_s² = γP/ρ for an ideal gas, or the constant isothermal c_s².
+        c_s² = γP/ρ for an ideal gas, the constant isothermal c_s², or
+        Γ K ρ^(Γ−1) for a polytropic gas, with the shape of the density.
     """
     density = primitive_state[registered_variables.density_index]
+    # A barotropic state has no pressure row.
+    pressure = None
     if config.equation_of_state == IDEAL_GAS:
         pressure = primitive_state[registered_variables.pressure_index]
-        return params.gamma * pressure / density
-    return jnp.full_like(density, params.isothermal_sound_speed**2)
+    return jnp.broadcast_to(
+        jnp.asarray(
+            sound_speed_squared(density, pressure, params, config),
+            dtype=density.dtype,
+        ),
+        density.shape,
+    )
 
 
 def _density_threshold(
@@ -229,6 +238,38 @@ def _density_threshold(
         * sound_speed_squared
         / (4.0 * params.gravitational_constant * accretion_radius**2)
     )
+
+
+def _polytropic_resolved_density(
+    config: SimulationConfig,
+    params: SimulationParams,
+):
+    """
+    The density ρ* at which a polytropic gas is at its own density threshold,
+    ρ* = ρ_res(ρ*). With c_s² = Γ K ρ^(Γ−1),
+
+        ρ* = (π Γ K / (4 G r_acc²))^(1 / (2 − Γ)),   Γ < 2.
+
+    Gas denser than ρ* is above its threshold, and gas at ρ* has the Jeans
+    length 2 r_acc.
+
+    Args:
+        config: The simulation configuration.
+        params: The simulation parameters.
+
+    Returns:
+        ρ*, a scalar.
+    """
+    accretion_radius = (
+        config.sink_particle_config.accretion_radius_in_cells * config.grid_spacing
+    )
+    exponent = params.polytropic_exponent
+    return (
+        jnp.pi
+        * exponent
+        * params.polytropic_constant
+        / (4.0 * params.gravitational_constant * accretion_radius**2)
+    ) ** (1.0 / (2.0 - exponent))
 
 
 def _interior_mask(
