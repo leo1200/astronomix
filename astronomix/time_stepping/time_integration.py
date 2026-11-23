@@ -18,6 +18,7 @@ from timeit import default_timer as timer
 from typing import (
     Any,
     NamedTuple,
+    Tuple,
     Union,
 )
 from types import NoneType
@@ -239,7 +240,8 @@ def time_integration(
     snapshot_callable = None,
     sharding: Union[NoneType, jax.NamedSharding] = None,
     restart_state: Union[NoneType, "LoopState"] = None,
-) -> Union[STATE_TYPE, SnapshotData]:
+    return_loop_state: bool = False,
+) -> Union[STATE_TYPE, SnapshotData, Tuple[Union[STATE_TYPE, SnapshotData], "LoopState"]]:
     """
     Integrate the fluid equations in time. For the options of
     the time integration see the simulation configuration and
@@ -270,16 +272,22 @@ def time_integration(
         sharding: The sharding to use for the padded helper data. If None,
                   no sharding is applied.
         restart_state: An optional :class:`LoopState` providing the state of
-            the turbulence driving to resume from (typically obtained from
-            ``astronomix.setup_helpers.restart_from_latest_checkpoint``).
-            Its ``primitive_state`` slot is ignored; pass the restored state as
-            the ``primitive_state`` argument. Mainly used together with
-            ``snapshot_storage_mode == TO_DISK`` and ``params.t_start``.
+            the turbulence driving to resume from: from a disk checkpoint
+            (``astronomix.setup_helpers.restart_from_latest_checkpoint``) or
+            from the previous call with ``return_loop_state=True``. Its
+            ``primitive_state`` slot is ignored; pass the state as the
+            ``primitive_state`` argument and set ``params.t_start``.
+        return_loop_state: Also return the final :class:`LoopState` (the
+            unpadded primitive state and the state of the turbulence
+            driving). Integrating in chunks, each call resuming from the
+            loop state of the previous one, then continues the driving
+            sequence exactly as one uninterrupted call would.
 
     Returns:
         Depending on the configuration (return_snapshots, num_snapshots)
         either the final state of the fluid after the time
-        integration or snapshots of the time evolution.
+        integration or snapshots of the time evolution; with
+        ``return_loop_state`` a tuple of that and the final ``LoopState``.
 
     Warns:
         RuntimeWarning: If an adaptive run stops before ``params.t_end``
@@ -344,7 +352,7 @@ def time_integration(
     # promoted params built above.
     if config.snapshot_storage_mode == TO_DISK:
         try:
-            return _time_integration_to_disk(
+            final_state, final_driving_state = _time_integration_to_disk(
                 primitive_state,
                 config,
                 params,
@@ -354,9 +362,19 @@ def time_integration(
                 sharding,
                 restart_state,
             )
+            if return_loop_state:
+                return final_state, LoopState(final_state, final_driving_state)
+            return final_state
         except Exception as error:
             # Turn an opaque out-of-memory / NaN failure into an actionable one.
             _raise_with_time_integration_hint(error, config)
+
+    # The in-memory path resumes the driving from restart_state as well (a
+    # fresh driving state when None).
+    loop_arguments = dict(
+        initial_driving_state=None if restart_state is None else restart_state.driving_state,
+        return_loop_state=return_loop_state,
+    )
 
     compiler_options = _compiler_options(config, primitive_state.dtype)
     if config.donate_state:
@@ -365,7 +383,8 @@ def time_integration(
             static_argnames=[
                 "config",
                 "registered_variables",
-                "snapshot_callable"
+                "snapshot_callable",
+                "return_loop_state",
             ],
             donate_argnames=["state"],
             compiler_options=compiler_options,
@@ -376,7 +395,8 @@ def time_integration(
             static_argnames=[
                 "config",
                 "registered_variables",
-                "snapshot_callable"
+                "snapshot_callable",
+                "return_loop_state",
             ],
             compiler_options=compiler_options,
         )
@@ -399,12 +419,15 @@ def time_integration(
                 registered_variables,
                 helper_data_pad,
                 snapshot_callable,
+                **loop_arguments,
             )
             # ``err.throw()`` raises on the first tripped check (NaN, negative
             # pressure, ...); route it through the hint helper too.
             err.throw()
         except Exception as error:
             _raise_with_time_integration_hint(error, config)
+        if return_loop_state:
+            final_state, final_loop_state = final_state
 
     else:
         memory_stats = None
@@ -436,6 +459,7 @@ def time_integration(
                     registered_variables,
                     helper_data_pad,
                     snapshot_callable,
+                    **loop_arguments,
                 ).compile()
                 compiled_stats = compiled_step.memory_analysis()
                 if compiled_stats is not None:
@@ -478,6 +502,7 @@ def time_integration(
                         registered_variables,
                         helper_data_pad,
                         snapshot_callable,
+                        **loop_arguments,
                     ).compile()
 
             start_time = timer()
@@ -496,6 +521,7 @@ def time_integration(
                     registered_variables,
                     helper_data_pad,
                     snapshot_callable,
+                    **loop_arguments,
                 )
             # JAX dispatch is asynchronous, so an out-of-memory failure only
             # surfaces once the buffers are actually realized. Block here, inside
@@ -529,6 +555,9 @@ def time_integration(
 
             final_state = jax.tree.map(_force_concrete, final_state)
 
+        if return_loop_state:
+            final_state, final_loop_state = final_state
+
         if config.print_elapsed_time:
             if config.return_snapshots and config.snapshot_settings.return_final_state:
                 final_state.final_state.block_until_ready()
@@ -555,6 +584,8 @@ def time_integration(
                 total_memory_bytes=total_b,
             )
 
+    if return_loop_state:
+        return final_state, final_loop_state
     return final_state
 
 
@@ -831,7 +862,10 @@ def _integrate_core(
                         )
                     )
         else:
-            dt = params.t_end / config.num_timesteps
+            # The run spans [t_start, t_end]: a restarted or chunked run that
+            # starts later takes steps of the same length as an uninterrupted
+            # run over the whole interval.
+            dt = (params.t_end - params.t_start) / config.num_timesteps
 
         # The turbulence driving limits the time step to half its update
         # interval, as FLASH does (TurbGen, plugins/flash/StirMain/Stir_computeDt.F90).
@@ -1094,8 +1128,9 @@ def _time_integration(
     registered_variables: RegisteredVariables,
     helper_data_pad: Union[HelperData, NoneType],
     snapshot_callable = None,
-    initial_loop_state: Union["LoopState", NoneType] = None,
-) -> Union[STATE_TYPE, SnapshotData]:
+    initial_driving_state: Any = None,
+    return_loop_state: bool = False,
+) -> Union[STATE_TYPE, SnapshotData, Tuple[Union[STATE_TYPE, SnapshotData], "LoopState"]]:
     """
     Time integration (the body jitted by :func:`time_integration`).
 
@@ -1107,8 +1142,10 @@ def _time_integration(
         helper_data_pad: The padded helper data.
         snapshot_callable: The user callable for
             ``config.activate_snapshot_callback``, or ``None``.
-        initial_loop_state: An optional explicit initial loop carry (used to
-            resume a run); a fresh driving state when ``None``.
+        initial_driving_state: The state of the turbulence driving to start
+            from (to resume a run); a fresh one when ``None``.
+        return_loop_state: Also return the final ``LoopState`` (unpadded
+            primitive state and driving state).
 
     Returns:
         Depending on the configuration (return_snapshots, num_snapshots)
@@ -1128,10 +1165,9 @@ def _time_integration(
         primitive_state, config, params, registered_variables
     )
 
-    if initial_loop_state is None:
-        initial_loop_state = LoopState(
-            primitive_state, _initial_driving_state(config, primitive_state.dtype)
-        )
+    if initial_driving_state is None:
+        initial_driving_state = _initial_driving_state(config, primitive_state.dtype)
+    initial_loop_state = LoopState(primitive_state, initial_driving_state)
 
     _, loop_state, snapshot_store, num_iterations = _integrate_core(
         config,
@@ -1152,21 +1188,24 @@ def _time_integration(
     # Finally, we need to unpack the results from the loops and
     # return them in the appropriate format.
 
+    if config.boundary_handling != PERIODIC_ROLL:
+        unpad_primitive_state = _unpad(primitive_state, config)
+    else:
+        unpad_primitive_state = primitive_state
+    final_loop_state = LoopState(unpad_primitive_state, loop_state.driving_state)
+
     if config.return_snapshots:
         snapshot_data = snapshot_store._replace(num_iterations=num_iterations)
         if config.snapshot_settings.return_final_state:
-            if config.boundary_handling != PERIODIC_ROLL:
-                unpad_primitive_state = _unpad(primitive_state, config)
-            else:
-                unpad_primitive_state = primitive_state
             snapshot_data = snapshot_data._replace(final_state=unpad_primitive_state)
+        if return_loop_state:
+            return snapshot_data, final_loop_state
         return snapshot_data
 
     # No-snapshot path (also the snapshot-callback case): return the state.
-    if config.boundary_handling != PERIODIC_ROLL:
-        primitive_state = _unpad(primitive_state, config)
-
-    return primitive_state
+    if return_loop_state:
+        return unpad_primitive_state, final_loop_state
+    return unpad_primitive_state
 
     # -------------------------------------------------------------
     # ===================== ↑ return logic ↑ ======================
@@ -1236,7 +1275,8 @@ def _time_integration_to_disk(
     independently, so this scales to multiple devices / nodes.
 
     Returns the final (unpadded) primitive state, like the no-snapshot path of
-    :func:`_time_integration`; the per-snapshot data lives on disk.
+    :func:`_time_integration`, and the final state of the turbulence driving
+    (``None`` without driving); the per-snapshot data lives on disk.
     """
     # local import keeps the (optional) orbax dependency out of the import path
     # for runs that never touch disk checkpointing.
@@ -1352,4 +1392,4 @@ def _time_integration_to_disk(
                 num_iterations=cumulative_iterations,
             )
 
-    return primitive_state
+    return primitive_state, driving_state
