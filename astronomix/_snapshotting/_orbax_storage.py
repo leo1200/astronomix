@@ -45,10 +45,11 @@ from astronomix._modules._turbulence_driving import TurbulenceDrivingState
 # restart path). The import is guarded so that ``import astronomix`` keeps
 # working when orbax-checkpoint is either absent OR installed at a version that
 # is incompatible with the installed JAX. The latter is a real failure mode: an
-# older orbax evaluates ``jax.experimental.layout.DeviceLocalLayout`` at import
-# time, which JAX 0.10 removed, raising ``AttributeError`` from inside orbax. We
-# therefore catch any import-time error here, not just ModuleNotFoundError, and
-# defer the requirement to the point where the feature is actually used.
+# older orbax (< 0.11.17) evaluates ``jax.experimental.layout.DeviceLocalLayout``
+# at import time, which the JAX 0.9 line no longer has, raising
+# ``AttributeError`` from inside orbax. We therefore catch any import-time error
+# here, not just ModuleNotFoundError, and defer the requirement to the point
+# where the feature is actually used.
 try:
     import orbax.checkpoint as ocp
 except Exception:  # pragma: no cover - exercised only when orbax can't import
@@ -62,7 +63,7 @@ def _require_orbax():
             "orbax-checkpoint is required for TO_DISK snapshotting and restart, "
             "but it could not be imported — it is either not installed or its "
             "version is incompatible with the installed JAX (e.g. an older "
-            "orbax under JAX >= 0.10). Install/upgrade it, e.g. "
+            "orbax (< 0.11.17) under the JAX 0.9 line). Install/upgrade it, e.g. "
             "`pip install -U orbax-checkpoint`."
         )
 
